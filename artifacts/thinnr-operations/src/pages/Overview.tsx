@@ -27,6 +27,8 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useDateRange, type OperationsDateRange, formatRangeLabel, addDaysToKey, keyToDate } from "@/contexts/date-range";
 import { useSession } from "@/contexts/session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
+import { useTimeOfDayGreeting } from "@/hooks/use-local-clock";
+import { formatLocalDate } from "@/lib/local-time";
 import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
@@ -267,6 +269,7 @@ export default function Overview() {
   const scope = useProviderScope();
   const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
   const { authUser } = useSession();
+  const localGreeting = useTimeOfDayGreeting();
 
   const { data: overviewData, isLoading: overviewIsLoading, isError: overviewIsError } = useGetOfficeOverview(
     { office: liveOffice ?? undefined },
@@ -314,7 +317,7 @@ export default function Overview() {
     ? (overviewIsLoading ? '—' : overviewIsError ? 'Error' : (overviewData?.metrics.activePatients?.toString() ?? '0'))
     : (selectedProvider?.activePatientCount ?? analytics.activePatients).toString();
 
-  const activePatientsChange = liveEnabled ? (overviewData?.asOf ? formatDateKey(overviewData.asOf.split('T')[0], true) : 'Live roster') : badges.patients;
+  const activePatientsChange = liveEnabled ? (overviewData?.asOf ? formatLocalDate(overviewData.asOf) : 'Live roster') : badges.patients;
   const activePatientsDetail = liveEnabled
     ? (overviewIsLoading ? 'Loading…' : overviewIsError ? 'Failed to load' : `${overviewData?.metrics.enrollments30d ?? 0} new this month`)
     : `${analytics.newEnrollments} new this month`;
@@ -573,8 +576,9 @@ export default function Overview() {
         ["SJ", "Sarah Jenkins", "approved Maintenance Stack for Olivia W.", "2 hr ago", "bg-muted text-navy"],
       ];
 
+  // Live: the device-local day of the server's UTC "as of" instant. Demo: the fixed anchor.
   const pulseDate = liveEnabled && overviewData?.asOf
-    ? formatDateKey(overviewData.asOf.split('T')[0], true)
+    ? formatLocalDate(overviewData.asOf)
     : formatDateKey(TODAY_KEY, true);
 
   const greetingName = liveEnabled ? authUser?.displayName?.split(' ')[0] : (scope ? scope.greetingName : 'Dr. Jenkins');
@@ -590,7 +594,7 @@ export default function Overview() {
             <span data-testid="text-demo-date">{pulseDate}</span>
           </div>
           <h1 className="font-serif text-[32px] leading-[1.08] tracking-[-.02em] text-navy md:text-[38px]">
-            Good morning{greetingName ? `, ${greetingName}` : ''}.
+            {liveEnabled ? localGreeting : 'Good morning'}{greetingName ? `, ${greetingName}` : ''}.
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{greetingSubtitle}</p>
         </div>

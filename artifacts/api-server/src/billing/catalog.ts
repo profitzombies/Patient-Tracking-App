@@ -8,7 +8,7 @@ import {
 } from "./store";
 import type {
   BillingSettings, CatalogChange, CatalogChangeKind, CatalogProduct, CatalogProductDetail, CatalogProductInput,
-  HqCatalogResponse, ProductImage,
+  HqCatalogResponse, ProductImage, PublicLinkProduct,
 } from "./types";
 
 export class BillingCatalogError extends Error {
@@ -56,6 +56,28 @@ export function defaultImages(images: BillingProductImageRow[]): Map<string, Bil
 }
 export async function loadDefaultImages(): Promise<Map<string, BillingProductImageRow>> {
   return defaultImages(await selectMany("billing_product_images", "order=sort_order.asc"));
+}
+
+/** The single payer-facing offering builder shared by public and patient checkout reads. */
+export async function officeOffering(providerId: string): Promise<PublicLinkProduct[]> {
+  const [prices, products, images] = await Promise.all([
+    selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}`),
+    selectMany("billing_products", "active=eq.true"),
+    loadDefaultImages(),
+  ]);
+  const productMap = new Map(products.map((product) => [product.id, product]));
+  return prices.flatMap((price) => {
+    const product = productMap.get(price.product_id);
+    const image = images.get(price.product_id);
+    return product ? [{
+      product_id: product.id,
+      name: product.name,
+      description: product.description ?? "",
+      image_url: image ? productImageUrl(image.id) : null,
+      unit_price_cents: price.sell_price_cents,
+      subscription_available: price.subscription_enabled,
+    }] : [];
+  });
 }
 
 /** Every catalog write lands one audit row; office price changes ride the same table. */

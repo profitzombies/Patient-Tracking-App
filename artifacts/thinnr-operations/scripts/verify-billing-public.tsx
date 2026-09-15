@@ -84,7 +84,7 @@ queue = [
     subscription: null,
   }),
 ];
-view = await render('/good');
+view = await render('/good?source=app');
 const root = view.root;
 const addControl = root.find((node) => node.props['aria-label'] === 'Add one Control');
 await click(addControl);
@@ -107,6 +107,11 @@ check('one-time checkout sends the exact request body', JSON.stringify(post?.bod
   payer: { name: 'Jamie Patient', email: 'jamie@example.com', phone: '6175550199' },
 }), JSON.stringify(post?.body));
 check('returned Stripe account and client secret mount Elements', browser.__billingStripeLoad?.stripeAccount === 'acct_returned' && browser.__billingElementsSecret === 'pi_secret');
+check(
+  'app source is preserved in the Stripe return URL',
+  root.findAll((node) => typeof node.props.returnUrl === 'string')
+    .some((node) => node.props.returnUrl.endsWith('&source=app')),
+);
 const editButton = root.find((node) => node.type === 'button' && text(node).includes('Edit order'));
 await click(editButton);
 queue.push(json(400, { error: 'That email cannot be used.', field: 'payer.email' }));
@@ -181,10 +186,15 @@ const paidStatus = {
   office_name: 'Beacon Hill Aesthetics', payer_email: 'j***@example.com', subscription: null,
 };
 queue = [json(200, { ...paidStatus, status: 'pending' }), json(200, paidStatus)];
-view = await render('/good/done?order=order-1&token=good');
+view = await render('/good/done?order=order-1&token=good&source=app');
 await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2050)); });
 await settle();
 check('done page renders the paid receipt', text(view).includes('TH-ABC123') && text(view).includes('Receipt sent to j***@example.com'));
+check(
+  'app checkout confirmation preserves its return guidance',
+  Boolean(one(view.root, 'text-return-to-app')) &&
+    text(one(view.root, 'text-return-to-app')).includes('Close this window to return to the THINNR app.'),
+);
 view.unmount();
 
 queue = [

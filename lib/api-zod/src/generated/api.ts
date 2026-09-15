@@ -3355,6 +3355,130 @@ export const GetOfficeSettingsResponse = zod.object({
 
 
 /**
+ * Provider staff of every office role see the whole HQ drive but can only browse, search, preview and download. Uploads, renames, moves, archive and delete exist only on the HQ routes. HQ drill-ins must hold settings_manage, the same permission that gates the HQ drive itself.
+ * @summary Read one folder of the HQ file drive as a provider (read-only; archived files never appear)
+ */
+export const GetOfficeFilesQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "folderId": zod.coerce.string().optional().describe('Folder to list; omit for the root')
+})
+
+export const GetOfficeFilesResponse = zod.object({
+  "folder": zod.union([zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),zod.null()]).describe('The listed folder; null at the root'),
+  "breadcrumbs": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).describe('Ancestors from the root down to and including the listed folder (empty at the root)'),
+  "folders": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).describe('Direct child folders A-Z'),
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
+})).describe('Files directly in this folder newest first')
+})
+
+
+/**
+ * @summary Search active HQ files by name as a provider
+ */
+export const searchOfficeFilesQueryQMax = 120;
+
+
+
+export const SearchOfficeFilesQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "q": zod.coerce.string().min(1).max(searchOfficeFilesQueryQMax).describe('Case-insensitive substring of the file name')
+})
+
+export const SearchOfficeFilesResponse = zod.object({
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
+}))
+})
+
+
+/**
+ * @summary Stream an active HQ file inline for in-app preview (provider read)
+ */
+export const GetOfficeFileContentParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const GetOfficeFileContentQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeFileContentResponse = zod.unknown()
+
+
+/**
+ * @summary Mint a short-lived download URL for an active HQ file (provider read; audited)
+ */
+export const GetOfficeFileDownloadParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const GetOfficeFileDownloadQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeFileDownloadResponse = zod.object({
+  "url": zod.string(),
+  "expiresIn": zod.number(),
+  "name": zod.string()
+})
+
+
+/**
  * @summary Replace the office-local overrides HQ marks overridable
  */
 export const UpdateOfficeSettingsOverridesQueryParams = zod.object({
@@ -3501,7 +3625,8 @@ export const createHqFileUploadBodySizeMax = 52428800;
 export const CreateHqFileUploadBody = zod.object({
   "name": zod.string().min(1).max(createHqFileUploadBodyNameMax),
   "contentType": zod.string().min(1).max(createHqFileUploadBodyContentTypeMax),
-  "size": zod.number().min(1).max(createHqFileUploadBodySizeMax)
+  "size": zod.number().min(1).max(createHqFileUploadBodySizeMax),
+  "folderId": zod.string().nullish().describe('Destination folder; null or omitted means the root')
 })
 
 export const CreateHqFileUploadResponse = zod.object({
@@ -3513,18 +3638,56 @@ export const CreateHqFileUploadResponse = zod.object({
 
 
 /**
- * @summary List persisted private HQ file metadata
+ * @summary List one folder of the private HQ file drive (root when folderId is omitted), or the archived files
  */
+export const GetHqFilesQueryParams = zod.object({
+  "folderId": zod.coerce.string().optional().describe('Folder to list; omit for the root'),
+  "view": zod.enum(['active', 'archived']).optional().describe('Pass archived to list every archived file with its original folder path instead of a folder; folderId is then ignored')
+})
+
 export const GetHqFilesResponse = zod.object({
+  "folder": zod.union([zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),zod.null()]).describe('The listed folder; null at the root'),
+  "breadcrumbs": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).describe('Ancestors from the root down to and including the listed folder (empty at the root)'),
+  "folders": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).describe('Direct child folders A-Z'),
   "files": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "contentType": zod.string(),
-  "size": zod.number(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
-}))
+})).describe('Files directly in this folder newest first')
 })
 
 
@@ -3546,14 +3709,152 @@ export const FinalizeHqFileBody = zod.object({
   "name": zod.string().min(1).max(finalizeHqFileBodyNameMax),
   "contentType": zod.string().min(1).max(finalizeHqFileBodyContentTypeMax),
   "size": zod.number().min(1).max(finalizeHqFileBodySizeMax),
-  "objectPath": zod.string().min(1).max(finalizeHqFileBodyObjectPathMax)
+  "objectPath": zod.string().min(1).max(finalizeHqFileBodyObjectPathMax),
+  "folderId": zod.string().nullish().describe('Destination folder; null or omitted means the root'),
+  "compress": zod.boolean().optional().describe('For PNG\/JPEG\/WebP uploads, shrink the stored bytes without visible quality loss (PNG\/WebP lossless, JPEG re-encoded at high quality with metadata stripped); the original is kept when it is already smaller')
 })
 
 export const FinalizeHqFileResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "contentType": zod.string(),
-  "size": zod.number(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
+})
+
+
+/**
+ * @summary Search active (non-archived) files by name across every folder
+ */
+export const searchHqFilesQueryQMax = 120;
+
+
+
+export const SearchHqFilesQueryParams = zod.object({
+  "q": zod.coerce.string().min(1).max(searchHqFilesQueryQMax).describe('Case-insensitive substring of the file name')
+})
+
+export const SearchHqFilesResponse = zod.object({
+  "files": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
+}))
+})
+
+
+/**
+ * @summary Stream the stored bytes inline for in-app preview (bearer-authenticated, Content-Disposition inline)
+ */
+export const GetHqFileContentParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const GetHqFileContentResponse = zod.unknown()
+
+
+/**
+ * @summary Mint an upload URL for a new version of an existing file (same entry, new bytes)
+ */
+export const CreateHqFileReplacementParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const createHqFileReplacementBodyNameMax = 240;
+
+export const createHqFileReplacementBodyContentTypeMax = 120;
+
+export const createHqFileReplacementBodySizeMax = 52428800;
+
+
+
+export const CreateHqFileReplacementBody = zod.object({
+  "name": zod.string().min(1).max(createHqFileReplacementBodyNameMax),
+  "contentType": zod.string().min(1).max(createHqFileReplacementBodyContentTypeMax),
+  "size": zod.number().min(1).max(createHqFileReplacementBodySizeMax)
+})
+
+export const CreateHqFileReplacementResponse = zod.object({
+  "fileId": zod.string(),
+  "uploadUrl": zod.string(),
+  "objectPath": zod.string(),
+  "expiresIn": zod.number()
+})
+
+
+/**
+ * The entry keeps its id, folder, and (when the new bytes have the same extension) its name; a different extension takes the uploaded file's name. Size, type, compression fields, and the unavailable flag are recomputed.
+ * @summary Verify the replacement bytes, swap them in, and delete the previous version
+ */
+export const ReplaceHqFileParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const replaceHqFileBodyNameMax = 240;
+
+export const replaceHqFileBodyContentTypeMax = 120;
+
+export const replaceHqFileBodySizeMax = 52428800;
+
+export const replaceHqFileBodyObjectPathMax = 500;
+
+
+
+export const ReplaceHqFileBody = zod.object({
+  "name": zod.string().min(1).max(replaceHqFileBodyNameMax),
+  "contentType": zod.string().min(1).max(replaceHqFileBodyContentTypeMax),
+  "size": zod.number().min(1).max(replaceHqFileBodySizeMax),
+  "objectPath": zod.string().min(1).max(replaceHqFileBodyObjectPathMax),
+  "compress": zod.boolean().optional().describe('Same semantics as finalize')
+})
+
+export const ReplaceHqFileResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
   "createdAt": zod.string(),
   "updatedAt": zod.string(),
   "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
@@ -3575,6 +3876,46 @@ export const GetHqFileDownloadResponse = zod.object({
 
 
 /**
+ * @summary Rename a file, move it to another folder, and/or archive or restore it
+ */
+export const UpdateHqFileParams = zod.object({
+  "fileId": zod.coerce.string()
+})
+
+export const updateHqFileBodyNameMax = 240;
+
+
+
+export const UpdateHqFileBody = zod.object({
+  "name": zod.string().min(1).max(updateHqFileBodyNameMax).optional(),
+  "folderId": zod.string().nullish().describe('New folder; null moves the file to the root'),
+  "archived": zod.boolean().optional().describe('true archives the file (hidden from folders, kept in the Archived view, restorable); false restores it to its folder (or the root when that folder is gone)')
+})
+
+export const UpdateHqFileResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number().describe('Stored size in bytes (after compression when it was applied)'),
+  "folderId": zod.string().nullable(),
+  "originalSize": zod.number().nullish().describe('Uploaded size before server-side compression; null when the file was stored as uploaded'),
+  "compressedAt": zod.string().nullish(),
+  "archivedAt": zod.string().nullish().describe('Set while the file is archived'),
+  "uploadedBy": zod.string().nullish().describe('Display name of the HQ member who uploaded it (null when unknown)'),
+  "path": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})).optional().describe('Folder trail from the root down to the file\'s folder (empty at the root); present on search hits and archived listings'),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "unavailableSince": zod.string().nullish().describe('Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded')
+})
+
+
+/**
  * @summary Delete private bytes and metadata
  */
 export const DeleteHqFileParams = zod.object({
@@ -3583,6 +3924,66 @@ export const DeleteHqFileParams = zod.object({
 
 export const DeleteHqFileResponse = zod.object({
   "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Create a folder (nested when parentId is given)
+ */
+export const createHqFolderBodyNameMax = 120;
+
+
+
+export const CreateHqFolderBody = zod.object({
+  "name": zod.string().min(1).max(createHqFolderBodyNameMax),
+  "parentId": zod.string().nullish().describe('Parent folder; null or omitted creates it at the root')
+})
+
+export const CreateHqFolderResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Rename a folder and/or move it under another folder
+ */
+export const UpdateHqFolderParams = zod.object({
+  "folderId": zod.coerce.string()
+})
+
+export const updateHqFolderBodyNameMax = 120;
+
+
+
+export const UpdateHqFolderBody = zod.object({
+  "name": zod.string().min(1).max(updateHqFolderBodyNameMax).optional(),
+  "parentId": zod.string().nullish().describe('New parent; null moves the folder to the root')
+})
+
+export const UpdateHqFolderResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "parentId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a folder with every file and sub-folder inside it
+ */
+export const DeleteHqFolderParams = zod.object({
+  "folderId": zod.coerce.string()
+})
+
+export const DeleteHqFolderResponse = zod.object({
+  "ok": zod.boolean(),
+  "deletedFiles": zod.number(),
+  "deletedFolders": zod.number()
 })
 
 

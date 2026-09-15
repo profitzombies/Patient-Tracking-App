@@ -149,7 +149,7 @@ function seed() {
     },
     invoiceItems: { create: vi.fn(async () => ({})) },
     paymentIntents: { retrieve: vi.fn(async () => ({
-      latest_charge: { id: "ch_1", application_fee_amount: 120, balance_transaction: { id: "txn_1", fee: 250 } },
+      latest_charge: { id: "ch_1", application_fee_amount: 120, balance_transaction: { id: "txn_1", fee: 250, fee_details: [{ type: "stripe_fee", amount: 130 }, { type: "application_fee", amount: 120 }] } },
     })) },
     charges: { retrieve: vi.fn(async () => ({ id: "ch_1", application_fee: { id: "fee_1" } })) },
     refunds: { create: vi.fn(async () => ({ id: "re_1", amount: 100, status: "succeeded" })) },
@@ -218,10 +218,101 @@ describe("billing orders", () => {
     const event = { type: "invoice.paid", data: { object: invoice } } as any;
     await dispatchStripeEvent(event, { kind: "connect", account: "acct_1", livemode: false });
     await dispatchStripeEvent(event, { kind: "connect", account: "acct_1", livemode: false });
-    expect(tables.billing_orders[0].office_net_cents).toBe(630);
-    expect(tables.billing_orders[0].stripe_fee_cents).toBe(250);
+    // The connected account's balance transaction fee includes our application
+    // fee; only Stripe's own processing line counts as the Stripe fee.
+    expect(tables.billing_orders[0].office_net_cents).toBe(750);
+    expect(tables.billing_orders[0].stripe_fee_cents).toBe(130);
+    expect(tables.billing_orders[0].stripe_charge_id).toBe("ch_1");
     expect(tables.billing_ledger).toHaveLength(1);
     expect(stripe.paymentIntents.retrieve).toHaveBeenCalledOnce();
+  });
+
+  it("finds the charge through the stored payment intent when the webhook invoice carries none", async () => {
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat", email: null, patient_id: null, phone: null });
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", payer_id: "payer-1", order_number: "TH-ABC123",
+      status: "pending", total_cents: 1000, application_fee_cents: 100, subscription_id: null,
+      stripe_payment_intent_id: "pi_stored", metadata: {}, shipping_address: {}, hard_cost_cents: 0, shipping_cost_cents: 0,
+    });
+    tables.billing_order_items.push({ id: "item-1", order_id: "order-1", product_name_snapshot: "Control", quantity: 1 });
+    // Current API versions: no `payment_intent`, no `payments` on the event payload.
+    const invoice = { id: "in_paid", amount_paid: 1000, metadata: { thinnr_order_id: "order-1" }, status_transitions: { paid_at: 1_800_000_000 } };
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith("pi_stored", expect.anything(), expect.objectContaining({ stripeAccount: "acct_1" }));
+    expect(stripe.invoices.retrieve).not.toHaveBeenCalled();
+    expect(tables.billing_orders[0]).toMatchObject({ status: "paid", stripe_charge_id: "ch_1", stripe_balance_transaction_id: "txn_1", stripe_fee_cents: 130 });
+  });
+
+  it("leaves the Stripe fee and office net unknown when no charge can be resolved", async () => {
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat", email: null, patient_id: null, phone: null });
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", payer_id: "payer-1", order_number: "TH-ABC123",
+      status: "pending", total_cents: 1000, application_fee_cents: 100, subscription_id: null,
+      stripe_payment_intent_id: null, metadata: {}, shipping_address: {}, hard_cost_cents: 0, shipping_cost_cents: 0,
+    });
+    tables.billing_order_items.push({ id: "item-1", order_id: "order-1", product_name_snapshot: "Control", quantity: 1 });
+    stripe.invoices.retrieve.mockResolvedValueOnce({ id: "in_paid", payments: { data: [] } });
+    const invoice = { id: "in_paid", amount_paid: 1000, metadata: { thinnr_order_id: "order-1" }, status_transitions: { paid_at: 1_800_000_000 } };
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders[0]).toMatchObject({ status: "paid", stripe_charge_id: null, stripe_fee_cents: null, office_net_cents: null });
+    // The sale line never assumes a $0 fee silently: it is the pre-fee office share, flagged pending.
+    expect(tables.billing_ledger).toHaveLength(1);
+    expect(tables.billing_ledger[0]).toMatchObject({ kind: "sale", amount_cents: 900, detail: { total_cents: 1000, stripe_fee_cents: null, fee_pending: true } });
+
+    // A replayed invoice.paid that can now resolve the charge finalizes the fee,
+    // the office net and the SAME ledger line — no second sale is posted.
+    stripe.invoices.retrieve.mockResolvedValueOnce({ id: "in_paid", payments: { data: [{ payment: { payment_intent: "pi_1" } }] } });
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_orders[0]).toMatchObject({ status: "paid", stripe_charge_id: "ch_1", stripe_balance_transaction_id: "txn_1", stripe_fee_cents: 130, application_fee_collected_cents: 120, office_net_cents: 750 });
+    expect(tables.billing_ledger).toHaveLength(1);
+    expect(tables.billing_ledger[0]).toMatchObject({ kind: "sale", amount_cents: 750, application_fee_cents: 120, detail: { total_cents: 1000, stripe_fee_cents: 130, fee_pending: false } });
+
+    // A further duplicate delivery changes nothing.
+    const paymentIntentCalls = stripe.paymentIntents.retrieve.mock.calls.length;
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(stripe.paymentIntents.retrieve.mock.calls.length).toBe(paymentIntentCalls);
+    expect(tables.billing_ledger).toHaveLength(1);
+    expect(tables.billing_orders[0].office_net_cents).toBe(750);
+  });
+
+  it("converges a pending sale line on the next replay when the ledger write failed after the order update", async () => {
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat", email: null, patient_id: null, phone: null });
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", payer_id: "payer-1", order_number: "TH-ABC123",
+      status: "pending", total_cents: 1000, application_fee_cents: 100, subscription_id: null,
+      stripe_payment_intent_id: null, metadata: {}, shipping_address: {}, hard_cost_cents: 0, shipping_cost_cents: 0,
+    });
+    tables.billing_order_items.push({ id: "item-1", order_id: "order-1", product_name_snapshot: "Control", quantity: 1 });
+    stripe.invoices.retrieve.mockResolvedValueOnce({ id: "in_paid", payments: { data: [] } });
+    const invoice = { id: "in_paid", amount_paid: 1000, metadata: { thinnr_order_id: "order-1" }, status_transitions: { paid_at: 1_800_000_000 } };
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(tables.billing_ledger[0]).toMatchObject({ amount_cents: 900, detail: { fee_pending: true } });
+
+    // Replay: the order update lands, then the ledger PATCH blows up.
+    const realFetch = global.fetch;
+    global.fetch = vi.fn(async (input: any, init?: RequestInit) => {
+      const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (init?.method === "PATCH" && url.includes("/billing_ledger")) throw new Error("ledger unavailable");
+      return realFetch(input, init);
+    }) as typeof fetch;
+    stripe.invoices.retrieve.mockResolvedValueOnce({ id: "in_paid", payments: { data: [{ payment: { payment_intent: "pi_1" } }] } });
+    await expect(dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false })).rejects.toThrow("ledger unavailable");
+    global.fetch = realFetch;
+    expect(tables.billing_orders[0]).toMatchObject({ stripe_fee_cents: 130, office_net_cents: 750 });
+    expect(tables.billing_ledger[0]).toMatchObject({ amount_cents: 900, detail: { fee_pending: true } });
+
+    // Next duplicate delivery finalizes the line from stored order values, with no Stripe lookup.
+    const paymentIntentCalls = stripe.paymentIntents.retrieve.mock.calls.length;
+    await dispatchStripeEvent({ type: "invoice.paid", data: { object: invoice } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect(stripe.paymentIntents.retrieve.mock.calls.length).toBe(paymentIntentCalls);
+    expect(tables.billing_ledger).toHaveLength(1);
+    expect(tables.billing_ledger[0]).toMatchObject({ amount_cents: 750, application_fee_cents: 120, detail: { total_cents: 1000, stripe_fee_cents: 130, fee_pending: false } });
   });
 
   it("ignores an invoice from a different connected account", async () => {
@@ -299,7 +390,7 @@ describe("billing orders", () => {
     );
     expect(stripe.applicationFees.createRefund).toHaveBeenCalledOnce();
     expect(tables.billing_orders[0]).toMatchObject({
-      application_fee_collected_cents: 100, office_net_cents: 650, hq_profit_cents: 70,
+      application_fee_collected_cents: 100, office_net_cents: 770, hq_profit_cents: 70,
     });
     expect(tables.billing_subscriptions[0]).toMatchObject({
       payment_failure_count: 0, last_failed_invoice_id: null, last_failure_message: null,
@@ -493,5 +584,23 @@ describe("billing orders", () => {
   it("does not debit a failed payout", async () => {
     await mirrorPayout("office-1", { id: "po_failed", amount: 500, status: "failed", created: 1_800_000_000 });
     expect(tables.billing_ledger).toHaveLength(0);
+  });
+});
+describe("charge.refunded reconciliation", () => {
+  it("lists refunds on the connected account when the webhook charge carries none", async () => {
+    tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat", email: null, patient_id: null, phone: null });
+    tables.billing_orders.push({
+      id: "order-1", provider_id: "office-1", payer_id: "payer-1", order_number: "TH-ABC123", subscription_id: null,
+      status: "paid", total_cents: 1000, application_fee_cents: 100, stripe_charge_id: "ch_1", metadata: {}, shipping_address: {},
+    });
+    (stripe as any).refunds.list = vi.fn(async () => ({ data: [{ id: "re_hook", amount: 400, status: "succeeded", reason: "requested_by_customer", metadata: { requested_reason: "One item returned" } }] }));
+    resetStripeEventHandlers();
+    registerOrderWebhookHandlers();
+    const charge = { id: "ch_1", amount: 1000, amount_refunded: 400 }; // no `refunds` list on current API versions
+    await dispatchStripeEvent({ type: "charge.refunded", data: { object: charge } } as any, { kind: "connect", account: "acct_1", livemode: false });
+    expect((stripe as any).refunds.list).toHaveBeenCalledWith({ charge: "ch_1", limit: 100 }, expect.objectContaining({ stripeAccount: "acct_1" }));
+    expect(tables.billing_refunds).toEqual([expect.objectContaining({ order_id: "order-1", stripe_refund_id: "re_hook", amount_cents: 400, status: "succeeded", reason: "One item returned" })]);
+    expect(tables.billing_ledger).toEqual([expect.objectContaining({ kind: "refund", amount_cents: -400, stripe_ref: "re_hook" })]);
+    expect(tables.billing_orders[0].status).toBe("partially_refunded");
   });
 });

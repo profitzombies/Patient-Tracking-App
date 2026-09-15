@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 import { recordUploadIntent } from "../jobs/upload-intents";
 import { Router, type IRouter } from "express";
 import {
+  CreateHqFolderBody,
   CreateHqFileUploadBody,
+  CreateHqFileReplacementBody,
   FinalizeHqFileBody,
+  ReplaceHqFileBody,
+  UpdateHqFileBody,
+  UpdateHqFolderBody,
   UpdateHqSettingsBody,
 } from "@workspace/api-zod";
+import sharp from "sharp";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { objectStorage, ObjectNotFoundError, UPLOAD_URL_TTL_SEC } from "../lib/objectStorage";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
@@ -20,17 +26,32 @@ import {
   sectionChangesFromRow,
 } from "../lib/org-policy";
 import { INVALID_SETTINGS, diffPolicy, hqActorName, mergePolicyInput, settingsDto, validHqTimezone } from "../lib/org-policy-edit";
+import {
+  FILE_SELECT,
+  MAX_HQ_FILE_BYTES,
+  allFolders,
+  filesWithUploaders,
+  folderDto,
+  hqFileIdPattern,
+  listHqFiles,
+  rfc5987,
+  searchHqFiles,
+  sendHqFileContent,
+  sendHqFileDownload,
+  type FolderRow,
+} from "../lib/hq-files-read";
 
 export { validHqTimezone };
 
 const router: IRouter = Router();
 const requireAdmin = requireHqPermission("settings_manage");
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_FILE_BYTES = MAX_HQ_FILE_BYTES;
+const MAX_COMPRESS_BYTES = 25 * 1024 * 1024;
+const MAX_FOLDER_DEPTH = 10;
 /** We inspect bytes, never just GCS/client MIME metadata. This is deliberately
  * bounded: a hostile 50 MB upload cannot make finalization read the whole file. */
 export const HQ_FILE_HEAD_BYTES = 64 * 1024;
-const DOWNLOAD_TTL_SEC = 300;
-const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const idPattern = hqFileIdPattern;
 const allowedTypes = new Set([
   "application/pdf",
   "application/msword",
@@ -64,6 +85,7 @@ const extensionsByContentType: Record<string, readonly string[]> = {
 
 router.use("/hq/settings", requireAdmin);
 router.use("/hq/files", requireAdmin);
+router.use("/hq/folders", requireAdmin);
 
 function identity(res: { locals: Record<string, unknown> }): StaffIdentity {
   return res.locals.staff as StaffIdentity;
@@ -128,18 +150,140 @@ export function validateHqFileHead(contentType: string, head: Buffer): boolean {
   }
 }
 
-function fileDto(row: Record<string, unknown>) {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    contentType: String(row.content_type),
-    size: Number(row.size_bytes),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    // Set by the storage reconciliation job when the object is gone; the
-    // UI shows "file unavailable" instead of minting a dead download link.
-    unavailableSince: typeof row.object_missing_at === "string" ? row.object_missing_at : null,
-  };
+/** One-file responses (finalize, replace, patch) resolve the uploader like listings do. */
+async function singleFileDto(row: Record<string, unknown>) {
+  const folders = await allFolders();
+  const [dto] = await filesWithUploaders([row], new Map(folders.map(folder => [folder.id, folder])), true);
+  return dto;
+}
+
+class UploadValidationError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+async function verifiedStoredFile(input: {
+  objectPath: string;
+  contentType: string;
+  size: number;
+  name: string;
+  compress?: boolean;
+}, log?: { error: (value: unknown, message: string) => void }) {
+  const file = await objectStorage.entityFile(input.objectPath);
+  const [metadata] = await file.getMetadata();
+  const actualSize = Number(metadata.size ?? 0);
+  if (
+    input.size > MAX_FILE_BYTES ||
+    !allowedTypes.has(input.contentType) ||
+    actualSize !== input.size ||
+    actualSize < 1 ||
+    actualSize > MAX_FILE_BYTES
+  ) {
+    await objectStorage.deleteObjectStrict(input.objectPath);
+    throw new UploadValidationError(
+      input.size > MAX_FILE_BYTES || actualSize > MAX_FILE_BYTES ? 413 : !allowedTypes.has(input.contentType) ? 415 : 422,
+      "The uploaded file does not match its declared details.",
+    );
+  }
+  const [head] = await file.download({ start: 0, end: HQ_FILE_HEAD_BYTES - 1 });
+  if (!validateHqFileHead(input.contentType, Buffer.from(head))) {
+    await objectStorage.deleteObjectStrict(input.objectPath);
+    throw new UploadValidationError(422, "The uploaded file's bytes do not match its declared type.");
+  }
+  const contentDisposition = `attachment; filename*=UTF-8''${rfc5987(input.name)}`;
+  let storedSize = actualSize;
+  let originalSize: number | null = null;
+  let compressedAt: string | null = null;
+  if (
+    input.compress === true &&
+    actualSize <= MAX_COMPRESS_BYTES &&
+    (input.contentType === "image/png" || input.contentType === "image/jpeg" || input.contentType === "image/webp")
+  ) {
+    try {
+      const [uploaded] = await file.download();
+      const pipeline = sharp(Buffer.from(uploaded));
+      const compressed = input.contentType === "image/png"
+        ? await pipeline.png({ compressionLevel: 9, effort: 10, palette: false }).toBuffer()
+        : input.contentType === "image/webp"
+          ? await pipeline.webp({ lossless: true, effort: 6 }).toBuffer()
+          : await pipeline.rotate().jpeg({ quality: 90, mozjpeg: true, chromaSubsampling: "4:4:4" }).toBuffer();
+      if (compressed.length < actualSize) {
+        await file.save(compressed, {
+          metadata: { contentType: input.contentType, contentDisposition },
+          resumable: false,
+        });
+        storedSize = compressed.length;
+        originalSize = actualSize;
+        compressedAt = new Date().toISOString();
+      }
+    } catch (error) {
+      log?.error({ err: error }, "HQ image compression failed; retaining original");
+    }
+  }
+  if (originalSize === null) await file.setMetadata({ contentType: input.contentType, contentDisposition });
+  return { storedSize, originalSize, compressedAt };
+}
+
+function cleanFolderName(value: string): string | null {
+  const name = value.trim().normalize("NFC");
+  return name && name.length <= 120 && !/[\u0000-\u001f\u007f/\\]/.test(name) ? name : null;
+}
+
+function folderDepth(folderId: string | null, byId: Map<string, FolderRow>): number | null {
+  let depth = 0;
+  let current = folderId;
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current)) return null;
+    seen.add(current);
+    const row = byId.get(current);
+    if (!row) return null;
+    depth += 1;
+    current = row.parent_id;
+  }
+  return depth;
+}
+
+function subtreeIds(rootId: string, folders: FolderRow[]): Set<string> {
+  const ids = new Set([rootId]);
+  for (let level = 0; level < MAX_FOLDER_DEPTH; level += 1) {
+    let changed = false;
+    for (const folder of folders) {
+      if (!ids.has(folder.id) && folder.parent_id && ids.has(folder.parent_id)) {
+        ids.add(folder.id);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return ids;
+}
+
+function deepestRelativeDepth(rootId: string, folders: FolderRow[]): number {
+  const byId = new Map(folders.map(folder => [folder.id, folder]));
+  let deepest = 0;
+  for (const folder of folders) {
+    let current: FolderRow | undefined = folder;
+    let distance = 0;
+    const seen = new Set<string>();
+    while (current && current.id !== rootId) {
+      if (seen.has(current.id)) break;
+      seen.add(current.id);
+      distance += 1;
+      current = current.parent_id ? byId.get(current.parent_id) : undefined;
+    }
+    if (current?.id === rootId) deepest = Math.max(deepest, distance);
+  }
+  return deepest;
+}
+
+function isDuplicateFolder(name: string, parentId: string | null, folders: FolderRow[], excluding?: string): boolean {
+  const folded = name.toLocaleLowerCase("en-US");
+  return folders.some(folder =>
+    folder.id !== excluding && folder.parent_id === parentId &&
+    folder.name.toLocaleLowerCase("en-US") === folded
+  );
 }
 
 router.get("/hq/settings", async (req, res) => {
@@ -239,6 +383,18 @@ router.post("/hq/files/upload-url", async (req, res) => {
     return;
   }
   try {
+    const folderId = parsed.data.folderId ?? null;
+    if (folderId) {
+      if (!idPattern.test(folderId)) {
+        res.status(404).json({ error: "Folder not found." });
+        return;
+      }
+      const folders = await allFolders();
+      if (!folders.some(folder => folder.id === folderId)) {
+        res.status(404).json({ error: "Folder not found." });
+        return;
+      }
+    }
     const fileId = randomUUID();
     const upload = await objectStorage.hqFileUploadURL(fileId);
     await recordUploadIntent({ objectPath: upload.objectPath, surface: "hq_file", ownerId: identity(res).userId });
@@ -271,38 +427,21 @@ router.post("/hq/files", async (req, res) => {
     return;
   }
   try {
-    const file = await objectStorage.entityFile(input.objectPath);
-    const [metadata] = await file.getMetadata();
-    const actualSize = Number(metadata.size ?? 0);
-    // The sidecar signer only accepts method/path/expiry. It cannot bind PUT
-    // Content-Length or Content-Type, so finalize is decisive: reject/delete
-    // every declaration mismatch, size violation, or byte-signature spoof.
-    if (
-      input.size > MAX_FILE_BYTES ||
-      !allowedTypes.has(input.contentType) ||
-      actualSize !== input.size ||
-      actualSize < 1 ||
-      actualSize > MAX_FILE_BYTES
-    ) {
-      await objectStorage.deleteObjectStrict(input.objectPath);
-      res.status(input.size > MAX_FILE_BYTES || actualSize > MAX_FILE_BYTES ? 413 : !allowedTypes.has(input.contentType) ? 415 : 422)
-        .json({ error: "The uploaded file does not match its declared details." });
-      return;
+    const folderId = input.folderId ?? null;
+    if (folderId) {
+      if (!idPattern.test(folderId) || !(await allFolders()).some(folder => folder.id === folderId)) {
+        res.status(404).json({ error: "Folder not found." });
+        return;
+      }
     }
-    const [head] = await file.download({ start: 0, end: HQ_FILE_HEAD_BYTES - 1 });
-    if (!validateHqFileHead(input.contentType, Buffer.from(head))) {
-      await objectStorage.deleteObjectStrict(input.objectPath);
-      res.status(422).json({ error: "The uploaded file's bytes do not match its declared type." });
-      return;
-    }
-    await file.setMetadata({
-      contentType: input.contentType,
-      contentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
-    });
+    const { storedSize, originalSize, compressedAt } = await verifiedStoredFile({
+      objectPath: input.objectPath, contentType: input.contentType, size: input.size, name, compress: input.compress,
+    }, req.log);
     const actor = identity(res);
     const result = await supabaseAdmin("POST", "/rest/v1/hq_private_files", {
-      id: input.fileId, name, content_type: input.contentType, size_bytes: actualSize,
-      object_path: input.objectPath, created_by: actor.userId,
+      id: input.fileId, name, content_type: input.contentType, size_bytes: storedSize,
+      object_path: input.objectPath, created_by: actor.userId, folder_id: folderId,
+      original_size_bytes: originalSize, compressed_at: compressedAt,
     }, "return=representation");
     if (result.status >= 300) {
       await objectStorage.deleteObject(input.objectPath);
@@ -312,10 +451,14 @@ router.post("/hq/files", async (req, res) => {
     await recordAdminAuditEvent({
       action: "hq_file_uploaded", actorUserId: actor.userId, actorKind: "hq", providerId: null,
       targetKind: "hq_file", targetId: input.fileId, requestId: req.headers["x-request-id"]?.toString() ?? null,
-      metadata: { size: actualSize, contentType: input.contentType },
+       metadata: { size: storedSize, originalSize, contentType: input.contentType },
     }).catch(error => req.log?.error({ err: error }, "HQ file upload audit failed"));
-    res.json(fileDto(row));
+    res.json(await singleFileDto(row));
   } catch (error) {
+    if (error instanceof UploadValidationError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     if (error instanceof ObjectNotFoundError) {
       res.status(404).json({ error: "The uploaded file was not found." });
       return;
@@ -325,50 +468,404 @@ router.post("/hq/files", async (req, res) => {
   }
 });
 
-router.get("/hq/files", async (req, res) => {
-  try {
-    const result = await supabaseAdmin("GET", "/rest/v1/hq_private_files?select=id,name,content_type,size_bytes,created_at,updated_at,object_missing_at&order=created_at.desc,id.desc&limit=500");
-    if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ files list failed (${result.status})`);
-    res.json({ files: (result.json as Record<string, unknown>[]).map(fileDto) });
-  } catch (error) {
-    req.log?.error({ err: error }, "HQ files list failed");
-    res.status(502).json({ error: "Could not load files right now." });
-  }
-});
+router.get("/hq/files", (req, res) => listHqFiles(req, res, {
+  includeArchived: true,
+  actor: { userId: identity(res).userId, kind: "hq", providerId: null },
+}));
 
-router.get("/hq/files/:fileId/download-url", async (req, res) => {
+router.get("/hq/files/search", (req, res) => searchHqFiles(req, res, {
+  includeArchived: true,
+  actor: { userId: identity(res).userId, kind: "hq", providerId: null },
+}));
+
+router.post("/hq/files/:fileId/replace-url", async (req, res) => {
   if (!idPattern.test(req.params.fileId)) {
     res.status(404).json({ error: "File not found." });
     return;
   }
+  if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    return;
+  }
+  const parsed = CreateHqFileReplacementBody.safeParse(req.body);
+  const name = parsed.success ? cleanHqFileName(parsed.data.name) : null;
+  if (!parsed.success || !name || !Number.isInteger(parsed.data.size)) {
+    res.status(400).json({ error: "Check the file details." });
+    return;
+  }
+  if (parsed.data.size > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    return;
+  }
+  if (!allowedTypes.has(parsed.data.contentType) || !hqFileNameMatchesContentType(name, parsed.data.contentType)) {
+    res.status(415).json({ error: "That file type or file name is not accepted." });
+    return;
+  }
   try {
-    const result = await supabaseAdmin("GET", `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=name,object_path,object_missing_at&limit=1`);
-    const row = Array.isArray(result.json) ? result.json[0] as Record<string, unknown> | undefined : undefined;
-    if (result.status >= 300) throw new Error(`HQ file lookup failed (${result.status})`);
-    if (!row) {
+    const lookup = await supabaseAdmin(
+      "GET",
+      `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=id,object_path&limit=1`,
+    );
+    if (lookup.status >= 300) throw new Error(`HQ file lookup failed (${lookup.status})`);
+    const existing = Array.isArray(lookup.json) ? lookup.json[0] as Record<string, unknown> | undefined : undefined;
+    if (!existing) {
       res.status(404).json({ error: "File not found." });
       return;
     }
-    if (typeof row.object_missing_at === "string") {
-      res.status(410).json({ error: "This file's stored bytes are missing. It can be deleted, but not downloaded." });
-      return;
-    }
-    const url = await objectStorage.signedDownloadURL(String(row.object_path), DOWNLOAD_TTL_SEC);
-    const actor = identity(res);
-    await recordAdminAuditEvent({
-      action: "hq_file_downloaded", actorUserId: actor.userId, actorKind: "hq", providerId: null,
-      targetKind: "hq_file", targetId: req.params.fileId, requestId: req.headers["x-request-id"]?.toString() ?? null,
-    }).catch(error => req.log?.error({ err: error }, "HQ file download audit failed"));
-    res.json({ url, expiresIn: DOWNLOAD_TTL_SEC, name: String(row.name) });
+    let upload = await objectStorage.hqFileUploadURL(req.params.fileId);
+    if (upload.objectPath === existing.object_path) upload = await objectStorage.hqFileUploadURL(req.params.fileId);
+    if (upload.objectPath === existing.object_path) throw new Error("Replacement upload path was not unique");
+    await recordUploadIntent({ objectPath: upload.objectPath, surface: "hq_file", ownerId: identity(res).userId });
+    res.json({ fileId: req.params.fileId, ...upload, expiresIn: UPLOAD_URL_TTL_SEC });
   } catch (error) {
-    if (error instanceof ObjectNotFoundError) {
-      res.status(404).json({ error: "File not found." });
-      return;
-    }
-    req.log?.error({ err: error }, "HQ file download failed");
-    res.status(502).json({ error: "Could not prepare the download right now." });
+    req.log?.error({ err: error }, "HQ file replacement URL failed");
+    res.status(502).json({ error: "Could not prepare the replacement right now." });
   }
 });
+
+router.post("/hq/files/:fileId/replace", async (req, res) => {
+  if (!idPattern.test(req.params.fileId)) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+  if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
+    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    return;
+  }
+  const parsed = ReplaceHqFileBody.safeParse(req.body);
+  const uploadedName = parsed.success ? cleanHqFileName(parsed.data.name) : null;
+  if (!parsed.success || !uploadedName || !Number.isInteger(parsed.data.size)) {
+    res.status(400).json({ error: "Check the file details." });
+    return;
+  }
+  const input = parsed.data;
+  if (!new RegExp(`^/objects/hq-files/${req.params.fileId}/file-[0-9a-f-]{36}$`, "i").test(input.objectPath)) {
+    res.status(422).json({ error: "That upload does not belong to this file." });
+    return;
+  }
+  if (!hqFileNameMatchesContentType(uploadedName, input.contentType)) {
+    res.status(415).json({ error: "The file name extension does not match its type." });
+    return;
+  }
+  try {
+    const lookup = await supabaseAdmin(
+      "GET",
+      `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=id,name,object_path,size_bytes,updated_at&limit=1`,
+    );
+    if (lookup.status >= 300) throw new Error(`HQ file lookup failed (${lookup.status})`);
+    const existing = Array.isArray(lookup.json) ? lookup.json[0] as Record<string, unknown> | undefined : undefined;
+    if (!existing) {
+      res.status(404).json({ error: "File not found." });
+      return;
+    }
+    if (input.objectPath === existing.object_path) {
+      res.status(422).json({ error: "Choose a newly uploaded replacement." });
+      return;
+    }
+    const name = hqFileNameMatchesContentType(String(existing.name), input.contentType) ? String(existing.name) : uploadedName;
+    const { storedSize, originalSize, compressedAt } = await verifiedStoredFile({
+      objectPath: input.objectPath, contentType: input.contentType, size: input.size, name, compress: input.compress,
+    }, req.log);
+    const now = new Date().toISOString();
+    // Compare-and-swap on the path and version we read: a concurrent replace
+    // or rename makes this PATCH match nothing, and we then discard OUR
+    // candidate object instead of deleting a path someone else now owns.
+    const updated = await supabaseAdmin(
+      "PATCH",
+      `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&object_path=eq.${encodeURIComponent(String(existing.object_path))}&updated_at=eq.${encodeURIComponent(String(existing.updated_at))}`,
+      {
+        name, object_path: input.objectPath, content_type: input.contentType, size_bytes: storedSize,
+        original_size_bytes: originalSize, compressed_at: compressedAt, object_missing_at: null, updated_at: now,
+      },
+      "return=representation",
+    );
+    if (updated.status >= 300) throw new Error(`HQ file replacement update failed (${updated.status})`);
+    const row = (Array.isArray(updated.json) ? updated.json[0] : undefined) as Record<string, unknown> | undefined;
+    if (!row) {
+      await objectStorage.deleteObject(input.objectPath);
+      res.status(409).json({ error: "This file changed while you were replacing it. Reload and try again." });
+      return;
+    }
+    try {
+      await objectStorage.deleteObjectStrict(String(existing.object_path));
+    } catch (error) {
+      if (!(error instanceof ObjectNotFoundError)) req.log?.error({ err: error }, "HQ old replacement object cleanup failed");
+    }
+    const actor = identity(res);
+    await recordAdminAuditEvent({
+      action: "hq_file_replaced", actorUserId: actor.userId, actorKind: "hq", providerId: null,
+      targetKind: "hq_file", targetId: req.params.fileId,
+      requestId: req.headers["x-request-id"]?.toString() ?? null,
+      metadata: { previousSize: Number(existing.size_bytes), size: storedSize, contentType: input.contentType },
+    }).catch(error => req.log?.error({ err: error }, "HQ file replacement audit failed"));
+    res.json(await singleFileDto(row));
+  } catch (error) {
+    if (error instanceof UploadValidationError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "The uploaded file was not found." });
+      return;
+    }
+    req.log?.error({ err: error }, "HQ file replacement failed");
+    res.status(502).json({ error: "Could not replace the file right now." });
+  }
+});
+
+router.patch("/hq/files/:fileId", async (req, res) => {
+  if (!idPattern.test(req.params.fileId)) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+  const parsed = UpdateHqFileBody.safeParse(req.body);
+  const hasName = Object.prototype.hasOwnProperty.call(req.body ?? {}, "name");
+  const hasFolder = Object.prototype.hasOwnProperty.call(req.body ?? {}, "folderId");
+  const hasArchived = Object.prototype.hasOwnProperty.call(req.body ?? {}, "archived");
+  const name = parsed.success && hasName ? cleanHqFileName(parsed.data.name ?? "") : null;
+  if (!parsed.success || (!hasName && !hasFolder && !hasArchived) || (hasName && !name)) {
+    res.status(400).json({ error: "Check the file details." });
+    return;
+  }
+  try {
+    const lookup = await supabaseAdmin(
+      "GET",
+       `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}&select=id,name,content_type,folder_id,archived_at&limit=1`,
+    );
+    if (lookup.status >= 300) throw new Error(`HQ file lookup failed (${lookup.status})`);
+    const existing = Array.isArray(lookup.json) ? lookup.json[0] as Record<string, unknown> | undefined : undefined;
+    if (!existing) {
+      res.status(404).json({ error: "File not found." });
+      return;
+    }
+    if (name && !hqFileNameMatchesContentType(name, String(existing.content_type))) {
+      res.status(415).json({ error: "The file name extension does not match its type." });
+      return;
+    }
+    let folderId = hasFolder ? parsed.data.folderId ?? null :
+      typeof existing.folder_id === "string" ? existing.folder_id : null;
+    const folders = folderId ? await allFolders() : [];
+    if (folderId && hasFolder && (!idPattern.test(folderId) || !folders.some(folder => folder.id === folderId))) {
+      res.status(404).json({ error: "Folder not found." });
+      return;
+    }
+    if (hasArchived && parsed.data.archived === false && folderId && !folders.some(folder => folder.id === folderId)) {
+      folderId = null;
+    }
+    const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (name) update.name = name;
+    if (hasFolder) update.folder_id = folderId;
+    if (hasArchived) {
+      update.archived_at = parsed.data.archived === true ? (typeof existing.archived_at === "string" ? existing.archived_at : new Date().toISOString()) : null;
+      if (parsed.data.archived === false && folderId !== existing.folder_id) update.folder_id = folderId;
+    }
+    const result = await supabaseAdmin(
+      "PATCH",
+      `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(req.params.fileId)}`,
+      update,
+      "return=representation",
+    );
+    if (result.status >= 300) throw new Error(`HQ file update failed (${result.status})`);
+    const row = (Array.isArray(result.json) ? result.json[0] : result.json) as Record<string, unknown>;
+    if (hasFolder && folderId !== (typeof existing.folder_id === "string" ? existing.folder_id : null)) {
+      const actor = identity(res);
+      await recordAdminAuditEvent({
+        action: "hq_file_moved", actorUserId: actor.userId, actorKind: "hq", providerId: null,
+        targetKind: "hq_file", targetId: req.params.fileId,
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: {
+          fromFolderId: typeof existing.folder_id === "string" ? existing.folder_id : null,
+          toFolderId: folderId,
+        },
+      }).catch(error => req.log?.error({ err: error }, "HQ file move audit failed"));
+    }
+    const wasArchived = typeof existing.archived_at === "string";
+    if (hasArchived && parsed.data.archived !== wasArchived) {
+      const actor = identity(res);
+      await recordAdminAuditEvent({
+        action: parsed.data.archived ? "hq_file_archived" : "hq_file_restored",
+        actorUserId: actor.userId, actorKind: "hq", providerId: null,
+        targetKind: "hq_file", targetId: req.params.fileId,
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+      }).catch(error => req.log?.error({ err: error }, "HQ file archive audit failed"));
+    }
+    res.json(await singleFileDto(row));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ file update failed");
+    res.status(502).json({ error: "Could not update the file right now." });
+  }
+});
+
+router.post("/hq/folders", async (req, res) => {
+  const parsed = CreateHqFolderBody.safeParse(req.body);
+  const name = parsed.success ? cleanFolderName(parsed.data.name) : null;
+  if (!parsed.success || !name) {
+    res.status(400).json({ error: "Check the folder details." });
+    return;
+  }
+  try {
+    const parentId = parsed.data.parentId ?? null;
+    if (parentId && !idPattern.test(parentId)) {
+      res.status(404).json({ error: "Parent folder not found." });
+      return;
+    }
+    const folders = await allFolders();
+    const byId = new Map(folders.map(folder => [folder.id, folder]));
+    const parentDepth = folderDepth(parentId, byId);
+    if (parentDepth === null) {
+      res.status(404).json({ error: "Parent folder not found." });
+      return;
+    }
+    if (parentDepth + 1 > MAX_FOLDER_DEPTH) {
+      res.status(422).json({ error: "Folders can be nested at most 10 levels deep." });
+      return;
+    }
+    if (isDuplicateFolder(name, parentId, folders)) {
+      res.status(409).json({ error: "A folder with that name already exists here." });
+      return;
+    }
+    const actor = identity(res);
+    const result = await supabaseAdmin("POST", "/rest/v1/hq_file_folders", {
+      id: randomUUID(), name, parent_id: parentId, created_by: actor.userId,
+    }, "return=representation");
+    if (result.status === 409) {
+      res.status(409).json({ error: "A folder with that name already exists here." });
+      return;
+    }
+    if (result.status >= 300) throw new Error(`HQ folder create failed (${result.status})`);
+    const row = (Array.isArray(result.json) ? result.json[0] : result.json) as FolderRow;
+    await recordAdminAuditEvent({
+      action: "hq_folder_created", actorUserId: actor.userId, actorKind: "hq", providerId: null,
+      targetKind: "hq_folder", targetId: row.id,
+      requestId: req.headers["x-request-id"]?.toString() ?? null,
+      metadata: { parentId },
+    }).catch(error => req.log?.error({ err: error }, "HQ folder create audit failed"));
+    res.json(folderDto(row));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ folder create failed");
+    res.status(502).json({ error: "Could not create the folder right now." });
+  }
+});
+
+router.patch("/hq/folders/:folderId", async (req, res) => {
+  if (!idPattern.test(req.params.folderId)) {
+    res.status(404).json({ error: "Folder not found." });
+    return;
+  }
+  const parsed = UpdateHqFolderBody.safeParse(req.body);
+  const hasName = Object.prototype.hasOwnProperty.call(req.body ?? {}, "name");
+  const hasParent = Object.prototype.hasOwnProperty.call(req.body ?? {}, "parentId");
+  const name = parsed.success && hasName ? cleanFolderName(parsed.data.name ?? "") : null;
+  if (!parsed.success || (!hasName && !hasParent) || (hasName && !name)) {
+    res.status(400).json({ error: "Check the folder details." });
+    return;
+  }
+  try {
+    const folders = await allFolders();
+    const existing = folders.find(folder => folder.id === req.params.folderId);
+    if (!existing) {
+      res.status(404).json({ error: "Folder not found." });
+      return;
+    }
+    const parentId = hasParent ? parsed.data.parentId ?? null : existing.parent_id;
+    const nextName = name ?? existing.name;
+    if (parentId === existing.id || subtreeIds(existing.id, folders).has(parentId ?? "")) {
+      res.status(422).json({ error: "A folder cannot be moved into itself or one of its subfolders." });
+      return;
+    }
+    const byId = new Map(folders.map(folder => [folder.id, folder]));
+    const parentDepth = folderDepth(parentId, byId);
+    if (parentDepth === null) {
+      res.status(404).json({ error: "Parent folder not found." });
+      return;
+    }
+    if (parentDepth + 1 + deepestRelativeDepth(existing.id, folders) > MAX_FOLDER_DEPTH) {
+      res.status(422).json({ error: "Folders can be nested at most 10 levels deep." });
+      return;
+    }
+    if (isDuplicateFolder(nextName, parentId, folders, existing.id)) {
+      res.status(409).json({ error: "A folder with that name already exists here." });
+      return;
+    }
+    const result = await supabaseAdmin(
+      "PATCH",
+      `/rest/v1/hq_file_folders?id=eq.${encodeURIComponent(existing.id)}`,
+      { name: nextName, parent_id: parentId, updated_at: new Date().toISOString() },
+      "return=representation",
+    );
+    if (result.status === 409) {
+      res.status(409).json({ error: "A folder with that name already exists here." });
+      return;
+    }
+    if (result.status >= 300) throw new Error(`HQ folder update failed (${result.status})`);
+    const row = (Array.isArray(result.json) ? result.json[0] : result.json) as FolderRow;
+    res.json(folderDto(row));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ folder update failed");
+    res.status(502).json({ error: "Could not update the folder right now." });
+  }
+});
+
+router.delete("/hq/folders/:folderId", async (req, res) => {
+  if (!idPattern.test(req.params.folderId)) {
+    res.status(404).json({ error: "Folder not found." });
+    return;
+  }
+  try {
+    const folders = await allFolders();
+    if (!folders.some(folder => folder.id === req.params.folderId)) {
+      res.status(404).json({ error: "Folder not found." });
+      return;
+    }
+    const ids = subtreeIds(req.params.folderId, folders);
+    const fileLookup = await supabaseAdmin(
+      "GET",
+      `/rest/v1/hq_private_files?folder_id=in.(${[...ids].join(",")})&select=id,object_path&limit=5000`,
+    );
+    if (fileLookup.status >= 300 || !Array.isArray(fileLookup.json)) {
+      throw new Error(`HQ folder files lookup failed (${fileLookup.status})`);
+    }
+    const files = fileLookup.json as Array<{ id: string; object_path: string }>;
+    for (const file of files) {
+      try {
+        await objectStorage.deleteObjectStrict(file.object_path);
+      } catch (error) {
+        if (!(error instanceof ObjectNotFoundError)) throw error;
+      }
+      const deleted = await supabaseAdmin(
+        "DELETE",
+        `/rest/v1/hq_private_files?id=eq.${encodeURIComponent(file.id)}`,
+      );
+      if (deleted.status >= 300) throw new Error(`HQ folder file delete failed (${deleted.status})`);
+    }
+    const deleted = await supabaseAdmin(
+      "DELETE",
+      `/rest/v1/hq_file_folders?id=eq.${encodeURIComponent(req.params.folderId)}`,
+    );
+    if (deleted.status >= 300) throw new Error(`HQ folder delete failed (${deleted.status})`);
+    const actor = identity(res);
+    await recordAdminAuditEvent({
+      action: "hq_folder_deleted", actorUserId: actor.userId, actorKind: "hq", providerId: null,
+      targetKind: "hq_folder", targetId: req.params.folderId,
+      requestId: req.headers["x-request-id"]?.toString() ?? null,
+      metadata: { deletedFiles: files.length, deletedFolders: ids.size },
+    }).catch(error => req.log?.error({ err: error }, "HQ folder delete audit failed"));
+    res.json({ ok: true, deletedFiles: files.length, deletedFolders: ids.size });
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ folder delete failed");
+    res.status(502).json({ error: "Could not delete the folder right now." });
+  }
+});
+
+router.get("/hq/files/:fileId/download-url", (req, res) => sendHqFileDownload(req, res, {
+  includeArchived: true,
+  actor: { userId: identity(res).userId, kind: "hq", providerId: null },
+}));
+
+router.get("/hq/files/:fileId/content", (req, res) => sendHqFileContent(req, res, {
+  includeArchived: true,
+  actor: { userId: identity(res).userId, kind: "hq", providerId: null },
+}));
 
 router.delete("/hq/files/:fileId", async (req, res) => {
   if (!idPattern.test(req.params.fileId)) {

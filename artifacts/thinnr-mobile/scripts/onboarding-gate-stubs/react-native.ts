@@ -110,3 +110,9 @@ export const Linking = {
     return true;
   },
 };
+
+export const Alert = {
+  alert(_title: string, _message?: string, buttons?: Array<{ onPress?: () => void; style?: string }>) {
+    buttons?.find(button => button.style === 'destructive')?.onPress?.();
+  },
+};

@@ -1423,6 +1423,11 @@ export interface HqFileUploadInput {
      * @maximum 52428800
      */
   size: number;
+  /**
+     * Destination folder; null or omitted means the root
+     * @nullable
+     */
+  folderId?: string | null;
 }
 
 export interface HqFileUploadResult {
@@ -1454,13 +1459,109 @@ export interface HqFileFinalizeInput {
      * @maxLength 500
      */
   objectPath: string;
+  /**
+     * Destination folder; null or omitted means the root
+     * @nullable
+     */
+  folderId?: string | null;
+  /** For PNG/JPEG/WebP uploads, shrink the stored bytes without visible quality loss (PNG/WebP lossless, JPEG re-encoded at high quality with metadata stripped); the original is kept when it is already smaller */
+  compress?: boolean;
+}
+
+export interface HqFileUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  name?: string;
+  /**
+     * New folder; null moves the file to the root
+     * @nullable
+     */
+  folderId?: string | null;
+  /** true archives the file (hidden from folders, kept in the Archived view, restorable); false restores it to its folder (or the root when that folder is gone) */
+  archived?: boolean;
+}
+
+export interface HqFileReplaceUploadInput {
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  contentType: string;
+  /**
+     * @minimum 1
+     * @maximum 52428800
+     */
+  size: number;
+}
+
+export interface HqFileReplaceInput {
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  contentType: string;
+  /**
+     * @minimum 1
+     * @maximum 52428800
+     */
+  size: number;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  objectPath: string;
+  /** Same semantics as finalize */
+  compress?: boolean;
+}
+
+export interface HqFolder {
+  id: string;
+  name: string;
+  /** @nullable */
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HqFile {
   id: string;
   name: string;
   contentType: string;
+  /** Stored size in bytes (after compression when it was applied) */
   size: number;
+  /** @nullable */
+  folderId: string | null;
+  /**
+     * Uploaded size before server-side compression; null when the file was stored as uploaded
+     * @nullable
+     */
+  originalSize?: number | null;
+  /** @nullable */
+  compressedAt?: string | null;
+  /**
+     * Set while the file is archived
+     * @nullable
+     */
+  archivedAt?: string | null;
+  /**
+     * Display name of the HQ member who uploaded it (null when unknown)
+     * @nullable
+     */
+  uploadedBy?: string | null;
+  /** Folder trail from the root down to the file's folder (empty at the root); present on search hits and archived listings */
+  path?: HqFolder[];
   createdAt: string;
   updatedAt: string;
   /**
@@ -1468,6 +1569,42 @@ export interface HqFile {
      * @nullable
      */
   unavailableSince?: string | null;
+}
+
+export interface HqFileSearchResult {
+  files: HqFile[];
+}
+
+export interface HqFolderCreateInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name: string;
+  /**
+     * Parent folder; null or omitted creates it at the root
+     * @nullable
+     */
+  parentId?: string | null;
+}
+
+export interface HqFolderUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  name?: string;
+  /**
+     * New parent; null moves the folder to the root
+     * @nullable
+     */
+  parentId?: string | null;
+}
+
+export interface HqFolderDeleteResult {
+  ok: boolean;
+  deletedFiles: number;
+  deletedFolders: number;
 }
 
 export type SystemJobRunTrigger = typeof SystemJobRunTrigger[keyof typeof SystemJobRunTrigger];
@@ -1600,6 +1737,13 @@ export interface RunSystemJobBody {
 }
 
 export interface HqFileListResult {
+  /** The listed folder; null at the root */
+  folder: HqFolder | null;
+  /** Ancestors from the root down to and including the listed folder (empty at the root) */
+  breadcrumbs: HqFolder[];
+  /** Direct child folders A-Z */
+  folders: HqFolder[];
+  /** Files directly in this folder newest first */
   files: HqFile[];
 }
 
@@ -3713,11 +3857,77 @@ export type GetOfficeSettingsParams = {
 office?: OfficeIdParameter;
 };
 
+export type GetOfficeFilesParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * Folder to list; omit for the root
+ */
+folderId?: string;
+};
+
+export type SearchOfficeFilesParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * Case-insensitive substring of the file name
+ * @minLength 1
+ * @maxLength 120
+ */
+q: string;
+};
+
+export type GetOfficeFileContentParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type GetOfficeFileDownloadParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
 export type UpdateOfficeSettingsOverridesParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+};
+
+export type GetHqFilesParams = {
+/**
+ * Folder to list; omit for the root
+ */
+folderId?: string;
+/**
+ * Pass archived to list every archived file with its original folder path instead of a folder; folderId is then ignored
+ */
+view?: GetHqFilesView;
+};
+
+export type GetHqFilesView = typeof GetHqFilesView[keyof typeof GetHqFilesView];
+
+
+export const GetHqFilesView = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export type SearchHqFilesParams = {
+/**
+ * Case-insensitive substring of the file name
+ * @minLength 1
+ * @maxLength 120
+ */
+q: string;
 };
 
 export type GetHqAuditEventsParams = {

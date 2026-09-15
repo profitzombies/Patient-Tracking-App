@@ -5,12 +5,35 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { HqFolder } from './hqFolder';
 
 export interface HqFile {
   id: string;
   name: string;
   contentType: string;
+  /** Stored size in bytes (after compression when it was applied) */
   size: number;
+  /** @nullable */
+  folderId: string | null;
+  /**
+     * Uploaded size before server-side compression; null when the file was stored as uploaded
+     * @nullable
+     */
+  originalSize?: number | null;
+  /** @nullable */
+  compressedAt?: string | null;
+  /**
+     * Set while the file is archived
+     * @nullable
+     */
+  archivedAt?: string | null;
+  /**
+     * Display name of the HQ member who uploaded it (null when unknown)
+     * @nullable
+     */
+  uploadedBy?: string | null;
+  /** Folder trail from the root down to the file's folder (empty at the root); present on search hits and archived listings */
+  path?: HqFolder[];
   createdAt: string;
   updatedAt: string;
   /**

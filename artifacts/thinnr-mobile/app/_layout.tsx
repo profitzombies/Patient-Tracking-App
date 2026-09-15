@@ -274,6 +274,7 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
+      <Stack.Screen name="billing" options={{ headerShown: false, title: 'Payments & orders' }} />
       <Stack.Screen name="security" options={{ headerShown: false }} />
       <Stack.Screen name="security-report" options={{ headerShown: false }} />
       <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />

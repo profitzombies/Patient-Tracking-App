@@ -92,3 +92,10 @@ requests here and records final calls. Keep entries short: what, why.
 - Pause policy: only current `active` subscriptions can be paused (past due must be brought current or cancelled); pause does not change fulfillment — shipments follow paid orders only, and a paused subscription produces no orders.
 - Shared demo convention holds for the exports panel: demo persona shows "Sign in with a staff account to request exports"; unlimited links display "N uses", limited links "x of y used".
 - Adding a new FK to a table that PostgREST callers embed (billing_subscriptions → billing_products twice) makes the bare embed ambiguous; every embed now names its constraint.
+
+## Group 3: patient billing API
+- Patient billing identity always comes from the bearer session and its linked patient row; clients never supply a patient or office id.
+- The patient catalog and public payment-link catalog share one offering builder so product eligibility, prices, subscriptions, and images cannot drift.
+- Patient-app checkout links are reusable, unlimited, non-expiring links labeled `Patient app`, with one link per patient and optional selected product.
+- Receipts remain Stripe-hosted: card purchases expose the connected-account receipt and subscription purchases expose the hosted invoice and PDF.
+- Subscription cancellation is at period end only and returns a conflict after cancellation has already been scheduled.

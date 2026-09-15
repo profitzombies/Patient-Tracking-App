@@ -11,6 +11,7 @@ import {
   Box,
   ClipboardList,
   CreditCard,
+  FolderOpen,
   GraduationCap,
   LayoutDashboard,
   MessagesSquare,
@@ -63,6 +64,7 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
   { path: '/payments', label: 'Payments', mobileLabel: 'Payments', icon: CreditCard, children: [...OFFICE_PAYMENTS_SECTIONS] },
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
+  { path: '/files', label: 'Files', mobileLabel: 'Files', icon: FolderOpen },
   { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
   { path: '/team', label: 'Team', mobileLabel: 'Team', icon: UserCog },
   { path: '/audit', label: 'Audit trail', mobileLabel: 'Audit', icon: ClipboardList },
@@ -82,7 +84,7 @@ export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
   { label: 'Operations', paths: ['/patients', '/conversations', '/subscriptions', '/payments'] },
   { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
-  { label: 'Learning', paths: ['/training', '/ai-support'] },
+  { label: 'Learning', paths: ['/training', '/files', '/ai-support'] },
   { label: 'Administration', paths: ['/team', '/audit', '/security'] },
 ];
 

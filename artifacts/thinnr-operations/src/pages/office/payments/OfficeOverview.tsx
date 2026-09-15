@@ -14,6 +14,7 @@ import {
   cumulative,
   hourLabel,
   hourlySeriesFrom,
+  runningHourLabel,
   seriesFrom,
   shortDay,
 } from '@/components/billing/hq/RevenueCharts';
@@ -136,8 +137,8 @@ function OverviewView({
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <ChartCard label="Payments per day" value={String(data.orders)} detail="Processed in range" dates={series.dates} values={series.orders} unit="count" color={CHART_COLORS.count} testId="chart-payments" />
         <ChartCard label="Refunds per day" value={formatCents(data.refunded_cents)} detail="Returned in range" dates={series.dates} values={series.refunds} unit="money" color={CHART_COLORS.refunds} testId="chart-refunds" />
-        <ChartCard label="Gross collections" value={formatCents(netCollected)} detail="Running total after refunds" dates={series.dates} values={cumulative(series.net)} unit="money" color={CHART_COLORS.gross} testId="chart-gross" />
-        <ChartCard label="Office net" value={formatCents(data.net_cents)} detail="Running total to your bank" dates={series.dates} values={cumulative(series.officeNet)} unit="money" color={OFFICE_NET} testId="chart-office-net" />
+        <ChartCard label="Gross collections" value={formatCents(netCollected)} detail="Running total after refunds" dates={series.dates} values={cumulative(series.net)} unit="money" color={CHART_COLORS.gross} running testId="chart-gross" />
+        <ChartCard label="Office net" value={formatCents(data.net_cents)} detail="Running total to your bank" dates={series.dates} values={cumulative(series.officeNet)} unit="money" color={OFFICE_NET} running testId="chart-office-net" />
       </div>
 
       <SectionCard
@@ -170,8 +171,8 @@ function TodayRevenue({ demo }: { demo: boolean }) {
   const query = useOfficeToday();
   const data = demo ? DEMO_TODAY : query.data;
   const sub = data
-    ? `${formatDate(data.date)} so far, by hour in ${data.time_zone.replace(/_/g, ' ')}`
-    : 'Payments by hour in your local time';
+    ? `${formatDate(data.date)} so far, running total by hour in ${data.time_zone.replace(/_/g, ' ')}`
+    : 'Running total by hour in your local time';
   return (
     <SectionCard title="Today's revenue" sub={sub}>
       <div className="p-5" data-testid="section-today-revenue">
@@ -217,7 +218,8 @@ function HourlyChart({ data }: { data: HqTodayOverview }) {
       height={200}
       testId="chart-today-revenue"
       formatLabel={hourLabel}
-      formatLabelLong={(key) => `${hourLabel(key)} to ${hourLabel(String((Number(key) + 1) % 24))}`}
+      formatLabelLong={(key) => runningHourLabel(key, String(data.current_hour))}
+      running
       labelCount={hourly.hours.length <= 8 ? hourly.hours.length : 8}
       emptyLabel="No payments yet today"
       series={[

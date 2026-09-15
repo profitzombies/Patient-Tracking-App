@@ -81,6 +81,25 @@ export default function AccountScreen() {
   const [quietStart, setQuietStart] = useState(initialPushPrefs.quietHours?.start ?? '22:00');
   const [quietEnd, setQuietEnd] = useState(initialPushPrefs.quietHours?.end ?? '07:00');
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
+  const billingRow = (
+    <Pressable
+      testID="button-open-billing"
+      accessibilityRole="button"
+      accessibilityLabel="Open payments and orders"
+      onPress={() => router.push('/billing')}
+      style={({ pressed }) => [
+        styles.billingRow,
+        { borderColor: colors.border, backgroundColor: colors.card },
+        pressed && { opacity: 0.7 },
+      ]}
+    >
+      <View>
+        <FieldLabel text="Payments" />
+        <Text style={[styles.billingTitle, { color: colors.navy }]}>Payments & orders</Text>
+      </View>
+      <Feather name="chevron-right" size={20} color={colors.cobalt} />
+    </Pressable>
+  );
 
   if (account.kind !== 'real' || !profile) {
     if (account.kind === 'demo') {
@@ -92,6 +111,7 @@ export default function AccountScreen() {
           </View>
           <KeyboardAwareScrollViewCompat contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}>
             <AccountSecurity demo />
+            {billingRow}
             <Text style={[styles.body, { color: colors.bodyText }]}>
               Account settings are available for signed-in patient accounts.
             </Text>
@@ -238,6 +258,7 @@ export default function AccountScreen() {
       >
         {error ? <ErrorBox testID="account-error" message={error} /> : null}
         <AccountSecurity />
+        {billingRow}
         <Text style={[styles.section, { color: colors.labelText }]}>PROFILE</Text>
         <LedgerCard style={styles.card}>
           <FieldLabel text="Full name" />
@@ -546,4 +567,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   body: { fontSize: 13, fontFamily: 'Inter_500Medium' },
+  billingRow: {
+    minHeight: 66,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    boxShadow: '0 6px 15px rgba(40, 55, 74, 0.06)',
+  },
+  billingTitle: { marginTop: 3, fontSize: 17, fontFamily: 'PlayfairDisplay_700Bold' },
 });

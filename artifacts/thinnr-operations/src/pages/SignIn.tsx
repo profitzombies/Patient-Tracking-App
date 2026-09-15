@@ -15,15 +15,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
+import { timeOfDayGreeting } from '@/lib/local-time';
 
 type Phase = 'email' | 'code';
-
-function plateGreeting(date = new Date()) {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return 'Good morning';
-  if (hour >= 12 && hour < 17) return 'Good afternoon';
-  return 'Good evening';
-}
 
 const DEMO_OPTIONS: Array<{
   persona: Persona;
@@ -166,7 +160,7 @@ export default function SignIn() {
                 Approved list
               </span>
               <p className="mt-2 font-serif text-[24px] leading-tight text-navy">
-                {plateGreeting()} — grilled chicken, greens, and a plate off the approved list.
+                {timeOfDayGreeting()} — grilled chicken, greens, and a plate off the approved list.
               </p>
               <p className="mt-1 text-[11px] text-muted-foreground">
                 From the restaurant guide your patients see on the Today tab.

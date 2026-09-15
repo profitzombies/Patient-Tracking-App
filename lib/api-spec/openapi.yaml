@@ -1920,6 +1920,65 @@ paths:
           description: HQ policy, the office's overrides, and the effective values
           content: { application/json: { schema: { $ref: "#/components/schemas/OfficeSettings" } } }
         "404": { description: Office unavailable }
+  /office/files:
+    get:
+      operationId: getOfficeFiles
+      tags: [office]
+      summary: Read one folder of the HQ file drive as a provider (read-only; archived files never appear)
+      description: >-
+        Provider staff of every office role see the whole HQ drive but can only
+        browse, search, preview and download. Uploads, renames, moves, archive
+        and delete exist only on the HQ routes. HQ drill-ins must hold
+        settings_manage, the same permission that gates the HQ drive itself.
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: folderId, in: query, required: false, schema: { type: string }, description: Folder to list; omit for the root }
+      responses:
+        "200":
+          description: The folder, its breadcrumb trail, child folders A-Z and active files newest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileListResult" } } }
+        "404": { description: Folder not found }
+  /office/files/search:
+    get:
+      operationId: searchOfficeFiles
+      tags: [office]
+      summary: Search active HQ files by name as a provider
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 120 }, description: Case-insensitive substring of the file name }
+      responses:
+        "200":
+          description: Up to 50 matches, best match first
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileSearchResult" } } }
+  /office/files/{fileId}/content:
+    get:
+      operationId: getOfficeFileContent
+      tags: [office]
+      summary: Stream an active HQ file inline for in-app preview (provider read)
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Stored bytes with the file's content type
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        "404": { description: File not found or archived }
+        "410": { description: Stored bytes are missing }
+  /office/files/{fileId}/download-url:
+    get:
+      operationId: getOfficeFileDownload
+      tags: [office]
+      summary: Mint a short-lived download URL for an active HQ file (provider read; audited)
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Signed private download
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDownloadResult" } } }
+        "404": { description: File not found or archived }
+        "410": { description: Stored bytes are missing }
   /office/settings/overrides:
     put:
       operationId: updateOfficeSettingsOverrides
@@ -1960,11 +2019,15 @@ paths:
     get:
       operationId: getHqFiles
       tags: [hq]
-      summary: List persisted private HQ file metadata
+      summary: List one folder of the private HQ file drive (root when folderId is omitted), or the archived files
+      parameters:
+        - { name: folderId, in: query, required: false, schema: { type: string }, description: Folder to list; omit for the root }
+        - { name: view, in: query, required: false, schema: { type: string, enum: [active, archived] }, description: Pass archived to list every archived file with its original folder path instead of a folder; folderId is then ignored }
       responses:
         "200":
-          description: Files newest first
+          description: The folder, its breadcrumb trail, child folders A-Z and files newest first
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileListResult" } } }
+        "404": { description: Folder not found }
     post:
       operationId: finalizeHqFile
       tags: [hq]
@@ -1980,6 +2043,69 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFile" } } }
         "404": { description: Uploaded object not found }
         "422": { description: Stored object metadata does not match }
+  /hq/files/search:
+    get:
+      operationId: searchHqFiles
+      tags: [hq]
+      summary: Search active (non-archived) files by name across every folder
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 120 }, description: Case-insensitive substring of the file name }
+      responses:
+        "200":
+          description: Up to 50 matches, best match first (name starts with the query, then contains it; newest first within a tier)
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileSearchResult" } } }
+  /hq/files/{fileId}/content:
+    get:
+      operationId: getHqFileContent
+      tags: [hq]
+      summary: Stream the stored bytes inline for in-app preview (bearer-authenticated, Content-Disposition inline)
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Stored bytes with the file's content type
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        "404": { description: File not found }
+        "410": { description: Stored bytes are missing }
+  /hq/files/{fileId}/replace-url:
+    post:
+      operationId: createHqFileReplacement
+      tags: [hq]
+      summary: Mint an upload URL for a new version of an existing file (same entry, new bytes)
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFileReplaceUploadInput" }
+      responses:
+        "200":
+          description: Short-lived PUT URL and a fresh server-owned object path (fileId echoes the existing file)
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFileUploadResult" } } }
+        "404": { description: File not found }
+        "413": { description: File too large }
+        "415": { description: Content type not accepted }
+  /hq/files/{fileId}/replace:
+    post:
+      operationId: replaceHqFile
+      tags: [hq]
+      summary: Verify the replacement bytes, swap them in, and delete the previous version
+      description: The entry keeps its id, folder, and (when the new bytes have the same extension) its name; a different extension takes the uploaded file's name. Size, type, compression fields, and the unavailable flag are recomputed.
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFileReplaceInput" }
+      responses:
+        "200":
+          description: Updated file
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFile" } } }
+        "404": { description: File or uploaded object not found }
+        "422": { description: Stored object metadata does not match }
   /hq/files/{fileId}/download-url:
     get:
       operationId: getHqFileDownload
@@ -1993,6 +2119,23 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDownloadResult" } } }
         "404": { description: File not found }
   /hq/files/{fileId}:
+    patch:
+      operationId: updateHqFile
+      tags: [hq]
+      summary: Rename a file, move it to another folder, and/or archive or restore it
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFileUpdateInput" }
+      responses:
+        "200":
+          description: Updated file
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFile" } } }
+        "404": { description: File or destination folder not found }
+        "415": { description: New name's extension does not match the file type }
     delete:
       operationId: deleteHqFile
       tags: [hq]
@@ -2004,6 +2147,53 @@ paths:
           description: File deleted
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileDeleteResult" } } }
         "404": { description: File not found }
+  /hq/folders:
+    post:
+      operationId: createHqFolder
+      tags: [hq]
+      summary: Create a folder (nested when parentId is given)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFolderCreateInput" }
+      responses:
+        "200":
+          description: Created folder
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFolder" } } }
+        "404": { description: Parent folder not found }
+        "409": { description: A folder with that name already exists here }
+        "422": { description: Folders can nest at most 10 levels deep }
+  /hq/folders/{folderId}:
+    patch:
+      operationId: updateHqFolder
+      tags: [hq]
+      summary: Rename a folder and/or move it under another folder
+      parameters:
+        - { name: folderId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqFolderUpdateInput" }
+      responses:
+        "200":
+          description: Updated folder
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFolder" } } }
+        "404": { description: Folder or destination not found }
+        "409": { description: A folder with that name already exists at the destination }
+        "422": { description: Cannot move a folder into itself or its descendants or past 10 levels }
+    delete:
+      operationId: deleteHqFolder
+      tags: [hq]
+      summary: Delete a folder with every file and sub-folder inside it
+      parameters:
+        - { name: folderId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Folder tree deleted
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqFolderDeleteResult" } } }
+        "404": { description: Folder not found }
   /hq/system-health:
     get:
       operationId: getHqSystemHealth
@@ -3305,6 +3495,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 240 }
         contentType: { type: string, minLength: 1, maxLength: 120 }
         size: { type: number, minimum: 1, maximum: 52428800 }
+        folderId: { type: ["string", "null"], description: Destination folder; null or omitted means the root }
     HqFileUploadResult:
       type: object
       required: [fileId, uploadUrl, objectPath, expiresIn]
@@ -3323,19 +3514,95 @@ components:
         contentType: { type: string, minLength: 1, maxLength: 120 }
         size: { type: number, minimum: 1, maximum: 52428800 }
         objectPath: { type: string, minLength: 1, maxLength: 500 }
+        folderId: { type: ["string", "null"], description: Destination folder; null or omitted means the root }
+        compress:
+          type: boolean
+          description: For PNG/JPEG/WebP uploads, shrink the stored bytes without visible quality loss (PNG/WebP lossless, JPEG re-encoded at high quality with metadata stripped); the original is kept when it is already smaller
+    HqFileUpdateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 240 }
+        folderId: { type: ["string", "null"], description: New folder; null moves the file to the root }
+        archived:
+          type: boolean
+          description: true archives the file (hidden from folders, kept in the Archived view, restorable); false restores it to its folder (or the root when that folder is gone)
+    HqFileReplaceUploadInput:
+      type: object
+      additionalProperties: false
+      required: [name, contentType, size]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 240 }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+        size: { type: number, minimum: 1, maximum: 52428800 }
+    HqFileReplaceInput:
+      type: object
+      additionalProperties: false
+      required: [name, contentType, size, objectPath]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 240 }
+        contentType: { type: string, minLength: 1, maxLength: 120 }
+        size: { type: number, minimum: 1, maximum: 52428800 }
+        objectPath: { type: string, minLength: 1, maxLength: 500 }
+        compress: { type: boolean, description: Same semantics as finalize }
+    HqFileSearchResult:
+      type: object
+      required: [files]
+      properties:
+        files: { type: array, items: { $ref: "#/components/schemas/HqFile" } }
     HqFile:
       type: object
-      required: [id, name, contentType, size, createdAt, updatedAt]
+      required: [id, name, contentType, size, folderId, createdAt, updatedAt]
       properties:
         id: { type: string }
         name: { type: string }
         contentType: { type: string }
-        size: { type: number }
+        size: { type: number, description: Stored size in bytes (after compression when it was applied) }
+        folderId: { type: ["string", "null"] }
+        originalSize:
+          type: ["number", "null"]
+          description: Uploaded size before server-side compression; null when the file was stored as uploaded
+        compressedAt: { type: ["string", "null"] }
+        archivedAt: { type: ["string", "null"], description: Set while the file is archived }
+        uploadedBy: { type: ["string", "null"], description: Display name of the HQ member who uploaded it (null when unknown) }
+        path:
+          type: array
+          description: Folder trail from the root down to the file's folder (empty at the root); present on search hits and archived listings
+          items: { $ref: "#/components/schemas/HqFolder" }
         createdAt: { type: string }
         updatedAt: { type: string }
         unavailableSince:
           type: ["string", "null"]
           description: Set when storage reconciliation found the stored bytes missing; the file cannot be downloaded
+    HqFolder:
+      type: object
+      required: [id, name, parentId, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        parentId: { type: ["string", "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    HqFolderCreateInput:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        parentId: { type: ["string", "null"], description: Parent folder; null or omitted creates it at the root }
+    HqFolderUpdateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        parentId: { type: ["string", "null"], description: New parent; null moves the folder to the root }
+    HqFolderDeleteResult:
+      type: object
+      required: [ok, deletedFiles, deletedFolders]
+      properties:
+        ok: { type: boolean }
+        deletedFiles: { type: number }
+        deletedFolders: { type: number }
     SystemJobRun:
       type: object
       required: [id, jobName, trigger, dryRun, status, startedAt, finishedAt, counts, failureCount, error]
@@ -3407,9 +3674,17 @@ components:
         dryRun: { type: boolean }
     HqFileListResult:
       type: object
-      required: [files]
+      required: [folder, breadcrumbs, folders, files]
       properties:
-        files: { type: array, items: { $ref: "#/components/schemas/HqFile" } }
+        folder:
+          oneOf: [{ $ref: "#/components/schemas/HqFolder" }, { type: "null" }]
+          description: The listed folder; null at the root
+        breadcrumbs:
+          type: array
+          description: Ancestors from the root down to and including the listed folder (empty at the root)
+          items: { $ref: "#/components/schemas/HqFolder" }
+        folders: { type: array, items: { $ref: "#/components/schemas/HqFolder" }, description: Direct child folders A-Z }
+        files: { type: array, items: { $ref: "#/components/schemas/HqFile" }, description: Files directly in this folder newest first }
     HqFileDownloadResult:
       type: object
       required: [url, expiresIn, name]

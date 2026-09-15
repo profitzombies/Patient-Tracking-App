@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
-import { loadDefaultImages, productImageSignedUrl, productImageUrl } from "../billing/catalog";
+import { officeOffering, productImageSignedUrl } from "../billing/catalog";
 import { BillingLinkError, resolveActiveLink, withClaimedLinkUse } from "../billing/links";
 import { BillingOrderError, createOneTimeOrder } from "../billing/orders";
 import { BillingSubscriptionError, cancelByToken, createSubscriptionOrder, toPublicSubscription } from "../billing/subscriptions";
@@ -61,30 +61,21 @@ router.get("/billing/public/product-images/:imageId", async (req, res) => {
 router.get("/billing/public/links/:token", (req, res) => void limited(req, res, readLimit, async () => {
   try {
     const link = await resolveActiveLink(String(req.params.token));
-    const [prices, products, account, settings, provider, patientResult, images] = await Promise.all([
-      selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(link.provider_id)}`),
-      selectMany("billing_products", "active=eq.true"),
+    const [products, account, settings, provider, patientResult] = await Promise.all([
+      officeOffering(link.provider_id),
       selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(link.provider_id)}&disconnected_at=is.null`),
       selectOne("billing_settings", "id=eq.1"),
       getProvider(link.provider_id),
       link.patient_id ? supabaseAdmin("GET", `/rest/v1/patients?id=eq.${encodeURIComponent(link.patient_id)}&provider_id=eq.${encodeURIComponent(link.provider_id)}&select=first_name,last_name,name,email,phone&limit=1`) : null,
-      loadDefaultImages(),
     ]);
     if (!account?.charges_enabled || !provider || !settings) throw new BillingLinkError("This office is not ready to accept payments.", 409);
-    const productMap = new Map(products.map((product) => [product.id, product]));
     const patient = patientResult && patientResult.status < 300 && Array.isArray(patientResult.json) ? patientResult.json[0] as {
       first_name?: string | null; last_name?: string | null; name?: string | null; email?: string | null; phone?: string | null;
     } | undefined : undefined;
     const patientName = patient?.name?.trim() || `${patient?.first_name ?? ""} ${patient?.last_name ?? ""}`.trim() || "Patient";
     res.json({
       token: link.token, office: { name: officeName(provider), city: provider.city, state: provider.state },
-      products: prices.flatMap((price) => {
-        const product = productMap.get(price.product_id);
-        const image = images.get(price.product_id);
-        return product ? [{ product_id: product.id, name: product.name, description: product.description ?? "",
-          image_url: image ? productImageUrl(image.id) : null, unit_price_cents: price.sell_price_cents,
-          subscription_available: price.subscription_enabled }] : [];
-      }),
+      products,
       shipping_charge_cents: settings.shipping_charge_cents, tax_enabled: account.tax_enabled,
       locked_payer: link.patient_id ? { name: patientName, email: patient?.email ?? null, phone: patient?.phone ?? null } : null,
       sandbox: await isSandbox(), publishable_key: await getPublishableKey(), stripe_account_id: account.stripe_account_id, active: true,

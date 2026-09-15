@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/live-diary-stubs/supabase.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "expo-web-browser": ["./scripts/patient-billing-stubs/expo-web-browser.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"],
+      "react-native-keyboard-controller": ["./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/onboarding-gate-stubs/async-storage.ts"]
+    }
+  }
+}

@@ -36,6 +36,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   office_policy_override_updated: 'Updated an office policy override',
   hq_file_uploaded: 'Uploaded a file',
   hq_file_downloaded: 'Downloaded a file',
+  hq_file_previewed: 'Opened a file preview',
   hq_file_deleted: 'Deleted a file',
   knowledge_document_uploaded: 'Uploaded a knowledge document',
   knowledge_document_replaced: 'Replaced a knowledge document',

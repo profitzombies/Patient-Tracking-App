@@ -27,6 +27,8 @@ import { getConversations } from '@/data/hq/conversations';
 import { MOCK_PATIENTS } from '@/data/mock-data';
 import { TODAY_KEY, formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
+import { useTimeOfDayGreeting } from '@/hooks/use-local-clock';
+import { formatLocalDate } from '@/lib/local-time';
 import { formatPercent, percentOf, sumComparison } from '@/lib/office-analytics';
 import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey, useGetHqOverview, getGetHqOverviewQueryKey } from '@workspace/api-client-react';
 
@@ -52,6 +54,7 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
   const { authUser } = useSession();
   const { range } = useDateRange();
   const rangeLabel = formatRangeLabel(range);
+  const greeting = useTimeOfDayGreeting();
 
   const comparison = useGetHqOfficeComparison(
     { start: range.start, end: range.end },
@@ -76,14 +79,15 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
   const tileDetail = (ready: string) =>
     loading ? 'Loading live data…' : failed ? 'Failed to load' : noData ? 'No office has data for this range' : ready;
 
-  const asOfDate = comparison.data?.asOf ? formatDateKey(comparison.data.asOf.split('T')[0], true) : null;
+  // Device-local calendar day of the server's UTC "as of" instant.
+  const asOfDate = comparison.data?.asOf ? formatLocalDate(comparison.data.asOf) : null;
   const engagementPct = noData || loading || failed ? null : percentOf(totals.engaged, totals.activePatients);
 
   return (
     <AdminPage>
       <PageHeader
         kicker="THINNR HQ"
-        title={firstName ? `Good morning, ${firstName}.` : 'Good morning.'}
+        title={firstName ? `${greeting}, ${firstName}.` : `${greeting}.`}
         sub={
           <>
             <span data-testid="text-hq-demo-date">{asOfDate ?? 'Live'}</span> · Operations rollup for{' '}

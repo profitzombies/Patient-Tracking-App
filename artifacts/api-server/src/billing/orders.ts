@@ -173,44 +173,126 @@ export async function createOneTimeOrder(input: {
   }
 }
 
-async function invoiceCharge(invoice: any, accountId: string): Promise<any | null> {
+async function invoiceCharge(invoice: any, accountId: string, fallbackIntentId: string | null = null): Promise<any | null> {
   const stripe = await getStripe();
   const intent = paymentIntent(invoice);
-  const intentId = typeof intent === "string" ? intent : intent?.id;
+  let intentId: string | undefined = typeof intent === "string" ? intent : intent?.id;
+  // Webhook payloads on current API versions carry neither `payment_intent`
+  // nor `payments`; fall back to the intent we stored at checkout, then to a
+  // fresh retrieve with payments expanded.
+  if (!intentId && fallbackIntentId) intentId = fallbackIntentId;
+  if (!intentId && invoice.id) {
+    const loaded: any = await stripe.invoices.retrieve(invoice.id, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(accountId));
+    const loadedIntent = paymentIntent(loaded);
+    intentId = typeof loadedIntent === "string" ? loadedIntent : loadedIntent?.id;
+  }
   if (!intentId) return null;
   const pi: any = await stripe.paymentIntents.retrieve(intentId, { expand: ["latest_charge.balance_transaction", "latest_charge.application_fee"] } as any, connectedOpts(accountId));
   return typeof pi.latest_charge === "string" ? await stripe.charges.retrieve(pi.latest_charge, { expand: ["balance_transaction", "application_fee"] } as any, connectedOpts(accountId)) : pi.latest_charge;
+}
+/**
+ * Stripe's processing fee on a direct charge. On the connected account's
+ * balance transaction `fee` also includes our application fee, so sum only
+ * the non-application fee lines; without fee details fall back to the total
+ * minus the application fee. Unknown (no balance transaction yet) is null.
+ */
+export function stripeProcessingFeeCents(balance: any, applicationFeeCents: number): number | null {
+  if (!balance || typeof balance !== "object") return null;
+  const details: any[] | undefined = Array.isArray(balance.fee_details) ? balance.fee_details : undefined;
+  if (details) return details.filter((row) => row.type !== "application_fee").reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  return Math.max(0, Number(balance.fee ?? 0) - applicationFeeCents);
 }
 export async function markOrderPaidFromInvoice(invoice: any, ctx: StripeEventContext): Promise<void> {
   const orderId = invoice.metadata?.thinnr_order_id;
   const order = orderId
     ? await selectOne("billing_orders", `id=eq.${encodeURIComponent(orderId)}`)
     : await selectOne("billing_orders", `stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`);
-  if (!order || order.status === "paid") return;
+  if (!order) return;
   if (!(await eventBelongsToProvider(order.provider_id, ctx))) return;
+  // Already paid: the only thing a replay may still do is fill in a processing
+  // fee that was unknown at the time (no charge resolvable). Never re-post.
+  if (order.status === "paid") {
+    if (order.stripe_fee_cents === null) await backfillProcessingFee(order, invoice, ctx);
+    else await finalizeSaleLine(order, invoice);
+    return;
+  }
   const account = ctx.account ?? (await accountFor(order.provider_id)).stripe_account_id;
-  const charge = await invoiceCharge(invoice, account);
+  const charge = await invoiceCharge(invoice, account, order.stripe_payment_intent_id);
   const balance = typeof charge?.balance_transaction === "object" ? charge.balance_transaction : null;
-  const stripeFee = Number(balance?.fee ?? 0);
   const collected = Number(charge?.application_fee_amount ?? charge?.application_fee?.amount ?? order.application_fee_cents);
+  const stripeFee = stripeProcessingFeeCents(balance, collected);
   const total = Number(invoice.amount_paid ?? invoice.total ?? order.total_cents);
   const paidAt = invoice.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000).toISOString() : nowIso();
   const updated = await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}&status=eq.${encodeURIComponent(order.status)}`, {
     status: "paid", paid_at: paidAt, total_cents: total, stripe_charge_id: charge?.id ?? null,
     stripe_balance_transaction_id: balance?.id ?? null, stripe_fee_cents: stripeFee,
-    application_fee_collected_cents: collected, office_net_cents: total - collected - stripeFee,
+    application_fee_collected_cents: collected, office_net_cents: stripeFee === null ? null : total - collected - stripeFee,
   });
   if (!updated) return;
+  // The sale line carries the office's net. With the processing fee unknown
+  // it holds the office share BEFORE card fees and says so (fee_pending), so
+  // nobody mistakes an assumed $0 fee for a real one; the backfill above
+  // finalizes the amount once the fee is known.
   await insertIgnore("billing_ledger", {
     provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
-    kind: "sale", amount_cents: total - collected - stripeFee, application_fee_cents: collected,
-    stripe_ref: charge?.id ?? invoice.id, detail: { total_cents: total, stripe_fee_cents: stripeFee }, occurred_at: paidAt,
+    kind: "sale", amount_cents: total - collected - (stripeFee ?? 0), application_fee_cents: collected,
+    stripe_ref: charge?.id ?? invoice.id,
+    detail: { total_cents: total, stripe_fee_cents: stripeFee, ...(stripeFee === null ? { fee_pending: true } : {}) }, occurred_at: paidAt,
   }, "billing_ledger_kind_stripe_ref_unique");
   const bundle = await getOrderBundle(order.id);
   if (bundle) {
     const subscription = order.subscription_id ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(order.subscription_id)}`) : null;
     await sendReceipt({ ...bundle, order: updated, subscription });
   }
+}
+/**
+ * A paid order whose Stripe processing fee could not be resolved at payment
+ * time: try again on a replayed/duplicate invoice.paid. When the charge and
+ * its balance transaction are now available, finalize the fee, the office net
+ * and the sale ledger line in place (guarded so two replays cannot both win).
+ */
+async function backfillProcessingFee(order: any, invoice: any, ctx: StripeEventContext): Promise<void> {
+  const account = ctx.account ?? (await accountFor(order.provider_id)).stripe_account_id;
+  const charge = await invoiceCharge(invoice, account, order.stripe_payment_intent_id);
+  const balance = typeof charge?.balance_transaction === "object" ? charge.balance_transaction : null;
+  const collected = Number(charge?.application_fee_amount ?? charge?.application_fee?.amount ?? order.application_fee_collected_cents ?? order.application_fee_cents);
+  const stripeFee = stripeProcessingFeeCents(balance, collected);
+  if (stripeFee === null) return;
+  const total = Number(order.total_cents);
+  const updated = await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}&status=eq.paid&stripe_fee_cents=is.null`, {
+    stripe_charge_id: charge?.id ?? order.stripe_charge_id ?? null, stripe_balance_transaction_id: balance?.id ?? null,
+    stripe_fee_cents: stripeFee, application_fee_collected_cents: collected, office_net_cents: total - collected - stripeFee,
+  });
+  if (!updated) return;
+  await finalizeSaleLine(updated, invoice);
+}
+/**
+ * Make the sale ledger line agree with a paid order whose fee is known, using
+ * only stored values (no Stripe lookup): a still-pending line is finalized, a
+ * missing one is posted. Runs on every paid replay so a failure between the
+ * order update and the ledger write converges on the next delivery.
+ */
+async function finalizeSaleLine(order: any, invoice: any): Promise<void> {
+  if (order.stripe_fee_cents === null || order.stripe_fee_cents === undefined) return;
+  const total = Number(order.total_cents);
+  const collected = Number(order.application_fee_collected_cents ?? order.application_fee_cents);
+  const amount = total - collected - Number(order.stripe_fee_cents);
+  const detail = { total_cents: total, stripe_fee_cents: Number(order.stripe_fee_cents), fee_pending: false };
+  const sale = await selectOne("billing_ledger", `kind=eq.sale&order_id=eq.${encodeURIComponent(order.id)}`);
+  if (!sale) {
+    await insertIgnore("billing_ledger", {
+      provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id,
+      kind: "sale", amount_cents: amount, application_fee_cents: collected,
+      stripe_ref: order.stripe_charge_id ?? invoice?.id ?? order.stripe_invoice_id, detail, occurred_at: order.paid_at ?? nowIso(),
+    }, "billing_ledger_kind_stripe_ref_unique");
+    return;
+  }
+  // Only a still-pending line is rewritten: finalized lines may legitimately differ
+  // later (e.g. a first-invoice fee adjustment posts its own ledger line).
+  if (sale.detail?.fee_pending !== true) return;
+  await update("billing_ledger", `id=eq.${encodeURIComponent(sale.id)}`, {
+    amount_cents: amount, application_fee_cents: collected, detail: { ...(sale.detail ?? {}), ...detail },
+  });
 }
 export async function refundOrder(orderId: string, input: { amount_cents?: number; reason: string }, actor: string | null) {
   const order = await selectOne("billing_orders", `id=eq.${encodeURIComponent(orderId)}`);
@@ -290,7 +372,15 @@ async function reconcileRefund(charge: any, ctx: StripeEventContext) {
   const order = await selectOne("billing_orders", `stripe_charge_id=eq.${encodeURIComponent(charge.id)}`);
   if (!order) return;
   if (!(await eventBelongsToProvider(order.provider_id, ctx))) return;
-  for (const refund of charge.refunds?.data ?? []) {
+  // `charge.refunds` is not included in webhook payloads on current API
+  // versions; list them on the connected account instead.
+  let refunds: any[] = Array.isArray(charge.refunds?.data) ? charge.refunds.data : [];
+  if (!refunds.length && Number(charge.amount_refunded ?? 0) > 0) {
+    const stripe = await getStripe();
+    const account = ctx.account ?? (await accountFor(order.provider_id)).stripe_account_id;
+    refunds = (await stripe.refunds.list({ charge: charge.id, limit: 100 }, connectedOpts(account))).data;
+  }
+  for (const refund of refunds) {
     const existing = await selectOne("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`);
     if (existing) {
       await update("billing_refunds", `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`, { status: refund.status ?? "succeeded" });
@@ -304,8 +394,8 @@ async function reconcileRefund(charge: any, ctx: StripeEventContext) {
         detail: {}, occurred_at: nowIso() }, "billing_ledger_kind_stripe_ref_unique");
     }
   }
-  const refunds = await selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}`);
-  const total = refunds.filter((row) => row.status === "succeeded").reduce((sum, row) => sum + row.amount_cents, 0);
+  const recorded = await selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}`);
+  const total = recorded.filter((row) => row.status === "succeeded").reduce((sum, row) => sum + row.amount_cents, 0);
   await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, {
     status: total >= order.total_cents ? "refunded" : total > 0 ? "partially_refunded" : "paid",
   });

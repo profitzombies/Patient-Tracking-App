@@ -22,4 +22,9 @@ export interface HqFileUploadInput {
      * @maximum 52428800
      */
   size: number;
+  /**
+     * Destination folder; null or omitted means the root
+     * @nullable
+     */
+  folderId?: string | null;
 }

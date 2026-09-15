@@ -136,7 +136,7 @@ export function Shell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className={`${scope ? 'h-full' : 'min-h-[100dvh]'} max-w-full overflow-x-hidden bg-background font-sans text-foreground flex`}>
+    <div className={`${scope ? 'h-full' : 'h-[100dvh]'} flex max-w-full overflow-hidden bg-background font-sans text-foreground`}>
       {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
       <SideMenu
         mode={menuMode}
@@ -161,7 +161,7 @@ export function Shell({ children }: { children: ReactNode }) {
       />
 
       {/* Main Content Area */}
-      <section className={`min-w-0 flex-1 flex flex-col ${scope ? 'h-full' : 'h-[100dvh]'}`}>
+      <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 h-[68px] items-center justify-between gap-2 border-b border-border bg-paper-alt px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-xs text-muted-foreground hidden sm:inline">Operations</span>

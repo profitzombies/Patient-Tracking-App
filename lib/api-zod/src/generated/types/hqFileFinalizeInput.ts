@@ -28,4 +28,11 @@ export interface HqFileFinalizeInput {
      * @maxLength 500
      */
   objectPath: string;
+  /**
+     * Destination folder; null or omitted means the root
+     * @nullable
+     */
+  folderId?: string | null;
+  /** For PNG/JPEG/WebP uploads, shrink the stored bytes without visible quality loss (PNG/WebP lossless, JPEG re-encoded at high quality with metadata stripped); the original is kept when it is already smaller */
+  compress?: boolean;
 }

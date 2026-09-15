@@ -165,6 +165,7 @@ const blankShipping: ShippingAddress = {
 
 function CheckoutPage() {
   const { token = '' } = useParams<{ token: string }>();
+  const sourceApp = new URLSearchParams(useSearch()).get('source') === 'app';
   const [link, setLink] = useState<PublicLink | null>(null);
   const [loadError, setLoadError] = useState<{ message: string; inactive: boolean } | null>(null);
   const [reload, setReload] = useState(0);
@@ -621,7 +622,7 @@ function CheckoutPage() {
             publishableKey={order.publishable_key}
             stripeAccount={order.stripe_account_id}
             clientSecret={order.client_secret}
-            returnUrl={`${window.location.origin}/pay/${encodeURIComponent(token)}/done?order=${encodeURIComponent(order.order_id)}&token=${encodeURIComponent(token)}`}
+            returnUrl={`${window.location.origin}/pay/${encodeURIComponent(token)}/done?order=${encodeURIComponent(order.order_id)}&token=${encodeURIComponent(token)}${sourceApp ? '&source=app' : ''}`}
           />
         </section>
       ) : null}
@@ -634,6 +635,7 @@ function DonePage() {
   const search = new URLSearchParams(useSearch());
   const orderId = search.get('order') ?? '';
   const token = search.get('token') ?? pathToken;
+  const sourceApp = search.get('source') === 'app';
   const [status, setStatus] = useState<PublicOrderStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [timedOut, setTimedOut] = useState(false);
@@ -689,7 +691,7 @@ function DonePage() {
           <p className="mt-3 text-sm text-muted-foreground">
             No payment was completed. You can return to checkout and try again.
           </p>
-          <Link className={`mt-5 h-10 px-4 ${BTN_PRIMARY}`} href={`/${encodeURIComponent(token)}`}>
+          <Link className={`mt-5 h-10 px-4 ${BTN_PRIMARY}`} href={`/${encodeURIComponent(token)}${sourceApp ? '?source=app' : ''}`}>
             Return to checkout
           </Link>
         </section>
@@ -763,6 +765,11 @@ function DonePage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Your order ships every 4 weeks
             {status.subscription.renews_on ? ` and renews on ${formatDate(status.subscription.renews_on)}` : ''}.
+          </p>
+        ) : null}
+        {sourceApp ? (
+          <p className="mt-5 text-sm text-muted-foreground" data-testid="text-return-to-app">
+            You're all set. Close this window to return to the THINNR app.
           </p>
         ) : null}
       </section>

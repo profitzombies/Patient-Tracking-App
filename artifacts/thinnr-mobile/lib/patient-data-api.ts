@@ -92,7 +92,7 @@ interface RequestOptions {
    */
   idempotencyKey?: string;
 }
-async function authedRequest(
+export async function authedRequest(
   method: string,
   path: string,
   body?: unknown,

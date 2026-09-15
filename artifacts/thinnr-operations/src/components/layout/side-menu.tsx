@@ -318,7 +318,7 @@ function MenuColumn({
       )}
 
       {/* Sections, each opened by a hairline divider so the rail stays organized */}
-      <nav aria-label="Primary">
+      <nav aria-label="Primary" className="scrollbar-none min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
         {sections.map((section) => (
           <div key={section.label} className="px-3">
             <div className="mt-4 border-t border-border/80" />
@@ -342,7 +342,7 @@ function MenuColumn({
       </nav>
 
       {/* Foot: divider, account chip, then the pin control (+ optional gear) */}
-      <div className="mt-auto px-3 pb-3 pt-4">
+      <div className="shrink-0 px-3 pb-3 pt-4">
         <div className="border-t border-border/80 pt-3">
           <div className="flex w-full items-center gap-3 overflow-hidden whitespace-nowrap rounded-lg border border-border bg-white py-2 pr-2 shadow-xs">
             <span className="grid w-11 shrink-0 place-items-center">
@@ -418,7 +418,7 @@ export function SideMenu(props: SideMenuProps) {
     return (
       <aside
         aria-label={label}
-        className="hidden w-[264px] shrink-0 flex-col overflow-hidden border-r border-border bg-white text-foreground md:flex"
+        className="hidden min-h-0 w-[264px] shrink-0 flex-col overflow-hidden border-r border-border bg-white text-foreground md:flex"
       >
         {content}
       </aside>

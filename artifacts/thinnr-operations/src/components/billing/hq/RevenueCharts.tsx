@@ -53,9 +53,10 @@ function fmt(value: number, unit: Money): string {
 /** Short axis label: "$1.2k" / "$850" / "12". */
 function axis(value: number, unit: Money): string {
   if (unit === 'count') return value.toLocaleString('en-US');
-  const dollars = value / 100;
-  if (dollars >= 1000) return `$${(dollars / 1000).toFixed(dollars >= 10_000 ? 0 : 1)}k`;
-  return `$${Math.round(dollars)}`;
+  const sign = value < 0 ? '-' : '';
+  const dollars = Math.abs(value) / 100;
+  if (dollars >= 1000) return `${sign}$${(dollars / 1000).toFixed(dollars >= 10_000 ? 0 : 1)}k`;
+  return `${sign}$${Math.round(dollars)}`;
 }
 /** "Sep 3" — short, timezone-free label for a YYYY-MM-DD key. */
 export function shortDay(key: string): string {
@@ -75,9 +76,13 @@ export function hourLabel(key: string): string {
   const twelve = hour % 12 === 0 ? 12 : hour % 12;
   return `${twelve} ${hour < 12 ? 'AM' : 'PM'}`;
 }
-export function chartSummary(title: string, dates: string[], series: ChartSeries[], unit: Money, label: (key: string) => string = shortDay): string {
+export function chartSummary(title: string, dates: string[], series: ChartSeries[], unit: Money, label: (key: string) => string = shortDay, running = false): string {
   if (dates.length === 0) return `${title}: no data.`;
   const parts = series.map((s) => {
+    if (running) {
+      // Running totals: the last point IS the total; summing the points would multiply it.
+      return `${s.label} ${fmt(s.values[s.values.length - 1] ?? 0, unit)} so far`;
+    }
     const total = s.values.reduce((sum, v) => sum + v, 0);
     const peakIndex = s.values.reduce((best, v, i) => (v > s.values[best] ? i : best), 0);
     return `${s.label} ${fmt(total, unit)} in total, peaking at ${fmt(s.values[peakIndex] ?? 0, unit)} at ${label(dates[peakIndex])}`;
@@ -101,11 +106,13 @@ interface AreaChartProps {
   emptyLabel?: string;
   /** Roughly how many x-axis labels to show. */
   labelCount?: number;
+  /** Values are running totals (cumulative): the spoken summary reads the last point as the total. */
+  running?: boolean;
   testId?: string;
 }
 
 export function AreaChart({
-  title, dates, series, unit, height = 220, compact = false, formatLabel = shortDay, formatLabelLong, emptyLabel = 'No activity in this range yet', labelCount, testId,
+  title, dates, series, unit, height = 220, compact = false, formatLabel = shortDay, formatLabelLong, emptyLabel = 'No activity in this range yet', labelCount, running = false, testId,
 }: AreaChartProps) {
   const gradientId = useId().replace(/:/g, '');
   const [hover, setHover] = useState<number | null>(null);
@@ -115,9 +122,17 @@ export function AreaChart({
   const innerW = Math.max(1, width - pad.left - pad.right);
   const innerH = height - pad.top - pad.bottom;
   const max = useMemo(() => niceMax(Math.max(0, ...series.flatMap((s) => s.values))), [series]);
+  // Signed domain: a running net can dip below zero (a refund of an older
+  // order before today's first sale), and that must plot below the baseline
+  // rather than being clamped to $0 while the readout says otherwise.
+  const min = useMemo(() => {
+    const lowest = Math.min(0, ...series.flatMap((s) => s.values));
+    return lowest < 0 ? -niceMax(-lowest) : 0;
+  }, [series]);
+  const span = max - min;
   const x = (i: number) => pad.left + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2);
-  const y = (v: number) => pad.top + innerH - (Math.max(0, v) / max) * innerH;
-  const summary = chartSummary(title, dates, series, unit, formatLabel);
+  const y = (v: number) => pad.top + innerH - ((v - min) / span) * innerH;
+  const summary = chartSummary(title, dates, series, unit, formatLabel, running);
   if (n === 0 || series.every((s) => s.values.every((v) => v === 0))) {
     return (
       <div className="grid place-items-center rounded-md border border-dashed border-border text-xs text-muted-foreground" style={{ height }} role="img" aria-label={summary} data-testid={testId}>
@@ -125,7 +140,9 @@ export function AreaChart({
       </div>
     );
   }
-  const ticks = compact ? [0, max] : [0, max / 4, max / 2, (max * 3) / 4, max];
+  const ticks = compact
+    ? (min < 0 ? [min, 0, max] : [0, max])
+    : [...(min < 0 ? [min, min / 2] : []), 0, max / 4, max / 2, (max * 3) / 4, max];
   // Axis labels: never closer than ~64px (compact: ~56px) so neighbours cannot collide.
   const fitLabels = Math.max(2, Math.floor(innerW / (compact ? 56 : 64)));
   const labelEvery = Math.max(1, Math.ceil((n - 1) / Math.max(1, Math.min(labelCount ?? (compact ? 3 : 8), fitLabels) - 1)));
@@ -136,6 +153,9 @@ export function AreaChart({
     // Drop the label just before the end when it would crowd the final one.
     return x(lastLabelIndex) - x(i) >= (compact ? 40 : 48);
   };
+  // The crosshair + readout appear only while the pointer or keyboard is on
+  // the chart; at rest the plot stands alone (no card pinned to the last slot).
+  const engaged = hover !== null;
   const active = hover ?? n - 1;
   const readout = series.map((s) => `${s.label} ${fmt(s.values[active] ?? 0, unit)}`).join(' · ');
   const longLabel = (formatLabelLong ?? formatLabel)(dates[active]);
@@ -179,6 +199,7 @@ export function AreaChart({
           tabIndex={0}
           onMouseMove={(e) => pick(e.clientX, e.currentTarget)}
           onMouseLeave={() => setHover(null)}
+          onBlur={() => setHover(null)}
           onKeyDown={(e) => {
             if (e.key === 'ArrowLeft') { e.preventDefault(); setHover(Math.max(0, active - 1)); }
             if (e.key === 'ArrowRight') { e.preventDefault(); setHover(Math.min(n - 1, active + 1)); }
@@ -219,15 +240,19 @@ export function AreaChart({
               </g>
             );
           })}
-          <line x1={x(active)} x2={x(active)} y1={pad.top} y2={pad.top + innerH} stroke="hsl(var(--navy))" strokeOpacity={hover === null ? 0.15 : 0.45} />
-          {series.map((s) => (
-            <circle key={s.key} cx={x(active)} cy={y(s.values[active] ?? 0)} r={3.5} fill="#fff" stroke={s.color} strokeWidth={2} />
-          ))}
+          {engaged && (
+            <>
+              <line x1={x(active)} x2={x(active)} y1={pad.top} y2={pad.top + innerH} stroke="hsl(var(--navy))" strokeOpacity={0.45} />
+              {series.map((s) => (
+                <circle key={s.key} cx={x(active)} cy={y(s.values[active] ?? 0)} r={3.5} fill="#fff" stroke={s.color} strokeWidth={2} />
+              ))}
+            </>
+          )}
         </svg>
         <p className="sr-only" aria-live="polite">
-          {longLabel}: {readout}
+          {engaged ? `${longLabel}: ${readout}` : ''}
         </p>
-        {!compact && floating && (
+        {engaged && !compact && floating && (
           <div
             aria-hidden
             data-testid={testId ? `${testId}-readout` : undefined}
@@ -249,7 +274,7 @@ export function AreaChart({
           </div>
         )}
       </div>
-      {!compact && !floating && (
+      {engaged && !compact && !floating && (
         <div aria-hidden data-testid={testId ? `${testId}-readout` : undefined} className="mt-2 rounded-md border border-border bg-background/60 px-3 py-2 text-[11px]">
           <p className="mb-1 font-semibold text-navy">{longLabel}</p>
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
@@ -288,6 +313,7 @@ export function ChartCard({
   values,
   unit,
   color,
+  running,
   testId,
 }: {
   label: string;
@@ -297,6 +323,8 @@ export function ChartCard({
   values: number[];
   unit: Money;
   color: string;
+  /** Values are a running total (see AreaChart). */
+  running?: boolean;
   testId?: string;
 }) {
   return (
@@ -305,7 +333,7 @@ export function ChartCard({
       <p className="mt-2 font-serif text-[22px] font-bold leading-none tracking-[-.01em] text-navy">{value}</p>
       {detail && <p className="mt-1.5 text-[11px] text-muted-foreground">{detail}</p>}
       <div className="mt-3">
-        <AreaChart title={label} dates={dates} series={[{ key: 'v', label, color, values }]} unit={unit} height={90} compact />
+        <AreaChart title={label} dates={dates} series={[{ key: 'v', label, color, values }]} unit={unit} height={90} compact running={running} />
       </div>
     </div>
   );
@@ -325,16 +353,25 @@ export const CHART_COLORS = {
   count: 'hsl(var(--chart-2))',
 };
 
-/** Today's hourly points through the current hour, keyed "0".."23". */
+/**
+ * Today's points through the current hour, keyed "0".."23", as RUNNING TOTALS:
+ * each hour is everything collected since midnight, so the lines only ever
+ * climb (a quiet hour is flat, never a drop back to zero).
+ */
 export function hourlySeriesFrom(points: HourPoint[], currentHour: number) {
   const shown = points.filter((p) => p.hour <= currentHour);
   return {
     hours: shown.map((p) => String(p.hour)),
-    gross: shown.map((p) => p.collected_cents),
-    net: shown.map((p) => p.net_cents),
-    fees: shown.map((p) => p.fee_cents),
-    profit: shown.map((p) => p.profit_cents),
+    gross: cumulative(shown.map((p) => p.collected_cents)),
+    net: cumulative(shown.map((p) => p.net_cents)),
+    fees: cumulative(shown.map((p) => p.fee_cents)),
+    profit: cumulative(shown.map((p) => p.profit_cents)),
   };
+}
+/** Readout header for a running-total hour: "Through 3 PM", or "So far today" on the current hour. */
+export function runningHourLabel(key: string, currentHourKey: string): string {
+  if (key === currentHourKey) return 'So far today';
+  return `Through ${hourLabel(String((Number(key) + 1) % 24))}`;
 }
 export function seriesFrom(series: SeriesPoint[]) {
   return {

@@ -16,7 +16,7 @@ import {
   formatAddress,
 } from '@/components/billing/primitives';
 import { FulfillmentDialog } from '@/components/billing/hq/FulfillmentDialog';
-import { AreaChart, CHART_COLORS, ChartCard, cumulative, hourLabel, hourlySeriesFrom, seriesFrom, shortDay } from '@/components/billing/hq/RevenueCharts';
+import { AreaChart, CHART_COLORS, ChartCard, cumulative, hourLabel, hourlySeriesFrom, runningHourLabel, seriesFrom, shortDay } from '@/components/billing/hq/RevenueCharts';
 import { ActivityTable } from '@/components/billing/hq/ActivityTable';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useDateRange } from '@/contexts/date-range';
@@ -144,8 +144,8 @@ function OverviewBody({ demo }: { demo: boolean }) {
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <ChartCard label="Payments per day" value={String(data.orders)} detail="Total processed in range" dates={series.dates} values={series.orders} unit="count" color={CHART_COLORS.count} testId="chart-payments" />
               <ChartCard label="Refunds per day" value={formatCents(data.refunded_cents)} detail="Total refunded in range" dates={series.dates} values={series.refunds} unit="money" color={CHART_COLORS.refunds} testId="chart-refunds" />
-              <ChartCard label="Gross collections" value={formatCents(data.collected_cents)} detail="Running total" dates={series.dates} values={cumulative(series.gross)} unit="money" color={CHART_COLORS.gross} testId="chart-gross" />
-              <ChartCard label="Net collections" value={formatCents(netCollected)} detail="Running total after refunds" dates={series.dates} values={cumulative(series.net)} unit="money" color={CHART_COLORS.net} testId="chart-net" />
+              <ChartCard label="Gross collections" value={formatCents(data.collected_cents)} detail="Running total" dates={series.dates} values={cumulative(series.gross)} unit="money" color={CHART_COLORS.gross} running testId="chart-gross" />
+              <ChartCard label="Net collections" value={formatCents(netCollected)} detail="Running total after refunds" dates={series.dates} values={cumulative(series.net)} unit="money" color={CHART_COLORS.net} running testId="chart-net" />
             </div>
             <SectionCard
               title="Recent activity"
@@ -173,7 +173,7 @@ function TodayRevenue({ demo }: { demo: boolean }) {
   const zone = data
     ? new Intl.DateTimeFormat('en-US', { timeZone: data.time_zone, timeZoneName: 'short' }).formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value ?? data.time_zone
     : null;
-  const sub = data ? `${shortDay(data.date)} so far, by the hour (${zone}). Refreshes every minute.` : 'By the hour. Refreshes every minute.';
+  const sub = data ? `${shortDay(data.date)} so far, running total by hour (${zone}). Refreshes every minute.` : 'Running total by hour. Refreshes every minute.';
   return (
     <SectionCard title="Today's revenue" sub={sub} className="mt-5">
       <div className="p-5" data-testid="section-today-revenue">
@@ -218,7 +218,8 @@ function HourlyChart({ data }: { data: HqTodayOverview }) {
       height={200}
       testId="chart-today-revenue"
       formatLabel={hourLabel}
-      formatLabelLong={(key) => `${hourLabel(key)} to ${hourLabel(String((Number(key) + 1) % 24))}`}
+      formatLabelLong={(key) => runningHourLabel(key, String(data.current_hour))}
+      running
       labelCount={hourly.hours.length <= 8 ? hourly.hours.length : 8}
       emptyLabel="No payments yet today"
       series={[

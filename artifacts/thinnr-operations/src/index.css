@@ -265,6 +265,15 @@
 }
 
 @layer utilities {
+  /* Scrolls without showing a scrollbar (side menu rail) */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Gentle interaction elevation used by buttons/badges (navy wash, radius-aware) */
   .hover-elevate,
   .active-elevate-2 {

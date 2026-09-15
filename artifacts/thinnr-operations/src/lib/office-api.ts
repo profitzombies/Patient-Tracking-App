@@ -25,7 +25,7 @@ export class OfficeApiError extends Error {
   }
 }
 
-async function authToken(unconfigured: string, signedOut: string): Promise<string> {
+export async function officeAuthToken(unconfigured: string, signedOut: string): Promise<string> {
   if (!supabase) throw new OfficeApiError(unconfigured, 503);
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -41,7 +41,7 @@ export interface OfficeRequestMessages {
 }
 
 export async function officeRequest<T>(path: string, messages: OfficeRequestMessages, init?: RequestInit): Promise<T> {
-  let token = await authToken(messages.unconfigured, messages.signedOut);
+  let token = await officeAuthToken(messages.unconfigured, messages.signedOut);
   let response: Response;
   const perform = (accessToken: string) => fetch(path, {
     ...init,

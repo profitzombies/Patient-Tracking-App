@@ -6,7 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { HqFile } from './hqFile';
+import type { HqFolder } from './hqFolder';
 
 export interface HqFileListResult {
+  /** The listed folder; null at the root */
+  folder: HqFolder | null;
+  /** Ancestors from the root down to and including the listed folder (empty at the root) */
+  breadcrumbs: HqFolder[];
+  /** Direct child folders A-Z */
+  folders: HqFolder[];
+  /** Files directly in this folder newest first */
   files: HqFile[];
 }

@@ -982,7 +982,10 @@ function DetailView({
               <div className="flex items-center justify-between gap-4 p-4 text-xs" key={line.id}>
                 <div>
                   <p className="font-semibold capitalize text-foreground">{line.kind.replace(/_/g, ' ')}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{formatDateTime(line.occurred_at)}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {formatDateTime(line.occurred_at)}
+                    {line.kind === 'sale' && line.detail?.fee_pending === true ? ' · before card fees (Stripe fee not yet reported)' : ''}
+                  </p>
                 </div>
                 <MoneyCell cents={line.amount_cents} signed />
               </div>

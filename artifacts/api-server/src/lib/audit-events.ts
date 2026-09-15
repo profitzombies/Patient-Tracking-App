@@ -47,6 +47,7 @@ export const AUDIT_ACTIONS = [
   "hq_settings_updated",
   "hq_file_uploaded",
   "hq_file_downloaded",
+  "hq_file_previewed",
   "hq_file_deleted",
   "knowledge_document_uploaded",
   "knowledge_document_replaced",

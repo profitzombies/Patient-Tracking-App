@@ -124,3 +124,6 @@
 - [Coach readiness caches](coach-readiness-caches.md) — paintable ≠ saved; stale reads must reject consumers, not merely skip cache writes; navigation must not renew freshness.
 - [Stripe Connect billing](stripe-connect-billing.md) — connector key vs Connect-enabled sandbox; first-invoice fee % + refund; webhook rows are claims; CAS on every money transition; ledger only on success + reversal rows; test-office recipe.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
+- [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
+- [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
+- [HQ file drive](hq-file-drive.md) — replace = CAS swap; one-row responses enrich like listings; archived rows stay real; providers read-only via shared read module; downloads open a new tab.

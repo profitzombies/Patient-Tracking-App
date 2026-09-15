@@ -32,6 +32,7 @@ import OfficeSettings from '@/pages/OfficeSettings';
 import MenuLab from '@/pages/MenuLab';
 import OfficeTeam from '@/pages/OfficeTeam';
 import OfficeAudit from '@/pages/OfficeAudit';
+import OfficeFiles from '@/pages/OfficeFiles';
 import Security from '@/pages/Security';
 
 export function OfficeApp() {
@@ -55,6 +56,7 @@ export function OfficeApp() {
               {/* Payments (Stripe Connect) owns its sub-routes. */}
               <Route path="/payments" nest component={OfficePaymentsArea} />
               <Route path="/training" component={OfficeTraining} />
+              <Route path="/files" component={OfficeFiles} />
               {/* Literal /training/team must outrank the :courseId catch-all. */}
               <Route path="/training/team/:viewerId" component={OfficeTeammate} />
               <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />

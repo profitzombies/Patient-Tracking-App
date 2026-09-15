@@ -4,7 +4,7 @@
  * A browsable mockup of the HQ shared drive for the demo persona.
  * Signed-in HQ admins use the live API to interact with real durable storage.
  */
-import React, { useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { useSession } from '@/contexts/session';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation, useSearch } from 'wouter';
 import {
   Dialog,
   DialogContent,
@@ -51,9 +52,25 @@ import {
   useCreateHqFileUpload,
   useFinalizeHqFile,
   useDeleteHqFile,
+  useCreateHqFolder,
+  useUpdateHqFolder,
+  useDeleteHqFolder,
+  useUpdateHqFile,
+  useSearchHqFiles,
+  getSearchHqFilesQueryKey,
   getHqFileDownload,
   type HqFile,
+  type HqFolder,
 } from '@workspace/api-client-react';
+import { FolderGrid } from '@/components/admin/files/FolderGrid';
+import { FileTable } from '@/components/admin/files/FileTable';
+import { MoveDialog } from '@/components/admin/files/MoveDialog';
+import { DropOverlay } from '@/components/admin/files/DropOverlay';
+import { UploadPanel } from '@/components/admin/files/UploadPanel';
+import { UploadQueue, type UploadItem } from '@/components/admin/files/upload-queue';
+import { apiError, openDownload } from '@/components/admin/files/utils';
+import { FileDetailDialog } from '@/components/admin/files/FileDetailDialog';
+import { SearchResults } from '@/components/admin/files/SearchResults';
 
 const FILE_ICONS: Record<DriveFileKind, React.ReactNode> = {
   doc: <FileText size={15} />,
@@ -294,79 +311,137 @@ function LiveFiles() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [uploadingName, setUploadingName] = useState<string | null>(null);
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  const folderId = new URLSearchParams(search).get('folder');
+  const archivedView = new URLSearchParams(search).get('view') === 'archived';
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [editItem, setEditItem] = useState<{ kind: 'file' | 'folder'; item: HqFile | HqFolder; action: 'rename' | 'move' } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [folderToDelete, setFolderToDelete] = useState<HqFolder | null>(null);
+  const lastFolderNameRef = useRef<string>('');
+  if (folderToDelete) lastFolderNameRef.current = folderToDelete.name;
   const [fileToDelete, setFileToDelete] = useState<HqFile | null>(null);
+  const lastFileNameRef = useRef<string>('');
+  if (fileToDelete) lastFileNameRef.current = fileToDelete.name;
+  const [selectedFile, setSelectedFile] = useState<HqFile | null>(null);
+  const [fileSearch, setFileSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [deletingFile, setDeletingFile] = useState(false);
+  const [deletingFolder, setDeletingFolder] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-
-  const queryKey = [...getGetHqFilesQueryKey(), authUser?.id] as const;
-  const { data, isLoading, isError } = useGetHqFiles({
-    query: { queryKey }
-  });
-
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
+  const [uploadsMinimized, setUploadsMinimized] = useState(false);
+  const [dropVisible, setDropVisible] = useState(false);
+  const dragDepth = useRef(0);
+  const queryParams = archivedView ? { view: 'archived' as const } : folderId ? { folderId } : undefined;
+  const queryKey = [...getGetHqFilesQueryKey(queryParams), authUser?.id] as const;
+  const { data, isLoading, isError, error } = useGetHqFiles(queryParams, { query: { queryKey } });
   const createUpload = useCreateHqFileUpload();
   const finalizeUpload = useFinalizeHqFile();
   const deleteFile = useDeleteHqFile();
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const createFolder = useCreateHqFolder();
+  const updateFolder = useUpdateHqFolder();
+  const deleteFolder = useDeleteHqFolder();
+  const updateFile = useUpdateHqFile();
+  const searchParams = { q: debouncedSearch };
+  const searchResult = useSearchHqFiles(searchParams, { query: { queryKey: getSearchHqFilesQueryKey(searchParams), enabled: debouncedSearch.length > 0 } });
+  const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: ['/api/hq/files'] }), [queryClient]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(fileSearch.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [fileSearch]);
+  const queue = useMemo(() => new UploadQueue({
+    create: (item) => createUpload.mutateAsync({ data: { name: item.file.name, contentType: item.file.type || 'application/octet-stream', size: item.file.size, folderId: item.folderId } }),
+    finalize: (item, upload) => finalizeUpload.mutateAsync({ data: { ...upload, name: item.file.name, contentType: item.file.type || 'application/octet-stream', size: item.file.size, folderId: item.folderId, compress: item.compress ?? false } }),
+  }, setUploadItems, () => void refresh()), [createUpload.mutateAsync, finalizeUpload.mutateAsync, refresh]);
+  const addUploads = useCallback((files: File[], destination = folderId) => {
+    const valid = files.filter((file) => {
+      if (file.size <= 50 * 1024 * 1024) return true;
+      toast({ variant: 'destructive', title: 'File too large', description: `${file.name} exceeds the 50 MB maximum.` });
+      return false;
+    });
+    if (valid.length) {
+      queue.add(valid, destination, `${Date.now()}-${Math.random()}`);
+      setUploadsMinimized(false);
     }
-
-    if (file.size > 50 * 1024 * 1024) {
-      toast({ variant: 'destructive', title: 'File too large', description: 'Maximum file size is 50 MB.' });
+  }, [folderId, queue, toast]);
+  type DropEntry = {
+    name: string;
+    isDirectory: boolean;
+    isFile: boolean;
+    file(callback: (file: File) => void, error?: (error: unknown) => void): void;
+    createReader(): { readEntries(callback: (entries: DropEntry[]) => void, error?: (error: unknown) => void): void };
+  };
+  const droppedFile = (entry: DropEntry) => new Promise<File>((resolve, reject) => entry.file(resolve, reject));
+  const droppedChildren = async (entry: DropEntry) => {
+    const reader = entry.createReader();
+    const all: DropEntry[] = [];
+    while (true) {
+      const page = await new Promise<DropEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (!page.length) return all;
+      all.push(...page);
+    }
+  };
+  const importEntry = useCallback(async (entry: DropEntry, parentId: string | null): Promise<void> => {
+    if (entry.isFile) {
+      addUploads([await droppedFile(entry)], parentId);
       return;
     }
-
+    let childId: string;
     try {
-      setUploadingName(file.name);
-      const { uploadUrl, fileId, objectPath } = await createUpload.mutateAsync({
-        data: {
-          name: file.name,
-          contentType: file.type || 'application/octet-stream',
-          size: file.size,
-        }
-      });
-
-      const putRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-        },
-        body: file,
-      });
-
-      if (!putRes.ok) {
-        throw new Error('Upload to storage failed');
-      }
-
-      await finalizeUpload.mutateAsync({
-        data: {
-          fileId,
-          name: file.name,
-          contentType: file.type || 'application/octet-stream',
-          size: file.size,
-          objectPath,
-        }
-      });
-
-      queryClient.invalidateQueries({ queryKey });
-      toast({ variant: 'success', title: 'File uploaded', description: file.name });
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Upload failed', description: 'There was a problem uploading your file.' });
-    } finally {
-      setUploadingName(null);
+      childId = (await createFolder.mutateAsync({ data: { name: entry.name, parentId } })).id;
+    } catch (caught) {
+      const status = (caught as { status?: number }).status;
+      if (status !== 409) throw caught;
+      const listing = await import('@workspace/api-client-react').then(({ getHqFiles }) => getHqFiles(parentId ? { folderId: parentId } : undefined));
+      const existing = listing.folders.find((folder) => folder.name.localeCompare(entry.name, undefined, { sensitivity: 'accent' }) === 0);
+      if (!existing) throw caught;
+      childId = existing.id;
     }
+    for (const child of await droppedChildren(entry)) await importEntry(child, childId);
+  }, [addUploads, createFolder.mutateAsync]);
+  const importDrop = useCallback(async (transfer: DataTransfer) => {
+    const entries: DropEntry[] = [];
+    for (const item of Array.from(transfer.items ?? [])) {
+      const entry = (item as unknown as { webkitGetAsEntry?: () => DropEntry | null }).webkitGetAsEntry?.();
+      if (entry) entries.push(entry);
+    }
+    if (!entries.length) { addUploads(Array.from(transfer.files)); return; }
+    try {
+      for (const entry of entries) await importEntry(entry, folderId);
+      await refresh();
+    } catch (caught) {
+      toast({ variant: 'destructive', title: 'Could not import dropped folder', description: apiError(caught, 'Please try again.') });
+    }
+  }, [addUploads, folderId, importEntry, refresh, toast]);
+
+  useEffect(() => {
+    const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files');
+    const enter = (event: DragEvent) => { if (!hasFiles(event)) return; event.preventDefault(); dragDepth.current += 1; setDropVisible(true); };
+    const over = (event: DragEvent) => { if (hasFiles(event)) event.preventDefault(); };
+    const leave = (event: DragEvent) => { if (!hasFiles(event)) return; dragDepth.current -= 1; if (dragDepth.current <= 0) { dragDepth.current = 0; setDropVisible(false); } };
+    const drop = (event: DragEvent) => { if (!hasFiles(event)) return; event.preventDefault(); dragDepth.current = 0; setDropVisible(false); if (event.dataTransfer) void importDrop(event.dataTransfer); };
+    window.addEventListener('dragenter', enter); window.addEventListener('dragover', over); window.addEventListener('dragleave', leave); window.addEventListener('drop', drop);
+    return () => { window.removeEventListener('dragenter', enter); window.removeEventListener('dragover', over); window.removeEventListener('dragleave', leave); window.removeEventListener('drop', drop); };
+  }, [importDrop]);
+
+  const goFolder = (id: string | null) => {
+    setFileSearch('');
+    setDebouncedSearch('');
+    navigate(id ? `/admin/files?folder=${encodeURIComponent(id)}` : '/admin/files', { replace: true });
+  };
+  const mutate = async (work: () => Promise<unknown>, success: string) => {
+    try { await work(); await refresh(); toast({ variant: 'success', title: success }); }
+    catch (caught) { toast({ variant: 'destructive', title: 'Could not save changes', description: apiError(caught, 'Please try again.') }); throw caught; }
   };
 
   const handleDownload = async (file: HqFile) => {
     try {
       setDownloadingId(file.id);
       const res = await getHqFileDownload(file.id);
-      window.location.assign(res.url);
+      openDownload(res.url);
     } catch (error) {
       const status = (error as { status?: number })?.status;
       toast({
@@ -382,19 +457,19 @@ function LiveFiles() {
 
   const handleDelete = async () => {
     if (!fileToDelete) return;
+    setDeletingFile(true);
     try {
+      const deletedName = fileToDelete.name;
       await deleteFile.mutateAsync({ fileId: fileToDelete.id });
-      queryClient.setQueryData(queryKey, (old: any) => {
-        if (!old) return old;
-        return {
-          ...old,
-          files: old.files.filter((f: HqFile) => f.id !== fileToDelete.id),
-        };
-      });
-      toast({ variant: 'success', title: 'File deleted', description: fileToDelete.name });
+      setDeletingFile(false);
+      setFileToDelete(null);
+      setSelectedFile(null);
+      await refresh();
+      toast({ variant: 'success', title: 'File deleted', description: deletedName });
     } catch (error) {
       toast({ variant: 'destructive', title: 'Delete failed', description: 'Could not delete the file.' });
     } finally {
+      setDeletingFile(false);
       setFileToDelete(null);
     }
   };
@@ -406,147 +481,102 @@ function LiveFiles() {
         title="Files"
         sub="Durable document storage for HQ administrators."
         action={
-          <>
+          <div className="flex gap-2">
             <input
               type="file"
+              multiple
               ref={fileInputRef}
               className="hidden"
-              onChange={handleFileChange}
+              onChange={(event) => { addUploads(Array.from(event.target.files ?? [])); event.target.value = ''; }}
               data-testid="input-file-upload"
             />
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} data-testid="button-new-folder" onClick={() => setNewFolderOpen(true)}><Folder size={14} />New folder</button>
             <button
               type="button"
               className={`${BTN_PRIMARY} h-9 px-3.5`}
               data-testid="button-new-file"
-              disabled={!!uploadingName}
               onClick={() => fileInputRef.current?.click()}
             >
               <Plus size={14} aria-hidden="true" />
-              {uploadingName ? 'Uploading...' : 'Upload'}
+              Upload
             </button>
-          </>
+          </div>
         }
       />
-
-      <SectionCard title="Documents">
+      {!archivedView && <div role="search" className="mb-4 flex max-w-xl items-center gap-2">
+        <label htmlFor="hq-file-search" className="sr-only">Search files</label>
+        <input id="hq-file-search" type="search" value={fileSearch} onChange={(event) => setFileSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setFileSearch(''); }} placeholder="Search files by name" className="h-10 flex-1 rounded-md border border-input bg-white px-3 text-sm" />
+        {fileSearch && <button type="button" aria-label="Clear search" className={`${BTN_SECONDARY} h-10 px-3 text-lg`} onClick={() => setFileSearch('')}>×</button>}
+      </div>}
+      <SectionCard
+        title={fileSearch.trim() ? `Results for “${fileSearch.trim()}”` : 'HQ Drive'}
+        sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Files</button>{archivedView ? <><ChevronRight size={11} /><strong className="text-xs text-navy">Archived</strong></> : data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
+        action={!fileSearch.trim() ? <button type="button" className={`${archivedView ? BTN_PRIMARY : BTN_SECONDARY} h-8 px-3 text-xs`} onClick={() => { setFileSearch(''); setDebouncedSearch(''); navigate(archivedView ? '/admin/files' : '/admin/files?view=archived', { replace: true }); }}>{archivedView ? 'Back to files' : 'Archived'}</button> : undefined}
+      >
         <div className="px-5 py-4">
-          {isLoading ? (
+          {fileSearch.trim() ? (
+            <SearchResults query={fileSearch.trim()} files={searchResult.data?.files ?? []} loading={searchResult.isLoading || debouncedSearch !== fileSearch.trim()} error={searchResult.isError ? apiError(searchResult.error, 'Could not search files right now.') : null} onOpen={setSelectedFile} onFolder={(folder) => { setSelectedFile(null); goFolder(folder.id); }} />
+          ) : isLoading ? (
             <p className="py-6 text-center text-xs text-muted-foreground">Loading files...</p>
           ) : isError ? (
-            <p className="py-6 text-center text-xs text-destructive">Failed to load files.</p>
-          ) : data?.files.length === 0 && !uploadingName ? (
-            <p className="py-6 text-center text-xs text-muted-foreground">No files uploaded yet.</p>
+            <p role="alert" className="py-6 text-center text-xs text-destructive">{apiError(error, 'Failed to load files.')}</p>
+          ) : !data?.files.length && !data?.folders.length ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">{archivedView ? 'Nothing archived.' : 'This folder is empty.'}</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] text-left text-xs">
-                <thead>
-                  <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-                    <th className="py-2.5 pr-3 font-bold">Name</th>
-                    <th className="px-3 py-2.5 font-bold">Type</th>
-                    <th className="px-3 py-2.5 font-bold">Size</th>
-                    <th className="px-3 py-2.5 font-bold">Uploaded</th>
-                    <th className="py-2.5 pl-3 text-right font-bold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploadingName && (
-                    <tr className="border-b border-border last:border-b-0">
-                      <td className="py-2.5 pr-3">
-                        <span className="flex items-center gap-2.5 opacity-50">
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm bg-accent text-primary">
-                            <FileText size={15} />
-                          </span>
-                          <span className="truncate font-medium text-foreground">{uploadingName}</span>
-                        </span>
-                      </td>
-                      <td colSpan={4} className="px-3 py-2.5 text-muted-foreground text-right italic">
-                        Uploading...
-                      </td>
-                    </tr>
-                  )}
-                  {data?.files.map((file) => (
-                    <tr key={file.id} className="border-b border-border last:border-b-0" data-testid={`file-${file.id}`}>
-                      <td className="py-2.5 pr-3">
-                        <span className="flex items-center gap-2.5">
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-sm bg-accent text-primary" aria-hidden="true">
-                            {getIconForContentType(file.contentType)}
-                          </span>
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium text-foreground">{file.name}</span>
-                            {file.unavailableSince && (
-                              <span
-                                className="mt-0.5 inline-flex items-center gap-1 rounded-sm border border-[#d5a7a7] bg-[#fff0f0] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] text-destructive"
-                                data-testid={`chip-file-unavailable-${file.id}`}
-                                title={`Stored file not found since ${format(new Date(file.unavailableSince), 'MMM d, yyyy HH:mm')}`}
-                              >
-                                <FileX2 size={10} aria-hidden="true" />
-                                File unavailable
-                              </span>
-                            )}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{getLabelForContentType(file.contentType)}</td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{formatBytes(file.size)}</td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{format(new Date(file.createdAt), 'MMM d, yyyy')}</td>
-                      <td className="py-2.5 pl-3 text-right">
-                        <div className="flex justify-end items-center gap-2">
-                          {file.unavailableSince ? (
-                            <span className="text-[11px] italic text-muted-foreground" data-testid={`text-file-unavailable-${file.id}`}>
-                              Cannot download
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`}
-                              data-testid={`button-download-${file.id}`}
-                              disabled={downloadingId === file.id}
-                              onClick={() => handleDownload(file)}
-                            >
-                              <Download size={12} aria-hidden="true" />
-                              {downloadingId === file.id ? 'Starting...' : 'Download'}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive hover:bg-destructive/10 hover:border-destructive/30`}
-                            data-testid={`button-delete-${file.id}`}
-                            onClick={() => setFileToDelete(file)}
-                          >
-                            <Trash2 size={12} aria-hidden="true" />
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              {!archivedView && <FolderGrid folders={data.folders} onOpen={(folder) => goFolder(folder.id)} onRename={(item) => { setRenameValue(item.name); setEditItem({ kind: 'folder', item, action: 'rename' }); }} onMove={(item) => setEditItem({ kind: 'folder', item, action: 'move' })} onDelete={setFolderToDelete} />}
+              <FileTable files={data.files} downloadingId={downloadingId} onOpen={setSelectedFile} showPath={archivedView} onFolder={(folder) => goFolder(folder.id)} onDownload={handleDownload} onRename={!archivedView ? (item) => { setRenameValue(item.name); setEditItem({ kind: 'file', item, action: 'rename' }); } : undefined} onMove={!archivedView ? (item) => setEditItem({ kind: 'file', item, action: 'move' }) : undefined} onDelete={setFileToDelete} onRestore={archivedView ? (item) => void mutate(() => updateFile.mutateAsync({ fileId: item.id, data: { archived: false } }), 'Restored') : undefined} />
             </div>
           )}
         </div>
       </SectionCard>
 
-      <AlertDialog open={fileToDelete !== null} onOpenChange={(open) => !open && setFileToDelete(null)}>
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}><DialogContent><DialogHeader><DialogTitle className="font-serif text-navy">New folder</DialogTitle><DialogDescription>Create a folder inside {data?.folder?.name ?? 'Files'}.</DialogDescription></DialogHeader><label className="text-xs font-semibold">Folder name<input autoFocus value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3" /></label><DialogFooter><button type="button" className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => setNewFolderOpen(false)}>Cancel</button><button type="button" className={`${BTN_PRIMARY} h-9 px-3`} disabled={!newFolderName.trim()} onClick={() => void mutate(() => createFolder.mutateAsync({ data: { name: newFolderName, parentId: folderId } }), 'Folder created').then(() => { setNewFolderOpen(false); setNewFolderName(''); }).catch(() => {})}>Create folder</button></DialogFooter></DialogContent></Dialog>
+
+      <Dialog open={editItem?.action === 'rename'} onOpenChange={(open) => !open && setEditItem(null)}><DialogContent><DialogHeader><DialogTitle className="font-serif text-navy">Rename {editItem?.kind}</DialogTitle><DialogDescription>Enter a new name.</DialogDescription></DialogHeader><input aria-label="New name" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="h-10 rounded-md border border-input px-3" /><DialogFooter><button type="button" className={`${BTN_PRIMARY} h-9 px-3`} onClick={() => { if (!editItem) return; const work = editItem.kind === 'file' ? () => updateFile.mutateAsync({ fileId: editItem.item.id, data: { name: renameValue } }) : () => updateFolder.mutateAsync({ folderId: editItem.item.id, data: { name: renameValue } }); void mutate(work, 'Renamed').then(() => setEditItem(null)).catch(() => {}); }}>Save</button></DialogFooter></DialogContent></Dialog>
+      {editItem?.action === 'move' && <MoveDialog open itemName={editItem.item.name} currentFolderId={folderId} movingFolderId={editItem.kind === 'folder' ? editItem.item.id : undefined} onOpenChange={(open) => !open && setEditItem(null)} onMove={(destination) => mutate(editItem.kind === 'file' ? () => updateFile.mutateAsync({ fileId: editItem.item.id, data: { folderId: destination } }) : () => updateFolder.mutateAsync({ folderId: editItem.item.id, data: { parentId: destination } }), 'Moved')} />}
+      <DropOverlay visible={dropVisible} folderName={data?.folder?.name ?? 'Files'} />
+      <UploadPanel items={uploadItems} minimized={uploadsMinimized} onMinimizedChange={setUploadsMinimized} onAnswer={(batch, compress) => queue.answer(batch, compress)} onRetry={(id) => queue.retry(id)} onClose={() => { queue.clearSettled(); setUploadItems(queue.snapshot); }} />
+      <FileDetailDialog
+        file={selectedFile}
+        open={selectedFile !== null}
+        onOpenChange={(open) => { if (!open) setSelectedFile(null); }}
+        onDownload={handleDownload}
+        onRename={(item) => { setSelectedFile(null); setRenameValue(item.name); setEditItem({ kind: 'file', item, action: 'rename' }); }}
+        onMove={(item) => { setSelectedFile(null); setEditItem({ kind: 'file', item, action: 'move' }); }}
+        onArchive={async (item, archived) => {
+          const updated = await updateFile.mutateAsync({ fileId: item.id, data: { archived } });
+          await refresh();
+          toast({ variant: 'success', title: archived ? 'Archived — find it under Archived' : 'Restored' });
+          setSelectedFile(updated);
+        }}
+        onDelete={setFileToDelete}
+        onFolder={(folder) => { setSelectedFile(null); goFolder(folder.id); }}
+        onReplaced={async (updated) => { await refresh(); setSelectedFile(updated); toast({ variant: 'success', title: 'Replaced' }); }}
+      />
+
+      <AlertDialog open={fileToDelete !== null} onOpenChange={(open) => !open && !deletingFile && setFileToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-serif text-navy">Delete file?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete “{fileToDelete?.name}”? This action cannot be undone.
+              Are you sure you want to delete “{fileToDelete?.name ?? lastFileNameRef.current}”? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deletingFile}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
+              disabled={deletingFile}
+              onClick={(event) => { event.preventDefault(); void handleDelete(); }}
               data-testid="button-confirm-delete"
             >
-              Delete
+              {deletingFile ? 'Deleting…' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={folderToDelete !== null} onOpenChange={(open) => !open && !deletingFolder && setFolderToDelete(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="font-serif text-navy">Delete folder and everything inside?</AlertDialogTitle><AlertDialogDescription>“{folderToDelete?.name ?? lastFolderNameRef.current}”, every sub-folder, and every file inside will be permanently deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={deletingFolder}>Cancel</AlertDialogCancel><AlertDialogAction disabled={deletingFolder} className="bg-destructive text-destructive-foreground" data-testid="button-confirm-folder-delete" onClick={(event) => { event.preventDefault(); if (!folderToDelete) return; setDeletingFolder(true); void (async () => { try { const result = await deleteFolder.mutateAsync({ folderId: folderToDelete.id }); setDeletingFolder(false); setFolderToDelete(null); await refresh(); toast({ variant: 'success', title: 'Folder deleted', description: `${result.deletedFolders} folder${result.deletedFolders === 1 ? '' : 's'} and ${result.deletedFiles} file${result.deletedFiles === 1 ? '' : 's'} deleted.` }); } catch (caught) { toast({ variant: 'destructive', title: 'Delete failed', description: apiError(caught, 'Could not delete the folder.') }); } finally { setDeletingFolder(false); setFolderToDelete(null); } })(); }}>{deletingFolder ? 'Deleting…' : 'Delete everything'}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </AdminPage>
   );
 }

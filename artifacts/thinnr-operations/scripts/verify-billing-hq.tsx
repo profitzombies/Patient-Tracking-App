@@ -17,6 +17,7 @@ import { PaymentsCatalogHistory } from '../src/pages/admin/payments/catalog/Cata
 import { ProductEditorPage } from '../src/pages/admin/payments/catalog/ProductEditor';
 import { PaymentsHealthBannerView } from '../src/components/billing/PaymentsHealthBanner';
 import type { PaymentsHealth } from '../src/lib/billing-types';
+import { AreaChart, hourLabel } from '../src/components/billing/hq/RevenueCharts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 (globalThis as any).window ??= {};
@@ -77,7 +78,7 @@ async function check(name: string, path: string, Page: React.ComponentType, expe
 await check('overview demo', '/admin/payments', PaymentsOverview, [
   'Live payments appear here once HQ is signed in', 'Jenkins Wellness', 'Gross collected', 'Net collected', 'THINNR profit', 'Payments processed',
   'Daily revenue', 'Payments per day', 'Refunds per day', 'View all activity', 'Payment received', 'TH-D3MO01',
-  "Today's revenue", 'Sep 24 so far, by the hour', 'THINNR fees', '4 PM',
+  "Today's revenue", 'Sep 24 so far, running total by hour', 'THINNR fees', '4 PM',
   'Subscriptions needing attention',
 ]);
 await check('subscription dunning demo', '/admin/payments/subscriptions', PaymentsSubscriptions, [
@@ -155,9 +156,26 @@ await check('activity demo rows', '/admin/payments/activity?kind=refund', Paymen
   const rowLink = renderer!.root.findAll(node => node.type === 'a' && node.props.href === '/admin/payments/transactions/demo-order-1');
   const chart = renderer!.root.findAll(node => node.type === 'svg' && typeof node.props['aria-label'] === 'string' && node.props['aria-label'].startsWith('Daily revenue'));
   const small = renderer!.root.findAll(node => ['chart-payments', 'chart-refunds', 'chart-gross', 'chart-net'].includes(node.props['data-testid']));
-  // Today's chart: hourly x keys through the demo's 4 PM, four series in the readout, totals that add up to the hourly points.
+  // Today's chart: hourly x keys through the demo's 4 PM; running totals (every series
+  // non-decreasing); the readout card appears only once the chart is engaged
+  // (keyboard here), never pinned to the last slot at rest.
   const today = renderer!.root.findAll(node => node.type === 'svg' && typeof node.props['aria-label'] === 'string' && node.props['aria-label'].startsWith("Today's revenue"));
+  const restingReadout = renderer!.root.findAll(node => node.props['data-testid'] === 'chart-today-revenue-readout');
+  const restingCrosshair = today.length ? today[0].findAll(node => node.type === 'circle') : [];
+  const todayPaths = today.length ? today[0].findAll(node => node.type === 'path' && node.props.fill === 'none').map(node => String(node.props.d)) : [];
+  // SVG y grows downward, so a rising running total means y never increases left to
+  // right. Gross must be strictly a running total; net after refunds may step down in a
+  // refund hour, but no series may ever fall back to the baseline once it has left it
+  // (the old per-hour chart spiked and returned to zero).
+  const pathYs = (d: string) => [...d.matchAll(/[ML][\d.]+,([\d.]+)/g)].map(m => Number(m[1]));
+  const grossYs = todayPaths.length ? pathYs(todayPaths[0]) : [];
+  const baseline = Math.max(...grossYs);
+  const todayMonotone = todayPaths.length === 4
+    && grossYs.every((v, i) => i === 0 || v <= grossYs[i - 1] + 0.05)
+    && todayPaths.every(d => { const ys = pathYs(d); const left = ys.findIndex(v => v < baseline - 0.05); return left === -1 || ys.slice(left).every(v => v < baseline - 0.05); });
+  if (today.length) await act(async () => { today[0].props.onKeyDown({ key: 'ArrowLeft', preventDefault() {} }); });
   const todayReadout = renderer!.root.findAll(node => node.props['data-testid'] === 'chart-today-revenue-readout');
+  const readoutHeader = todayReadout.length ? String(todayReadout[0].findAll(node => node.type === 'p')[0]?.children.join('')) : '';
   const readoutText = todayReadout.length ? JSON.stringify(todayReadout[0].children.map(child => typeof child === 'string' ? child : '')) : '';
   const readoutLabels = ['Gross collected', 'Net after refunds', 'THINNR fees', 'THINNR profit'].filter(label =>
     todayReadout.length && todayReadout[0].findAll(node => node.type === 'dt' && String(node.children.at(-1)) === label).length === 1);
@@ -171,7 +189,10 @@ await check('activity demo rows', '/admin/payments/activity?kind=refund', Paymen
     chart.length !== 1 ? `expected one daily revenue chart, found ${chart.length}` : '',
     small.length !== 4 ? `expected four small charts, found ${small.length}` : '',
     today.length !== 1 ? `expected one today chart, found ${today.length}` : '',
-    readoutLabels.length !== 4 ? `today readout lists ${readoutLabels.join(', ') || 'nothing'} (${readoutText})` : '',
+    restingReadout.length !== 0 || restingCrosshair.length !== 0 ? `today chart pins a readout at rest (${restingReadout.length} cards, ${restingCrosshair.length} dots)` : '',
+    !todayMonotone ? `today series are not running totals: ${todayPaths.join(' | ')}` : '',
+    readoutLabels.length !== 4 ? `today readout lists ${readoutLabels.join(', ') || 'nothing'} after keyboard engagement (${readoutText})` : '',
+    !readoutHeader.startsWith('Through ') ? `today readout header reads "${readoutHeader}" (expected "Through <hour>")` : '',
     todayGross[0] !== '$1,289.90' ? `today gross tile shows ${todayGross[0] ?? '(missing)'}` : '',
     !hourLabels.includes('12 AM') || !hourLabels.includes('4 PM') || hourLabels.some(label => /^[A-Z][a-z]{2} \d/.test(label)) ? `today axis labels: ${hourLabels.join(' | ')}` : '',
     navigated !== '/admin/payments/transactions/demo-order-1' ? `row click navigated to ${navigated || '(nowhere)'}` : '',
@@ -288,6 +309,30 @@ await check(
   ].filter(Boolean);
   if (problems.length) { failures += 1; console.error(`FAIL settings baseline: ${problems.join('; ')}`); }
   else console.log('ok settings baseline');
+}
+
+{
+  // A running net that dips below zero (refund of an older order before today's
+  // first sale) must plot BELOW the baseline with a signed axis — never clamped to $0.
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(<AreaChart title="Signed" dates={['0', '1', '2']} unit="money" running formatLabel={hourLabel} testId="chart-signed"
+      series={[{ key: 'net', label: 'Net', color: '#000', values: [-4000, -4000, 6000] }]} />);
+  });
+  const svg = renderer!.root.find(node => node.type === 'svg');
+  const labels = svg.findAll(node => node.type === 'text').map(node => String(node.children.join('')));
+  const line = String(svg.findAll(node => node.type === 'path' && node.props.fill === 'none')[0]?.props.d ?? '');
+  const ys = [...line.matchAll(/[ML][\d.]+,([\d.]+)/g)].map(m => Number(m[1]));
+  const zeroLine = svg.findAll(node => node.type === 'line' && node.props.strokeDasharray === undefined && node.props.x1 !== node.props.x2)[0];
+  const zeroY = Number(zeroLine?.props.y1);
+  const problems = [
+    !labels.some(label => label.startsWith('-$')) ? `axis lacks a negative tick: ${labels.join(' | ')}` : '',
+    !(ys[0] > zeroY && ys[2] < zeroY) ? `negative point should sit below the zero line (ys ${ys.join(',')}, zero ${zeroY})` : '',
+    !svg.props['aria-label'].includes('Net $60.00 so far') ? `running summary reads "${svg.props['aria-label']}"` : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL signed chart domain: ${problems.join('; ')}`); }
+  else console.log('ok signed chart domain');
+  await act(async () => { renderer!.unmount(); });
 }
 
 if (fetches !== 0) { failures += 1; console.error(`FAIL demo issued ${fetches} fetch request(s)`); }

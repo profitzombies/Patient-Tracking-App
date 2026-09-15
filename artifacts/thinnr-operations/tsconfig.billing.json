@@ -10,6 +10,7 @@
       "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
       "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
       "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/components/ui/dropdown-menu": ["./scripts/office-admin-stubs/dropdown-menu.tsx"],
       "@stripe/connect-js": ["./scripts/billing-stubs/connect-js.ts"],
       "@stripe/react-connect-js": ["./scripts/billing-stubs/react-connect-js.tsx"],
       "@/*": ["./src/*"]

@@ -57,7 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
   { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
-  { path: '/admin/files', label: 'Files', icon: FolderOpen, preview: true },
+  { path: '/admin/files', label: 'Files', icon: FolderOpen },
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
   {
     path: '/admin/payments', label: 'Payments', icon: CreditCard,
@@ -146,7 +146,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }));
 
   return (
-    <div className="min-h-[100dvh] max-w-full overflow-x-hidden bg-background font-sans text-foreground flex">
+    <div className="flex h-[100dvh] max-w-full overflow-hidden bg-background font-sans text-foreground">
       {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
       <SideMenu
         label="Admin sidebar"
@@ -165,7 +165,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       />
 
       {/* Main content area */}
-      <section className="min-w-0 flex-1 flex flex-col h-[100dvh]">
+      <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 h-[68px] items-center justify-between gap-2 border-b border-border bg-paper-alt px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <span className="text-xs text-muted-foreground hidden sm:inline">THINNR HQ</span>

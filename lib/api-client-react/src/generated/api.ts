@@ -90,6 +90,7 @@ import type {
   GetHqConversationEventsParams,
   GetHqConversationsParams,
   GetHqEscalationsParams,
+  GetHqFilesParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
   GetOfficeAnalyticsParams,
@@ -99,6 +100,9 @@ import type {
   GetOfficeConversationSummaryParams,
   GetOfficeConversationsParams,
   GetOfficeEngagementTrendsParams,
+  GetOfficeFileContentParams,
+  GetOfficeFileDownloadParams,
+  GetOfficeFilesParams,
   GetOfficeLeaderboardParams,
   GetOfficeOverviewParams,
   GetOfficePatientCoachConversationParams,
@@ -118,8 +122,16 @@ import type {
   HqFileDownloadResult,
   HqFileFinalizeInput,
   HqFileListResult,
+  HqFileReplaceInput,
+  HqFileReplaceUploadInput,
+  HqFileSearchResult,
+  HqFileUpdateInput,
   HqFileUploadInput,
   HqFileUploadResult,
+  HqFolder,
+  HqFolderCreateInput,
+  HqFolderDeleteResult,
+  HqFolderUpdateInput,
   HqOrganizationSettings,
   HqOrganizationSettingsInput,
   HqPatientDeletionResult,
@@ -161,6 +173,8 @@ import type {
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
   RunSystemJobBody,
+  SearchHqFilesParams,
+  SearchOfficeFilesParams,
   SetOfficeConversationStatusParams,
   SupportChatInput,
   SystemHealthResult,
@@ -6846,6 +6860,353 @@ export function useGetOfficeSettings<TData = Awaited<ReturnType<typeof getOffice
 
 
 
+export const getGetOfficeFilesUrl = (params?: GetOfficeFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/files?${stringifiedParams}` : `/api/office/files`
+}
+
+/**
+ * Provider staff of every office role see the whole HQ drive but can only browse, search, preview and download. Uploads, renames, moves, archive and delete exist only on the HQ routes. HQ drill-ins must hold settings_manage, the same permission that gates the HQ drive itself.
+ * @summary Read one folder of the HQ file drive as a provider (read-only; archived files never appear)
+ */
+export const getOfficeFiles = async (params?: GetOfficeFilesParams, options?: Parameters<typeof customFetch>[1]): Promise<HqFileListResult> => {
+
+  return customFetch<HqFileListResult>(getGetOfficeFilesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeFilesQueryKey = (params?: GetOfficeFilesParams,) => {
+    return [
+    `/api/office/files`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeFilesQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeFiles>>, TError = ErrorType<void>>(params?: GetOfficeFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeFilesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeFiles>>> = ({ signal }) => getOfficeFiles(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeFiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeFilesQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeFiles>>>
+export type GetOfficeFilesQueryError = ErrorType<void>
+
+
+/**
+ * @summary Read one folder of the HQ file drive as a provider (read-only; archived files never appear)
+ */
+
+export function useGetOfficeFiles<TData = Awaited<ReturnType<typeof getOfficeFiles>>, TError = ErrorType<void>>(
+ params?: GetOfficeFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeFilesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSearchOfficeFilesUrl = (params: SearchOfficeFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/files/search?${stringifiedParams}` : `/api/office/files/search`
+}
+
+/**
+ * @summary Search active HQ files by name as a provider
+ */
+export const searchOfficeFiles = async (params: SearchOfficeFilesParams, options?: Parameters<typeof customFetch>[1]): Promise<HqFileSearchResult> => {
+
+  return customFetch<HqFileSearchResult>(getSearchOfficeFilesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchOfficeFilesQueryKey = (params?: SearchOfficeFilesParams,) => {
+    return [
+    `/api/office/files/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchOfficeFilesQueryOptions = <TData = Awaited<ReturnType<typeof searchOfficeFiles>>, TError = ErrorType<unknown>>(params: SearchOfficeFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchOfficeFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchOfficeFilesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchOfficeFiles>>> = ({ signal }) => searchOfficeFiles(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchOfficeFiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchOfficeFilesQueryResult = NonNullable<Awaited<ReturnType<typeof searchOfficeFiles>>>
+export type SearchOfficeFilesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Search active HQ files by name as a provider
+ */
+
+export function useSearchOfficeFiles<TData = Awaited<ReturnType<typeof searchOfficeFiles>>, TError = ErrorType<unknown>>(
+ params: SearchOfficeFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchOfficeFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchOfficeFilesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeFileContentUrl = (fileId: string,
+    params?: GetOfficeFileContentParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/files/${fileId}/content?${stringifiedParams}` : `/api/office/files/${fileId}/content`
+}
+
+/**
+ * @summary Stream an active HQ file inline for in-app preview (provider read)
+ */
+export const getOfficeFileContent = async (fileId: string,
+    params?: GetOfficeFileContentParams, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetOfficeFileContentUrl(fileId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeFileContentQueryKey = (fileId: string,
+    params?: GetOfficeFileContentParams,) => {
+    return [
+    `/api/office/files/${fileId}/content`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeFileContentQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeFileContent>>, TError = ErrorType<void>>(fileId: string,
+    params?: GetOfficeFileContentParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeFileContentQueryKey(fileId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeFileContent>>> = ({ signal }) => getOfficeFileContent(fileId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: fileId !== null && fileId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileContent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeFileContentQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeFileContent>>>
+export type GetOfficeFileContentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Stream an active HQ file inline for in-app preview (provider read)
+ */
+
+export function useGetOfficeFileContent<TData = Awaited<ReturnType<typeof getOfficeFileContent>>, TError = ErrorType<void>>(
+ fileId: string,
+    params?: GetOfficeFileContentParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeFileContentQueryOptions(fileId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeFileDownloadUrl = (fileId: string,
+    params?: GetOfficeFileDownloadParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/files/${fileId}/download-url?${stringifiedParams}` : `/api/office/files/${fileId}/download-url`
+}
+
+/**
+ * @summary Mint a short-lived download URL for an active HQ file (provider read; audited)
+ */
+export const getOfficeFileDownload = async (fileId: string,
+    params?: GetOfficeFileDownloadParams, options?: Parameters<typeof customFetch>[1]): Promise<HqFileDownloadResult> => {
+
+  return customFetch<HqFileDownloadResult>(getGetOfficeFileDownloadUrl(fileId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeFileDownloadQueryKey = (fileId: string,
+    params?: GetOfficeFileDownloadParams,) => {
+    return [
+    `/api/office/files/${fileId}/download-url`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeFileDownloadQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeFileDownload>>, TError = ErrorType<void>>(fileId: string,
+    params?: GetOfficeFileDownloadParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileDownload>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeFileDownloadQueryKey(fileId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeFileDownload>>> = ({ signal }) => getOfficeFileDownload(fileId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: fileId !== null && fileId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileDownload>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeFileDownloadQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeFileDownload>>>
+export type GetOfficeFileDownloadQueryError = ErrorType<void>
+
+
+/**
+ * @summary Mint a short-lived download URL for an active HQ file (provider read; audited)
+ */
+
+export function useGetOfficeFileDownload<TData = Awaited<ReturnType<typeof getOfficeFileDownload>>, TError = ErrorType<void>>(
+ fileId: string,
+    params?: GetOfficeFileDownloadParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeFileDownload>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeFileDownloadQueryOptions(fileId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getUpdateOfficeSettingsOverridesUrl = (params?: UpdateOfficeSettingsOverridesParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -6996,20 +7357,27 @@ export const useCreateHqFileUpload = <TError = ErrorType<void>,
       return useMutation(getCreateHqFileUploadMutationOptions(options));
     }
 
-export const getGetHqFilesUrl = () => {
+export const getGetHqFilesUrl = (params?: GetHqFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/hq/files`
+  return stringifiedParams.length > 0 ? `/api/hq/files?${stringifiedParams}` : `/api/hq/files`
 }
 
 /**
- * @summary List persisted private HQ file metadata
+ * @summary List one folder of the private HQ file drive (root when folderId is omitted), or the archived files
  */
-export const getHqFiles = async ( options?: Parameters<typeof customFetch>[1]): Promise<HqFileListResult> => {
+export const getHqFiles = async (params?: GetHqFilesParams, options?: Parameters<typeof customFetch>[1]): Promise<HqFileListResult> => {
 
-  return customFetch<HqFileListResult>(getGetHqFilesUrl(),
+  return customFetch<HqFileListResult>(getGetHqFilesUrl(params),
   {
     ...options,
     method: 'GET'
@@ -7022,23 +7390,23 @@ export const getHqFiles = async ( options?: Parameters<typeof customFetch>[1]): 
 
 
 
-export const getGetHqFilesQueryKey = () => {
+export const getGetHqFilesQueryKey = (params?: GetHqFilesParams,) => {
     return [
-    `/api/hq/files`
+    `/api/hq/files`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetHqFilesQueryOptions = <TData = Awaited<ReturnType<typeof getHqFiles>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetHqFilesQueryOptions = <TData = Awaited<ReturnType<typeof getHqFiles>>, TError = ErrorType<void>>(params?: GetHqFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetHqFilesQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetHqFilesQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqFiles>>> = ({ signal }) => getHqFiles({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqFiles>>> = ({ signal }) => getHqFiles(params, { signal, ...requestOptions });
 
 
 
@@ -7048,19 +7416,19 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetHqFilesQueryResult = NonNullable<Awaited<ReturnType<typeof getHqFiles>>>
-export type GetHqFilesQueryError = ErrorType<unknown>
+export type GetHqFilesQueryError = ErrorType<void>
 
 
 /**
- * @summary List persisted private HQ file metadata
+ * @summary List one folder of the private HQ file drive (root when folderId is omitted), or the archived files
  */
 
-export function useGetHqFiles<TData = Awaited<ReturnType<typeof getHqFiles>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetHqFiles<TData = Awaited<ReturnType<typeof getHqFiles>>, TError = ErrorType<void>>(
+ params?: GetHqFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetHqFilesQueryOptions(options)
+  const queryOptions = getGetHqFilesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -7144,6 +7512,312 @@ export const useFinalizeHqFile = <TError = ErrorType<void>,
       return useMutation(getFinalizeHqFileMutationOptions(options));
     }
 
+export const getSearchHqFilesUrl = (params: SearchHqFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/files/search?${stringifiedParams}` : `/api/hq/files/search`
+}
+
+/**
+ * @summary Search active (non-archived) files by name across every folder
+ */
+export const searchHqFiles = async (params: SearchHqFilesParams, options?: Parameters<typeof customFetch>[1]): Promise<HqFileSearchResult> => {
+
+  return customFetch<HqFileSearchResult>(getSearchHqFilesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSearchHqFilesQueryKey = (params?: SearchHqFilesParams,) => {
+    return [
+    `/api/hq/files/search`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getSearchHqFilesQueryOptions = <TData = Awaited<ReturnType<typeof searchHqFiles>>, TError = ErrorType<unknown>>(params: SearchHqFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSearchHqFilesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof searchHqFiles>>> = ({ signal }) => searchHqFiles(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof searchHqFiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SearchHqFilesQueryResult = NonNullable<Awaited<ReturnType<typeof searchHqFiles>>>
+export type SearchHqFilesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Search active (non-archived) files by name across every folder
+ */
+
+export function useSearchHqFiles<TData = Awaited<ReturnType<typeof searchHqFiles>>, TError = ErrorType<unknown>>(
+ params: SearchHqFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof searchHqFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSearchHqFilesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqFileContentUrl = (fileId: string,) => {
+
+
+
+
+  return `/api/hq/files/${fileId}/content`
+}
+
+/**
+ * @summary Stream the stored bytes inline for in-app preview (bearer-authenticated, Content-Disposition inline)
+ */
+export const getHqFileContent = async (fileId: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetHqFileContentUrl(fileId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqFileContentQueryKey = (fileId: string,) => {
+    return [
+    `/api/hq/files/${fileId}/content`
+    ] as const;
+    }
+
+
+export const getGetHqFileContentQueryOptions = <TData = Awaited<ReturnType<typeof getHqFileContent>>, TError = ErrorType<void>>(fileId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFileContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqFileContentQueryKey(fileId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqFileContent>>> = ({ signal }) => getHqFileContent(fileId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: fileId !== null && fileId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqFileContent>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqFileContentQueryResult = NonNullable<Awaited<ReturnType<typeof getHqFileContent>>>
+export type GetHqFileContentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Stream the stored bytes inline for in-app preview (bearer-authenticated, Content-Disposition inline)
+ */
+
+export function useGetHqFileContent<TData = Awaited<ReturnType<typeof getHqFileContent>>, TError = ErrorType<void>>(
+ fileId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqFileContent>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqFileContentQueryOptions(fileId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateHqFileReplacementUrl = (fileId: string,) => {
+
+
+
+
+  return `/api/hq/files/${fileId}/replace-url`
+}
+
+/**
+ * @summary Mint an upload URL for a new version of an existing file (same entry, new bytes)
+ */
+export const createHqFileReplacement = async (fileId: string,
+    hqFileReplaceUploadInput: HqFileReplaceUploadInput, options?: Parameters<typeof customFetch>[1]): Promise<HqFileUploadResult> => {
+
+  return customFetch<HqFileUploadResult>(getCreateHqFileReplacementUrl(fileId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqFileReplaceUploadInput)
+  }
+);}
+
+
+
+
+
+export const getCreateHqFileReplacementMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createHqFileReplacement>>, TError,{fileId: string;data: BodyType<HqFileReplaceUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createHqFileReplacement>>, TError,{fileId: string;data: BodyType<HqFileReplaceUploadInput>}, TContext> => {
+
+const mutationKey = ['createHqFileReplacement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createHqFileReplacement>>, {fileId: string;data: BodyType<HqFileReplaceUploadInput>}> = (props) => {
+          const {fileId,data} = props ?? {};
+
+          return  createHqFileReplacement(fileId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateHqFileReplacementMutationResult = NonNullable<Awaited<ReturnType<typeof createHqFileReplacement>>>
+    export type CreateHqFileReplacementMutationBody = BodyType<HqFileReplaceUploadInput>
+    export type CreateHqFileReplacementMutationError = ErrorType<void>
+
+    /**
+ * @summary Mint an upload URL for a new version of an existing file (same entry, new bytes)
+ */
+export const useCreateHqFileReplacement = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createHqFileReplacement>>, TError,{fileId: string;data: BodyType<HqFileReplaceUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createHqFileReplacement>>,
+        TError,
+        {fileId: string;data: BodyType<HqFileReplaceUploadInput>},
+        TContext
+      > => {
+      return useMutation(getCreateHqFileReplacementMutationOptions(options));
+    }
+
+export const getReplaceHqFileUrl = (fileId: string,) => {
+
+
+
+
+  return `/api/hq/files/${fileId}/replace`
+}
+
+/**
+ * The entry keeps its id, folder, and (when the new bytes have the same extension) its name; a different extension takes the uploaded file's name. Size, type, compression fields, and the unavailable flag are recomputed.
+ * @summary Verify the replacement bytes, swap them in, and delete the previous version
+ */
+export const replaceHqFile = async (fileId: string,
+    hqFileReplaceInput: HqFileReplaceInput, options?: Parameters<typeof customFetch>[1]): Promise<HqFile> => {
+
+  return customFetch<HqFile>(getReplaceHqFileUrl(fileId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqFileReplaceInput)
+  }
+);}
+
+
+
+
+
+export const getReplaceHqFileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceHqFile>>, TError,{fileId: string;data: BodyType<HqFileReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replaceHqFile>>, TError,{fileId: string;data: BodyType<HqFileReplaceInput>}, TContext> => {
+
+const mutationKey = ['replaceHqFile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replaceHqFile>>, {fileId: string;data: BodyType<HqFileReplaceInput>}> = (props) => {
+          const {fileId,data} = props ?? {};
+
+          return  replaceHqFile(fileId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplaceHqFileMutationResult = NonNullable<Awaited<ReturnType<typeof replaceHqFile>>>
+    export type ReplaceHqFileMutationBody = BodyType<HqFileReplaceInput>
+    export type ReplaceHqFileMutationError = ErrorType<void>
+
+    /**
+ * @summary Verify the replacement bytes, swap them in, and delete the previous version
+ */
+export const useReplaceHqFile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replaceHqFile>>, TError,{fileId: string;data: BodyType<HqFileReplaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replaceHqFile>>,
+        TError,
+        {fileId: string;data: BodyType<HqFileReplaceInput>},
+        TContext
+      > => {
+      return useMutation(getReplaceHqFileMutationOptions(options));
+    }
+
 export const getGetHqFileDownloadUrl = (fileId: string,) => {
 
 
@@ -7221,6 +7895,78 @@ export function useGetHqFileDownload<TData = Awaited<ReturnType<typeof getHqFile
 
 
 
+export const getUpdateHqFileUrl = (fileId: string,) => {
+
+
+
+
+  return `/api/hq/files/${fileId}`
+}
+
+/**
+ * @summary Rename a file, move it to another folder, and/or archive or restore it
+ */
+export const updateHqFile = async (fileId: string,
+    hqFileUpdateInput: HqFileUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<HqFile> => {
+
+  return customFetch<HqFile>(getUpdateHqFileUrl(fileId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqFileUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateHqFileMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqFile>>, TError,{fileId: string;data: BodyType<HqFileUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateHqFile>>, TError,{fileId: string;data: BodyType<HqFileUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateHqFile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateHqFile>>, {fileId: string;data: BodyType<HqFileUpdateInput>}> = (props) => {
+          const {fileId,data} = props ?? {};
+
+          return  updateHqFile(fileId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateHqFileMutationResult = NonNullable<Awaited<ReturnType<typeof updateHqFile>>>
+    export type UpdateHqFileMutationBody = BodyType<HqFileUpdateInput>
+    export type UpdateHqFileMutationError = ErrorType<void>
+
+    /**
+ * @summary Rename a file, move it to another folder, and/or archive or restore it
+ */
+export const useUpdateHqFile = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqFile>>, TError,{fileId: string;data: BodyType<HqFileUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateHqFile>>,
+        TError,
+        {fileId: string;data: BodyType<HqFileUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateHqFileMutationOptions(options));
+    }
+
 export const getDeleteHqFileUrl = (fileId: string,) => {
 
 
@@ -7290,6 +8036,220 @@ export const useDeleteHqFile = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteHqFileMutationOptions(options));
+    }
+
+export const getCreateHqFolderUrl = () => {
+
+
+
+
+  return `/api/hq/folders`
+}
+
+/**
+ * @summary Create a folder (nested when parentId is given)
+ */
+export const createHqFolder = async (hqFolderCreateInput: HqFolderCreateInput, options?: Parameters<typeof customFetch>[1]): Promise<HqFolder> => {
+
+  return customFetch<HqFolder>(getCreateHqFolderUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqFolderCreateInput)
+  }
+);}
+
+
+
+
+
+export const getCreateHqFolderMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createHqFolder>>, TError,{data: BodyType<HqFolderCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createHqFolder>>, TError,{data: BodyType<HqFolderCreateInput>}, TContext> => {
+
+const mutationKey = ['createHqFolder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createHqFolder>>, {data: BodyType<HqFolderCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createHqFolder(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateHqFolderMutationResult = NonNullable<Awaited<ReturnType<typeof createHqFolder>>>
+    export type CreateHqFolderMutationBody = BodyType<HqFolderCreateInput>
+    export type CreateHqFolderMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a folder (nested when parentId is given)
+ */
+export const useCreateHqFolder = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createHqFolder>>, TError,{data: BodyType<HqFolderCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createHqFolder>>,
+        TError,
+        {data: BodyType<HqFolderCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateHqFolderMutationOptions(options));
+    }
+
+export const getUpdateHqFolderUrl = (folderId: string,) => {
+
+
+
+
+  return `/api/hq/folders/${folderId}`
+}
+
+/**
+ * @summary Rename a folder and/or move it under another folder
+ */
+export const updateHqFolder = async (folderId: string,
+    hqFolderUpdateInput: HqFolderUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<HqFolder> => {
+
+  return customFetch<HqFolder>(getUpdateHqFolderUrl(folderId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqFolderUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateHqFolderMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqFolder>>, TError,{folderId: string;data: BodyType<HqFolderUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateHqFolder>>, TError,{folderId: string;data: BodyType<HqFolderUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateHqFolder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateHqFolder>>, {folderId: string;data: BodyType<HqFolderUpdateInput>}> = (props) => {
+          const {folderId,data} = props ?? {};
+
+          return  updateHqFolder(folderId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateHqFolderMutationResult = NonNullable<Awaited<ReturnType<typeof updateHqFolder>>>
+    export type UpdateHqFolderMutationBody = BodyType<HqFolderUpdateInput>
+    export type UpdateHqFolderMutationError = ErrorType<void>
+
+    /**
+ * @summary Rename a folder and/or move it under another folder
+ */
+export const useUpdateHqFolder = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqFolder>>, TError,{folderId: string;data: BodyType<HqFolderUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateHqFolder>>,
+        TError,
+        {folderId: string;data: BodyType<HqFolderUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateHqFolderMutationOptions(options));
+    }
+
+export const getDeleteHqFolderUrl = (folderId: string,) => {
+
+
+
+
+  return `/api/hq/folders/${folderId}`
+}
+
+/**
+ * @summary Delete a folder with every file and sub-folder inside it
+ */
+export const deleteHqFolder = async (folderId: string, options?: Parameters<typeof customFetch>[1]): Promise<HqFolderDeleteResult> => {
+
+  return customFetch<HqFolderDeleteResult>(getDeleteHqFolderUrl(folderId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteHqFolderMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteHqFolder>>, TError,{folderId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteHqFolder>>, TError,{folderId: string}, TContext> => {
+
+const mutationKey = ['deleteHqFolder'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteHqFolder>>, {folderId: string}> = (props) => {
+          const {folderId} = props ?? {};
+
+          return  deleteHqFolder(folderId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteHqFolderMutationResult = NonNullable<Awaited<ReturnType<typeof deleteHqFolder>>>
+
+    export type DeleteHqFolderMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a folder with every file and sub-folder inside it
+ */
+export const useDeleteHqFolder = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteHqFolder>>, TError,{folderId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteHqFolder>>,
+        TError,
+        {folderId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteHqFolderMutationOptions(options));
     }
 
 export const getGetHqSystemHealthUrl = () => {

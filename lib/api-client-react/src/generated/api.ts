@@ -93,6 +93,11 @@ import type {
   GetHqFilesParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
+  GetHqStaffAlertDeliveries200,
+  GetHqStaffAlertDeliveriesParams,
+  GetOfficeAlertDigestsParams,
+  GetOfficeAlertSettingsParams,
+  GetOfficeAlertsParams,
   GetOfficeAnalyticsParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationNotesParams,
@@ -153,6 +158,13 @@ import type {
   ListOfficePatientCoachMemoriesParams,
   ListPatientCoachConversationsParams,
   ListPatientCoachMemoriesParams,
+  MarkOfficeAlertSeen200,
+  MarkOfficeAlertSeenBody,
+  MarkOfficeAlertSeenParams,
+  OfficeAlertDigestsResult,
+  OfficeAlertSettings,
+  OfficeAlertSettingsInput,
+  OfficeAlertsResult,
   OfficeAnalyticsResult,
   OfficeComparisonResult,
   OfficeConversationStartInput,
@@ -171,6 +183,7 @@ import type {
   PatientCareTeamStartResult,
   ProgressPhotoFileParams,
   ReadOfficeConversationParams,
+  RegisterStaffNotificationDeviceBody,
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
   RunSystemJobBody,
@@ -200,6 +213,10 @@ import type {
   TrainingTranscriptResult,
   TrainingUploadUrlInput,
   TrainingUploadUrlResult,
+  UnregisterStaffNotificationDeviceBody,
+  UpdateOfficeAlertPreferences200,
+  UpdateOfficeAlertPreferencesBody,
+  UpdateOfficeAlertSettingsParams,
   UpdateOfficePatientFollowUpParams,
   UpdateOfficeSettingsOverridesParams
 } from './api.schemas';
@@ -3818,6 +3835,661 @@ export function useGetOfficeRoster<TData = Awaited<ReturnType<typeof getOfficeRo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficeRosterQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeAlertsUrl = (params?: GetOfficeAlertsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts?${stringifiedParams}` : `/api/office/alerts`
+}
+
+export const getOfficeAlerts = async (params?: GetOfficeAlertsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeAlertsResult> => {
+
+  return customFetch<OfficeAlertsResult>(getGetOfficeAlertsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeAlertsQueryKey = (params?: GetOfficeAlertsParams,) => {
+    return [
+    `/api/office/alerts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeAlertsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeAlerts>>, TError = ErrorType<unknown>>(params?: GetOfficeAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeAlertsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeAlerts>>> = ({ signal }) => getOfficeAlerts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlerts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeAlertsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeAlerts>>>
+export type GetOfficeAlertsQueryError = ErrorType<unknown>
+
+
+
+export function useGetOfficeAlerts<TData = Awaited<ReturnType<typeof getOfficeAlerts>>, TError = ErrorType<unknown>>(
+ params?: GetOfficeAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeAlertsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getMarkOfficeAlertSeenUrl = (patientId: string,
+    params?: MarkOfficeAlertSeenParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/${patientId}/seen?${stringifiedParams}` : `/api/office/alerts/${patientId}/seen`
+}
+
+export const markOfficeAlertSeen = async (patientId: string,
+    markOfficeAlertSeenBody: MarkOfficeAlertSeenBody,
+    params?: MarkOfficeAlertSeenParams, options?: Parameters<typeof customFetch>[1]): Promise<MarkOfficeAlertSeen200> => {
+
+  return customFetch<MarkOfficeAlertSeen200>(getMarkOfficeAlertSeenUrl(patientId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(markOfficeAlertSeenBody)
+  }
+);}
+
+
+
+
+
+export const getMarkOfficeAlertSeenMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markOfficeAlertSeen>>, TError,{patientId: string;data: BodyType<MarkOfficeAlertSeenBody>;params?: MarkOfficeAlertSeenParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markOfficeAlertSeen>>, TError,{patientId: string;data: BodyType<MarkOfficeAlertSeenBody>;params?: MarkOfficeAlertSeenParams}, TContext> => {
+
+const mutationKey = ['markOfficeAlertSeen'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markOfficeAlertSeen>>, {patientId: string;data: BodyType<MarkOfficeAlertSeenBody>;params?: MarkOfficeAlertSeenParams}> = (props) => {
+          const {patientId,data,params} = props ?? {};
+
+          return  markOfficeAlertSeen(patientId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkOfficeAlertSeenMutationResult = NonNullable<Awaited<ReturnType<typeof markOfficeAlertSeen>>>
+    export type MarkOfficeAlertSeenMutationBody = BodyType<MarkOfficeAlertSeenBody>
+    export type MarkOfficeAlertSeenMutationError = ErrorType<unknown>
+
+    export const useMarkOfficeAlertSeen = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markOfficeAlertSeen>>, TError,{patientId: string;data: BodyType<MarkOfficeAlertSeenBody>;params?: MarkOfficeAlertSeenParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markOfficeAlertSeen>>,
+        TError,
+        {patientId: string;data: BodyType<MarkOfficeAlertSeenBody>;params?: MarkOfficeAlertSeenParams},
+        TContext
+      > => {
+      return useMutation(getMarkOfficeAlertSeenMutationOptions(options));
+    }
+
+export const getGetOfficeAlertDigestsUrl = (params?: GetOfficeAlertDigestsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/digests?${stringifiedParams}` : `/api/office/alerts/digests`
+}
+
+export const getOfficeAlertDigests = async (params?: GetOfficeAlertDigestsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeAlertDigestsResult> => {
+
+  return customFetch<OfficeAlertDigestsResult>(getGetOfficeAlertDigestsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeAlertDigestsQueryKey = (params?: GetOfficeAlertDigestsParams,) => {
+    return [
+    `/api/office/alerts/digests`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeAlertDigestsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeAlertDigests>>, TError = ErrorType<unknown>>(params?: GetOfficeAlertDigestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertDigests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeAlertDigestsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeAlertDigests>>> = ({ signal }) => getOfficeAlertDigests(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertDigests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeAlertDigestsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeAlertDigests>>>
+export type GetOfficeAlertDigestsQueryError = ErrorType<unknown>
+
+
+
+export function useGetOfficeAlertDigests<TData = Awaited<ReturnType<typeof getOfficeAlertDigests>>, TError = ErrorType<unknown>>(
+ params?: GetOfficeAlertDigestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertDigests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeAlertDigestsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeAlertSettingsUrl = (params?: GetOfficeAlertSettingsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/settings?${stringifiedParams}` : `/api/office/alerts/settings`
+}
+
+export const getOfficeAlertSettings = async (params?: GetOfficeAlertSettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeAlertSettings> => {
+
+  return customFetch<OfficeAlertSettings>(getGetOfficeAlertSettingsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeAlertSettingsQueryKey = (params?: GetOfficeAlertSettingsParams,) => {
+    return [
+    `/api/office/alerts/settings`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeAlertSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeAlertSettings>>, TError = ErrorType<unknown>>(params?: GetOfficeAlertSettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeAlertSettingsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeAlertSettings>>> = ({ signal }) => getOfficeAlertSettings(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeAlertSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeAlertSettings>>>
+export type GetOfficeAlertSettingsQueryError = ErrorType<unknown>
+
+
+
+export function useGetOfficeAlertSettings<TData = Awaited<ReturnType<typeof getOfficeAlertSettings>>, TError = ErrorType<unknown>>(
+ params?: GetOfficeAlertSettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeAlertSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeAlertSettingsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateOfficeAlertSettingsUrl = (params?: UpdateOfficeAlertSettingsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/settings?${stringifiedParams}` : `/api/office/alerts/settings`
+}
+
+export const updateOfficeAlertSettings = async (officeAlertSettingsInput: OfficeAlertSettingsInput,
+    params?: UpdateOfficeAlertSettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeAlertSettings> => {
+
+  return customFetch<OfficeAlertSettings>(getUpdateOfficeAlertSettingsUrl(params),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(officeAlertSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateOfficeAlertSettingsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertSettings>>, TError,{data: BodyType<OfficeAlertSettingsInput>;params?: UpdateOfficeAlertSettingsParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertSettings>>, TError,{data: BodyType<OfficeAlertSettingsInput>;params?: UpdateOfficeAlertSettingsParams}, TContext> => {
+
+const mutationKey = ['updateOfficeAlertSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOfficeAlertSettings>>, {data: BodyType<OfficeAlertSettingsInput>;params?: UpdateOfficeAlertSettingsParams}> = (props) => {
+          const {data,params} = props ?? {};
+
+          return  updateOfficeAlertSettings(data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateOfficeAlertSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateOfficeAlertSettings>>>
+    export type UpdateOfficeAlertSettingsMutationBody = BodyType<OfficeAlertSettingsInput>
+    export type UpdateOfficeAlertSettingsMutationError = ErrorType<void>
+
+    export const useUpdateOfficeAlertSettings = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertSettings>>, TError,{data: BodyType<OfficeAlertSettingsInput>;params?: UpdateOfficeAlertSettingsParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateOfficeAlertSettings>>,
+        TError,
+        {data: BodyType<OfficeAlertSettingsInput>;params?: UpdateOfficeAlertSettingsParams},
+        TContext
+      > => {
+      return useMutation(getUpdateOfficeAlertSettingsMutationOptions(options));
+    }
+
+export const getUpdateOfficeAlertPreferencesUrl = () => {
+
+
+
+
+  return `/api/office/alerts/preferences`
+}
+
+export const updateOfficeAlertPreferences = async (updateOfficeAlertPreferencesBody: UpdateOfficeAlertPreferencesBody, options?: Parameters<typeof customFetch>[1]): Promise<UpdateOfficeAlertPreferences200> => {
+
+  return customFetch<UpdateOfficeAlertPreferences200>(getUpdateOfficeAlertPreferencesUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateOfficeAlertPreferencesBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateOfficeAlertPreferencesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertPreferences>>, TError,{data: BodyType<UpdateOfficeAlertPreferencesBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertPreferences>>, TError,{data: BodyType<UpdateOfficeAlertPreferencesBody>}, TContext> => {
+
+const mutationKey = ['updateOfficeAlertPreferences'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOfficeAlertPreferences>>, {data: BodyType<UpdateOfficeAlertPreferencesBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateOfficeAlertPreferences(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateOfficeAlertPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof updateOfficeAlertPreferences>>>
+    export type UpdateOfficeAlertPreferencesMutationBody = BodyType<UpdateOfficeAlertPreferencesBody>
+    export type UpdateOfficeAlertPreferencesMutationError = ErrorType<unknown>
+
+    export const useUpdateOfficeAlertPreferences = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficeAlertPreferences>>, TError,{data: BodyType<UpdateOfficeAlertPreferencesBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateOfficeAlertPreferences>>,
+        TError,
+        {data: BodyType<UpdateOfficeAlertPreferencesBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateOfficeAlertPreferencesMutationOptions(options));
+    }
+
+export const getRegisterStaffNotificationDeviceUrl = () => {
+
+
+
+
+  return `/api/staff-notifications/device`
+}
+
+export const registerStaffNotificationDevice = async (registerStaffNotificationDeviceBody: RegisterStaffNotificationDeviceBody, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRegisterStaffNotificationDeviceUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(registerStaffNotificationDeviceBody)
+  }
+);}
+
+
+
+
+
+export const getRegisterStaffNotificationDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerStaffNotificationDevice>>, TError,{data: BodyType<RegisterStaffNotificationDeviceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerStaffNotificationDevice>>, TError,{data: BodyType<RegisterStaffNotificationDeviceBody>}, TContext> => {
+
+const mutationKey = ['registerStaffNotificationDevice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerStaffNotificationDevice>>, {data: BodyType<RegisterStaffNotificationDeviceBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  registerStaffNotificationDevice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterStaffNotificationDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof registerStaffNotificationDevice>>>
+    export type RegisterStaffNotificationDeviceMutationBody = BodyType<RegisterStaffNotificationDeviceBody>
+    export type RegisterStaffNotificationDeviceMutationError = ErrorType<unknown>
+
+    export const useRegisterStaffNotificationDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerStaffNotificationDevice>>, TError,{data: BodyType<RegisterStaffNotificationDeviceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerStaffNotificationDevice>>,
+        TError,
+        {data: BodyType<RegisterStaffNotificationDeviceBody>},
+        TContext
+      > => {
+      return useMutation(getRegisterStaffNotificationDeviceMutationOptions(options));
+    }
+
+export const getUnregisterStaffNotificationDeviceUrl = () => {
+
+
+
+
+  return `/api/staff-notifications/device`
+}
+
+export const unregisterStaffNotificationDevice = async (unregisterStaffNotificationDeviceBody?: UnregisterStaffNotificationDeviceBody, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getUnregisterStaffNotificationDeviceUrl(),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(unregisterStaffNotificationDeviceBody)
+  }
+);}
+
+
+
+
+
+export const getUnregisterStaffNotificationDeviceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>, TError,{data?: BodyType<UnregisterStaffNotificationDeviceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>, TError,{data?: BodyType<UnregisterStaffNotificationDeviceBody>}, TContext> => {
+
+const mutationKey = ['unregisterStaffNotificationDevice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>, {data?: BodyType<UnregisterStaffNotificationDeviceBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  unregisterStaffNotificationDevice(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnregisterStaffNotificationDeviceMutationResult = NonNullable<Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>>
+    export type UnregisterStaffNotificationDeviceMutationBody = BodyType<UnregisterStaffNotificationDeviceBody> | undefined
+    export type UnregisterStaffNotificationDeviceMutationError = ErrorType<unknown>
+
+    export const useUnregisterStaffNotificationDevice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>, TError,{data?: BodyType<UnregisterStaffNotificationDeviceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unregisterStaffNotificationDevice>>,
+        TError,
+        {data?: BodyType<UnregisterStaffNotificationDeviceBody>},
+        TContext
+      > => {
+      return useMutation(getUnregisterStaffNotificationDeviceMutationOptions(options));
+    }
+
+export const getGetHqStaffAlertDeliveriesUrl = (params?: GetHqStaffAlertDeliveriesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/staff-alerts/deliveries?${stringifiedParams}` : `/api/hq/staff-alerts/deliveries`
+}
+
+export const getHqStaffAlertDeliveries = async (params?: GetHqStaffAlertDeliveriesParams, options?: Parameters<typeof customFetch>[1]): Promise<GetHqStaffAlertDeliveries200> => {
+
+  return customFetch<GetHqStaffAlertDeliveries200>(getGetHqStaffAlertDeliveriesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqStaffAlertDeliveriesQueryKey = (params?: GetHqStaffAlertDeliveriesParams,) => {
+    return [
+    `/api/hq/staff-alerts/deliveries`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqStaffAlertDeliveriesQueryOptions = <TData = Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>, TError = ErrorType<unknown>>(params?: GetHqStaffAlertDeliveriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqStaffAlertDeliveriesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>> = ({ signal }) => getHqStaffAlertDeliveries(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqStaffAlertDeliveriesQueryResult = NonNullable<Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>>
+export type GetHqStaffAlertDeliveriesQueryError = ErrorType<unknown>
+
+
+
+export function useGetHqStaffAlertDeliveries<TData = Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>, TError = ErrorType<unknown>>(
+ params?: GetHqStaffAlertDeliveriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqStaffAlertDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqStaffAlertDeliveriesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

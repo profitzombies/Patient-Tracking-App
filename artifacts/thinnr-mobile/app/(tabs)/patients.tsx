@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -26,6 +26,8 @@ import {
   LiveRosterSection,
   useOfficeRoster,
 } from '@/components/office/LiveOfficeRoster';
+import { fetchOfficeAlerts } from '@/lib/office-alerts-api';
+import { demoAttentionCount } from '@/lib/staff-attention';
 
 type SortKey = 'name' | 'startDate' | 'weightLoss' | 'status';
 
@@ -64,7 +66,32 @@ function LivePatientsScreen({ userId }: { userId: string }) {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const officeRoster = useOfficeRoster(userId);
+  const [attention, setAttention] = useState<
+    { status: 'loading' | 'ready' | 'error'; count: number | null }
+  >({ status: 'loading', count: null });
   const bottomPad = Platform.OS === 'web' ? 84 + 16 : insets.bottom + 84 + 16;
+
+  const refreshAttention = useCallback(async (signal?: AbortSignal) => {
+    setAttention({ status: 'loading', count: null });
+    try {
+      const alerts = await fetchOfficeAlerts({ userId, signal });
+      if (!signal?.aborted) setAttention({ status: 'ready', count: alerts.count });
+    } catch {
+      if (!signal?.aborted) setAttention({ status: 'error', count: null });
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshAttention(controller.signal);
+    return () => controller.abort();
+  }, [refreshAttention]);
+
+  const attentionSubtitle = attention.status === 'ready'
+    ? `${attention.count} need attention`
+    : attention.status === 'loading'
+      ? 'Loading attention…'
+      : 'Attention unavailable';
 
   const showNotice = useCallback((text: string) => {
     setNotice(text);
@@ -74,13 +101,14 @@ function LivePatientsScreen({ userId }: { userId: string }) {
   const onRefresh = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRefreshing(true);
-    void officeRoster.refresh().finally(() => setRefreshing(false));
-  }, [officeRoster.refresh]);
+    void Promise.all([officeRoster.refresh(), refreshAttention()]).finally(() => setRefreshing(false));
+  }, [officeRoster.refresh, refreshAttention]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScreenHeader
         title="Patients"
+        subtitle={attentionSubtitle}
         onSearch={setSearch}
         action={
           officeRoster.status === 'ready'
@@ -154,6 +182,7 @@ function DemoPatientsScreen() {
   const [sortKey, setSortKey] = useState<SortKey>('startDate');
 
   const bottomPad = Platform.OS === 'web' ? 84 + 16 : insets.bottom + 84 + 16;
+  const attentionCount = useMemo(() => demoAttentionCount(mergedPatients), [mergedPatients]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -223,6 +252,7 @@ function DemoPatientsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScreenHeader
         title="Patients"
+        subtitle={`${attentionCount} need attention`}
         onSearch={setSearch}
       />
 

@@ -7,8 +7,9 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import { usePatientAccount } from './PatientAccountContext';
 import { usePatient } from './PatientContext';
+import { useAppMode } from './AppModeContext';
 import { useColors } from '@/hooks/useColors';
-import { supabase } from '@/lib/supabase';
+import { supabase, useSupabaseSession } from '@/lib/supabase';
 import {
   approvedMeasurements,
   AccountOperationEpoch,
@@ -31,10 +32,11 @@ import {
   currentPushAvailability,
   currentPushDeviceId,
   pushProjectId,
-  pushRegistrationDriver,
+  pushRegistrationDriverWithToken,
 } from '@/lib/push-notifications';
 import {
   registerForPush,
+  pushAccountIdFor,
   unregisterPush,
   type PushAvailability,
 } from '@/lib/push-notification-core';
@@ -159,8 +161,15 @@ function notificationStateFor(
 
 export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   const { account } = usePatientAccount();
+  const { mode } = useAppMode();
+  const { session } = useSupabaseSession();
   const patient = usePatient();
   const accountId = account.kind === 'real' ? account.patientId : null;
+  const pushAccountId = pushAccountIdFor({
+    mode,
+    staffUserId: session?.user.id ?? null,
+    patientId: accountId,
+  });
   const [notification, setNotification] = useState<FeatureState['notification']>(Platform.OS === 'web' ? 'web' : 'undetermined');
   const [biometric, setBiometric] = useState<FeatureState['biometric']>(Platform.OS === 'web' ? 'web' : (Platform.OS === 'ios' && isExpoGo ? 'expo-go' : 'available'));
   const [health, setHealth] = useState<FeatureState['health']>(Platform.OS === 'web' ? 'web' : isExpoGo ? 'expo-go' : 'available');
@@ -178,6 +187,10 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   accountRef.current = accountId;
   const operationEpochRef = useRef(new AccountOperationEpoch());
   operationEpochRef.current.activate(accountId);
+  const pushOperationEpochRef = useRef(new AccountOperationEpoch());
+  pushOperationEpochRef.current.activate(pushAccountId);
+  const pushAccountRef = useRef<string | null>(null);
+  pushAccountRef.current = pushAccountId;
   const coordinatorRef = useRef(new ReminderCoordinator(notificationDriver, store));
   const flags = patient.hydratedFlags?.notificationPrefs ?? null;
   const medications = patient.medications;
@@ -193,7 +206,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   planRef.current = plan;
 
   const retryPush = useCallback(async () => {
-    if (!accountId || account.kind !== 'real') return;
+    if (!pushAccountId) return;
     if (currentPushAvailability !== 'available' || (Platform.OS !== 'ios' && Platform.OS !== 'android')) {
       setPushState({
         availability: currentPushAvailability,
@@ -204,17 +217,24 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
     }
     setPushState({ availability: currentPushAvailability, status: 'registering' });
     try {
+      const operation = pushOperationEpochRef.current.capture(pushAccountId);
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken || !pushOperationEpochRef.current.isCurrent(operation)) return;
       const deviceId = await currentPushDeviceId();
+      if (!pushOperationEpochRef.current.isCurrent(operation)) return;
       const result = await registerForPush({
-        accountId,
-        epoch: operationEpochRef.current,
+        accountId: pushAccountId,
+        epoch: pushOperationEpochRef.current,
         availability: currentPushAvailability,
         projectId: pushProjectId,
         deviceId,
         platform: Platform.OS,
-        driver: pushRegistrationDriver,
+        driver: pushRegistrationDriverWithToken(
+          accessToken,
+          pushAccountId.startsWith('staff:'),
+        ),
       });
-      if (accountRef.current !== accountId || result.status === 'stale') return;
+      if (pushAccountRef.current !== pushAccountId || result.status === 'stale') return;
       if (result.status === 'registered') {
         setPushState({ availability: currentPushAvailability, status: 'registered' });
       } else if (result.status === 'denied') {
@@ -223,7 +243,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
         setPushState({ availability: currentPushAvailability, status: 'unavailable', reason: result.reason });
       }
     } catch (cause) {
-      if (accountRef.current === accountId) {
+      if (pushAccountRef.current === pushAccountId) {
         setPushState({
           availability: currentPushAvailability,
           status: 'error',
@@ -231,21 +251,26 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
         });
       }
     }
-  }, [account.kind, accountId]);
+  }, [pushAccountId]);
 
   const unregisterBeforeSignOut = useCallback(async (
     reason: 'signed_out' | 'account_switch' = 'signed_out',
   ) => {
-    if (!accountId || currentPushAvailability !== 'available') return;
+    if (!pushAccountId || currentPushAvailability !== 'available') return;
     try {
-      await unregisterPush(pushRegistrationDriver, {
+      const accessToken = await getSessionAccessToken();
+      if (!accessToken) return;
+      await unregisterPush(pushRegistrationDriverWithToken(
+        accessToken,
+        pushAccountId.startsWith('staff:'),
+      ), {
         deviceId: await currentPushDeviceId(),
         reason,
       });
     } catch {
       // Sign-out must always proceed; a later registration retires this install's old token.
     }
-  }, [accountId]);
+  }, [pushAccountId]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -258,7 +283,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (accountId) {
+    if (pushAccountId) {
       void retryPush();
     } else {
       setPushState({
@@ -267,7 +292,7 @@ export function DeviceFeaturesProvider({ children }: { children: ReactNode }) {
         ...(currentPushAvailability === 'available' ? {} : { reason: currentPushAvailability }),
       });
     }
-  }, [accountId, retryPush]);
+  }, [pushAccountId, retryPush]);
 
   useEffect(() => {
     previousAccount.current = accountId;

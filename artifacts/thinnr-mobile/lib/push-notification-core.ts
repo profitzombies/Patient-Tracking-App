@@ -33,11 +33,13 @@ const NOTIFICATION_ROUTES = new Set([
   '/recipes',
   '/security',
   '/check-in',
+  '/(tabs)/patients',
 ]);
 
 export function resolveNotificationRoute(data: unknown): string | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const value = data as Record<string, unknown>;
+  if (value.kind === 'staff_attention_digest') return '/(tabs)/patients';
   if (
     value.kind === 'care_team_reply' &&
     value.thread === 'care_team' &&
@@ -47,6 +49,16 @@ export function resolveNotificationRoute(data: unknown): string | null {
   ) return `/care-team-chat?conversationId=${encodeURIComponent(value.conversationId)}`;
   const route = value.route;
   return typeof route === 'string' && NOTIFICATION_ROUTES.has(route) ? route : null;
+}
+
+export function pushAccountIdFor(input: {
+  mode: 'staff' | 'patient' | null;
+  staffUserId: string | null;
+  patientId: string | null;
+}): string | null {
+  if (input.mode === 'staff' && input.staffUserId) return `staff:${input.staffUserId}`;
+  if (input.mode === 'patient' && input.patientId) return `patient:${input.patientId}`;
+  return null;
 }
 
 /** Hidden notification ownership used before admitting account-scoped taps. */

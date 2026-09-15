@@ -63,7 +63,7 @@ interface OfficeRequestScope {
   signal?: AbortSignal;
 }
 
-async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown, scope?: OfficeRequestScope): Promise<T> {
+export async function officeBearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown, scope?: OfficeRequestScope): Promise<T> {
   if (!supabase) throw new OfficeRosterError(NOT_CONFIGURED, 503);
   let base: string;
   try {
@@ -133,7 +133,7 @@ async function bearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unk
 }
 
 export async function fetchOfficeRoster(scope?: OfficeRequestScope): Promise<OfficeRosterData> {
-  return bearerRequest<OfficeRosterData>('GET', '/office/roster', undefined, scope);
+  return officeBearerRequest<OfficeRosterData>('GET', '/office/roster', undefined, scope);
 }
 
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
@@ -194,19 +194,19 @@ export async function fetchOfficeLeaderboard(params: {
   stage: LeaderboardStage;
 }, scope?: OfficeRequestScope): Promise<OfficeLeaderboardData> {
   const query = new URLSearchParams({ period: params.period, stage: params.stage });
-  return bearerRequest<OfficeLeaderboardData>('GET', `/office/leaderboard?${query.toString()}`, undefined, scope);
+  return officeBearerRequest<OfficeLeaderboardData>('GET', `/office/leaderboard?${query.toString()}`, undefined, scope);
 }
 
 export async function invitePatient(
   input: InvitePatientInput,
 ): Promise<{ patient: OfficePatient; invitation: InvitationEmailOutcome }> {
-  return bearerRequest('POST', '/office/invitations', input);
+  return officeBearerRequest('POST', '/office/invitations', input);
 }
 
 export async function resendInvitation(
   patientId: string,
 ): Promise<{ ok: boolean; invitation: InvitationEmailOutcome; patient: OfficePatient }> {
-  return bearerRequest('POST', `/office/invitations/${encodeURIComponent(patientId)}/resend`, {});
+  return officeBearerRequest('POST', `/office/invitations/${encodeURIComponent(patientId)}/resend`, {});
 }
 
 /**

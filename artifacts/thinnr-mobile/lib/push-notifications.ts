@@ -7,7 +7,12 @@ import {
   pushAvailability,
   type PushRegistrationDriver,
 } from './push-notification-core';
-import { registerPushDevice, unregisterPushDevice } from './push-notifications-api';
+import {
+  registerPushDevice,
+  registerStaffPushDevice,
+  unregisterPushDevice,
+  unregisterStaffPushDevice,
+} from './push-notifications-api';
 
 export const pushProjectId =
   Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId ?? null;
@@ -40,6 +45,28 @@ export const pushRegistrationDriver: PushRegistrationDriver = {
   register: registerPushDevice,
   unregister: unregisterPushDevice,
 };
+
+export const staffPushRegistrationDriver: PushRegistrationDriver = {
+  ...pushRegistrationDriver,
+  register: registerStaffPushDevice,
+  unregister: unregisterStaffPushDevice,
+};
+
+export function pushRegistrationDriverWithToken(
+  accessToken: string,
+  staff: boolean,
+): PushRegistrationDriver {
+  const base = staff ? staffPushRegistrationDriver : pushRegistrationDriver;
+  return {
+    ...base,
+    register: payload => staff
+      ? registerStaffPushDevice(payload, accessToken)
+      : registerPushDevice(payload, accessToken),
+    unregister: payload => staff
+      ? unregisterStaffPushDevice(payload, accessToken)
+      : unregisterPushDevice(payload, accessToken),
+  };
+}
 
 export function currentPushDeviceId() {
   return getOrCreateDeviceId(pushDeviceIdStore);

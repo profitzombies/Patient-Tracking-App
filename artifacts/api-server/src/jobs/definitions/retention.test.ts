@@ -98,14 +98,30 @@ describe("retention jobs", () => {
 
   it("trims notification history with the policy cutoff and surfaces RPC failures", async () => {
     mocks.loadOrgPolicy.mockResolvedValue(policy({ notificationHistoryDays: 180 }));
-    mocks.admin.mockResolvedValueOnce({ status: 200, json: 500 }).mockResolvedValueOnce({ status: 200, json: 7 });
+    mocks.admin
+      .mockResolvedValueOnce({ status: 200, json: 500 })
+      .mockResolvedValueOnce({ status: 200, json: 7 })
+      .mockResolvedValueOnce({ status: 200, json: 500 })
+      .mockResolvedValueOnce({ status: 200, json: 3 });
     const { c, counts } = ctx();
     await trimNotificationHistory(c);
     expect(mocks.admin.mock.calls[0][1]).toBe("/rest/v1/rpc/retention_trim_notifications");
     expect(mocks.admin.mock.calls[0][2]).toEqual({ p_cutoff: "2026-03-11T12:00:00.000Z", p_limit: 500, p_dry_run: false });
-    expect(counts).toEqual({ notificationsDeleted: 507 });
+    expect(mocks.admin.mock.calls[2][1]).toBe("/rest/v1/rpc/retention_trim_staff_alerts");
+    expect(mocks.admin.mock.calls[2][2]).toEqual({ p_cutoff: "2026-03-11T12:00:00.000Z", p_limit: 500, p_dry_run: false });
+    expect(counts).toEqual({ notificationsDeleted: 507, staffAlertRowsDeleted: 503 });
     mocks.admin.mockReset().mockResolvedValue({ status: 500, json: null });
     await expect(trimNotificationHistory(ctx().c)).rejects.toThrow("notification trim failed (500)");
+  });
+
+  it("counts staff alert rows due without deleting during a dry run", async () => {
+    mocks.admin
+      .mockResolvedValueOnce({ status: 200, json: 4 })
+      .mockResolvedValueOnce({ status: 200, json: 6 });
+    const { c, counts } = ctx(true);
+    await trimNotificationHistory(c);
+    expect(counts).toEqual({ notificationsDue: 4, staffAlertRowsDue: 6 });
+    expect(mocks.admin.mock.calls[1][2]).toMatchObject({ p_dry_run: true });
   });
 
   it("archives audit events to summaries in batches and counts summaries touched", async () => {

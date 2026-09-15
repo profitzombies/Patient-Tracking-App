@@ -7,9 +7,10 @@ export const EMAIL_TEMPLATE_IDS = [
   "new-sign-in-alert",
   "password-changed",
   "order-receipt",
-  "subscription-payment-failed",
   "order-shipped",
+  "subscription-payment-failed",
   "subscription-cancelled",
+  "staff-attention-digest",
 ] as const;
 
 export type EmailTemplateId = (typeof EMAIL_TEMPLATE_IDS)[number];
@@ -238,6 +239,31 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       name: "Payer first name",
       productName: "Product name",
       officeName: "Office name",
+    },
+  },
+  {
+    id: "staff-attention-digest",
+    name: "Daily patient attention digest",
+    purpose: "Tells office staff which patients need follow-up today and links them into the portal.",
+    trigger: "The daily attention run finds at least one flagged patient at the office’s chosen send time.",
+    audience: "Provider owners and team members the office chose as alert recipients.",
+    sampleVariables: {
+      name: "Sarah",
+      officeName: "Example Wellness Studio",
+      digestDate: "Tuesday, September 15, 2026",
+      flaggedCount: "3",
+      patients: "Emma S. · No meals logged (3 days), Weight stalled (5 days)\nLiam B. · Check-in overdue (9 days)\nOlivia M. · No weight logged (7 days)",
+      alertsLink: "https://operations.example.com/alerts",
+      settingsLink: "https://operations.example.com/settings",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      officeName: "Office name",
+      digestDate: "Digest date",
+      flaggedCount: "Number of flagged patients",
+      patients: "Flagged patients, one per line as “Name · reasons”",
+      alertsLink: "Needs attention page link",
+      settingsLink: "Alert settings link",
     },
   },
 ] as const;
@@ -572,6 +598,7 @@ export function renderEmailTemplate(
   if (id === "subscription-payment-failed") return renderSubscriptionPaymentFailed(variables);
   if (id === "order-shipped") return renderOrderShipped(variables);
   if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
+  if (id === "staff-attention-digest") return renderStaffAttentionDigest(variables);
 
   const name = requireVariable(variables, "name");
   const officeName = requireVariable(variables, "officeName");
@@ -802,6 +829,59 @@ function renderSubscriptionCancelled(variables: EmailVariables): RenderedEmail {
       bodyHtml: `${paragraph(`Your <strong>${escapeHtml(productName)}</strong> subscription from <strong>${escapeHtml(officeName)}</strong> has been cancelled. It will not renew after the current billing period, and you will not be charged again.`)}
         ${paragraph(`Anything already paid for will still ship as planned. If you change your mind, ${escapeHtml(officeName)} can set up a new order for you.`)}`,
       closing: "If you did not request this cancellation, contact your provider office right away.",
+    }),
+  };
+}
+
+function renderStaffAttentionDigest(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const officeName = requireVariable(variables, "officeName");
+  const digestDate = requireVariable(variables, "digestDate");
+  const flaggedCount = requireVariable(variables, "flaggedCount");
+  const patients = parseLineItems(requireVariable(variables, "patients"));
+  const alertsLink = requireVariable(variables, "alertsLink");
+  const settingsLink = variables.settingsLink?.trim() || "";
+  const count = Number(flaggedCount);
+  const headline = count === 1 ? "1 patient needs attention" : `${flaggedCount} patients need attention`;
+  const subject = `${headline} at ${officeName}`;
+  const previewText = `${headline} today. Review the daily digest in THINNR operations.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `${headline} at ${officeName} for ${digestDate}.`,
+    "",
+    ...patients.map((item) => (item.amount ? `${item.label} — ${item.amount}` : item.label)),
+    "",
+    `Review the digest and open patient records: ${alertsLink}`,
+    ...(settingsLink ? [`Change who receives these alerts or turn them off for yourself: ${settingsLink}`] : []),
+    "",
+    "Alerts are informational and do not replace clinical judgment.",
+  ].join("\n");
+  const rows = patients
+    .map(
+      (item) => `<tr>
+        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:15px;font-weight:bold;color:#203b64;vertical-align:top;white-space:nowrap;">${escapeHtml(item.label)}</td>
+        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:14px;line-height:1.5;color:#3b4a63;vertical-align:top;">${escapeHtml(item.amount)}</td>
+      </tr>`,
+    )
+    .join("");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Daily patient digest",
+      heading: headline,
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`Here is the <strong>${escapeHtml(officeName)}</strong> attention list for <strong>${escapeHtml(digestDate)}</strong>. Each patient below has at least one recent-progress signal that calls for staff follow-up.`)}
+        ${infoPanel("Patients flagged today", flaggedCount)}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:2px solid #203b64;">
+          ${rows}
+        </table>
+        ${button(alertsLink, "Review patients")}
+        ${paragraph("Open a patient’s record from the portal to see their full activity, weights, and messages. Alerts are informational and do not replace clinical judgment.")}
+        ${settingsLink ? paragraph(`<a href="${escapeHtml(settingsLink)}" style="color:#315eae;">Change who receives alerts or turn off your email digest</a> in office settings.`) : ""}`,
+      closing: `You are receiving this because ${officeName} chose you as an alert recipient. Sent once a day, only when at least one patient is flagged.`,
     }),
   };
 }

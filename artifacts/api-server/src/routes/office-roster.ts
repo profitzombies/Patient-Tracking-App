@@ -41,6 +41,8 @@ import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicat
 import { shiftDateKey } from "../medications/schedule";
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
+import { evaluateAttention } from "../lib/attention";
+import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 
 const router: IRouter = Router();
 
@@ -190,7 +192,14 @@ export type RosterStatus = "invited" | "paused" | "discharged" | "inactive" | "n
  * thresholds themselves are unchanged; they are simply measured against the
  * patient's own local day (`as_of_date`) instead of the server's UTC date.
  */
-function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: OperationalRow | undefined, officeAsOf: string, followUps: OperationalRow[] = []) {
+function rosterOperationalDto(
+  patient: ReturnType<typeof patientDto>,
+  fact: OperationalRow | undefined,
+  officeAsOf: string,
+  followUps: OperationalRow[] = [],
+  medication: { medications: MedicationRecord[]; doseLogs: DoseLogRecord[] } | undefined,
+  stallState: OperationalRow | undefined,
+) {
   const activity = activityFromSummaryRow(fact, officeAsOf);
   const asOf = activity?.asOfDate ?? officeAsOf;
   const latestActivityDate = dateOrNull(fact?.latest_activity_date);
@@ -204,19 +213,40 @@ function rosterOperationalDto(patient: ReturnType<typeof patientDto>, fact: Oper
   const loggedDays7 = activity ? numericOrNull(fact?.logged_days_7) : null;
   const checkIns7 = activity ? numericOrNull(fact?.check_ins_7) : null;
   const activation = patient.activationStatus;
-  const accountAge = daysOld(dateOrNull(patient.createdAt), asOf) ?? 0;
-  const programAge = daysOld(patient.program.startDate, asOf) ?? accountAge;
-  const age = Math.max(accountAge, programAge);
-  const activityAge = daysOld(latestActivityDate, asOf);
   const known = activity !== null;
-  const mealSilent = known && activation === "activated" && age >= 3 && (daysOld(latestDiaryDate, asOf) == null || daysOld(latestDiaryDate, asOf)! >= 3);
-  const checkInOverdue = known && activation === "activated" && age >= 7 && (daysOld(latestCheckInDate, asOf) == null || daysOld(latestCheckInDate, asOf)! >= 7);
-  const inactive = known && activation === "activated" && ((activityAge == null && accountAge >= 14) || (activityAge != null && activityAge >= 14));
+  const attention = evaluateAttention({
+    asOfDate: asOf,
+    activationStatus: activation,
+    pendingDeletion: patient.deletion != null,
+    activityKnown: known,
+    accountCreatedDate: dateOrNull(patient.createdAt),
+    programStartDate: patient.program.startDate,
+    latestWeightDate,
+    latestDiaryDate,
+    latestWaterDate,
+    latestCheckInDate,
+    latestActivityDate,
+    activeMedicationStartDates: (medication?.medications ?? [])
+      .filter((item) => item.startDate <= asOf && (item.stopDate === null || item.stopDate >= asOf))
+      .map((item) => item.startDate),
+    latestMedicationDoseDate: (medication?.doseLogs ?? [])
+      .map((item) => item.dueDate)
+      .sort()
+      .pop() ?? null,
+    stall: stallState?.stall && typeof stallState.stall === "object"
+      ? stallState.stall as { stalled?: boolean }
+      : null,
+    stallCrossedOnDate: dateOrNull(stallState?.crossed_on_key),
+    stallAsOfDate: dateOrNull(stallState?.as_of_date),
+  });
+  const mealSilent = attention.reasons.some((reason) => reason.code === "no_meals");
+  const checkInOverdue = attention.reasons.some((reason) => reason.code === "check_in_overdue");
+  const inactive = attention.reasons.some((reason) => reason.code === "no_activity_14d");
   // Paused and discharged patients are badged as such and never raise
   // outreach signals (every reason above already requires an activated row);
   // that badge wins even when the activity aggregate is unknown.
   const status: RosterStatus = patient.invitation?.state === "pending" ? "invited" : activation === "paused" ? "paused" : activation === "discharged" ? "discharged" : !known ? "unknown" : inactive ? "inactive" : mealSilent || checkInOverdue ? "needs_attention" : "on_track";
-  return { ...patient, operational: { asOfDate: asOf, latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, activity, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
+  return { ...patient, attention, operational: { asOfDate: asOf, latestActivityDate, latestDiaryDate, latestWaterDate, latestCheckInDate, latestWeightDate, latestPhotoDate, loggedDays7, checkIns7, activity, status, reasons: [inactive ? "no_activity_14d" : null, mealSilent ? "logging_lapsed" : null, checkInOverdue ? "check_in_overdue" : null].filter(Boolean), followUps: followUps.map((row) => ({ reason: String(row.reason), status: String(row.status), createdAt: String(row.created_at), resolvedAt: row.resolved_at ? String(row.resolved_at) : null })) } };
 }
 
 function numericOrNull(value: unknown): number | null {
@@ -470,7 +500,14 @@ router.get("/office/roster", async (req, res) => {
           : null;
       const meds = medicationState.get(String(row.id));
       return {
-        ...rosterOperationalDto({ ...base, deletion }, facts.get(String(row.id)), asOf, followUpByPatient.get(String(row.id))),
+        ...rosterOperationalDto(
+          { ...base, deletion },
+          facts.get(String(row.id)),
+          asOf,
+          followUpByPatient.get(String(row.id)),
+          meds,
+          outreachByPatient.get(String(row.id)) as OperationalRow | undefined,
+        ),
         outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
         medicationAdherence: meds
           ? medicationAdherenceDto(meds.medications, meds.doseLogs, typeof row.timezone === "string" ? row.timezone : null, now)
@@ -485,6 +522,7 @@ router.get("/office/roster", async (req, res) => {
       totalPatients: patients.length, activePatients,
       newEnrollments30d: patients.filter((patient) => patient.activationStatus === "activated" && (daysOld(dateOrNull(patient.createdAt), asOf) ?? 31) <= 29).length,
       needsAttention: patients.filter((patient) => patient.operational.status === "needs_attention").length,
+      attention: patients.filter((patient) => patient.attention.flagged).length,
       inactive: patients.filter((patient) => patient.operational.status === "inactive").length,
       invited: patients.filter((patient) => patient.operational.status === "invited").length,
       checkInsOverdue: patients.filter((patient) => patient.operational.reasons.includes("check_in_overdue")).length,

@@ -48,6 +48,9 @@ import billingOfficeOrdersRouter from "./billing-office-orders";
 import billingHqRouter from "./billing-hq";
 import billingHqOrdersRouter from "./billing-hq-orders";
 import billingPublicRouter from "./billing-public";
+import officeAlertsRouter from "./office-alerts";
+import staffNotificationsRouter from "./staff-notifications";
+import hqStaffAlertsRouter from "./hq-staff-alerts";
 
 const router: IRouter = Router();
 
@@ -85,6 +88,9 @@ router.use(officeOperationsRouter);
 router.use(officePatientEditsRouter);
 router.use(officeNotificationsRouter);
 router.use(officeSettingsRouter);
+router.use(officeAlertsRouter);
+router.use(staffNotificationsRouter);
+router.use(hqStaffAlertsRouter);
 router.use(officeTeamRouter);
 router.use(officeFilesRouter);
 router.use(officeAuditEventsRouter);

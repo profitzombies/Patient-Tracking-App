@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/offline-queue-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

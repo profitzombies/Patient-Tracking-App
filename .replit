@@ -72,6 +72,18 @@ args = "office-files-api"
 task = "workflow.run"
 args = "office-files-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "staff-alerts-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "staff-alerts-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "staff-alerts-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1391,6 +1403,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:office-files && pnpm --filter @workspace/thinnr-operations run test:files && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "staff-alerts-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/attention.test.ts src/alerts src/jobs/definitions/staff-attention-digest.test.ts src/routes/office-alerts.test.ts src/routes/staff-notifications.test.ts src/routes/hq-staff-alerts.test.ts src/routes/office-roster.test.ts src/notifications && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "staff-alerts-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:staff-alerts && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "staff-alerts-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:staff-alerts && pnpm --filter @workspace/thinnr-mobile run test:push-notifications && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

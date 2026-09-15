@@ -34,6 +34,7 @@ import OfficeTeam from '@/pages/OfficeTeam';
 import OfficeAudit from '@/pages/OfficeAudit';
 import OfficeFiles from '@/pages/OfficeFiles';
 import Security from '@/pages/Security';
+import OfficeAlerts from '@/pages/OfficeAlerts';
 
 export function OfficeApp() {
   return (
@@ -49,6 +50,7 @@ export function OfficeApp() {
               <Route path="/" component={Overview} />
               <Route path="/patients" component={Patients} />
               <Route path="/patients/:id" component={PatientDetail} />
+              <Route path="/alerts" component={OfficeAlerts} />
               <Route path="/conversations" component={OfficeConversations} />
               <Route path="/analytics" component={Analytics} />
               <Route path="/leaderboard" component={Leaderboard} />

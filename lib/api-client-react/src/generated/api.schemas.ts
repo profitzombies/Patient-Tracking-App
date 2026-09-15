@@ -1797,6 +1797,160 @@ export interface PatientProgram {
   week: number | null;
 }
 
+export type AttentionReasonCode = typeof AttentionReasonCode[keyof typeof AttentionReasonCode];
+
+
+export const AttentionReasonCode = {
+  no_weight: 'no_weight',
+  no_meals: 'no_meals',
+  no_water: 'no_water',
+  no_medication_doses: 'no_medication_doses',
+  weight_stalled: 'weight_stalled',
+  check_in_overdue: 'check_in_overdue',
+  no_activity_14d: 'no_activity_14d',
+} as const;
+
+export interface AttentionReason {
+  code: AttentionReasonCode;
+  label: string;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  days: number | null;
+}
+
+export interface PatientAttention {
+  flagged: boolean;
+  reasons: AttentionReason[];
+  /** @nullable */
+  signature: string | null;
+}
+
+export interface OfficeAlertItem {
+  patientId: string;
+  name: string;
+  reasons: AttentionReason[];
+  signature: string;
+  seen?: boolean;
+}
+
+export interface OfficeAlertsResult {
+  asOf: string;
+  count: number;
+  total: number;
+  items: OfficeAlertItem[];
+}
+
+export interface OfficeAttentionDigest {
+  digestDate: string;
+  generatedAt: string;
+  timeZone: string;
+  flaggedCount: number;
+  items: OfficeAlertItem[];
+}
+
+export interface OfficeAlertDigestsResult {
+  dates: string[];
+  digest: null | OfficeAttentionDigest;
+  /** @nullable */
+  latestDate: string | null;
+}
+
+export type OfficeAlertSettingsRecipientMode = typeof OfficeAlertSettingsRecipientMode[keyof typeof OfficeAlertSettingsRecipientMode];
+
+
+export const OfficeAlertSettingsRecipientMode = {
+  all: 'all',
+  owners_admins: 'owners_admins',
+  selected: 'selected',
+} as const;
+
+export type OfficeAlertSettingsTimeZoneSource = typeof OfficeAlertSettingsTimeZoneSource[keyof typeof OfficeAlertSettingsTimeZoneSource];
+
+
+export const OfficeAlertSettingsTimeZoneSource = {
+  office: 'office',
+  hq: 'hq',
+} as const;
+
+export type OfficeAlertSettingsMe = {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+  /** @nullable */
+  email: string | null;
+};
+
+export type OfficeAlertSettingsTeamItem = {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+};
+
+export interface OfficeAlertSettings {
+  recipientMode: OfficeAlertSettingsRecipientMode;
+  recipientMemberIds: string[];
+  sendTime: string;
+  timeZone: string;
+  timeZoneSource: OfficeAlertSettingsTimeZoneSource;
+  version: number;
+  canEdit: boolean;
+  me: OfficeAlertSettingsMe;
+  team: OfficeAlertSettingsTeamItem[];
+}
+
+export type OfficeAlertSettingsInputRecipientMode = typeof OfficeAlertSettingsInputRecipientMode[keyof typeof OfficeAlertSettingsInputRecipientMode];
+
+
+export const OfficeAlertSettingsInputRecipientMode = {
+  all: 'all',
+  owners_admins: 'owners_admins',
+  selected: 'selected',
+} as const;
+
+export interface OfficeAlertSettingsInput {
+  /** @minimum 0 */
+  expectedVersion: number;
+  recipientMode: OfficeAlertSettingsInputRecipientMode;
+  recipientMemberIds: string[];
+  sendTime: string;
+  /** @nullable */
+  timeZone: string | null;
+}
+
+export type StaffAlertDeliveryChannel = typeof StaffAlertDeliveryChannel[keyof typeof StaffAlertDeliveryChannel];
+
+
+export const StaffAlertDeliveryChannel = {
+  push: 'push',
+  email: 'email',
+} as const;
+
+export interface StaffAlertDelivery {
+  id: string;
+  providerId: string;
+  officeName: string;
+  channel: StaffAlertDeliveryChannel;
+  /** @nullable */
+  recipientEmail: string | null;
+  status: string;
+  /** @nullable */
+  suppressionReason: string | null;
+  /** @nullable */
+  suppressionDetail: string | null;
+  /** @nullable */
+  lastError: string | null;
+  /** @nullable */
+  digestDate: string | null;
+  flaggedCount: number;
+  scheduledAt: string;
+  /** @nullable */
+  sentAt: string | null;
+  /** @nullable */
+  finalizedAt: string | null;
+}
+
 export type OfficeRosterPatientInvitationState = typeof OfficeRosterPatientInvitationState[keyof typeof OfficeRosterPatientInvitationState];
 
 
@@ -1884,6 +2038,8 @@ export type OperationalPatientStatus = typeof OperationalPatientStatus[keyof typ
 
 export const OperationalPatientStatus = {
   invited: 'invited',
+  paused: 'paused',
+  discharged: 'discharged',
   inactive: 'inactive',
   needs_attention: 'needs_attention',
   on_track: 'on_track',
@@ -1975,6 +2131,7 @@ export interface OfficeRosterPatient {
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
   operational: OperationalPatient;
+  attention: PatientAttention;
 }
 
 export type FollowUpUpdateInputStatus = typeof FollowUpUpdateInputStatus[keyof typeof FollowUpUpdateInputStatus];
@@ -2114,6 +2271,7 @@ export interface OfficeRosterOperationalSummary {
   activePatients: number;
   newEnrollments30d: number;
   needsAttention: number;
+  attention: number;
   inactive: number;
   invited: number;
   checkInsOverdue: number;
@@ -3497,6 +3655,100 @@ export type GetOfficeRosterParams = {
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */
 office?: OfficeIdParameter;
+};
+
+export type GetOfficeAlertsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type MarkOfficeAlertSeenParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type MarkOfficeAlertSeenBody = {
+  signature: string;
+};
+
+export type MarkOfficeAlertSeen200 = {
+  ok: boolean;
+  count: number;
+};
+
+export type GetOfficeAlertDigestsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+date?: string;
+};
+
+export type GetOfficeAlertSettingsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type UpdateOfficeAlertSettingsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type UpdateOfficeAlertPreferencesBody = {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+};
+
+export type UpdateOfficeAlertPreferences200 = {
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+};
+
+export type RegisterStaffNotificationDeviceBodyPlatform = typeof RegisterStaffNotificationDeviceBodyPlatform[keyof typeof RegisterStaffNotificationDeviceBodyPlatform];
+
+
+export const RegisterStaffNotificationDeviceBodyPlatform = {
+  ios: 'ios',
+  android: 'android',
+} as const;
+
+export type RegisterStaffNotificationDeviceBody = {
+  token: string;
+  deviceId: string;
+  platform: RegisterStaffNotificationDeviceBodyPlatform;
+};
+
+export type UnregisterStaffNotificationDeviceBodyReason = typeof UnregisterStaffNotificationDeviceBodyReason[keyof typeof UnregisterStaffNotificationDeviceBodyReason];
+
+
+export const UnregisterStaffNotificationDeviceBodyReason = {
+  signed_out: 'signed_out',
+  account_switch: 'account_switch',
+} as const;
+
+export type UnregisterStaffNotificationDeviceBody = {
+  deviceId?: string;
+  reason?: UnregisterStaffNotificationDeviceBodyReason;
+};
+
+export type GetHqStaffAlertDeliveriesParams = {
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+};
+
+export type GetHqStaffAlertDeliveries200 = {
+  items: StaffAlertDelivery[];
 };
 
 export type GetOfficePatientRecordParams = {

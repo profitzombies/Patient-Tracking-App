@@ -15,7 +15,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Loader2, RotateCcw } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getGetOfficeSettingsQueryKey,
   useGetOfficeSettings,
@@ -30,6 +30,18 @@ import { useSession } from '@/contexts/session';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { BTN_PRIMARY, CHIP_COBALT, CHIP_WARM, INPUT_CLASS, LINK_ACTION, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { defaultSettingsValues } from '@/data/hq/settings';
+import { Switch } from '@/components/ui/switch';
+import { useOfficeAlertSettings } from '@/hooks/use-office-alerts';
+import {
+  OfficeApiError,
+} from '@/lib/office-api';
+import {
+  officeAlertSettingsQueryKey,
+  updateOfficeAlertPreferences,
+  updateOfficeAlertSettings,
+  type AlertRecipientMode,
+  type OfficeAlertSettings,
+} from '@/lib/office-alerts-api';
 import {
   apiErrorMessage,
   apiErrorStatus,
@@ -94,6 +106,117 @@ function PolicyRow({ label, value, help, testId, last = false }: { label: string
 
 function EffectiveChip({ source }: { source: 'office' | 'hq' }) {
   return <span className={source === 'office' ? CHIP_WARM : CHIP_COBALT}>{describeSource(source)}</span>;
+}
+
+const TIME_ZONES = [
+  ['America/New_York', 'Eastern (ET)'],
+  ['America/Chicago', 'Central (CT)'],
+  ['America/Denver', 'Mountain (MT)'],
+  ['America/Los_Angeles', 'Pacific (PT)'],
+  ['UTC', 'UTC'],
+] as const;
+
+const DEMO_ALERT_SETTINGS: OfficeAlertSettings = {
+  recipientMode: 'all',
+  recipientMemberIds: [],
+  sendTime: '08:00',
+  timeZone: 'America/Los_Angeles',
+  timeZoneSource: 'hq',
+  version: 1,
+  canEdit: true,
+  me: { emailEnabled: true, pushEnabled: true, email: 'sarah@demo.example' },
+  team: [
+    { id: 'owner', name: 'Dr. Sarah Jenkins', role: 'owner', status: 'active' },
+    { id: 'demo-admin', name: 'Alex Morgan', role: 'admin', status: 'active' },
+    { id: 'demo-staff', name: 'Jamie Lee', role: 'staff', status: 'active' },
+  ],
+};
+
+export interface AlertDraft {
+  recipientMode: AlertRecipientMode;
+  recipientMemberIds: string[];
+  sendTime: string;
+  timeZone: string;
+  emailEnabled: boolean;
+  pushEnabled: boolean;
+}
+
+const alertDraftFrom = (data: OfficeAlertSettings): AlertDraft => ({
+  recipientMode: data.recipientMode,
+  recipientMemberIds: data.recipientMemberIds,
+  sendTime: data.sendTime,
+  timeZone: data.timeZoneSource === 'hq' ? '' : data.timeZone,
+  emailEnabled: data.me.emailEnabled,
+  pushEnabled: data.me.pushEnabled,
+});
+
+export function PatientAlertsCard({ data, demo, preferenceReadOnly, saving, onSave, onPreference }: {
+  data: OfficeAlertSettings;
+  demo: boolean;
+  preferenceReadOnly: boolean;
+  saving: boolean;
+  onSave: (draft: AlertDraft) => void;
+  onPreference: (field: 'emailEnabled' | 'pushEnabled', value: boolean) => void;
+}) {
+  const saved = useMemo(() => alertDraftFrom(data), [data]);
+  const [draft, setDraft] = useState(saved);
+  const [snapshot, setSnapshot] = useState(saved);
+  if (snapshot !== saved) {
+    setSnapshot(saved);
+    setDraft(saved);
+  }
+  const canEdit = data.canEdit;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const modes: Array<{ value: AlertRecipientMode; label: string }> = [
+    { value: 'all', label: 'Everyone on the team' },
+    { value: 'owners_admins', label: 'Owners and admins' },
+    { value: 'selected', label: 'Specific teammates' },
+  ];
+  const toggleMember = (id: string, checked: boolean) => setDraft((current) => ({
+    ...current,
+    recipientMemberIds: checked
+      ? [...new Set([...current.recipientMemberIds, id])]
+      : current.recipientMemberIds.filter((value) => value !== id),
+  }));
+
+  return (
+    <>
+      <SectionCard
+        title="Patient alerts"
+        sub={demo ? 'Choose who receives the daily demo digest. Changes last for this session.' : 'Choose who receives the daily attention digest and when it is sent.'}
+        action={canEdit ? <button type="button" className={`${BTN_PRIMARY} h-8 px-3 disabled:opacity-50`} disabled={!dirty || saving} onClick={() => onSave(draft)} data-testid="button-save-alert-settings">{saving ? 'Saving…' : 'Save'}</button> : <span className="text-[11px] text-muted-foreground" data-testid="alert-settings-read-only">Read-only for your role</span>}
+      >
+        <div className="space-y-5 px-5 py-4">
+          <fieldset disabled={!canEdit}>
+            <legend className={PANEL_LABEL}>Recipients</legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {modes.map((mode) => <label key={mode.value} className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-xs ${draft.recipientMode === mode.value ? 'border-primary bg-accent text-navy' : 'border-border'}`}><input type="radio" name="alert-recipient-mode" value={mode.value} checked={draft.recipientMode === mode.value} onChange={() => setDraft({ ...draft, recipientMode: mode.value })} data-testid={`radio-alert-${mode.value}`} />{mode.label}</label>)}
+            </div>
+          </fieldset>
+          {draft.recipientMode === 'selected' && (
+            <fieldset disabled={!canEdit}>
+              <legend className={PANEL_LABEL}>Selected teammates</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {data.team.map((member) => <label key={member.id} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs"><input type="checkbox" checked={draft.recipientMemberIds.includes(member.id)} onChange={(event) => toggleMember(member.id, event.target.checked)} data-testid={`checkbox-alert-member-${member.id}`} /><span><b className="text-navy">{member.name}</b> <span className="text-muted-foreground">· {member.role}</span></span></label>)}
+              </div>
+            </fieldset>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label><span className={PANEL_LABEL}>Daily send time</span><input type="time" className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={draft.sendTime} onChange={(event) => setDraft({ ...draft, sendTime: event.target.value })} disabled={!canEdit} data-testid="input-alert-send-time" /></label>
+            <label><span className={PANEL_LABEL}>Time zone</span><select className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={draft.timeZone} onChange={(event) => setDraft({ ...draft, timeZone: event.target.value })} disabled={!canEdit} data-testid="select-alert-time-zone"><option value="">Follow HQ ({data.timeZone})</option>{draft.timeZone && !TIME_ZONES.some(([value]) => value === draft.timeZone) && <option value={draft.timeZone}>{draft.timeZone}</option>}{TIME_ZONES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><span className="mt-1 block text-[10px] text-muted-foreground">{data.timeZoneSource === 'hq' ? 'Currently inherited from HQ' : 'Set by this office'}</span></label>
+          </div>
+        </div>
+      </SectionCard>
+      <SectionCard title="My alert delivery" sub={data.me.email ? `Daily digest delivery for ${data.me.email}. The portal bell is always on.` : 'Your daily digest channels. The portal bell is always on.'}>
+        <div className="divide-y divide-border">
+          {([
+            ['emailEnabled', 'Email digest'],
+            ['pushEnabled', 'Mobile push'],
+          ] as const).map(([field, label]) => <label key={field} className="flex items-center justify-between gap-4 px-5 py-4"><span className="text-xs font-semibold text-navy">{label}</span><Switch checked={draft[field]} disabled={preferenceReadOnly || saving} onCheckedChange={(value) => { setDraft((current) => ({ ...current, [field]: value })); onPreference(field, value); }} aria-label={label} data-testid={`switch-alert-${field}`} /></label>)}
+        </div>
+      </SectionCard>
+    </>
+  );
 }
 
 // ─── Override form ───────────────────────────────────────────────────────────
@@ -280,18 +403,55 @@ export default function OfficeSettings() {
     (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
   const officeParam = authRole === 'hq_admin' ? scope?.providerId : undefined;
   const params = officeParam ? { office: officeParam } : undefined;
+  const signedIn = authStatus === 'signed-in';
 
   const query = useGetOfficeSettings(params, {
     query: { enabled: live, queryKey: [...getGetOfficeSettingsQueryKey(params), authUser?.id] },
   });
   const update = useUpdateOfficeSettingsOverrides();
+  const alertQuery = useOfficeAlertSettings();
+  const [demoAlerts, setDemoAlerts] = useState<OfficeAlertSettings>(DEMO_ALERT_SETTINGS);
+  const alertData = live ? alertQuery.data : signedIn ? undefined : demoAlerts;
+  const alertSettingsMutation = useMutation({
+    mutationFn: ({ draft, expectedVersion }: { draft: AlertDraft; expectedVersion: number }) => updateOfficeAlertSettings({
+      expectedVersion,
+      recipientMode: draft.recipientMode,
+      recipientMemberIds: draft.recipientMemberIds,
+      sendTime: draft.sendTime,
+      timeZone: draft.timeZone || null,
+    }, officeParam),
+    onSuccess: (result) => {
+      queryClient.setQueryData(officeAlertSettingsQueryKey(officeParam), result);
+      void queryClient.invalidateQueries({ queryKey: officeAlertSettingsQueryKey(officeParam) });
+      toast({ variant: 'success', title: 'Patient alerts saved', description: 'The next daily digest will use these recipients and delivery time.' });
+    },
+    onError: (error) => {
+      if (error instanceof OfficeApiError && error.isConflict) {
+        void queryClient.invalidateQueries({ queryKey: officeAlertSettingsQueryKey(officeParam) });
+        toast({ variant: 'destructive', title: 'Someone else saved first', description: 'The alert settings changed while you were editing. The latest values have been reloaded.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Patient alerts not saved', description: error instanceof Error ? error.message : 'Please try again.' });
+      }
+    },
+  });
+  const preferenceMutation = useMutation({
+    mutationFn: (body: { emailEnabled: boolean; pushEnabled: boolean }) => updateOfficeAlertPreferences(body, officeParam),
+    onSuccess: (result) => {
+      if (alertData) {
+        const next = { ...alertData, me: { ...alertData.me, ...result } };
+        if (live) queryClient.setQueriesData({ queryKey: officeAlertSettingsQueryKey(officeParam) }, next);
+        else setDemoAlerts(next);
+      }
+      toast({ variant: 'success', title: 'Alert delivery updated', description: 'Your personal delivery choices are saved.' });
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'Delivery choice not saved', description: error instanceof Error ? error.message : 'Please try again.' }),
+  });
 
   // Demo persona: seeded HQ defaults + a session-held override row.
   const [demo, setDemo] = useState<OfficeSettingsDto>(demoOfficeSettings);
 
   // Signed-in users never see demo data: HQ staff who reach the office shell
   // without drilling into an office get an honest pointer instead.
-  const signedIn = authStatus === 'signed-in';
   const data = live ? query.data : signedIn ? undefined : demo;
 
   const save = (draft: OverrideDraft, expectedVersion: number) => {
@@ -328,6 +488,33 @@ export default function OfficeSettings() {
     );
   };
 
+  const saveAlerts = (draft: AlertDraft) => {
+    if (!live) {
+      setDemoAlerts((current) => ({
+        ...current,
+        recipientMode: draft.recipientMode,
+        recipientMemberIds: draft.recipientMemberIds,
+        sendTime: draft.sendTime,
+        timeZone: draft.timeZone || current.timeZone,
+        timeZoneSource: draft.timeZone ? 'office' : 'hq',
+        version: current.version + 1,
+      }));
+      toast({ variant: 'success', title: 'Patient alerts saved', description: 'Applied to this demo session only.' });
+      return;
+    }
+    if (alertData) alertSettingsMutation.mutate({ draft, expectedVersion: alertData.version });
+  };
+
+  const savePreference = (field: 'emailEnabled' | 'pushEnabled', value: boolean) => {
+    if (!alertData) return;
+    const body = { emailEnabled: field === 'emailEnabled' ? value : alertData.me.emailEnabled, pushEnabled: field === 'pushEnabled' ? value : alertData.me.pushEnabled };
+    if (!live) {
+      setDemoAlerts((current) => ({ ...current, me: { ...current.me, ...body } }));
+      return;
+    }
+    preferenceMutation.mutate(body);
+  };
+
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
       <div className="mb-6">
@@ -357,6 +544,9 @@ export default function OfficeSettings() {
 
       {data && (
         <div className="space-y-5">
+          {alertData && <PatientAlertsCard data={alertData} demo={!live} preferenceReadOnly={Boolean(officeParam)} saving={alertSettingsMutation.isPending || preferenceMutation.isPending} onSave={saveAlerts} onPreference={savePreference} />}
+          {live && alertQuery.isPending && <div role="status" className="rounded-lg border border-border bg-card px-5 py-8 text-xs text-muted-foreground">Loading patient alert settings…</div>}
+          {live && alertQuery.isError && <div role="alert" aria-live="polite" className="rounded-lg border border-[#d5a7a7] bg-[#fff0f0] px-5 py-5 text-xs text-destructive">Patient alert settings could not be loaded.</div>}
           <OverridesCard data={data} live={live} saving={update.isPending} onSave={save} />
 
           <SectionCard title="Coach & care team" sub="Set by HQ for every office.">

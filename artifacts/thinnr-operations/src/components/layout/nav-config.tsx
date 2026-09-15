@@ -9,6 +9,7 @@
  */
 import {
   Box,
+  BellRing,
   ClipboardList,
   CreditCard,
   FolderOpen,
@@ -58,6 +59,7 @@ export const OFFICE_PAYMENTS_SECTIONS = [
 export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/patients', label: 'Patients', mobileLabel: 'Patients', icon: Users },
+  { path: '/alerts', label: 'Needs attention', mobileLabel: 'Alerts', icon: BellRing },
   { path: '/conversations', label: 'Conversations', mobileLabel: 'Inbox', icon: MessagesSquare },
   { path: '/analytics', label: 'Revenue & Outcomes', mobileLabel: 'Outcomes', icon: WalletCards },
   { path: '/leaderboard', label: 'Leaderboard', mobileLabel: 'Leaderboard', icon: Trophy },
@@ -82,7 +84,7 @@ export const OFFICE_SETTINGS_NAV_ITEM: OfficeNavItem = { path: '/settings', labe
 /** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
 export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
-  { label: 'Operations', paths: ['/patients', '/conversations', '/subscriptions', '/payments'] },
+  { label: 'Operations', paths: ['/patients', '/alerts', '/conversations', '/subscriptions', '/payments'] },
   { label: 'Insights', paths: ['/analytics', '/leaderboard'] },
   { label: 'Learning', paths: ['/training', '/files', '/ai-support'] },
   { label: 'Administration', paths: ['/team', '/audit', '/security'] },

@@ -14,7 +14,7 @@
  * note rather than a fabricated healthy board.
  */
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNowStrict } from 'date-fns';
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, PauseCircle, Play, RotateCcw, ShieldAlert } from 'lucide-react';
 import {
@@ -28,6 +28,7 @@ import {
 import { useSession } from '@/contexts/session';
 import { MetricTile, PageHeader } from '@/components/admin/primitives';
 import { useToast } from '@/hooks/use-toast';
+import { fetchStaffAlertDeliveries } from '@/lib/office-alerts-api';
 
 export const STATUS_LABEL: Record<SystemJobHealthStatus, string> = {
   ok: 'Healthy',
@@ -93,6 +94,11 @@ export default function SystemHealth() {
   const queryClient = useQueryClient();
   const [pendingJob, setPendingJob] = useState<string | null>(null);
   const canLoad = authStatus === 'signed-in' && (hqRole === 'Super Admin' || hqRole === 'Admin');
+  const deliveries = useQuery({
+    queryKey: ['hq-staff-alert-deliveries', authUser?.id],
+    queryFn: () => fetchStaffAlertDeliveries(50),
+    enabled: canLoad,
+  });
 
   const { data, isLoading, isError, error, dataUpdatedAt } = useGetHqSystemHealth({
     query: {
@@ -294,6 +300,34 @@ export default function SystemHealth() {
                       <td className="px-4 py-2.5 text-muted-foreground">{formatCounts(run.counts)}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="mt-8 overflow-hidden rounded-lg border border-border bg-card shadow-soft">
+            <div className="border-b border-border bg-paper-alt px-4 py-3">
+              <h2 className="font-serif text-base font-bold text-navy">Staff alert deliveries</h2>
+              <p className="text-[11px] text-muted-foreground">Daily patient-attention email and push outcomes, newest first.</p>
+            </div>
+            {deliveries.isError && <p role="alert" aria-live="polite" className="px-4 py-5 text-xs text-destructive">Staff alert deliveries could not be loaded.</p>}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-xs" data-testid="table-staff-alert-deliveries">
+                <thead><tr className="border-b border-border text-left text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground"><th className="px-4 py-2.5">Scheduled</th><th className="px-4 py-2.5">Office</th><th className="px-4 py-2.5">Channel</th><th className="px-4 py-2.5">Digest</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Detail</th></tr></thead>
+                <tbody>
+                  {deliveries.isPending && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading staff alert deliveries…</td></tr>}
+                  {deliveries.data?.items.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No staff alert deliveries recorded yet.</td></tr>}
+                  {deliveries.data?.items.map((delivery) => {
+                    const problem = delivery.status === 'failed';
+                    const warm = delivery.status === 'suppressed' || delivery.status === 'opted_out';
+                    return <tr key={delivery.id} className="border-b border-border last:border-0" data-testid={`row-staff-alert-${delivery.id}`}>
+                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{when(delivery.scheduledAt)}</td>
+                      <td className="px-4 py-3"><b className="block text-navy">{delivery.officeName}</b><span className="text-[10px] text-muted-foreground">{delivery.recipientEmail ?? 'Push recipient'}</span></td>
+                      <td className="px-4 py-3 capitalize">{delivery.channel}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{delivery.digestDate} · {delivery.flaggedCount} flagged</td>
+                      <td className="px-4 py-3"><span className={`inline-flex rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${problem ? 'border-[#d5a7a7] bg-[#fff0f0] text-destructive' : warm ? 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]' : 'border-accent-border bg-accent text-primary'}`}>{delivery.status.replace(/_/g, ' ')}</span></td>
+                      <td className={problem ? 'px-4 py-3 text-destructive' : 'px-4 py-3 text-muted-foreground'}>{delivery.suppressionDetail ?? delivery.suppressionReason?.replace(/_/g, ' ') ?? delivery.lastError ?? (delivery.sentAt ? `Sent ${when(delivery.sentAt)}` : '—')}</td>
+                    </tr>;
+                  })}
                 </tbody>
               </table>
             </div>

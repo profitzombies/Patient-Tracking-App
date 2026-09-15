@@ -24,6 +24,8 @@ import { runMissedDoseEvaluation, type MissedDoseRunSummary } from "./missed-dos
 import { runNotificationTick, type TickSummary } from "./sender";
 import { loadTickPolicy, type TickPolicy } from "./tick-policy";
 import { supabaseNotificationStore, type NotificationStore } from "./store";
+import { runStaffNotificationTick, type StaffSenderSummary } from "../alerts/staff-sender";
+import { supabaseStaffNotificationStore } from "../alerts/store";
 
 /** Blank-safe env knob: unset or blank means the fallback, never zero. */
 export function envMs(name: string, fallback: number): number {
@@ -54,6 +56,7 @@ export interface ScheduledTickResult {
   outbox: TickSummary;
   outreach: OutreachRunSummary | null;
   missedDoses: MissedDoseRunSummary | null;
+  staffOutbox: StaffSenderSummary;
 }
 
 let inFlight: Promise<ScheduledTickResult> | null = null;
@@ -120,10 +123,16 @@ export function runScheduledTick(
       log: (event, detail) => logger.warn(detail, event),
       policy,
     });
+    const staffOutbox = await runStaffNotificationTick({
+      store: supabaseStaffNotificationStore,
+      push: client,
+      now,
+      owner: `${OWNER}:staff`,
+    });
     if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0)) {
-      logger.info({ outbox, outreach, missedDoses }, "notification tick");
+      logger.info({ outbox, staffOutbox, outreach, missedDoses }, "notification tick");
     }
-    return { owner: OWNER, outbox, outreach, missedDoses };
+    return { owner: OWNER, outbox, staffOutbox, outreach, missedDoses };
   })();
   inFlight = run.finally(() => {
     inFlight = null;

@@ -94,6 +94,14 @@ export async function trimNotificationHistory(ctx: JobContext): Promise<void> {
     ctx.tally(ctx.dryRun ? "notificationsDue" : "notificationsDeleted", n);
     if (ctx.dryRun || n < BATCH) break;
   }
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    ctx.checkpoint();
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/retention_trim_staff_alerts", { p_cutoff: cutoff, p_limit: BATCH, p_dry_run: ctx.dryRun });
+    if (result.status >= 300) throw new Error(`staff alert trim failed (${result.status})`);
+    const n = typeof result.json === "number" ? result.json : Number(result.json) || 0;
+    ctx.tally(ctx.dryRun ? "staffAlertRowsDue" : "staffAlertRowsDeleted", n);
+    if (ctx.dryRun || n < BATCH) break;
+  }
 }
 
 export async function archiveAuditEvents(ctx: JobContext): Promise<void> {

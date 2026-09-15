@@ -50,6 +50,7 @@
     "test:device-features": "tsx scripts/verify-device-features.ts",
     "test:medication-reminders": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-medication-reminders.ts",
     "test:push-notifications": "tsx scripts/verify-push-notifications.ts",
+    "test:staff-alerts": "tsx --tsconfig tsconfig.staff-alerts.json scripts/verify-staff-alerts.ts",
     "test:editable-text-typography": "tsx --tsconfig tsconfig.editable-text-typography.json scripts/verify-editable-text-typography.ts",
     "test:food-catalog": "tsx scripts/verify-food-catalog.ts",
     "test:food-search-loading": "tsx --tsconfig tsconfig.log-food-screen.json scripts/verify-log-food-screen.tsx",

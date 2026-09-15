@@ -1,7 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
-  Bell,
   ChevronDown,
   LogOut,
   Plus,
@@ -20,6 +19,7 @@ import {
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
+import { AttentionBell } from '@/components/office/AttentionBell';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -182,9 +182,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <ActionButton label="Search" onClick={() => setSearchOpen(!searchOpen)}>
               <Search size={16} />
             </ActionButton>
-            <ActionButton label="Notifications" onClick={() => toast({ title: "Notifications", description: "No new notifications." })}>
-              <Bell size={16} />
-            </ActionButton>
+            <AttentionBell />
             {!scope && (
               /* Standalone personas sign out here; the HQ drill-in exits via
                  its own "Back to HQ" banner instead. */

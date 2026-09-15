@@ -1316,6 +1316,83 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: Office unavailable }
+  /office/alerts:
+    get:
+      operationId: getOfficeAlerts
+      tags: [office]
+      parameters: [{ $ref: "#/components/parameters/OfficeId" }]
+      responses:
+        "200": { description: Live attention list, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertsResult" } } } }
+  /office/alerts/{patientId}/seen:
+    post:
+      operationId: markOfficeAlertSeen
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [signature], properties: { signature: { type: string } } } } }
+      responses:
+        "200": { description: Alert acknowledged, content: { application/json: { schema: { type: object, required: [ok, count], properties: { ok: { type: boolean }, count: { type: number } } } } } }
+  /office/alerts/digests:
+    get:
+      operationId: getOfficeAlertDigests
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        "200": { description: Recent daily digests, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertDigestsResult" } } } }
+  /office/alerts/settings:
+    get:
+      operationId: getOfficeAlertSettings
+      tags: [office]
+      parameters: [{ $ref: "#/components/parameters/OfficeId" }]
+      responses:
+        "200": { description: Alert delivery settings, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertSettings" } } } }
+    put:
+      operationId: updateOfficeAlertSettings
+      tags: [office]
+      parameters: [{ $ref: "#/components/parameters/OfficeId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertSettingsInput" } } }
+      responses:
+        "200": { description: Saved alert settings, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertSettings" } } } }
+        "409": { description: Version conflict }
+  /office/alerts/preferences:
+    put:
+      operationId: updateOfficeAlertPreferences
+      tags: [office]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [emailEnabled, pushEnabled], properties: { emailEnabled: { type: boolean }, pushEnabled: { type: boolean } } } } }
+      responses:
+        "200": { description: Saved personal delivery choices, content: { application/json: { schema: { type: object, required: [emailEnabled, pushEnabled], properties: { emailEnabled: { type: boolean }, pushEnabled: { type: boolean } } } } } }
+  /staff-notifications/device:
+    put:
+      operationId: registerStaffNotificationDevice
+      tags: [office]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [token, deviceId, platform], properties: { token: { type: string }, deviceId: { type: string }, platform: { type: string, enum: [ios, android] } } } } }
+      responses:
+        "200": { description: Device registered }
+    delete:
+      operationId: unregisterStaffNotificationDevice
+      tags: [office]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { deviceId: { type: string }, reason: { type: string, enum: [signed_out, account_switch] } } } } }
+      responses:
+        "200": { description: Device registration retired }
+  /hq/staff-alerts/deliveries:
+    get:
+      operationId: getHqStaffAlertDeliveries
+      tags: [hq]
+      parameters: [{ name: limit, in: query, schema: { type: number, minimum: 1, maximum: 200 } }]
+      responses:
+        "200": { description: Staff alert delivery outcomes, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/StaffAlertDelivery" } } } } } } }
   /office/patients/{patientId}:
     get:
       operationId: getOfficePatientRecord
@@ -3719,9 +3796,104 @@ components:
         day: { type: ["number", "null"] }
         stage: { type: ["string", "null"], enum: [protocol, maintenance, null] }
         week: { type: ["number", "null"] }
+    AttentionReason:
+      type: object
+      required: [code, label, days]
+      properties:
+        code: { type: string, enum: [no_weight, no_meals, no_water, no_medication_doses, weight_stalled, check_in_overdue, no_activity_14d] }
+        label: { type: string }
+        days: { type: ["number", "null"], minimum: 0 }
+    PatientAttention:
+      type: object
+      required: [flagged, reasons, signature]
+      properties:
+        flagged: { type: boolean }
+        reasons: { type: array, items: { $ref: "#/components/schemas/AttentionReason" } }
+        signature: { type: ["string", "null"] }
+    OfficeAlertItem:
+      type: object
+      required: [patientId, name, reasons, signature]
+      properties:
+        patientId: { type: string }
+        name: { type: string }
+        reasons: { type: array, items: { $ref: "#/components/schemas/AttentionReason" } }
+        signature: { type: string }
+        seen: { type: boolean }
+    OfficeAlertsResult:
+      type: object
+      required: [asOf, count, total, items]
+      properties:
+        asOf: { type: string, format: date }
+        count: { type: number }
+        total: { type: number }
+        items: { type: array, items: { $ref: "#/components/schemas/OfficeAlertItem" } }
+    OfficeAttentionDigest:
+      type: object
+      required: [digestDate, generatedAt, timeZone, flaggedCount, items]
+      properties:
+        digestDate: { type: string, format: date }
+        generatedAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        flaggedCount: { type: number }
+        items: { type: array, items: { $ref: "#/components/schemas/OfficeAlertItem" } }
+    OfficeAlertDigestsResult:
+      type: object
+      required: [dates, digest, latestDate]
+      properties:
+        dates: { type: array, items: { type: string, format: date } }
+        digest: { oneOf: [{ type: "null" }, { $ref: "#/components/schemas/OfficeAttentionDigest" }] }
+        latestDate: { type: ["string", "null"], format: date }
+    OfficeAlertSettings:
+      type: object
+      required: [recipientMode, recipientMemberIds, sendTime, timeZone, timeZoneSource, version, canEdit, me, team]
+      properties:
+        recipientMode: { type: string, enum: [all, owners_admins, selected] }
+        recipientMemberIds: { type: array, items: { type: string } }
+        sendTime: { type: string }
+        timeZone: { type: string }
+        timeZoneSource: { type: string, enum: [office, hq] }
+        version: { type: number }
+        canEdit: { type: boolean }
+        me:
+          type: object
+          required: [emailEnabled, pushEnabled, email]
+          properties: { emailEnabled: { type: boolean }, pushEnabled: { type: boolean }, email: { type: ["string", "null"] } }
+        team:
+          type: array
+          items:
+            type: object
+            required: [id, name, role, status]
+            properties: { id: { type: string }, name: { type: string }, role: { type: string }, status: { type: string } }
+    OfficeAlertSettingsInput:
+      type: object
+      required: [expectedVersion, recipientMode, recipientMemberIds, sendTime, timeZone]
+      properties:
+        expectedVersion: { type: number, minimum: 0 }
+        recipientMode: { type: string, enum: [all, owners_admins, selected] }
+        recipientMemberIds: { type: array, items: { type: string } }
+        sendTime: { type: string }
+        timeZone: { type: ["string", "null"] }
+    StaffAlertDelivery:
+      type: object
+      required: [id, providerId, officeName, channel, recipientEmail, status, suppressionReason, suppressionDetail, lastError, digestDate, flaggedCount, scheduledAt, sentAt, finalizedAt]
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        officeName: { type: string }
+        channel: { type: string, enum: [push, email] }
+        recipientEmail: { type: ["string", "null"] }
+        status: { type: string }
+        suppressionReason: { type: ["string", "null"] }
+        suppressionDetail: { type: ["string", "null"] }
+        lastError: { type: ["string", "null"] }
+        digestDate: { type: ["string", "null"], format: date }
+        flaggedCount: { type: number }
+        scheduledAt: { type: string, format: date-time }
+        sentAt: { type: ["string", "null"], format: date-time }
+        finalizedAt: { type: ["string", "null"], format: date-time }
     OfficeRosterPatient:
       type: object
-      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation, operational]
+      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation, attention, operational]
       properties:
         id: { type: string }
         name: { type: string }
@@ -3744,6 +3916,8 @@ components:
                 emailUpdatedAt: { type: ["string", "null"] }
         operational:
           $ref: "#/components/schemas/OperationalPatient"
+        attention:
+          $ref: "#/components/schemas/PatientAttention"
     OperationalPatient:
       type: object
       description: >-
@@ -3767,7 +3941,7 @@ components:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/PatientActivitySignals"
-        status: { type: string, enum: [invited, inactive, needs_attention, on_track, unknown] }
+        status: { type: string, enum: [invited, paused, discharged, inactive, needs_attention, on_track, unknown] }
         reasons:
           type: array
           items: { type: string, enum: [no_activity_14d, logging_lapsed, check_in_overdue] }
@@ -3931,12 +4105,13 @@ components:
         hasMore: { type: boolean }
     OfficeRosterOperationalSummary:
       type: object
-      required: [totalPatients, activePatients, newEnrollments30d, needsAttention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]
+      required: [totalPatients, activePatients, newEnrollments30d, needsAttention, attention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]
       properties:
         totalPatients: { type: number }
         activePatients: { type: number }
         newEnrollments30d: { type: number }
         needsAttention: { type: number }
+        attention: { type: number }
         inactive: { type: number }
         invited: { type: number }
         checkInsOverdue: { type: number }

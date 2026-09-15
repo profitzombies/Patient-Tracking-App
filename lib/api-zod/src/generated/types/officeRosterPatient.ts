@@ -7,6 +7,7 @@
  */
 import type { OfficeRosterPatientInvitation } from './officeRosterPatientInvitation';
 import type { OperationalPatient } from './operationalPatient';
+import type { PatientAttention } from './patientAttention';
 import type { PatientProgram } from './patientProgram';
 
 export interface OfficeRosterPatient {
@@ -26,4 +27,5 @@ export interface OfficeRosterPatient {
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
   operational: OperationalPatient;
+  attention: PatientAttention;
 }

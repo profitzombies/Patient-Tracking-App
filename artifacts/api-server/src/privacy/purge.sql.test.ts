@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260928000000_patient_privacy_lifecycle.sql");
 const BILLING_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261013010000_billing_privacy_retention.sql");
+const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261014000000_staff_attention_alerts_privacy.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -81,6 +82,14 @@ create table public.patient_notifications (
   kind text not null, category text not null check (category in ('coach_outreach', 'check_in_reminders', 'office_reminders')),
   title text not null, body text not null, created_at timestamptz not null default now());
 create table public.patient_push_tokens (id uuid primary key default gen_random_uuid(), patient_id uuid not null references public.patients(id) on delete cascade, token text not null);
+create table public.office_attention_digests (
+  id uuid primary key default gen_random_uuid(), provider_id text not null, digest_date date not null,
+  generated_at timestamptz not null default now(), time_zone text not null default 'UTC',
+  flagged_count integer not null, items jsonb not null default '[]'::jsonb);
+create table public.staff_notifications (
+  id uuid primary key default gen_random_uuid(), provider_id text not null, auth_user_id uuid not null,
+  channel text not null, status text not null default 'queued', data jsonb not null default '{}'::jsonb,
+  scheduled_at timestamptz not null default now(), finalized_at timestamptz, updated_at timestamptz not null default now());
 create table public.patient_flags (patient_id uuid primary key references public.patients(id) on delete cascade, onboarding_answers jsonb);
 create table public.patient_diary_entries (entry_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text);
 create table public.patient_media (object_path text primary key, patient_id uuid not null references public.patients(id) on delete cascade);
@@ -183,7 +192,8 @@ function seedPatients() {
       public.patient_body_measurements, public.patient_chat_notes, public.patient_chat_patient_read_markers,
       public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
-      public.patient_push_tokens, public.patient_notifications, public.patient_consents, public.patient_data_exports,
+      public.patient_push_tokens, public.patient_notifications, public.office_attention_digests, public.staff_notifications,
+      public.patient_consents, public.patient_data_exports,
       public.patient_deletion_requests, public.patient_tombstones, public.analytics_events, public.patients cascade;
     insert into public.providers (provider_id) values ('office-1') on conflict do nothing;
     insert into public.billing_products (id, name) values ('${uuid(800)}', 'Product');
@@ -279,7 +289,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -476,6 +486,31 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(Object.values(again.tables as Record<string, number>).every((n) => n === 0)).toBe(true);
     expect(Number(scalar<string>(`select count(*) from public.patient_tombstones`))).toBe(1);
     expect(finish(req.id, "purged")[0].status).toBe("purged");
+  });
+
+  it("scrubs patient identity from digest and delivery snapshots when the patient row is purged", () => {
+    seedPatients();
+    const snapshot = JSON.stringify([
+      { patientId: PATIENT, name: "Pat Example", reasons: [{ code: "no_meals", label: "No meals logged", days: 3 }] },
+      { patientId: OTHER, name: "Other Person", reasons: [{ code: "no_water", label: "No water logged", days: 4 }] },
+    ]).replaceAll("'", "''");
+    psql(`
+      insert into public.office_attention_digests (provider_id, digest_date, flagged_count, items)
+      values ('office-1', current_date, 2, '${snapshot}'::jsonb);
+      insert into public.staff_notifications (provider_id, auth_user_id, channel, status, data)
+      values ('office-1', '${AUTH_USER}', 'email', 'sent', jsonb_build_object('patients', '${snapshot}'::jsonb));
+    `);
+    const req = request(PATIENT, 0);
+    claim("worker-a");
+    purge(req.id);
+
+    const digest = rows<{ flagged_count: number; items: Record<string, unknown>[] }>(`select flagged_count, items from public.office_attention_digests`)[0]!;
+    const delivery = rows<{ patients: Record<string, unknown>[] }>(`select data->'patients' as patients from public.staff_notifications`)[0]!;
+    expect(digest.flagged_count).toBe(1);
+    expect(digest.items).toEqual([{ patientId: OTHER, name: "Other Person", reasons: [{ code: "no_water", label: "No water logged", days: 4 }] }]);
+    expect(delivery.patients).toEqual(digest.items);
+    expect(JSON.stringify([digest, delivery])).not.toContain("Pat Example");
+    expect(JSON.stringify([digest, delivery])).not.toContain(PATIENT);
   });
 
   it("refuses to purge a request that is not being purged, and a purged patient cannot receive new data", () => {

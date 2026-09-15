@@ -18,6 +18,8 @@ const migrationNames = [
   "20261009000000_patient_bloodwork_progress.sql",
   "20261010000000_bloodwork_extraction_scheduling.sql",
   "20261010010000_bloodwork_extraction_privacy_guard.sql",
+  "20261011000000_staff_attention_alerts.sql",
+  "20261014000000_staff_attention_alerts_privacy.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;

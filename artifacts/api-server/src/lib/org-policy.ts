@@ -213,6 +213,10 @@ export interface OfficeOverrides {
   providerId: string;
   quietHours: QuietHoursOverride;
   escalationEmail: string | null;
+  alertRecipientMode: "all" | "owners_admins" | "selected";
+  alertRecipientMemberIds: string[];
+  alertSendTime: string;
+  alertTimeZone: string | null;
   version: number;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -223,6 +227,10 @@ export const NO_OVERRIDES = (providerId: string): OfficeOverrides => ({
   providerId,
   quietHours: { mode: "inherit" },
   escalationEmail: null,
+  alertRecipientMode: "all",
+  alertRecipientMemberIds: [],
+  alertSendTime: "08:00",
+  alertTimeZone: null,
   version: 0,
   updatedAt: null,
   updatedBy: null,
@@ -230,7 +238,7 @@ export const NO_OVERRIDES = (providerId: string): OfficeOverrides => ({
 });
 
 export const OVERRIDES_SELECT =
-  "provider_id,version,quiet_hours_set,quiet_start,quiet_end,escalation_email,updated_at,updated_by,updated_by_name";
+  "provider_id,version,quiet_hours_set,quiet_start,quiet_end,escalation_email,alert_recipient_mode,alert_recipient_member_ids,alert_send_time,alert_time_zone,updated_at,updated_by,updated_by_name";
 
 export function overridesFromRow(row: Record<string, unknown>): OfficeOverrides {
   const window = quiet(row.quiet_start, row.quiet_end);
@@ -240,6 +248,17 @@ export function overridesFromRow(row: Record<string, unknown>): OfficeOverrides 
     providerId: String(row.provider_id),
     quietHours,
     escalationEmail: text(row.escalation_email),
+    alertRecipientMode:
+      row.alert_recipient_mode === "owners_admins" || row.alert_recipient_mode === "selected"
+        ? row.alert_recipient_mode
+        : "all",
+    alertRecipientMemberIds: Array.isArray(row.alert_recipient_member_ids)
+      ? row.alert_recipient_member_ids.filter((id): id is string => typeof id === "string")
+      : [],
+    alertSendTime: typeof row.alert_send_time === "string" && CLOCK_RE.test(row.alert_send_time)
+      ? row.alert_send_time
+      : "08:00",
+    alertTimeZone: text(row.alert_time_zone),
     version: int(row.version, 1),
     updatedAt: text(row.updated_at),
     updatedBy: text(row.updated_by),

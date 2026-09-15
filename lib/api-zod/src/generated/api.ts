@@ -1501,6 +1501,8 @@ export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast
 
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax = 3;
 
+export const getOfficeRosterResponsePatientsItemAttentionReasonsItemDaysMin = 0;
+
 
 
 export const GetOfficeRosterResponse = zod.object({
@@ -1568,7 +1570,7 @@ export const GetOfficeRosterResponse = zod.object({
   "count": zod.number()
 })).max(getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax)]).describe('Up to three side effects from the 30-day window, most frequent first (ties alphabetical).')
 }).describe('Activity signals over the patient\'s stored diary, water and check-in rows, bucketed by the stored local day keys and anchored on asOfDate. Each family is null when there is no data of that kind yet: the diary family (loggedLast7, loggedDays7, mealStreak, avgCalories7) when the patient has never logged a diary entry, the check-in family (checkInStreak, checkInRate30, latestCheckInDate, moodCounts, topSideEffects) when they have never checked in. Averages are null when their window holds no qualifying day. Zero is only ever a real zero. The patient detail record\'s `engagement` uses the identical definitions.')]),
-  "status": zod.enum(['invited', 'inactive', 'needs_attention', 'on_track', 'unknown']),
+  "status": zod.enum(['invited', 'paused', 'discharged', 'inactive', 'needs_attention', 'on_track', 'unknown']),
   "reasons": zod.array(zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue'])),
   "followUps": zod.array(zod.object({
   "reason": zod.enum(['no_activity_14d', 'logging_lapsed', 'check_in_overdue']),
@@ -1576,19 +1578,225 @@ export const GetOfficeRosterResponse = zod.object({
   "createdAt": zod.string(),
   "resolvedAt": zod.string().nullable()
 }))
-}).describe('Recency facts and activity signals for one roster row, measured against the patient\'s own local day (asOfDate). `activity` is null when the office aggregate returned no row for the patient; the status is then `unknown` with no outreach reasons — missing data never reads as zero activity.')
+}).describe('Recency facts and activity signals for one roster row, measured against the patient\'s own local day (asOfDate). `activity` is null when the office aggregate returned no row for the patient; the status is then `unknown` with no outreach reasons — missing data never reads as zero activity.'),
+  "attention": zod.object({
+  "flagged": zod.boolean(),
+  "reasons": zod.array(zod.object({
+  "code": zod.enum(['no_weight', 'no_meals', 'no_water', 'no_medication_doses', 'weight_stalled', 'check_in_overdue', 'no_activity_14d']),
+  "label": zod.string(),
+  "days": zod.number().min(getOfficeRosterResponsePatientsItemAttentionReasonsItemDaysMin).nullable()
+})),
+  "signature": zod.string().nullable()
+})
 })),
   "summary": zod.object({
   "totalPatients": zod.number(),
   "activePatients": zod.number(),
   "newEnrollments30d": zod.number(),
   "needsAttention": zod.number(),
+  "attention": zod.number(),
   "inactive": zod.number(),
   "invited": zod.number(),
   "checkInsOverdue": zod.number(),
   "loggingLapsed": zod.number(),
   "asOf": zod.coerce.date()
 })
+})
+
+
+export const GetOfficeAlertsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const getOfficeAlertsResponseItemsItemReasonsItemDaysMin = 0;
+
+
+
+export const GetOfficeAlertsResponse = zod.object({
+  "asOf": zod.coerce.date(),
+  "count": zod.number(),
+  "total": zod.number(),
+  "items": zod.array(zod.object({
+  "patientId": zod.string(),
+  "name": zod.string(),
+  "reasons": zod.array(zod.object({
+  "code": zod.enum(['no_weight', 'no_meals', 'no_water', 'no_medication_doses', 'weight_stalled', 'check_in_overdue', 'no_activity_14d']),
+  "label": zod.string(),
+  "days": zod.number().min(getOfficeAlertsResponseItemsItemReasonsItemDaysMin).nullable()
+})),
+  "signature": zod.string(),
+  "seen": zod.boolean().optional()
+}))
+})
+
+
+export const MarkOfficeAlertSeenParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const MarkOfficeAlertSeenQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const MarkOfficeAlertSeenBody = zod.object({
+  "signature": zod.string()
+})
+
+export const MarkOfficeAlertSeenResponse = zod.object({
+  "ok": zod.boolean(),
+  "count": zod.number()
+})
+
+
+export const GetOfficeAlertDigestsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "date": zod.date().optional()
+})
+
+export const getOfficeAlertDigestsResponseDigestTwoItemsItemReasonsItemDaysMin = 0;
+
+
+
+export const GetOfficeAlertDigestsResponse = zod.object({
+  "dates": zod.array(zod.coerce.date()),
+  "digest": zod.union([zod.null(),zod.object({
+  "digestDate": zod.coerce.date(),
+  "generatedAt": zod.coerce.date(),
+  "timeZone": zod.string(),
+  "flaggedCount": zod.number(),
+  "items": zod.array(zod.object({
+  "patientId": zod.string(),
+  "name": zod.string(),
+  "reasons": zod.array(zod.object({
+  "code": zod.enum(['no_weight', 'no_meals', 'no_water', 'no_medication_doses', 'weight_stalled', 'check_in_overdue', 'no_activity_14d']),
+  "label": zod.string(),
+  "days": zod.number().min(getOfficeAlertDigestsResponseDigestTwoItemsItemReasonsItemDaysMin).nullable()
+})),
+  "signature": zod.string(),
+  "seen": zod.boolean().optional()
+}))
+})]),
+  "latestDate": zod.coerce.date().nullable()
+})
+
+
+export const GetOfficeAlertSettingsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficeAlertSettingsResponse = zod.object({
+  "recipientMode": zod.enum(['all', 'owners_admins', 'selected']),
+  "recipientMemberIds": zod.array(zod.string()),
+  "sendTime": zod.string(),
+  "timeZone": zod.string(),
+  "timeZoneSource": zod.enum(['office', 'hq']),
+  "version": zod.number(),
+  "canEdit": zod.boolean(),
+  "me": zod.object({
+  "emailEnabled": zod.boolean(),
+  "pushEnabled": zod.boolean(),
+  "email": zod.string().nullable()
+}),
+  "team": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "status": zod.string()
+}))
+})
+
+
+export const UpdateOfficeAlertSettingsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const updateOfficeAlertSettingsBodyExpectedVersionMin = 0;
+
+
+
+export const UpdateOfficeAlertSettingsBody = zod.object({
+  "expectedVersion": zod.number().min(updateOfficeAlertSettingsBodyExpectedVersionMin),
+  "recipientMode": zod.enum(['all', 'owners_admins', 'selected']),
+  "recipientMemberIds": zod.array(zod.string()),
+  "sendTime": zod.string(),
+  "timeZone": zod.string().nullable()
+})
+
+export const UpdateOfficeAlertSettingsResponse = zod.object({
+  "recipientMode": zod.enum(['all', 'owners_admins', 'selected']),
+  "recipientMemberIds": zod.array(zod.string()),
+  "sendTime": zod.string(),
+  "timeZone": zod.string(),
+  "timeZoneSource": zod.enum(['office', 'hq']),
+  "version": zod.number(),
+  "canEdit": zod.boolean(),
+  "me": zod.object({
+  "emailEnabled": zod.boolean(),
+  "pushEnabled": zod.boolean(),
+  "email": zod.string().nullable()
+}),
+  "team": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "role": zod.string(),
+  "status": zod.string()
+}))
+})
+
+
+export const UpdateOfficeAlertPreferencesBody = zod.object({
+  "emailEnabled": zod.boolean(),
+  "pushEnabled": zod.boolean()
+})
+
+export const UpdateOfficeAlertPreferencesResponse = zod.object({
+  "emailEnabled": zod.boolean(),
+  "pushEnabled": zod.boolean()
+})
+
+
+export const RegisterStaffNotificationDeviceBody = zod.object({
+  "token": zod.string(),
+  "deviceId": zod.string(),
+  "platform": zod.enum(['ios', 'android'])
+})
+
+export const RegisterStaffNotificationDeviceResponse = zod.unknown()
+
+
+export const UnregisterStaffNotificationDeviceBody = zod.object({
+  "deviceId": zod.string().optional(),
+  "reason": zod.enum(['signed_out', 'account_switch']).optional()
+})
+
+export const UnregisterStaffNotificationDeviceResponse = zod.unknown()
+
+
+export const getHqStaffAlertDeliveriesQueryLimitMax = 200;
+
+
+
+export const GetHqStaffAlertDeliveriesQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(getHqStaffAlertDeliveriesQueryLimitMax).optional()
+})
+
+export const GetHqStaffAlertDeliveriesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "channel": zod.enum(['push', 'email']),
+  "recipientEmail": zod.string().nullable(),
+  "status": zod.string(),
+  "suppressionReason": zod.string().nullable(),
+  "suppressionDetail": zod.string().nullable(),
+  "lastError": zod.string().nullable(),
+  "digestDate": zod.coerce.date().nullable(),
+  "flaggedCount": zod.number(),
+  "scheduledAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date().nullable(),
+  "finalizedAt": zod.coerce.date().nullable()
+}))
 })
 
 

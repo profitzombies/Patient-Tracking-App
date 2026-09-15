@@ -11,6 +11,8 @@ export type OperationalPatientStatus = typeof OperationalPatientStatus[keyof typ
 
 export const OperationalPatientStatus = {
   invited: 'invited',
+  paused: 'paused',
+  discharged: 'discharged',
   inactive: 'inactive',
   needs_attention: 'needs_attention',
   on_track: 'on_track',

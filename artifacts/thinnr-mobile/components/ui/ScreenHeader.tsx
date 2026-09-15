@@ -28,12 +28,13 @@ interface ScreenHeaderAction {
 
 interface ScreenHeaderProps {
   title: string;
+  subtitle?: string;
   onSearch?: (query: string) => void;
   /** Optional screen-specific action rendered ahead of the shared icons. */
   action?: ScreenHeaderAction;
 }
 
-export function ScreenHeader({ title, onSearch, action }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, onSearch, action }: ScreenHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -74,7 +75,17 @@ export function ScreenHeader({ title, onSearch, action }: ScreenHeaderProps) {
             <Text style={[styles.brandMarkText, { color: colors.brandMarkText }]}>TH</Text>
           </View>
           {!searchOpen && (
-            <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
+            <View>
+              <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
+              {subtitle ? (
+                <Text
+                  style={[styles.subtitle, { color: colors.cobalt }]}
+                  testID="screen-header-subtitle"
+                >
+                  {subtitle}
+                </Text>
+              ) : null}
+            </View>
           )}
         </View>
 
@@ -204,6 +215,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'PlayfairDisplay_700Bold',
     letterSpacing: 0.2,
+  },
+  subtitle: {
+    fontSize: 9,
+    lineHeight: 12,
+    marginTop: 1,
+    fontFamily: 'Inter_700Bold',
+    letterSpacing: 0.35,
   },
   actions: {
     flexDirection: 'row',

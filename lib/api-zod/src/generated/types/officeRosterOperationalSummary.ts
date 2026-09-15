@@ -11,6 +11,7 @@ export interface OfficeRosterOperationalSummary {
   activePatients: number;
   newEnrollments30d: number;
   needsAttention: number;
+  attention: number;
   inactive: number;
   invited: number;
   checkInsOverdue: number;

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260929000000_system_jobs_and_storage_hygiene.sql");
+const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261014000000_staff_attention_alerts_privacy.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -68,6 +69,14 @@ create table public.patient_notifications (
 create table public.patient_notification_attempts (
   id uuid primary key default gen_random_uuid(), notification_id uuid not null references public.patient_notifications(id) on delete cascade, attempt integer default 1);
 create table public.patient_deletion_requests (id uuid primary key default gen_random_uuid(), patient_id uuid not null, status text not null default 'pending');
+create table public.office_attention_digests (
+  id uuid primary key default gen_random_uuid(), provider_id text not null, digest_date date not null,
+  generated_at timestamptz not null default now(), time_zone text not null default 'UTC',
+  flagged_count integer not null, items jsonb not null default '[]'::jsonb);
+create table public.staff_notifications (
+  id uuid primary key default gen_random_uuid(), provider_id text not null, auth_user_id uuid not null,
+  channel text not null, status text not null default 'queued', data jsonb not null default '{}'::jsonb,
+  scheduled_at timestamptz not null default now(), finalized_at timestamptz, updated_at timestamptz not null default now());
 create table public.analytics_events (id bigint generated always as identity primary key, patient_id uuid, kind text);
 create table public.admin_audit_events (
   id bigint generated always as identity primary key, occurred_at timestamptz not null default now(), action text not null,
@@ -120,7 +129,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
     psql(`insert into public.patients (id, provider_id) values ('${P1}', 'prov'), ('${P2}', 'prov')`);
@@ -406,6 +415,23 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
       expect(scalar<number>(`count(*) from public.patient_notification_attempts`)).toBe(0);
       expect(scalar<number>(`public.retention_trim_notifications(now() - interval '180 days', 1000, false)`)).toBe(1);
       expect(rows<{ id: string }>(`select id from public.patient_notifications order by created_at`).map((r) => r.id)).toEqual([uuid(42), uuid(43)]);
+    });
+
+    it("trims terminal staff notifications and digests while queued rows survive", () => {
+      psql(`
+        insert into public.staff_notifications (id, provider_id, auth_user_id, channel, status, scheduled_at, finalized_at) values
+          ('${uuid(44)}', 'office-1', '${uuid(90)}', 'email', 'sent', now() - interval '210 days', now() - interval '200 days'),
+          ('${uuid(45)}', 'office-1', '${uuid(90)}', 'push', 'queued', now() - interval '300 days', null),
+          ('${uuid(46)}', 'office-1', '${uuid(90)}', 'push', 'failed', now() - interval '10 days', now() - interval '10 days');
+        insert into public.office_attention_digests (id, provider_id, digest_date, generated_at, flagged_count)
+          values ('${uuid(47)}', 'office-1', current_date - 200, now() - interval '200 days', 0);
+      `);
+      expect(scalar<number>(`public.retention_trim_staff_alerts(now() - interval '180 days', 1000, true)`)).toBe(2);
+      expect(scalar<number>(`count(*) from public.staff_notifications`)).toBe(3);
+      expect(scalar<number>(`count(*) from public.office_attention_digests`)).toBe(1);
+      expect(scalar<number>(`public.retention_trim_staff_alerts(now() - interval '180 days', 1000, false)`)).toBe(2);
+      expect(rows<{ id: string }>(`select id from public.staff_notifications order by id`).map((row) => row.id)).toEqual([uuid(45), uuid(46)]);
+      expect(scalar<number>(`count(*) from public.office_attention_digests`)).toBe(0);
     });
   });
 

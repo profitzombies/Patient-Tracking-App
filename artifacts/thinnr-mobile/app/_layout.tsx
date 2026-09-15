@@ -418,6 +418,7 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
 function PushResponseBridge() {
   const router = useRouter();
   const { mode, hydrated: modeHydrated } = useAppMode();
+  const { session, sessionLoading } = useSupabaseSession();
   const { resolving, account } = usePatientAccount();
   const patient = usePatient();
   const pending = useRef<{
@@ -433,6 +434,7 @@ function PushResponseBridge() {
     patient.hydratedFlags?.onboardingComplete === true &&
     patient.hydratedPrivacy?.consent.satisfied === true &&
     patient.hydratedPrivacy.deletion === null;
+  const staffAdmitted = modeHydrated && mode === 'staff' && !sessionLoading && Boolean(session?.user);
 
   const recordOpened = useCallback((notificationId: string | null) => {
     if (!notificationId || opened.current.has(notificationId)) return;
@@ -449,6 +451,13 @@ function PushResponseBridge() {
     if (handledResponses.current.has(responseId)) return;
     handledResponses.current.add(responseId);
     const data = response.notification.request.content.data;
+    if (data?.kind === 'staff_attention_digest') {
+      const route = resolveNotificationRoute(data);
+      if (!route) return;
+      if (staffAdmitted) router.push(route as Href);
+      else pending.current = { route, notificationId: null, patientId: null };
+      return;
+    }
     const responsePatientId = notificationPatientId(data);
     const activePatientId = account.kind === 'real' ? account.patientId : null;
     // Human-chat actions are patient-owned. A stale notification from an old
@@ -486,7 +495,7 @@ function PushResponseBridge() {
     } else {
       pending.current = { route, notificationId, patientId: responsePatientId ?? activePatientId };
     }
-  }, [account, admitted, recordOpened, router]);
+  }, [account, admitted, recordOpened, router, staffAdmitted]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -508,6 +517,12 @@ function PushResponseBridge() {
       received.remove();
     };
   }, [consume]);
+
+  useEffect(() => {
+    if (!staffAdmitted || pending.current?.route !== '/(tabs)/patients') return;
+    pending.current = null;
+    router.push('/(tabs)/patients' as Href);
+  }, [router, staffAdmitted]);
 
   useEffect(() => {
     if (!admitted) return;

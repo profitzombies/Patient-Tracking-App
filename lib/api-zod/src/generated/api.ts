@@ -3256,6 +3256,8 @@ export const GetHqSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -3322,6 +3324,10 @@ export const updateHqSettingsBodySupportPhoneMax = 40;
 
 export const updateHqSettingsBodyDefaultTimezoneMax = 80;
 
+export const updateHqSettingsBodyAppStoreUrlMax = 500;
+
+export const updateHqSettingsBodyGooglePlayUrlMax = 500;
+
 export const updateHqSettingsBodyEscalationEmailMax = 320;
 
 export const updateHqSettingsBodyDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -3354,6 +3360,8 @@ export const UpdateHqSettingsBody = zod.object({
   "supportEmail": zod.string().max(updateHqSettingsBodySupportEmailMax).nullish(),
   "supportPhone": zod.string().max(updateHqSettingsBodySupportPhoneMax).nullish(),
   "defaultTimezone": zod.string().min(1).max(updateHqSettingsBodyDefaultTimezoneMax).optional(),
+  "appStoreUrl": zod.string().max(updateHqSettingsBodyAppStoreUrlMax).nullish(),
+  "googlePlayUrl": zod.string().max(updateHqSettingsBodyGooglePlayUrlMax).nullish(),
   "coachAvailable": zod.boolean().optional(),
   "escalationEmail": zod.string().max(updateHqSettingsBodyEscalationEmailMax).nullish(),
   "defaultCategories": zod.object({
@@ -3398,6 +3406,8 @@ export const UpdateHqSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -3488,6 +3498,8 @@ export const GetOfficeSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -3745,6 +3757,8 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({

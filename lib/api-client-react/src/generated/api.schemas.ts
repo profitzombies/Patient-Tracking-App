@@ -1250,6 +1250,16 @@ export interface HqOrganizationSettings {
   /** @nullable */
   supportPhone: string | null;
   defaultTimezone: string;
+  /**
+     * App Store listing link offices render as a QR code; null until HQ adds it.
+     * @nullable
+     */
+  appStoreUrl: string | null;
+  /**
+     * Google Play listing link offices render as a QR code; null until HQ adds it.
+     * @nullable
+     */
+  googlePlayUrl: string | null;
   coachAvailable: boolean;
   /** @nullable */
   escalationEmail: string | null;
@@ -1288,6 +1298,16 @@ export interface HqOrganizationSettingsInput {
      * @maxLength 80
      */
   defaultTimezone?: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  appStoreUrl?: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  googlePlayUrl?: string | null;
   coachAvailable?: boolean;
   /**
      * @maxLength 320

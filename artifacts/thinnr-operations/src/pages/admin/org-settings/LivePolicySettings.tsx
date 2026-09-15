@@ -12,7 +12,7 @@
  * seeded, session-only GroupCards for it.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, QrCode, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getGetHqSettingsQueryKey,
@@ -28,10 +28,13 @@ import { Switch } from '@/components/ui/switch';
 import { BTN_PRIMARY, INPUT_CLASS, LINK_ACTION, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import {
+  APP_STORE_LABELS,
   POLICY_BOUNDS,
   apiErrorMessage,
   apiErrorStatus,
   describeSectionChange,
+  storeLinkProblem,
+  type AppStoreKind,
   type PolicySectionKey,
 } from '@/lib/org-policy';
 
@@ -234,19 +237,87 @@ function PolicyCard<Draft extends object>({ section, title, sub, settings, fromS
 
 // ─── Section drafts ──────────────────────────────────────────────────────────
 
-interface OrganizationDraft { organizationName: string; supportEmail: string; supportPhone: string; defaultTimezone: string }
+interface OrganizationDraft {
+  organizationName: string;
+  supportEmail: string;
+  supportPhone: string;
+  defaultTimezone: string;
+  appStoreUrl: string;
+  googlePlayUrl: string;
+}
 const organizationFrom = (s: HqOrganizationSettings): OrganizationDraft => ({
   organizationName: s.organizationName,
   supportEmail: s.supportEmail ?? '',
   supportPhone: s.supportPhone ?? '',
   defaultTimezone: s.defaultTimezone,
+  appStoreUrl: s.appStoreUrl ?? '',
+  googlePlayUrl: s.googlePlayUrl ?? '',
 });
 const organizationPayload = (d: OrganizationDraft): HqOrganizationSettingsInput => ({
   organizationName: d.organizationName,
   supportEmail: d.supportEmail.trim() || null,
   supportPhone: d.supportPhone.trim() || null,
   defaultTimezone: d.defaultTimezone,
+  appStoreUrl: d.appStoreUrl.trim() || null,
+  googlePlayUrl: d.googlePlayUrl.trim() || null,
 });
+/** A malformed store link blocks Save with the same message shown inline. */
+const organizationIncomplete = (d: OrganizationDraft): string | null =>
+  storeLinkProblem('appStore', d.appStoreUrl) ?? storeLinkProblem('googlePlay', d.googlePlayUrl);
+
+const STORE_LINK_FIELDS: Array<{ kind: AppStoreKind; key: 'appStoreUrl' | 'googlePlayUrl'; testId: string; placeholder: string; help: string }> = [
+  {
+    kind: 'appStore', key: 'appStoreUrl', testId: 'input-setting-live-app-store-url',
+    placeholder: 'https://apps.apple.com/us/app/thinnr/id…',
+    help: 'The App Store listing. Every office’s “Get the app” panel renders its iPhone QR code from this link.',
+  },
+  {
+    kind: 'googlePlay', key: 'googlePlayUrl', testId: 'input-setting-live-google-play-url',
+    placeholder: 'https://play.google.com/store/apps/details?id=…',
+    help: 'The Google Play listing. Every office’s “Get the app” panel renders its Android QR code from this link.',
+  },
+];
+
+/** Inline field for one store link: a shape hint while typing, a reminder while blank. */
+function StoreLinkField({ kind, value, saved, testId, placeholder, onChange }: {
+  kind: AppStoreKind;
+  value: string;
+  saved: string | null;
+  testId: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const problem = storeLinkProblem(kind, value);
+  const label = `${APP_STORE_LABELS[kind].store} link`;
+  return (
+    <div className="w-full sm:w-[26rem]">
+      <input
+        className={`${INPUT_CLASS} h-9 w-full`}
+        type="url"
+        inputMode="url"
+        autoComplete="off"
+        spellCheck={false}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? `${testId}-problem` : !saved ? `${testId}-missing` : undefined}
+        data-testid={testId}
+      />
+      {problem ? (
+        <p id={`${testId}-problem`} className="mt-1 text-[11px] font-medium text-destructive" role="alert" data-testid={`${testId}-problem`}>
+          {problem}
+        </p>
+      ) : !saved ? (
+        <p id={`${testId}-missing`} className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#b65c22]" data-testid={`${testId}-missing`}>
+          <QrCode size={11} aria-hidden="true" />
+          Not added yet — offices see “HQ hasn’t added this link yet” instead of a QR code.
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 interface CoachDraft { coachAvailable: boolean; escalationEmail: string }
 const coachFrom = (s: HqOrganizationSettings): CoachDraft => ({ coachAvailable: s.coachAvailable, escalationEmail: s.escalationEmail ?? '' });
@@ -352,6 +423,7 @@ export function LivePolicySettings() {
         settings={settings}
         fromSettings={organizationFrom}
         toPayload={organizationPayload}
+        incomplete={organizationIncomplete}
       >
         {(draft, setDraft) => (
           <>
@@ -364,7 +436,7 @@ export function LivePolicySettings() {
             <FieldRow label="Support phone" help="Optional contact number for provider support.">
               <input className={`${INPUT_CLASS} h-9 w-full sm:w-72`} value={draft.supportPhone} placeholder="(800) 555-0199" onChange={(e) => setDraft({ supportPhone: e.target.value })} aria-label="Support phone" data-testid="input-setting-live-support-phone" />
             </FieldRow>
-            <FieldRow label="Reporting timezone" help="Display label for live rollup reports." last>
+            <FieldRow label="Reporting timezone" help="Display label for live rollup reports.">
               <Select value={draft.defaultTimezone} onValueChange={(value) => setDraft({ defaultTimezone: value })}>
                 <SelectTrigger className="h-9 w-full text-xs sm:w-72" aria-label="Reporting timezone" data-testid="select-setting-live-reporting-tz">
                   <SelectValue />
@@ -376,6 +448,18 @@ export function LivePolicySettings() {
                 </SelectContent>
               </Select>
             </FieldRow>
+            {STORE_LINK_FIELDS.map((field, index) => (
+              <FieldRow key={field.kind} label={`${APP_STORE_LABELS[field.kind].store} link`} help={field.help} last={index === STORE_LINK_FIELDS.length - 1}>
+                <StoreLinkField
+                  kind={field.kind}
+                  value={draft[field.key]}
+                  saved={settings[field.key]}
+                  testId={field.testId}
+                  placeholder={field.placeholder}
+                  onChange={(value) => setDraft({ [field.key]: value } as Partial<OrganizationDraft>)}
+                />
+              </FieldRow>
+            ))}
           </>
         )}
       </PolicyCard>

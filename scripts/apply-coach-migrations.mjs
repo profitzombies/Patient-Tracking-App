@@ -20,6 +20,7 @@ const migrationNames = [
   "20261010010000_bloodwork_extraction_privacy_guard.sql",
   "20261011000000_staff_attention_alerts.sql",
   "20261014000000_staff_attention_alerts_privacy.sql",
+  "20261017000000_app_store_links.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -97,7 +98,11 @@ await query(`
        or not exists (
          select 1 from information_schema.columns
           where table_schema='public' and table_name='patient_chat_conversations' and column_name='legacy_compat'
-       ) then raise exception 'Coach migration postconditions are not satisfied'; end if;
+       )
+       or (select count(*) from information_schema.columns
+           where table_schema='public' and table_name='hq_organization_settings'
+             and column_name in ('app_store_url', 'google_play_url')) <> 2
+       then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';
 `);

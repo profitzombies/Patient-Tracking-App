@@ -26,6 +26,8 @@ const db = vi.hoisted(() => {
     version: 1,
     coach_available: true,
     escalation_email: null,
+    app_store_url: null,
+    google_play_url: null,
     default_coach_outreach: true,
     default_check_in_reminders: true,
     default_office_reminders: true,
@@ -245,6 +247,73 @@ describe("HQ organization policy", () => {
     expect(later.json.version).toBe(3);
     expect(later.json.sections.coach.changedAt).toBe(json.sections.coach.changedAt);
     expect(later.json.sections.retention).not.toBeNull();
+  });
+
+  describe("app store links", () => {
+    const APP_STORE = "https://apps.apple.com/us/app/thinnr/id6478123456";
+    const PLAY = "https://play.google.com/store/apps/details?id=com.thinnr.app";
+
+    it("reads as null until HQ adds them", async () => {
+      const response = await fetch(`${base}/hq/settings`, { headers: HQ });
+      expect(await response.json()).toMatchObject({ appStoreUrl: null, googlePlayUrl: null });
+    });
+
+    it("saves real store URLs through the versioned merge, stamps organization, and audits both fields", async () => {
+      const { status, json } = await putSettings({ expectedVersion: 1, appStoreUrl: `  ${APP_STORE}  `, googlePlayUrl: PLAY });
+      expect(status).toBe(200);
+      expect(json).toMatchObject({ appStoreUrl: APP_STORE, googlePlayUrl: PLAY, version: 2 });
+      expect(db.settings).toMatchObject({ app_store_url: APP_STORE, google_play_url: PLAY, version: 2 });
+      expect(json.sections.organization).toMatchObject({ changedByName: "Avery Admin" });
+      expect(json.sections.coach).toBeNull();
+      const byField = Object.fromEntries(mocks.audit.mock.calls.map(([input]) => [input.metadata.field, input.metadata]));
+      expect(byField.appStoreUrl).toMatchObject({ section: "organization", from: null, to: APP_STORE, version: 2 });
+      expect(byField.googlePlayUrl).toMatchObject({ section: "organization", from: null, to: PLAY, version: 2 });
+      // Offices read the same values on their settings endpoint.
+      const office = await fetch(`${base}/office/settings`, { headers: { authorization: "Bearer office" } });
+      expect((await office.json() as Record<string, any>).hq).toMatchObject({ appStoreUrl: APP_STORE, googlePlayUrl: PLAY });
+    });
+
+    it("blank clears a link (null) and a stale version is refused", async () => {
+      await putSettings({ expectedVersion: 1, appStoreUrl: APP_STORE, googlePlayUrl: PLAY });
+      const cleared = await putSettings({ expectedVersion: 2, appStoreUrl: "   ", googlePlayUrl: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.json).toMatchObject({ appStoreUrl: null, googlePlayUrl: null, version: 3 });
+      const stale = await putSettings({ expectedVersion: 2, appStoreUrl: APP_STORE });
+      expect(stale.status).toBe(409);
+      expect(db.settings.app_store_url).toBeNull();
+      expect(db.settings.version).toBe(3);
+    });
+
+    it.each([
+      ["appStoreUrl", "https://example.com/app"],
+      ["appStoreUrl", "http://apps.apple.com/us/app/thinnr/id1"],
+      ["appStoreUrl", PLAY],
+      ["appStoreUrl", "apps.apple.com/us/app/thinnr/id1"],
+      ["appStoreUrl", "https://apps.apple.com/us/app/thinnr id1"],
+      ["googlePlayUrl", "https://play.google.com/"],
+      ["googlePlayUrl", "https://play.google.com/store/apps/collection/top"],
+      ["googlePlayUrl", "javascript:alert(1)"],
+      ["googlePlayUrl", APP_STORE],
+    ])("rejects %s = %s with a field-specific message and no version bump", async (field, value) => {
+      const { status, json } = await putSettings({ [field]: value });
+      expect(status).toBe(400);
+      expect(json.error).toContain(field === "appStoreUrl" ? "App Store link" : "Google Play link");
+      expect(db.settings.version).toBe(1);
+      expect(mocks.audit).not.toHaveBeenCalled();
+    });
+
+    it("rejects an over-long link at the schema", async () => {
+      const { status } = await putSettings({ appStoreUrl: `https://apps.apple.com/${"a".repeat(500)}` });
+      expect(status).toBe(400);
+      expect(db.settings.version).toBe(1);
+    });
+
+    it("keeps the links when another section saves", async () => {
+      await putSettings({ expectedVersion: 1, appStoreUrl: APP_STORE });
+      const later = await putSettings({ expectedVersion: 2, exportLinkHours: 48 });
+      expect(later.json.appStoreUrl).toBe(APP_STORE);
+      expect(later.json.googlePlayUrl).toBeNull();
+    });
   });
 
   it("refuses a stale expectedVersion with 409 and does not bump the version", async () => {

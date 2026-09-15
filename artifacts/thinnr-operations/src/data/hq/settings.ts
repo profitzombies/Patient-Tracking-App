@@ -26,6 +26,14 @@ export interface HqSettingsGroup {
   fields: HqSettingField[];
 }
 
+/**
+ * Seeded store links for the guided demo. Placeholder listings that are
+ * shaped like the real thing so the office QR panel and the HQ settings
+ * demo look complete; signed-in users always read the live HQ value instead.
+ */
+export const DEMO_APP_STORE_URL = 'https://apps.apple.com/us/app/thinnr/id6740000000';
+export const DEMO_GOOGLE_PLAY_URL = 'https://play.google.com/store/apps/details?id=com.thinnr.app';
+
 export const HQ_SETTINGS_GROUPS: HqSettingsGroup[] = [
   {
     id: 'organization',
@@ -41,6 +49,18 @@ export const HQ_SETTINGS_GROUPS: HqSettingsGroup[] = [
         id: 'support-email', kind: 'text', label: 'Support email',
         defaultValue: 'support@thinnr.example.com',
         help: 'Where provider offices reach HQ. Demo address — nothing sends.',
+      },
+      {
+        id: 'app-store-link', kind: 'text', label: 'App Store link',
+        defaultValue: DEMO_APP_STORE_URL,
+        placeholder: 'https://apps.apple.com/us/app/…',
+        help: 'The iPhone listing every office’s “Get the app” QR code points at. Demo placeholder — not a real listing.',
+      },
+      {
+        id: 'google-play-link', kind: 'text', label: 'Google Play link',
+        defaultValue: DEMO_GOOGLE_PLAY_URL,
+        placeholder: 'https://play.google.com/store/apps/details?id=…',
+        help: 'The Android listing behind the second QR code. Demo placeholder — not a real listing.',
       },
       {
         id: 'reporting-tz', kind: 'select', label: 'Reporting timezone',

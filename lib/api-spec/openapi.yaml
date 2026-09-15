@@ -3461,6 +3461,8 @@ components:
         - supportEmail
         - supportPhone
         - defaultTimezone
+        - appStoreUrl
+        - googlePlayUrl
         - coachAvailable
         - escalationEmail
         - defaultCategories
@@ -3478,6 +3480,12 @@ components:
         supportEmail: { type: ["string", "null"] }
         supportPhone: { type: ["string", "null"] }
         defaultTimezone: { type: string }
+        appStoreUrl:
+          type: ["string", "null"]
+          description: App Store listing link offices render as a QR code; null until HQ adds it.
+        googlePlayUrl:
+          type: ["string", "null"]
+          description: Google Play listing link offices render as a QR code; null until HQ adds it.
         coachAvailable: { type: boolean }
         escalationEmail: { type: ["string", "null"] }
         defaultCategories: { $ref: "#/components/schemas/NotificationCategoryDefaults" }
@@ -3499,6 +3507,8 @@ components:
         supportEmail: { type: ["string", "null"], maxLength: 320 }
         supportPhone: { type: ["string", "null"], maxLength: 40 }
         defaultTimezone: { type: string, minLength: 1, maxLength: 80 }
+        appStoreUrl: { type: ["string", "null"], maxLength: 500 }
+        googlePlayUrl: { type: ["string", "null"], maxLength: 500 }
         coachAvailable: { type: boolean }
         escalationEmail: { type: ["string", "null"], maxLength: 320 }
         defaultCategories: { $ref: "#/components/schemas/NotificationCategoryDefaults" }

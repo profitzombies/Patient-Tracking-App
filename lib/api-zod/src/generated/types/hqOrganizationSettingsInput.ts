@@ -32,6 +32,16 @@ export interface HqOrganizationSettingsInput {
      * @maxLength 80
      */
   defaultTimezone?: string;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  appStoreUrl?: string | null;
+  /**
+     * @maxLength 500
+     * @nullable
+     */
+  googlePlayUrl?: string | null;
   coachAvailable?: boolean;
   /**
      * @maxLength 320

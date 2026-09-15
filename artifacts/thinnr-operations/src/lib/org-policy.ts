@@ -154,3 +154,43 @@ export function apiErrorStatus(error: unknown): number | null {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === 'number' ? status : null;
 }
+
+// ─── App store links ─────────────────────────────────────────────────────────
+
+export type AppStoreKind = 'appStore' | 'googlePlay';
+
+/** Short labels for the two store codes (panel, print sheet, settings echo). */
+export const APP_STORE_LABELS: Record<AppStoreKind, { store: string; short: string; device: string }> = {
+  appStore: { store: 'App Store', short: 'iPhone', device: 'iPhone & iPad' },
+  googlePlay: { store: 'Google Play', short: 'Android', device: 'Android phones' },
+};
+
+/** Office-facing wording for a link HQ has not added yet. */
+export const STORE_LINK_MISSING = 'HQ hasn’t added this link yet';
+
+export interface StoreLink { kind: AppStoreKind; url: string | null }
+
+/** Both links in display order, from any object carrying the HQ policy fields. */
+export function storeLinksOf(hq: Pick<HqOrganizationSettings, 'appStoreUrl' | 'googlePlayUrl'>): StoreLink[] {
+  return [
+    { kind: 'appStore', url: hq.appStoreUrl?.trim() || null },
+    { kind: 'googlePlay', url: hq.googlePlayUrl?.trim() || null },
+  ];
+}
+
+/**
+ * Client-side shape check for the HQ settings form. The server is the
+ * authority (same host rules), this only lets the form flag an obvious
+ * mistake before the round trip. Blank is always fine.
+ */
+export function storeLinkProblem(kind: AppStoreKind, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ok = kind === 'appStore'
+    ? /^https:\/\/(apps|itunes)\.apple\.com\//.test(trimmed)
+    : /^https:\/\/play\.google\.com\/store\/apps\/details\?/.test(trimmed);
+  if (ok && !/\s/.test(trimmed)) return null;
+  return kind === 'appStore'
+    ? 'Paste the listing URL from App Store Connect — it starts with https://apps.apple.com/.'
+    : 'Paste the listing URL from the Play Console — it starts with https://play.google.com/store/apps/details?id=.';
+}

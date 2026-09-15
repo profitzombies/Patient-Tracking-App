@@ -46,7 +46,7 @@ import { OFFICE_NAV_ITEMS, OFFICE_SETTINGS_NAV_ITEM, findActiveOfficeNavItem } f
 import { HQ_SETTINGS_GROUPS } from '../src/data/hq/settings';
 import OrgSettings from '../src/pages/admin/OrgSettings';
 import OfficeSettings from '../src/pages/OfficeSettings';
-import Conversations from '../src/pages/admin/Conversations';
+import OfficeConversations from '../src/pages/OfficeConversations';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -154,6 +154,8 @@ function hqFixture(): HqOrganizationSettings {
     supportEmail: 'support@thinnr.example.com',
     supportPhone: null,
     defaultTimezone: 'America/New_York',
+    appStoreUrl: 'https://apps.apple.com/us/app/thinnr/id6740000001',
+    googlePlayUrl: null,
     coachAvailable: true,
     escalationEmail: 'care@hq.example.com',
     defaultCategories: { coachOutreach: true, checkInReminders: true, officeReminders: false },
@@ -200,7 +202,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       return json({ error: 'Someone else saved these settings first. Reload to see the latest values.', version: hqSettings.version }, 409);
     }
     const { expectedVersion: _v, defaultCategories, retention, ...rest } = body;
-    const touched = 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'notifications';
+    const touched = 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'notifications';
     hqSettings = {
       ...hqSettings,
       ...rest,
@@ -221,6 +223,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     officeSettings = { ...officeSettings, overrides, effective: previewEffective(officeSettings.hq, overrides) };
     return json(officeSettings);
   }
+  if (method === 'GET' && url.includes('/api/office/roster')) return json({ office: { providerId: 'prov-1', officeName: 'Riverside Wellness' }, patients: [] });
   if (method === 'GET' && url.includes('/api/office/conversations/summary')) {
     return json({ office: { providerId: 'prov-1', officeName: 'Riverside Wellness' }, metrics: { openThreads: 1, waitingOnPatient: 0, closedThreads: 1, unanswered: 1, avgResponseMinutes: null, openEscalations: 0 } });
   }
@@ -308,6 +311,25 @@ console.log('HQ settings — signed-in admin');
   check('untouched coach section reads Never changed', textOf(oneByTestId(root, 'policy-stamp-coach')) === 'Never changed');
   check('fields show persisted values', oneByTestId(root, 'input-setting-live-org-name').props.value === 'THINNR, Inc.' && oneByTestId(root, 'input-policy-escalation-email').props.value === 'care@hq.example.com' && oneByTestId(root, 'input-policy-cooldown').props.value === 14 && oneByTestId(root, 'input-policy-retention-audit').props.value === 2555);
   check('coach switch reflects availability', switchOf(root, 'switch-policy-coach-available')?.props['aria-checked'] === true);
+
+  // App store links live on the organization card: the saved App Store link
+  // shows, the blank Google Play link carries HQ's reminder.
+  check('App Store link field shows the persisted URL', oneByTestId(root, 'input-setting-live-app-store-url').props.value === 'https://apps.apple.com/us/app/thinnr/id6740000001');
+  check('blank Google Play link shows the not-added reminder', byTestId(root, 'input-setting-live-google-play-url-missing').length === 1 && textOf(oneByTestId(root, 'input-setting-live-google-play-url-missing')).includes('HQ hasn’t added this link yet') && byTestId(root, 'input-setting-live-app-store-url-missing').length === 0);
+  await type(oneByTestId(root, 'input-setting-live-google-play-url'), 'https://example.com/not-a-store');
+  check('a non-store URL is flagged inline and blocks Save', byTestId(root, 'input-setting-live-google-play-url-problem').length === 1 && oneByTestId(root, 'input-setting-live-google-play-url').props['aria-invalid'] === true);
+  const orgPutsBefore = requests.filter((request) => request.method === 'PUT').length;
+  await press(oneByTestId(root, 'button-save-policy-organization'));
+  check('organization Save refuses the malformed link client-side', requests.filter((request) => request.method === 'PUT').length === orgPutsBefore && String(lastToast()?.title) === 'Organization profile not saved');
+  await type(oneByTestId(root, 'input-setting-live-google-play-url'), 'https://play.google.com/store/apps/details?id=com.thinnr.app');
+  check('a real Play listing clears the flag', byTestId(root, 'input-setting-live-google-play-url-problem').length === 0);
+  await press(oneByTestId(root, 'button-save-policy-organization'));
+  const orgPut = requests.filter((request) => request.method === 'PUT').at(-1);
+  check('organization Save posts both links with the other org fields and expectedVersion', orgPut !== undefined && JSON.stringify(orgPut.body) === JSON.stringify({
+    organizationName: 'THINNR, Inc.', supportEmail: 'support@thinnr.example.com', supportPhone: null, defaultTimezone: 'America/New_York',
+    appStoreUrl: 'https://apps.apple.com/us/app/thinnr/id6740000001', googlePlayUrl: 'https://play.google.com/store/apps/details?id=com.thinnr.app', expectedVersion: 3,
+  }), JSON.stringify(orgPut?.body));
+  check('after the save the Play reminder is gone and the stamp updated', hqSettings.googlePlayUrl === 'https://play.google.com/store/apps/details?id=com.thinnr.app' && byTestId(root, 'input-setting-live-google-play-url-missing').length === 0 && textOf(oneByTestId(root, 'policy-stamp-organization')).startsWith('Last changed by Test Admin · '));
   check('office reminders default reflects OFF', switchOf(root, 'switch-policy-default-office')?.props['aria-checked'] === false);
   check('quiet hours enabled with the persisted window', switchOf(root, 'policy-quiet-enabled')?.props['aria-checked'] === true && oneByTestId(root, 'policy-quiet-start').props.value === '21:00');
   check('Save is disabled until something changes', oneByTestId(root, 'button-save-policy-coach').props.disabled === true);
@@ -316,9 +338,9 @@ console.log('HQ settings — signed-in admin');
   await press(switchOf(root, 'switch-policy-coach-available'));
   check('flipping the coach switch arms the coach Save only', oneByTestId(root, 'button-save-policy-coach').props.disabled === false && oneByTestId(root, 'button-save-policy-notifications').props.disabled === true);
   await press(oneByTestId(root, 'button-save-policy-coach'));
-  const coachPut = requests.find((request) => request.method === 'PUT');
-  check('coach Save posts just the section fields with expectedVersion', coachPut !== undefined && JSON.stringify(coachPut.body) === JSON.stringify({ coachAvailable: false, escalationEmail: 'care@hq.example.com', expectedVersion: 3 }), JSON.stringify(coachPut?.body));
-  check('after saving, the page refetched and the coach stamp updated', hqSettings.version === 4 && textOf(oneByTestId(root, 'policy-stamp-coach')).startsWith('Last changed by Test Admin · '));
+  const coachPut = requests.filter((request) => request.method === 'PUT').at(-1);
+  check('coach Save posts just the section fields with expectedVersion', coachPut !== undefined && JSON.stringify(coachPut.body) === JSON.stringify({ coachAvailable: false, escalationEmail: 'care@hq.example.com', expectedVersion: 4 }), JSON.stringify(coachPut?.body));
+  check('after saving, the page refetched and the coach stamp updated', hqSettings.version === 5 && textOf(oneByTestId(root, 'policy-stamp-coach')).startsWith('Last changed by Test Admin · '));
   check('success toast confirms the live save', String(lastToast()?.title) === 'Coach & care team saved');
   check('coach Save disarms after the save lands', oneByTestId(root, 'button-save-policy-coach').props.disabled === true);
 
@@ -335,17 +357,17 @@ console.log('HQ settings — signed-in admin');
     defaultQuietHours: { start: '21:00', end: '08:00' },
     outreachCooldownDays: 21,
     outreachDailyCap: 500,
-    expectedVersion: 4,
+    expectedVersion: 5,
   }), JSON.stringify(notifPut?.body));
 
   // Stale version: the server refuses, the page reloads instead of overwriting.
   const getsBefore = requests.filter((request) => request.method === 'GET').length;
   await type(oneByTestId(root, 'input-policy-auto-close'), '30');
-  // A teammate lands first: the server copy moves on (version 6, 21 days).
+  // A teammate lands first: the server copy moves on (version 7, 21 days).
   hqSettings = { ...hqSettings, conversationAutoCloseDays: 21, version: hqSettings.version + 1, sections: { ...hqSettings.sections, conversations: { changedAt: '2026-09-07T16:05:00.000Z', changedBy: 'u3', changedByName: 'Casey Ops' } } };
   await press(oneByTestId(root, 'button-save-policy-conversations'));
   const stalePut = requests.filter((request) => request.method === 'PUT').at(-1);
-  check('stale PUT carried the version the page read', stalePut !== undefined && stalePut.body.expectedVersion === 5 && stalePut.body.conversationAutoCloseDays === 30);
+  check('stale PUT carried the version the page read', stalePut !== undefined && stalePut.body.expectedVersion === 6 && stalePut.body.conversationAutoCloseDays === 30);
   check('409 → conflict toast and a reload of the settings', String(lastToast()?.title) === 'Someone else saved first' && requests.filter((request) => request.method === 'GET').length > getsBefore);
   check('after the conflict reload the draft shows the teammate\'s value and stamp', oneByTestId(root, 'input-policy-auto-close').props.value === 21 && hqSettings.conversationAutoCloseDays === 21 && textOf(oneByTestId(root, 'policy-stamp-conversations')).startsWith('Last changed by Casey Ops · '));
 
@@ -371,6 +393,7 @@ console.log('office settings — guided demo persona');
   toasts.length = 0;
   const { root } = await render('/settings', <OfficeSettings />);
   check('demo page renders the seeded HQ defaults', textOf(oneByTestId(root, 'policy-coach-available')) === 'On' && textOf(oneByTestId(root, 'policy-cooldown')) === '14 days');
+  check('demo page echoes the seeded placeholder store links', textOf(oneByTestId(root, 'policy-store-link-appStore')).startsWith('https://apps.apple.com/') && textOf(oneByTestId(root, 'policy-store-link-googlePlay')).startsWith('https://play.google.com/store/apps/details?id='));
   check('demo effective quiet hours follow the seeded HQ window', textOf(oneByTestId(root, 'effective-quiet-hours')) === '9:00 PM to 8:00 AM');
   check('demo escalation email comes from the seeded HQ store', textOf(oneByTestId(root, 'effective-escalation-email')).includes('@'));
   await act(async () => { oneByTestId(root, 'radio-quiet-none').props.onChange(); });
@@ -396,6 +419,7 @@ console.log('office settings — signed-in provider staff (manager)');
   check('title names the office', textOf(root).includes('Riverside Wellness'));
   check('effective quiet hours = HQ default with the HQ chip', textOf(oneByTestId(root, 'effective-quiet-hours')) === '9:00 PM to 8:00 AM' && textOf(root).includes('HQ default: 9:00 PM to 8:00 AM'));
   check('effective escalation = HQ default', textOf(oneByTestId(root, 'effective-escalation-email')) === 'care@hq.example.com');
+  check('HQ store links are echoed for copy/paste: the saved App Store link and the missing Play notice', textOf(oneByTestId(root, 'policy-store-link-appStore')) === 'https://apps.apple.com/us/app/thinnr/id6740000001' && oneByTestId(root, 'policy-store-link-appStore').props.href === 'https://apps.apple.com/us/app/thinnr/id6740000001' && byTestId(root, 'button-copy-store-link-appStore').length === 1 && textOf(oneByTestId(root, 'policy-store-link-googlePlay')) === 'HQ hasn’t added this link yet' && byTestId(root, 'button-copy-store-link-googlePlay').length === 0);
   check('the rest of HQ policy is read-only text', textOf(oneByTestId(root, 'policy-daily-cap')) === '500 per day' && textOf(oneByTestId(root, 'policy-auto-close')) === '14 days' && textOf(oneByTestId(root, 'policy-retention-audit')) === '2555 days (7 years)' && textOf(oneByTestId(root, 'policy-export-hours')) === '24 hours (1 day)' && textOf(oneByTestId(root, 'policy-default-office')) === 'Off by default');
   check('no override rows yet → no stamp, Save disabled', byTestId(root, 'override-stamp').length === 0 && oneByTestId(root, 'button-save-office-overrides').props.disabled === true);
 
@@ -455,15 +479,15 @@ console.log('office settings — HQ drill-in and read-only staff');
 
 console.log('live conversations — auto-close status');
 {
-  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } });
-  __setSupabaseSession('hq-token');
-  __setHqData({
-    accounts: [{ id: 'acct-1', providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner', providerCode: 'TEST', status: 'active' }],
-    findAccount: (id: string | undefined) => (id === 'acct-1' ? { id: 'acct-1', providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner', providerCode: 'TEST', status: 'active' } : undefined),
-  });
+  // The office inbox (HQ's own inbox moved to /api/hq/conversations and has
+  // its own suite) states the auto-close window HQ set and files quiet
+  // threads as closed.
+  __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', hqRole: null, providerAccountCode: 'TEST', authUser: { id: 'u-staff' } });
+  __setSupabaseSession('staff-token');
+  __setScope(null);
   conversations = [{ id: 'c1', status: 'open', autoClosed: false }, { id: 'c2', status: 'closed', autoClosed: true }];
   requests.length = 0;
-  const { root } = await render('/admin/conversations?account=acct-1', <Conversations />, '/admin/conversations');
+  const { root } = await render('/conversations', <OfficeConversations />);
   const first = requests.find((request) => /\/api\/office\/conversations\?/.test(request.url));
   check('inbox lists every status by default (auto-closed threads included)', first !== undefined && !first.url.includes('status='), first?.url);
   check('both threads render', textOf(root).includes('Patient c1') && textOf(root).includes('Patient c2'));
@@ -471,7 +495,7 @@ console.log('live conversations — auto-close status');
   check('auto-closed threads carry the quiet chip, open ones do not', byTestId(root, 'chip-conversation-auto-closed-c2').length === 1 && byTestId(root, 'chip-conversation-auto-closed-c1').length === 0);
   check('the quiet chip reads as closed', textOf(oneByTestId(root, 'chip-conversation-auto-closed-c2')).includes('closed'));
   requests.length = 0;
-  const closed = await render('/admin/conversations?account=acct-1&status=closed', <Conversations />, '/admin/conversations');
+  const closed = await render('/conversations?status=closed', <OfficeConversations />, '/conversations');
   const closedRequest = requests.find((request) => /\/api\/office\/conversations\?/.test(request.url));
   check('Closed filter asks the API for closed threads', closedRequest !== undefined && closedRequest.url.includes('status=closed'), closedRequest?.url);
   check('Closed shows only the filed thread', !textOf(closed.root).includes('Patient c1') && textOf(closed.root).includes('Patient c2'));

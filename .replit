@@ -84,6 +84,10 @@ args = "staff-alerts-web"
 task = "workflow.run"
 args = "staff-alerts-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-store-qr"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1439,3 +1443,14 @@ args = "pnpm --filter @workspace/thinnr-mobile run test:staff-alerts && pnpm --f
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "app-store-qr"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:app-store-qr && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/api-server exec vitest run src/routes/hq-org-policy.test.ts && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/api-server run typecheck"

@@ -7,10 +7,13 @@ import type { UpdateHqSettingsBody } from "@workspace/api-zod";
 import type { z } from "zod";
 import { supabaseAdmin } from "./supabase-admin";
 import {
+  APP_STORE_URL_RE,
   CLOCK_RE,
   EMAIL_RE,
   FIELD_SECTIONS,
+  GOOGLE_PLAY_URL_RE,
   POLICY_BOUNDS,
+  STORE_URL_MAX,
   policyFromRow,
   sectionChangesFromRow,
   type OrgPolicy,
@@ -43,6 +46,27 @@ export function cleanQuietHours(value: QuietHoursWindow | null | undefined): { o
   const end = value.end.trim();
   if (!CLOCK_RE.test(start) || !CLOCK_RE.test(end) || start === end) return { ok: false };
   return { ok: true, value: { start, end } };
+}
+
+/**
+ * A store listing link: blank → null; otherwise it must parse as an https
+ * URL on the matching storefront host. Trailing whitespace is trimmed, the
+ * rest is kept verbatim (query strings carry the listing id on Play).
+ */
+export function cleanStoreUrl(
+  value: string | null | undefined,
+  store: "appStore" | "googlePlay",
+): { ok: true; value: string | null } | { ok: false } {
+  const trimmed = value?.trim() || null;
+  if (!trimmed) return { ok: true, value: null };
+  if (trimmed.length > STORE_URL_MAX || /\s/.test(trimmed)) return { ok: false };
+  try {
+    new URL(trimmed);
+  } catch {
+    return { ok: false };
+  }
+  const pattern = store === "appStore" ? APP_STORE_URL_RE : GOOGLE_PLAY_URL_RE;
+  return pattern.test(trimmed) ? { ok: true, value: trimmed } : { ok: false };
 }
 
 function boundedInt(value: number, bounds: { min: number; max: number }): number | null {
@@ -81,6 +105,16 @@ export function mergePolicyInput(
     const tz = input.defaultTimezone.trim();
     if (!validHqTimezone(tz)) return fail("Check the default timezone.");
     next.defaultTimezone = tz;
+  }
+  if (input.appStoreUrl !== undefined) {
+    const url = cleanStoreUrl(input.appStoreUrl, "appStore");
+    if (!url.ok) return fail("The App Store link must be an https://apps.apple.com/… listing URL.");
+    next.appStoreUrl = url.value;
+  }
+  if (input.googlePlayUrl !== undefined) {
+    const url = cleanStoreUrl(input.googlePlayUrl, "googlePlay");
+    if (!url.ok) return fail("The Google Play link must be an https://play.google.com/store/apps/details?id=… listing URL.");
+    next.googlePlayUrl = url.value;
   }
   if (input.coachAvailable !== undefined) next.coachAvailable = input.coachAvailable;
   if (input.escalationEmail !== undefined) {

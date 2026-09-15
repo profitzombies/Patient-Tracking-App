@@ -14,13 +14,12 @@
  * override form — nothing persists, and the copy says so.
  */
 import { useMemo, useState } from 'react';
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Copy, Loader2, RotateCcw } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getGetOfficeSettingsQueryKey,
   useGetOfficeSettings,
   useUpdateOfficeSettingsOverrides,
-  type HqOrganizationSettings,
   type OfficeOverrides,
   type OfficeQuietHoursOverride,
   type OfficeSettings as OfficeSettingsDto,
@@ -28,8 +27,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useSession } from '@/contexts/session';
 import { useProviderScope } from '@/contexts/provider-scope';
-import { BTN_PRIMARY, CHIP_COBALT, CHIP_WARM, INPUT_CLASS, LINK_ACTION, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { defaultSettingsValues } from '@/data/hq/settings';
+import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, CHIP_WARM, INPUT_CLASS, LINK_ACTION, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
+import { demoOfficeSettings } from '@/data/hq/demo-office-settings';
 import { Switch } from '@/components/ui/switch';
 import { useOfficeAlertSettings } from '@/hooks/use-office-alerts';
 import {
@@ -52,43 +51,11 @@ import {
   describeSource,
   previewEffective,
   quietHoursOverrideFor,
+  APP_STORE_LABELS,
+  STORE_LINK_MISSING,
+  storeLinksOf,
+  type StoreLink,
 } from '@/lib/org-policy';
-
-// ─── Demo persona seed ───────────────────────────────────────────────────────
-
-/**
- * The guided demo's "HQ" is the seeded settings store; the office page reads
- * the same defaults the HQ demo page shows so the two personas agree.
- */
-function demoOfficeSettings(): OfficeSettingsDto {
-  const seeded = defaultSettingsValues();
-  const hq: HqOrganizationSettings = {
-    organizationName: String(seeded['organization.org-name']),
-    supportEmail: String(seeded['organization.support-email']),
-    supportPhone: null,
-    defaultTimezone: String(seeded['organization.reporting-tz']),
-    coachAvailable: Boolean(seeded['coach.coach-enabled']),
-    escalationEmail: String(seeded['coach.escalation-email']),
-    defaultCategories: { coachOutreach: true, checkInReminders: true, officeReminders: true },
-    defaultQuietHours: { start: '21:00', end: '08:00' },
-    outreachCooldownDays: 14,
-    outreachDailyCap: 500,
-    conversationAutoCloseDays: 14,
-    retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555 },
-    exportLinkHours: 24,
-    version: 1,
-    updatedAt: '2026-09-01T16:00:00.000Z',
-    sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null },
-  };
-  const overrides: OfficeOverrides = { quietHours: { mode: 'inherit' }, escalationEmail: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null };
-  return {
-    office: { providerId: 'demo', officeName: 'Demo office' },
-    hq,
-    overrides,
-    effective: previewEffective(hq, overrides),
-    canEdit: true,
-  };
-}
 
 // ─── Read-only policy rows ───────────────────────────────────────────────────
 
@@ -104,6 +71,56 @@ function PolicyRow({ label, value, help, testId, last = false }: { label: string
   );
 }
 
+/**
+ * One HQ store link, echoed for copy/paste into emails and texts. The same
+ * link drives the QR code on the Patients page; blank shows HQ's reminder.
+ */
+function StoreLinkRow({ link, last = false }: { link: StoreLink; last?: boolean }) {
+  const { toast } = useToast();
+  const labels = APP_STORE_LABELS[link.kind];
+  const copy = async () => {
+    if (!link.url) return;
+    try {
+      await navigator.clipboard.writeText(link.url);
+      toast({ variant: 'success', title: `${labels.store} link copied`, description: 'Paste it into an email or text to the patient.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Couldn’t copy', description: 'Select the link text and copy it manually.' });
+    }
+  };
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5 ${last ? '' : 'border-b border-border'}`}>
+      <div className="min-w-0 max-w-[46ch]">
+        <p className={PANEL_LABEL}>{labels.store} link</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{labels.device}. Set by HQ; the QR code on your Patients page points here.</p>
+      </div>
+      {link.url ? (
+        <div className="flex min-w-0 max-w-full items-center gap-2">
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 max-w-[34ch] truncate text-xs font-semibold text-primary underline-offset-2 hover:underline"
+            data-testid={`policy-store-link-${link.kind}`}
+          >
+            {link.url}
+          </a>
+          <button
+            type="button"
+            className={`${BTN_SECONDARY} h-7 px-2 text-[11px]`}
+            onClick={() => void copy()}
+            aria-label={`Copy ${labels.store} link`}
+            data-testid={`button-copy-store-link-${link.kind}`}
+          >
+            <Copy size={12} aria-hidden="true" className="mr-1" />
+            Copy
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs font-semibold text-[#b65c22]" data-testid={`policy-store-link-${link.kind}`}>{STORE_LINK_MISSING}</p>
+      )}
+    </div>
+  );
+}
 function EffectiveChip({ source }: { source: 'office' | 'hq' }) {
   return <span className={source === 'office' ? CHIP_WARM : CHIP_COBALT}>{describeSource(source)}</span>;
 }
@@ -557,6 +574,12 @@ export default function OfficeSettings() {
               testId="policy-coach-available"
               last
             />
+          </SectionCard>
+
+          <SectionCard title="Get the app" sub="The store listings behind the QR codes on your Patients page. Copy a link to send it by email or text.">
+            {storeLinksOf(data.hq).map((link, index, all) => (
+              <StoreLinkRow key={link.kind} link={link} last={index === all.length - 1} />
+            ))}
           </SectionCard>
 
           <SectionCard title="Notification defaults" sub="What new patients receive until they change their own preferences, and how hard the coach may push.">

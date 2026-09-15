@@ -37,6 +37,9 @@ export interface OrgPolicy {
   supportEmail: string | null;
   supportPhone: string | null;
   defaultTimezone: string;
+  /** App Store / Google Play listing links; offices render QR codes from these. */
+  appStoreUrl: string | null;
+  googlePlayUrl: string | null;
   coachAvailable: boolean;
   escalationEmail: string | null;
   defaultCategories: CategoryDefaults;
@@ -64,6 +67,8 @@ export const FIELD_SECTIONS = {
   supportEmail: "organization",
   supportPhone: "organization",
   defaultTimezone: "organization",
+  appStoreUrl: "organization",
+  googlePlayUrl: "organization",
   coachAvailable: "coach",
   escalationEmail: "coach",
   defaultCategories: "notifications",
@@ -93,6 +98,8 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
   supportEmail: null,
   supportPhone: null,
   defaultTimezone: "America/New_York",
+  appStoreUrl: null,
+  googlePlayUrl: null,
   coachAvailable: true,
   escalationEmail: null,
   defaultCategories: { coachOutreach: true, checkInReminders: true, officeReminders: true },
@@ -109,8 +116,14 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
 export const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Store listing links must point at the real storefronts (the DB CHECKs
+ * mirror these): App Store pages live under apps.apple.com (legacy
+ * itunes.apple.com), Play listings under play.google.com/store/apps/details.
+ */
+export const APP_STORE_URL_RE = /^https:\/\/(apps|itunes)\.apple\.com\//;
 export const SETTINGS_SELECT =
-  "organization_name,support_email,support_phone,default_timezone,updated_at,version,coach_available,escalation_email," +
+  "organization_name,support_email,support_phone,default_timezone,app_store_url,google_play_url,updated_at,version,coach_available,escalation_email," +
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,export_link_hours,section_changes";
@@ -135,6 +148,8 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
     supportEmail: text(row.support_email),
     supportPhone: text(row.support_phone),
     defaultTimezone: text(row.default_timezone) ?? d.defaultTimezone,
+    appStoreUrl: text(row.app_store_url),
+    googlePlayUrl: text(row.google_play_url),
     coachAvailable: row.coach_available !== false,
     escalationEmail: text(row.escalation_email),
     defaultCategories: {
@@ -184,6 +199,8 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     support_email: policy.supportEmail,
     support_phone: policy.supportPhone,
     default_timezone: policy.defaultTimezone,
+    app_store_url: policy.appStoreUrl,
+    google_play_url: policy.googlePlayUrl,
     coach_available: policy.coachAvailable,
     escalation_email: policy.escalationEmail,
     default_coach_outreach: policy.defaultCategories.coachOutreach,
@@ -357,3 +374,7 @@ export async function loadAllOfficeOverrides(): Promise<Map<string, OfficeOverri
   }
   return map;
 }
+
+export const GOOGLE_PLAY_URL_RE = /^https:\/\/play\.google\.com\/store\/apps\/details\?/;
+
+export const STORE_URL_MAX = 500;

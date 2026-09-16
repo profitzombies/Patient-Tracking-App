@@ -19,6 +19,17 @@ export interface UploadTransport {
   finalize(item: UploadItem, upload: { fileId: string; objectPath: string }): Promise<HqFile>;
 }
 
+// Mirrors the server's storage cap (MAX_HQ_FILE_BYTES, 262144000): the drop
+// zone, the picker, and the replacement picker all pre-check against this one
+// number so a too-large file is refused before any upload URL is minted.
+export const MAX_HQ_FILE_BYTES = 250 * 1024 * 1024;
+export const HQ_FILE_LIMIT_LABEL = '250 MB';
+export const exceedsHqFileLimit = (file: Pick<File, 'size'>) => file.size > MAX_HQ_FILE_BYTES;
+
+// Mirrors the server's inline-preview ceiling: the /content route buffers the
+// whole object, so larger files are download-only and the dialog never asks.
+export const MAX_HQ_PREVIEW_BYTES = 50 * 1024 * 1024;
+
 // Mirrors the server's compression ceiling: larger images are stored as-is,
 // so the client must not offer a compression choice it cannot honour.
 export const MAX_COMPRESS_BYTES = 25 * 1024 * 1024;

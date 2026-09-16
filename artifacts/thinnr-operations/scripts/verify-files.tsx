@@ -112,6 +112,36 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   renderer!.unmount();
 }
 
+// Large files: previews stay bounded below the 250 MB storage cap and the
+// replacement picker enforces the same 250 MB limit as the drop zone.
+{
+  const noop = () => {};
+  const props = {
+    open: true, onOpenChange: noop, onDownload: noop, onRename: noop, onMove: noop,
+    onArchive: async () => {}, onDelete: noop, onFolder: noop, onReplaced: async () => {},
+  };
+  let contentRequests = 0;
+  const tooLargeContent = async () => { contentRequests += 1; throw Object.assign(new Error('413'), { status: 413 }); };
+  let renderer: ReturnType<typeof create>;
+  await act(async () => { renderer = create(<FileDetailDialog {...props} loadContent={tooLargeContent} file={liveFile({ id: 'big-1', name: 'catalog.pdf', contentType: 'application/pdf', size: 200 * 1024 * 1024 })} />); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  ok(contentRequests === 0, 'files above the preview limit never request inline content');
+  ok(renderer!.root.findAllByProps({ 'data-testid': 'preview-too-large' }).length > 0 && text(renderer!).includes('too large to preview here') && !text(renderer!).includes('Couldn’t load the preview.'), 'oversized file shows the download note, not the preview error');
+  ok(renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Download')).length === 1, 'oversized file still offers Download');
+  await act(async () => { renderer!.update(<FileDetailDialog {...props} loadContent={tooLargeContent} file={liveFile({ id: 'big-2', name: 'scan.png', contentType: 'image/png', size: 40 * 1024 * 1024 })} />); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  ok(contentRequests === 1 && renderer!.root.findAllByProps({ 'data-testid': 'preview-too-large' }).length > 0, 'a 413 from the content route renders the too-large note instead of the generic error');
+  await act(async () => { renderer!.update(<FileDetailDialog {...props} loadContent={async () => { throw Object.assign(new Error('502'), { status: 502 }); }} file={liveFile({ id: 'err-1', name: 'flaky.png', contentType: 'image/png', size: 1024 })} />); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  ok(text(renderer!).includes('Couldn’t load the preview.') && renderer!.root.findAllByProps({ 'data-testid': 'preview-too-large' }).length === 0, 'other preview failures keep the retryable error');
+  const input = renderer!.root.findAllByType('input').find((node) => node.props.type === 'file')!;
+  await act(async () => { input.props.onChange({ target: { files: [file('huge.pdf', 'application/pdf', 250 * 1024 * 1024 + 1)], value: 'chosen' } }); });
+  ok(text(renderer!).includes('The replacement exceeds the 250 MB maximum.') && !text(renderer!).includes('Replace with:'), 'replacement over 250 MB is refused with the 250 MB message');
+  await act(async () => { input.props.onChange({ target: { files: [file('big.pdf', 'application/pdf', 200 * 1024 * 1024)], value: 'chosen' } }); });
+  ok(text(renderer!).includes('Replace with:') && text(renderer!).includes('big.pdf') && !text(renderer!).includes('exceeds the'), 'a 200 MB replacement is accepted');
+  renderer!.unmount();
+}
+
 // Replacement upload forwards the image compression decision to finalization.
 {
   let replaceBody: any;

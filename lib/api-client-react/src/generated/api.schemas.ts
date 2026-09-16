@@ -1451,7 +1451,7 @@ export interface HqFileUploadInput {
   contentType: string;
   /**
      * @minimum 1
-     * @maximum 52428800
+     * @maximum 262144000
      */
   size: number;
   /**
@@ -1482,7 +1482,7 @@ export interface HqFileFinalizeInput {
   contentType: string;
   /**
      * @minimum 1
-     * @maximum 52428800
+     * @maximum 262144000
      */
   size: number;
   /**
@@ -1527,7 +1527,7 @@ export interface HqFileReplaceUploadInput {
   contentType: string;
   /**
      * @minimum 1
-     * @maximum 52428800
+     * @maximum 262144000
      */
   size: number;
 }
@@ -1545,7 +1545,7 @@ export interface HqFileReplaceInput {
   contentType: string;
   /**
      * @minimum 1
-     * @maximum 52428800
+     * @maximum 262144000
      */
   size: number;
   /**
@@ -4327,4 +4327,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

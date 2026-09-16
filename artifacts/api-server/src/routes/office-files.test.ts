@@ -162,6 +162,7 @@ describe("office files", () => {
     const response = await fetch(`${base}/office/files/${fileId}/content`);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("%PDF-1.4");
+    // Previews stay bounded at the preview limit, not the 250 MB storage cap.
     expect(mocks.readObjectBounded).toHaveBeenCalledWith(objectPath, 50 * 1024 * 1024);
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: "hq_file_previewed", actorKind: "team_member", providerId: "provider-1", targetId: fileId,

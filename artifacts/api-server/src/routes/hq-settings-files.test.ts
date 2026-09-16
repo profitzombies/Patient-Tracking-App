@@ -26,9 +26,11 @@ vi.mock("../lib/staff-auth", () => ({
 }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
 vi.mock("../lib/admin-audit", () => ({ recordAdminAuditEvent: mocks.audit }));
+const { ObjectTooLargeError } = vi.hoisted(() => ({ ObjectTooLargeError: class ObjectTooLargeError extends Error {} }));
 vi.mock("../lib/objectStorage", () => ({
   UPLOAD_URL_TTL_SEC: 900,
   ObjectNotFoundError: class ObjectNotFoundError extends Error {},
+  ObjectTooLargeError,
   objectStorage: {
     deleteObjectStrict: mocks.deleted,
     deleteObject: mocks.deleteObject,
@@ -39,6 +41,13 @@ vi.mock("../lib/objectStorage", () => ({
   },
 }));
 import router from "./hq-settings-files";
+import { MAX_HQ_FILE_BYTES, MAX_HQ_PREVIEW_BYTES } from "../lib/hq-files-read";
+import {
+  createHqFileReplacementBodySizeMax,
+  createHqFileUploadBodySizeMax,
+  finalizeHqFileBodySizeMax,
+  replaceHqFileBodySizeMax,
+} from "@workspace/api-zod";
 
 let server: http.Server;
 let base = "";
@@ -109,9 +118,9 @@ describe("HQ settings and file finalization", () => {
     expect(response.status).toBe(415);
   });
 
-  it("deletes stored objects whose actual size exceeds the cap", async () => {
+  it("deletes stored objects whose actual size exceeds the 250 MB cap", async () => {
     mocks.entityFile.mockResolvedValueOnce({
-      getMetadata: vi.fn().mockResolvedValue([{ size: String(50 * 1024 * 1024 + 1) }]),
+      getMetadata: vi.fn().mockResolvedValue([{ size: String(MAX_HQ_FILE_BYTES + 1) }]),
       download: vi.fn(),
       setMetadata: vi.fn(),
     });
@@ -121,8 +130,79 @@ describe("HQ settings and file finalization", () => {
       body: JSON.stringify({ fileId, objectPath, name: "policy.pdf", contentType: "application/pdf", size: 8 }),
     });
     expect(response.status).toBe(413);
+    expect((await response.json() as { error: string }).error).toContain("250 MB");
     expect(mocks.deleted).toHaveBeenCalledWith(objectPath);
     expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("keeps the OpenAPI size maxima in lockstep with the server cap", () => {
+    expect(MAX_HQ_FILE_BYTES).toBe(262144000);
+    for (const max of [createHqFileUploadBodySizeMax, finalizeHqFileBodySizeMax, createHqFileReplacementBodySizeMax, replaceHqFileBodySizeMax]) {
+      expect(max).toBe(MAX_HQ_FILE_BYTES);
+    }
+  });
+
+  it("answers 413 naming 250 MB on every declared size over the cap, before schema validation", async () => {
+    const tooBig = MAX_HQ_FILE_BYTES + 1;
+    const post = (path: string, body: Record<string, unknown>) => fetch(`${base}${path}`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const responses = await Promise.all([
+      post("/hq/files/upload-url", { name: "big.pdf", contentType: "application/pdf", size: tooBig }),
+      post("/hq/files", { fileId, objectPath, name: "big.pdf", contentType: "application/pdf", size: tooBig }),
+      post(`/hq/files/${fileId}/replace-url`, { name: "big.pdf", contentType: "application/pdf", size: tooBig }),
+      post(`/hq/files/${fileId}/replace`, { name: "big.pdf", contentType: "application/pdf", size: tooBig, objectPath }),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(413);
+      expect((await response.json() as { error: string }).error).toBe("Files must be 250 MB or smaller.");
+    }
+    expect(mocks.uploadUrl).not.toHaveBeenCalled();
+    expect(mocks.entityFile).not.toHaveBeenCalled();
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("accepts and stores a 100 MB file that the old 50 MB cap refused", async () => {
+    const size = 100 * 1024 * 1024;
+    const head = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(64 * 1024 - 9, 0x20)]);
+    const upload = await fetch(`${base}/hq/files/upload-url`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin", "content-type": "application/json" },
+      body: JSON.stringify({ name: "manual.pdf", contentType: "application/pdf", size }),
+    });
+    expect(upload.status).toBe(200);
+
+    const download = vi.fn().mockResolvedValue([head]);
+    mocks.entityFile.mockResolvedValueOnce({
+      getMetadata: vi.fn().mockResolvedValue([{ size: String(size) }]),
+      download,
+      setMetadata: vi.fn(),
+      save: vi.fn(),
+    });
+    mocks.admin.mockReset()
+      .mockResolvedValueOnce({
+        status: 201,
+        json: [{
+          id: fileId, name: "manual.pdf", content_type: "application/pdf", size_bytes: size,
+          folder_id: null, original_size_bytes: null, compressed_at: null,
+          created_at: "2026-10-15T00:00:00Z", updated_at: "2026-10-15T00:00:00Z",
+        }],
+      })
+      .mockResolvedValueOnce({ status: 200, json: [] });
+    const finalize = await fetch(`${base}/hq/files`, {
+      method: "POST",
+      headers: { authorization: "Bearer admin", "content-type": "application/json" },
+      body: JSON.stringify({ fileId, objectPath, name: "manual.pdf", contentType: "application/pdf", size, compress: false }),
+    });
+    expect(finalize.status).toBe(200);
+    expect((await finalize.json() as { size: number }).size).toBe(size);
+    // Only the 64 KB head is read for the byte sniff, never the whole 100 MB.
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledWith({ start: 0, end: 64 * 1024 - 1 });
+    expect(mocks.deleted).not.toHaveBeenCalled();
+    expect(mocks.admin.mock.calls[0][2]).toMatchObject({ size_bytes: size, original_size_bytes: null });
   });
 });
 
@@ -149,7 +229,8 @@ describe("HQ file downloads", () => {
     expect(shown.headers.get("content-disposition")).toContain("filename*=UTF-8''HQ%20plan.pdf");
     expect(shown.headers.get("cache-control")).toBe("private, no-store");
     expect(shown.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(mocks.readObjectBounded).toHaveBeenCalledWith(objectPath, 50 * 1024 * 1024);
+    expect(mocks.readObjectBounded).toHaveBeenCalledWith(objectPath, MAX_HQ_PREVIEW_BYTES);
+    expect(MAX_HQ_PREVIEW_BYTES).toBeLessThan(MAX_HQ_FILE_BYTES);
 
     mocks.admin.mockReset().mockResolvedValueOnce({ status: 200, json: [{
       name: "HQ plan.pdf", content_type: "application/pdf", object_path: objectPath,
@@ -157,6 +238,17 @@ describe("HQ file downloads", () => {
     }] });
     const gone = await fetch(`${base}/hq/files/${fileId}/content`, { headers: { authorization: "Bearer admin" } });
     expect(gone.status).toBe(410);
+  });
+
+  it("answers 413 instead of buffering a file larger than the preview limit", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [{
+      name: "Archive.pdf", content_type: "application/pdf", object_path: objectPath, object_missing_at: null,
+    }] });
+    mocks.readObjectBounded.mockReset().mockRejectedValueOnce(new ObjectTooLargeError());
+    const response = await fetch(`${base}/hq/files/${fileId}/content`, { headers: { authorization: "Bearer admin" } });
+    expect(response.status).toBe(413);
+    expect((await response.json() as { error: string }).error).toMatch(/too large to preview.*Download/);
+    expect(mocks.admin).toHaveBeenCalledTimes(1);
   });
 
   it("does not audit a download that never happened", async () => {

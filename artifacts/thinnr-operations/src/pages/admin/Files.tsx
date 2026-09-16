@@ -73,7 +73,7 @@ import { orderBy } from '@/components/admin/files/reorder';
 import { MoveDialog } from '@/components/admin/files/MoveDialog';
 import { DropOverlay } from '@/components/admin/files/DropOverlay';
 import { UploadPanel } from '@/components/admin/files/UploadPanel';
-import { UploadQueue, type UploadItem } from '@/components/admin/files/upload-queue';
+import { HQ_FILE_LIMIT_LABEL, UploadQueue, exceedsHqFileLimit, type UploadItem } from '@/components/admin/files/upload-queue';
 import { apiError, openDownload } from '@/components/admin/files/utils';
 import { FileDetailDialog } from '@/components/admin/files/FileDetailDialog';
 import { SearchResults } from '@/components/admin/files/SearchResults';
@@ -388,8 +388,8 @@ function LiveFiles() {
   }, setUploadItems, () => void refresh()), [createUpload.mutateAsync, finalizeUpload.mutateAsync, refresh]);
   const addUploads = useCallback((files: File[], destination = folderId) => {
     const valid = files.filter((file) => {
-      if (file.size <= 50 * 1024 * 1024) return true;
-      toast({ variant: 'destructive', title: 'File too large', description: `${file.name} exceeds the 50 MB maximum.` });
+      if (!exceedsHqFileLimit(file)) return true;
+      toast({ variant: 'destructive', title: 'File too large', description: `${file.name} exceeds the ${HQ_FILE_LIMIT_LABEL} maximum.` });
       return false;
     });
     if (valid.length) {

@@ -10,7 +10,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_PRIMARY, BTN_SECONDARY } from '@/components/patient/heritage';
 import { formatBytes } from './utils';
-import { isCompressibleImage, putFile } from './upload-queue';
+import { HQ_FILE_LIMIT_LABEL, MAX_HQ_PREVIEW_BYTES, exceedsHqFileLimit, isCompressibleImage, putFile } from './upload-queue';
 
 const ACCEPTED_FILES = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.jpg,.jpeg,.png,.webp,.gif';
 const loadHqFileContent = (id: string) => getHqFileContent(id, { responseType: 'blob' });
@@ -53,7 +53,7 @@ export function FileDetailDialog({
   const replacementRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewText, setPreviewText] = useState<string | null>(null);
-  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'too-large' | 'error'>('idle');
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const [replacement, setReplacement] = useState<File | null>(null);
   const [compress, setCompress] = useState<boolean | null>(null);
@@ -72,6 +72,12 @@ export function FileDetailDialog({
       setPreviewState('ready');
       return;
     }
+    // The inline content route is bounded below the storage cap; skip the
+    // request entirely when the stored size already says it will be refused.
+    if (file.size > MAX_HQ_PREVIEW_BYTES) {
+      setPreviewState('too-large');
+      return;
+    }
     let active = true;
     let objectUrl: string | null = null;
     setPreviewState('loading');
@@ -86,14 +92,16 @@ export function FileDetailDialog({
         setPreviewUrl(objectUrl);
       }
       if (active) setPreviewState('ready');
-    }).catch(() => {
-      if (active) setPreviewState('error');
+    }).catch((error: unknown) => {
+      if (!active) return;
+      const status = typeof error === 'object' && error !== null && 'status' in error ? (error as { status?: unknown }).status : undefined;
+      setPreviewState(status === 413 ? 'too-large' : 'error');
     });
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [file?.id, file?.contentType, file?.unavailableSince, open, previewAttempt, loadContent]);
+  }, [file?.id, file?.contentType, file?.size, file?.unavailableSince, open, previewAttempt, loadContent]);
 
   useEffect(() => {
     if (!open) {
@@ -162,6 +170,7 @@ export function FileDetailDialog({
         <div className="flex min-h-64 items-center justify-center overflow-auto rounded-lg border border-border bg-paper-alt p-3">
           {file.unavailableSince ? <p role="status" className="text-sm text-destructive">The stored file is missing.</p>
             : previewState === 'loading' ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" size={16} />Loading preview…</p>
+            : previewState === 'too-large' ? <div className="max-w-sm text-center" data-testid="preview-too-large"><FileText size={48} className="mx-auto mb-3 text-primary" /><strong className="text-lg text-navy">{kind}</strong><p role="status" className="mt-2 text-sm text-muted-foreground">This file is too large to preview here. Use Download to open it.</p></div>
             : previewState === 'error' ? <div className="text-center"><p role="alert" className="text-sm text-destructive">Couldn’t load the preview.</p><button className={`${BTN_SECONDARY} mt-3 h-8 px-3`} onClick={() => setPreviewAttempt((attempt) => attempt + 1)}>Retry</button></div>
             : file.contentType.startsWith('image/') && previewUrl ? <img src={previewUrl} alt={file.name} className="max-h-[60vh] max-w-full object-contain" />
             : file.contentType === 'application/pdf' && previewUrl ? <iframe title={`Preview of ${file.name}`} src={previewUrl} className="h-[70vh] w-full border-0" />
@@ -191,7 +200,7 @@ export function FileDetailDialog({
           : <button className={`${BTN_PRIMARY} mt-2 h-8 px-3`} onClick={() => void runReplacement(false)}>Replace file</button>}
       </div>}
       <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-        {!readOnly && <input ref={replacementRef} type="file" accept={ACCEPTED_FILES} className="hidden" onChange={(event) => { const next = event.target.files?.[0] ?? null; setReplacementError(next && next.size > 50 * 1024 * 1024 ? 'The replacement exceeds the 50 MB maximum.' : null); setReplacement(next && next.size <= 50 * 1024 * 1024 ? next : null); event.target.value = ''; }} />}
+        {!readOnly && <input ref={replacementRef} type="file" accept={ACCEPTED_FILES} className="hidden" onChange={(event) => { const next = event.target.files?.[0] ?? null; const tooLarge = !!next && exceedsHqFileLimit(next); setReplacementError(tooLarge ? `The replacement exceeds the ${HQ_FILE_LIMIT_LABEL} maximum.` : null); setReplacement(next && !tooLarge ? next : null); event.target.value = ''; }} />}
         {!file.unavailableSince && <button disabled={!!busy} aria-disabled={!!busy} className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => onDownload(file)}><Download size={14} />Download</button>}
         {!readOnly && !file.unavailableSince && <button disabled={!!busy} aria-disabled={!!busy} className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => replacementRef.current?.click()}>Replace</button>}
         {!readOnly && !file.unavailableSince && onRename && <button disabled={!!busy} aria-disabled={!!busy} className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => onRename(file)}>Rename</button>}

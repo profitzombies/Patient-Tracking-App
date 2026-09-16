@@ -20,7 +20,7 @@ export interface HqFileFinalizeInput {
   contentType: string;
   /**
      * @minimum 1
-     * @maximum 52428800
+     * @maximum 262144000
      */
   size: number;
   /**

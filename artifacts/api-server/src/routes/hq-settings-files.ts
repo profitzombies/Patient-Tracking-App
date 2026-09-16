@@ -29,6 +29,7 @@ import {
 import { INVALID_SETTINGS, diffPolicy, hqActorName, mergePolicyInput, settingsDto, validHqTimezone } from "../lib/org-policy-edit";
 import {
   FILE_SELECT,
+  HQ_FILE_TOO_LARGE_MESSAGE,
   MAX_HQ_FILE_BYTES,
   allFolders,
   filesWithUploaders,
@@ -50,7 +51,7 @@ const MAX_FILE_BYTES = MAX_HQ_FILE_BYTES;
 const MAX_COMPRESS_BYTES = 25 * 1024 * 1024;
 const MAX_FOLDER_DEPTH = 10;
 /** We inspect bytes, never just GCS/client MIME metadata. This is deliberately
- * bounded: a hostile 50 MB upload cannot make finalization read the whole file. */
+ * bounded: a hostile 250 MB upload cannot make finalization read the whole file. */
 export const HQ_FILE_HEAD_BYTES = 64 * 1024;
 const idPattern = hqFileIdPattern;
 const allowedTypes = new Set([
@@ -182,9 +183,10 @@ async function verifiedStoredFile(input: {
     actualSize > MAX_FILE_BYTES
   ) {
     await objectStorage.deleteObjectStrict(input.objectPath);
+    const tooLarge = input.size > MAX_FILE_BYTES || actualSize > MAX_FILE_BYTES;
     throw new UploadValidationError(
-      input.size > MAX_FILE_BYTES || actualSize > MAX_FILE_BYTES ? 413 : !allowedTypes.has(input.contentType) ? 415 : 422,
-      "The uploaded file does not match its declared details.",
+      tooLarge ? 413 : !allowedTypes.has(input.contentType) ? 415 : 422,
+      tooLarge ? HQ_FILE_TOO_LARGE_MESSAGE : "The uploaded file does not match its declared details.",
     );
   }
   const [head] = await file.download({ start: 0, end: HQ_FILE_HEAD_BYTES - 1 });
@@ -365,6 +367,10 @@ router.put("/hq/settings", async (req, res) => {
 });
 
 router.post("/hq/files/upload-url", async (req, res) => {
+  if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
+    return;
+  }
   const parsed = CreateHqFileUploadBody.safeParse(req.body);
   const name = parsed.success ? cleanHqFileName(parsed.data.name) : null;
   if (!parsed.success || !name || !Number.isInteger(parsed.data.size)) {
@@ -372,7 +378,7 @@ router.post("/hq/files/upload-url", async (req, res) => {
     return;
   }
   if (parsed.data.size > MAX_FILE_BYTES) {
-    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
     return;
   }
   if (!allowedTypes.has(parsed.data.contentType)) {
@@ -407,6 +413,10 @@ router.post("/hq/files/upload-url", async (req, res) => {
 });
 
 router.post("/hq/files", async (req, res) => {
+  if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
+    return;
+  }
   const parsed = FinalizeHqFileBody.safeParse(req.body);
   const name = parsed.success ? cleanHqFileName(parsed.data.name) : null;
   if (!parsed.success || !name || !idPattern.test(parsed.data.fileId) || !Number.isInteger(parsed.data.size)) {
@@ -485,7 +495,7 @@ router.post("/hq/files/:fileId/replace-url", async (req, res) => {
     return;
   }
   if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
-    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
     return;
   }
   const parsed = CreateHqFileReplacementBody.safeParse(req.body);
@@ -495,7 +505,7 @@ router.post("/hq/files/:fileId/replace-url", async (req, res) => {
     return;
   }
   if (parsed.data.size > MAX_FILE_BYTES) {
-    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
     return;
   }
   if (!allowedTypes.has(parsed.data.contentType) || !hqFileNameMatchesContentType(name, parsed.data.contentType)) {
@@ -530,7 +540,7 @@ router.post("/hq/files/:fileId/replace", async (req, res) => {
     return;
   }
   if (typeof req.body?.size === "number" && req.body.size > MAX_FILE_BYTES) {
-    res.status(413).json({ error: "Files must be 50 MB or smaller." });
+    res.status(413).json({ error: HQ_FILE_TOO_LARGE_MESSAGE });
     return;
   }
   const parsed = ReplaceHqFileBody.safeParse(req.body);

@@ -24,6 +24,7 @@ const migrationNames = [
   "20261018000000_hq_drive_ordering.sql",
   "20261019000000_coach_conversation_titles.sql",
   "20261019010000_coach_title_requeue.sql",
+  "20261020000000_hq_file_size_limit.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -118,6 +119,12 @@ await query(`
        or (select count(*) from information_schema.columns
            where table_schema='public' and table_name='hq_organization_settings'
              and column_name in ('app_store_url', 'google_play_url')) <> 2
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.hq_private_files'::regclass
+            and conname = 'hq_private_files_size_bytes_check'
+            and pg_get_constraintdef(oid) like '%262144000%'
+       )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

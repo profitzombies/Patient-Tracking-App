@@ -1,9 +1,19 @@
 import type { Request, Response } from "express";
 import { recordAdminAuditEvent } from "./admin-audit";
-import { objectStorage, ObjectNotFoundError } from "./objectStorage";
+import { objectStorage, ObjectNotFoundError, ObjectTooLargeError } from "./objectStorage";
 import { supabaseAdmin } from "./supabase-admin";
 
-export const MAX_HQ_FILE_BYTES = 50 * 1024 * 1024;
+/** Largest file the HQ drive stores. The one source of truth for every
+ * server-side size check; the OpenAPI schemas and the DB check constraint
+ * carry the same number (262144000). */
+export const MAX_HQ_FILE_BYTES = 250 * 1024 * 1024;
+/** Human label paired with MAX_HQ_FILE_BYTES for 413 messages. */
+export const HQ_FILE_LIMIT_LABEL = "250 MB";
+export const HQ_FILE_TOO_LARGE_MESSAGE = `Files must be ${HQ_FILE_LIMIT_LABEL} or smaller.`;
+/** Inline previews buffer the whole object in memory, so they stay bounded
+ * well below the storage cap. Larger files are download-only. */
+export const MAX_HQ_PREVIEW_BYTES = 50 * 1024 * 1024;
+export const HQ_PREVIEW_TOO_LARGE_MESSAGE = "This file is too large to preview here. Download it instead.";
 export const DOWNLOAD_TTL_SEC = 300;
 export const hqFileIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const FILE_SELECT = "id,name,content_type,size_bytes,folder_id,position,original_size_bytes,compressed_at,archived_at,created_by,created_at,updated_at,object_missing_at";
@@ -247,7 +257,7 @@ export async function sendHqFileContent(req: Request, res: Response, options: Hq
       res.status(410).json({ error: "This file's stored bytes are missing." });
       return;
     }
-    const { bytes } = await objectStorage.readObjectBounded(String(row.object_path), MAX_HQ_FILE_BYTES);
+    const { bytes } = await objectStorage.readObjectBounded(String(row.object_path), MAX_HQ_PREVIEW_BYTES);
     const name = String(row.name);
     const asciiName = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
     res.setHeader("Content-Type", String(row.content_type));
@@ -271,6 +281,10 @@ export async function sendHqFileContent(req: Request, res: Response, options: Hq
         { object_missing_at: new Date().toISOString() },
       ).catch(markError => req.log?.error({ err: markError }, "HQ missing file mark failed"));
       res.status(404).json({ error: "File not found." });
+      return;
+    }
+    if (error instanceof ObjectTooLargeError) {
+      res.status(413).json({ error: HQ_PREVIEW_TOO_LARGE_MESSAGE });
       return;
     }
     req.log?.error({ err: error }, "HQ file content read failed");

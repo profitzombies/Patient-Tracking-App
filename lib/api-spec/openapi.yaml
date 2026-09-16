@@ -3607,7 +3607,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 240 }
         contentType: { type: string, minLength: 1, maxLength: 120 }
-        size: { type: number, minimum: 1, maximum: 52428800 }
+        size: { type: number, minimum: 1, maximum: 262144000 }
         folderId: { type: ["string", "null"], description: Destination folder; null or omitted means the root }
     HqFileUploadResult:
       type: object
@@ -3625,7 +3625,7 @@ components:
         fileId: { type: string }
         name: { type: string, minLength: 1, maxLength: 240 }
         contentType: { type: string, minLength: 1, maxLength: 120 }
-        size: { type: number, minimum: 1, maximum: 52428800 }
+        size: { type: number, minimum: 1, maximum: 262144000 }
         objectPath: { type: string, minLength: 1, maxLength: 500 }
         folderId: { type: ["string", "null"], description: Destination folder; null or omitted means the root }
         compress:
@@ -3647,7 +3647,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 240 }
         contentType: { type: string, minLength: 1, maxLength: 120 }
-        size: { type: number, minimum: 1, maximum: 52428800 }
+        size: { type: number, minimum: 1, maximum: 262144000 }
     HqFileReplaceInput:
       type: object
       additionalProperties: false
@@ -3655,7 +3655,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 240 }
         contentType: { type: string, minLength: 1, maxLength: 120 }
-        size: { type: number, minimum: 1, maximum: 52428800 }
+        size: { type: number, minimum: 1, maximum: 262144000 }
         objectPath: { type: string, minLength: 1, maxLength: 500 }
         compress: { type: boolean, description: Same semantics as finalize }
     HqDriveOrderInput:

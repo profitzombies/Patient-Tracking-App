@@ -114,6 +114,7 @@ async function main() {
   let listFailure: Error | null = null;
   let appendHold: ReturnType<typeof deferred<void>> | null = null;
   const appendTexts: string[] = [];
+  const renameCalls: Array<{ id: string; title: string; expectedVersion: number }> = [];
   const api = {
     async appendCoachMessages(_id: string, messages: Array<{ text?: string }>) {
       appendTexts.push(...messages.map(message => message.text ?? ''));
@@ -126,6 +127,13 @@ async function main() {
       const gate = deferred<CoachConversationSnapshot>();
       held.set(id, gate);
       return gate.promise;
+    },
+    async renameCoachConversation(id: string, title: string, expectedVersion: number) {
+      renameCalls.push({ id, title, expectedVersion });
+      return { ...row(id), title, version: expectedVersion + 1 };
+    },
+    async updateCoachConversation(id: string, archived: boolean, expectedVersion: number) {
+      return { ...row(id), archivedAt: archived ? '2025-01-02T00:00:00.000Z' : null, version: expectedVersion + 1 };
     },
     listCoachConversations(archived: boolean, offset = 0) {
       listCalls += 1;
@@ -207,6 +215,26 @@ async function main() {
   });
   check('retryable history failure retains cached page', chat.getCachedConversations(false)?.conversations[0]?.id === 'history-1');
   listFailure = null;
+
+  // A list read that began before a rename/archive commits must not repaint
+  // or re-cache the older row once it lands after the write.
+  const lateList = chat.listConversations(false, 0, true);
+  await act(async () => {
+    await chat.renameConversation({ ...row('history-1'), version: 1 }, 'Taco night');
+  });
+  await act(async () => {
+    await chat.setArchived({ ...row('history-2'), version: 1 }, true);
+  });
+  heldPages.get('false:0')!.resolve({
+    conversations: [row('history-1'), row('history-2')],
+    total: 2,
+    nextOffset: null,
+  });
+  await act(async () => { await lateList; });
+  const reconciled = chat.getCachedConversations(false)?.conversations ?? [];
+  check('late list read keeps the committed rename', reconciled[0]?.id === 'history-1' && reconciled[0]?.title === 'Taco night' && reconciled[0]?.version === 2);
+  check('late list read drops a row archived after the read began', !reconciled.some(item => item.id === 'history-2'));
+  check('rename sent the cleaned title with the caller version', renameCalls[0]?.title === 'Taco night' && renameCalls[0]?.expectedVersion === 1);
 
   const afterCold = fetchCalls;
   await act(async () => { await chat.selectConversation('a'); });

@@ -9,6 +9,7 @@ export const coachState: {
   start: () => void;
   select: (id: string) => Promise<void>;
   archive: (conversation: Conversation, archived: boolean) => Promise<void>;
+  rename: (conversation: Conversation, title: string) => Promise<Conversation>;
 } = {
   accessDeniedError: null,
   cached: () => undefined,
@@ -16,6 +17,7 @@ export const coachState: {
   start: () => {},
   select: async () => {},
   archive: async () => {},
+  rename: async (conversation, title) => ({ ...conversation, title, version: conversation.version + 1 }),
 };
 export const useCoachChat = () => ({
   accessDeniedError: coachState.accessDeniedError,
@@ -24,5 +26,6 @@ export const useCoachChat = () => ({
   selectConversation: (id: string) => coachState.select(id),
   listConversations: coachState.list,
   setArchived: (conversation: Conversation, archived: boolean) => coachState.archive(conversation, archived),
+  renameConversation: (conversation: Conversation, title: string) => coachState.rename(conversation, title),
   loadOlder: async () => {},
 });

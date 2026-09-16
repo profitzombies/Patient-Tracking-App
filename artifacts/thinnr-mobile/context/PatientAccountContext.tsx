@@ -313,6 +313,12 @@ export interface PatientDataApi {
     archived: boolean,
     expectedVersion: number,
   ): Promise<CoachConversation>;
+  /** Renames a conversation; the server keeps this name over its own title job. */
+  renameCoachConversation(
+    conversationId: string,
+    title: string,
+    expectedVersion: number,
+  ): Promise<CoachConversation>;
   /** Stores a chat photo (data URI) on the account's media rail. */
   uploadChatPhoto(
     dataUri: string,

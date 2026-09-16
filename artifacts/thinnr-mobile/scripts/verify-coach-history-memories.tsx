@@ -253,6 +253,49 @@ async function main() {
   await tap(buttonByLabel(history, "Archive conversation"));
   assert("history still archives an active conversation", archiveCalls[1]?.id === "active-stale" && archiveCalls[1]?.archived === true);
 
+  // ── History: inline rename ───────────────────────────────────────────────
+  coachState.list = (_archived, offset) => offset === 0
+    ? Promise.resolve({ conversations: [conversation("named-1", "Chipotle dinner plan")], nextOffset: null })
+    : Promise.resolve({ conversations: [], nextOffset: null });
+  const renameCalls: Array<{ id: string; title: string }> = [];
+  let renameFails = false;
+  coachState.rename = async (row, title) => {
+    renameCalls.push({ id: row.id, title });
+    if (renameFails) throw Object.assign(new Error("This conversation changed. Refresh and try again."), { status: 409 });
+    return { ...row, title, version: row.version + 1 };
+  };
+  await tap(byTestId(history, "tab-archived"));
+  await settle();
+  await tap(byTestId(history, "tab-active"));
+  await settle();
+  assert("history shows the server-written title", includesText(history, "Chipotle dinner plan"));
+  await tap(buttonByLabel(history, "Rename conversation: Chipotle dinner plan"));
+  const renameInput = byTestId(history, "rename-input-named-1");
+  assert("rename opens an editor pre-filled with the current name", renameInput?.props.value === "Chipotle dinner plan"
+    && renameInput?.props.maxLength === 40 && renameInput?.props.accessibilityLabel === "Conversation name");
+  assert("the row's open button hides while its name is being edited", buttonByLabel(history, "Open conversation: Chipotle dinner plan") === null);
+  await act(async () => { renameInput?.props.onChangeText("   "); });
+  await tap(byTestId(history, "rename-save-named-1"));
+  assert("an empty name is refused locally without a request", renameCalls.length === 0 && includesText(history, "Give it a name of 1 to 40 characters."));
+  await act(async () => { renameInput?.props.onChangeText("  Burrito -- night!  "); });
+  await tap(byTestId(history, "rename-save-named-1"));
+  await settle();
+  assert("save sends the cleaned name", renameCalls[0]?.id === "named-1" && renameCalls[0]?.title === "Burrito night");
+  assert("the row shows the new name and closes the editor",
+    includesText(history, "Burrito night") && !hasTestId(history, "rename-input-named-1")
+    && buttonByLabel(history, "Open conversation: Burrito night") !== null);
+  renameFails = true;
+  await tap(buttonByLabel(history, "Rename conversation: Burrito night"));
+  const retryInput = byTestId(history, "rename-input-named-1");
+  await act(async () => { retryInput?.props.onChangeText("Taco night"); });
+  await tap(byTestId(history, "rename-save-named-1"));
+  await settle();
+  assert("a version conflict keeps the editor open with the server message",
+    hasTestId(history, "rename-input-named-1") && includesText(history, "This conversation changed. Refresh and try again."));
+  await tap(byTestId(history, "rename-cancel-named-1"));
+  assert("cancel closes the editor without renaming", !hasTestId(history, "rename-input-named-1") && renameCalls.length === 2);
+  renameFails = false;
+
   // First-page failures stay visibly distinct from a successful empty result.
   await act(async () => { history.unmount(); });
   let retrySucceeds = false;

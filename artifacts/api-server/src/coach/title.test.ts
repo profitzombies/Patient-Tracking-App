@@ -20,7 +20,7 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
   },
 }));
 
-import { COACH_TITLE_MAX_CHARS, COACH_TITLE_PROMPT, generateCoachTitle, shapeCoachTitle } from "./title";
+import { COACH_TITLE_MAX_CHARS, COACH_TITLE_PROMPT, generateCoachTitle, shapeCoachTitle, titleLooksSensitive } from "./title";
 
 beforeEach(() => {
   modelState.content = "";
@@ -72,5 +72,29 @@ describe("generateCoachTitle", () => {
   it("skips the model entirely for an empty first message", async () => {
     expect(await generateCoachTitle({ firstMessage: "   " })).toEqual({ title: "Coach conversation", source: "fallback" });
     expect(modelState.calls).toHaveLength(0);
+  });
+});
+
+describe("titleLooksSensitive", () => {
+  it("flags health numbers, doses, and contact details", () => {
+    for (const title of [
+      "Down 12 lbs this week", "Weight 185 today", "Ozempic 0.5 mg question", "A1C 6.4 result",
+      "Lost 4% so far", "Call 555 123 4567", "Email jane@example.com", "Account 204981",
+    ]) expect(titleLooksSensitive(title), title).toBe(true);
+  });
+
+  it("lets ordinary counts and topics through", () => {
+    for (const title of ["3 day meal plan", "Chipotle dinner plan", "Week 2 grocery list", "Two eggs or three", "Quick check in"]) {
+      expect(titleLooksSensitive(title), title).toBe(false);
+    }
+  });
+
+  it("swaps a sensitive model title for the keyword fallback without logging it", async () => {
+    modelState.content = JSON.stringify({ title: "Semaglutide 1 mg nausea" });
+    const warn = vi.fn();
+    const result = await generateCoachTitle({ firstMessage: "I started semaglutide 1 mg and feel sick after dinner", log: { warn } });
+    expect(result).toEqual({ title: "Meal ideas", source: "fallback" });
+    expect(warn).toHaveBeenCalledWith({ reason: "sensitive" }, expect.any(String));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("Semaglutide");
   });
 });

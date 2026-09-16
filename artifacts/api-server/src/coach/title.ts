@@ -34,6 +34,20 @@ interface MinimalLog {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 }
 
+/**
+ * Deterministic screen behind the prompt rule: a title that carries a health
+ * measurement, a dose, a percentage, a contact detail, or a long digit run is
+ * discarded in favor of the keyword fallback. Titles show on the patient's
+ * history list and on office review screens; plain counts ("3 day plan") pass.
+ */
+export function titleLooksSensitive(title: string): boolean {
+  const text = title.toLowerCase();
+  if (/\d[\d.,]*\s*(lb|lbs|pound|pounds|kg|kgs|kilo|kilos|mg|mcg|ug|ml|iu|units?|cc|%|percent|a1c|bmi|mmol|mg\/dl|bpm|cal|kcal|calories|oz|stone)(?![a-z])/.test(text)) return true;
+  if (/\b(a1c|bmi|blood pressure|glucose|cholesterol|ldl|hdl|triglycerides|tsh|dose|dosage|weigh(?:s|ed|ing)?|weight)\b.*\d|\d.*\b(a1c|bmi|weigh(?:s|ed|ing)?|weight|dose|dosage)\b/.test(text)) return true;
+  if (/\d{4,}|\d{3}[\s.]\d{3,}|@|https?:|www\./.test(text)) return true;
+  return false;
+}
+
 /** Keyword fallback: a usable generic name when the model is unavailable. */
 export function safeCoachTitle(text: string): string {
   const input = text.toLowerCase();
@@ -96,9 +110,10 @@ export async function generateCoachTitle(args: {
     const raw = completion.choices[0]?.message?.content ?? "";
     const parsed = TitleSchema.safeParse(extractModelJson(raw));
     const title = parsed.success ? shapeCoachTitle(parsed.data.title) : "";
-    if (!title) {
+    if (!title || titleLooksSensitive(title)) {
       // Never log the raw reply: it can echo the patient's own words.
-      args.log?.warn({ reason: parsed.success ? "empty_after_shaping" : "unparseable" }, "coach title output unusable; using fallback");
+      const reason = !parsed.success ? "unparseable" : !title ? "empty_after_shaping" : "sensitive";
+      args.log?.warn({ reason }, "coach title output unusable; using fallback");
       return fallback;
     }
     return { title, source: "model" };

@@ -1090,6 +1090,19 @@ export const patientDataApi: PatientDataApi = {
     return parseCoachConversation((json as Record<string, unknown> | null)?.conversation);
   },
 
+  async renameCoachConversation(
+    conversationId: string,
+    title: string,
+    expectedVersion: number,
+  ): Promise<CoachConversation> {
+    const json = await authedRequest(
+      'PATCH',
+      `/patient-coach/conversations/${encodeURIComponent(conversationId)}`,
+      { title, expectedVersion },
+    );
+    return parseCoachConversation((json as Record<string, unknown> | null)?.conversation);
+  },
+
   async uploadChatPhoto(
     dataUri: string,
     options?: { accessToken?: string },

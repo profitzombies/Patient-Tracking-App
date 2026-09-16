@@ -23,6 +23,8 @@ import type { CoachConversation } from "@workspace/api-client-react";
 import { ErrorBox } from "@/components/onboarding/OnboardingFields";
 import { CoachHistorySkeleton } from "@/components/coach/CoachHistorySkeleton";
 import { PageFlatList as FlatList } from "@/components/ui/PageScrollView";
+import { OrdinaryTextInput as TextInput } from "@/components/ui/OrdinaryTextInput";
+import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle } from "@/lib/coach-title";
 
 export default function CoachHistoryScreen() {
   const accountState = usePatientAccount();
@@ -55,7 +57,7 @@ function CoachHistoryContent({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const { startNewConversation, selectConversation, listConversations, getCachedConversations, historyScopeKey, setArchived, accessDeniedError } = useCoachChat();
+  const { startNewConversation, selectConversation, listConversations, getCachedConversations, historyScopeKey, setArchived, renameConversation, accessDeniedError } = useCoachChat();
   const { account, resolving, getAccessToken } = accountState;
   const accountKey = historyScopeKey ?? (resolving ? "resolving" : account.kind === "real" ? account.patientId : account.kind);
   const isCurrent = useCallback(
@@ -76,6 +78,8 @@ function CoachHistoryContent({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string; saving: boolean; error: string | null } | null>(null);
+  const renameLockRef = useRef(false);
   const listRequestRef = useRef(0);
   const loadMoreLockRef = useRef(false);
   const archiveLockRef = useRef(new Set<string>());
@@ -240,6 +244,41 @@ function CoachHistoryContent({
     } finally {
       archiveLockRef.current.delete(conversation.id);
       if (isCurrent()) setArchivingId(null);
+    }
+  };
+
+  const beginRename = (conversation: CoachConversation) => {
+    Haptics.selectionAsync();
+    setRenaming({ id: conversation.id, draft: conversation.title, saving: false, error: null });
+  };
+
+  const handleRenameSave = async (conversation: CoachConversation) => {
+    if (renameLockRef.current || !renaming || renaming.id !== conversation.id) return;
+    const title = cleanCoachTitle(renaming.draft);
+    if (!title) {
+      setRenaming(prev => prev && { ...prev, error: `Give it a name of 1 to ${COACH_TITLE_MAX_CHARS} characters.` });
+      return;
+    }
+    if (title === conversation.title) { setRenaming(null); return; }
+    renameLockRef.current = true;
+    Haptics.selectionAsync();
+    setRenaming(prev => prev && { ...prev, saving: true, error: null });
+    try {
+      const updated = await renameConversation(conversation, title);
+      if (!isCurrent()) return;
+      setConversations(prev => prev.map(c => (c.id === conversation.id ? { ...c, ...updated } : c)));
+      setRenaming(null);
+      if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(`Renamed to ${updated.title}`);
+    } catch (cause) {
+      if (!isCurrent()) return;
+      const status = (cause as { status?: number })?.status;
+      const message = status === 409
+        ? "This conversation changed. Refresh and try again."
+        : cause instanceof Error && cause.message ? cause.message : "Couldn't rename this conversation. Please try again.";
+      setRenaming(prev => prev && { ...prev, saving: false, error: message });
+      if (status === 409) void load(true);
+    } finally {
+      renameLockRef.current = false;
     }
   };
 
@@ -478,9 +517,53 @@ function CoachHistoryContent({
           }
           renderItem={({ item }) => (
             <View style={[styles.rowContainer, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
+              {renaming?.id === item.id ? (
+                <View style={styles.renameBlock} testID={`rename-editor-${item.id}`}>
+                  <Text style={[styles.renameLabel, { color: colors.subtleText }]} nativeID={`rename-label-${item.id}`}>
+                    Conversation name
+                  </Text>
+                  <TextInput
+                    testID={`rename-input-${item.id}`}
+                    accessibilityLabel="Conversation name"
+                    accessibilityLabelledBy={`rename-label-${item.id}`}
+                    style={[styles.renameInput, { color: colors.navy, borderColor: colors.border, backgroundColor: colors.background, borderRadius: colors.radiusSm }]}
+                    value={renaming.draft}
+                    onChangeText={draft => setRenaming(prev => prev && { ...prev, draft, error: null })}
+                    maxLength={COACH_TITLE_MAX_CHARS}
+                    autoFocus
+                    selectTextOnFocus
+                    returnKeyType="done"
+                    onSubmitEditing={() => void handleRenameSave(item)}
+                    editable={!renaming.saving}
+                  />
+                  <View style={styles.renameFooter}>
+                    <Text style={[styles.renameCount, { color: renaming.error ? colors.riskText : colors.subtleText }]} accessibilityLiveRegion="polite">
+                      {renaming.error ?? `${cleanCoachTitle(renaming.draft).length}/${COACH_TITLE_MAX_CHARS}`}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      testID={`rename-cancel-${item.id}`}
+                      onPress={() => setRenaming(null)}
+                      disabled={renaming.saving}
+                      style={({ pressed }) => [styles.renameBtn, (pressed || renaming.saving) && { opacity: 0.7 }]}
+                    >
+                      <Text style={[styles.renameBtnText, { color: colors.subtleText }]}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      testID={`rename-save-${item.id}`}
+                      onPress={() => void handleRenameSave(item)}
+                      disabled={renaming.saving}
+                      style={({ pressed }) => [styles.renameBtnPrimary, { backgroundColor: colors.cobalt, borderRadius: colors.radiusSm }, (pressed || renaming.saving) && { opacity: 0.7 }]}
+                    >
+                      {renaming.saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.renameBtnPrimaryText}>Save</Text>}
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Open conversation: ${item.title}`}
+                accessibilityLabel={`Open conversation: ${item.title || DEFAULT_COACH_TITLE}`}
                 onPress={() => handleSelect(item.id)}
                 style={({ pressed }) => [
                   styles.rowPressable,
@@ -489,10 +572,10 @@ function CoachHistoryContent({
               >
                 <View style={styles.rowMain}>
                   <Text style={[styles.rowTitle, { color: colors.navy }]} numberOfLines={1}>
-                    {item.title || "New conversation"}
+                    {item.title || DEFAULT_COACH_TITLE}
                   </Text>
                   <Text style={[styles.rowDate, { color: colors.subtleText }]}>
-                    {formatDate(item.updatedAt)}
+                    {item.titleState === 'pending' && !archivedTab ? `Naming soon · ${formatDate(item.updatedAt)}` : formatDate(item.updatedAt)}
                   </Text>
                 </View>
                 {item.processingState === 'failed' && (
@@ -502,6 +585,7 @@ function CoachHistoryContent({
                 )}
                  <Feather name="chevron-right" size={18} color={colors.subtleText} style={styles.rowChevron} />
               </Pressable>
+              )}
               
               {item.processingState === 'failed' && (
                 <View style={[styles.retryProcessingBlock, { backgroundColor: colors.riskBg }]}>
@@ -530,6 +614,21 @@ function CoachHistoryContent({
                      {archivedTab ? "Archived chats are hidden." : "Archive to hide. Coach still remembers."}
                    </Text>
                 </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Rename conversation: ${item.title || DEFAULT_COACH_TITLE}`}
+                  testID={`rename-${item.id}`}
+                  onPress={() => beginRename(item)}
+                  disabled={renaming?.id === item.id || archivingId === item.id}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    pressed && { backgroundColor: colors.accent },
+                    renaming?.id === item.id && { opacity: 0.5 },
+                  ]}
+                >
+                  <Feather name="edit-2" size={14} color={colors.subtleText} />
+                  <Text style={[styles.actionBtnText, { color: colors.subtleText }]}>Rename</Text>
+                </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={archivedTab ? "Restore conversation" : "Archive conversation"}
@@ -770,6 +869,54 @@ const styles = StyleSheet.create({
   actionBtnText: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
+  },
+  renameBlock: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  renameLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  renameInput: {
+    fontFamily: fonts.sansSemiBold,
+    fontSize: 16,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  renameFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  renameCount: {
+    flex: 1,
+    fontFamily: fonts.sans,
+    fontSize: 12,
+  },
+  renameBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  renameBtnText: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+  },
+  renameBtnPrimary: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    minWidth: 64,
+    alignItems: "center",
+  },
+  renameBtnPrimaryText: {
+    fontFamily: fonts.sansSemiBold,
+    fontSize: 14,
+    color: "#fff",
   },
   footerLoader: {
     paddingVertical: 16,

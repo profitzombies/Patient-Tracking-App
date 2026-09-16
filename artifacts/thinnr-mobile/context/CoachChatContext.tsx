@@ -39,6 +39,7 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
+import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle, demoCoachTitleFromMessage } from '@/lib/coach-title';
 import {
   usePatientAccount,
   type CoachConversation,
@@ -221,6 +222,8 @@ export interface CoachChatContextValue {
     force?: boolean,
   ) => Promise<CoachConversationPage>;
   setArchived: (conversation: CoachConversation, archived: boolean) => Promise<void>;
+  /** Renames one conversation (patient's choice wins over the server's generated name). */
+  renameConversation: (conversation: CoachConversation, title: string) => Promise<CoachConversation>;
   loadOlder: () => Promise<void>;
   /**
    * Progress narration for the in-flight photo turn (null on text turns and
@@ -768,6 +771,20 @@ export function CoachChatProvider({
   // refreshThread never replaces the transcript/epoch underneath its request.
   const isLoadingOlderRef = useRef(false);
   const demoConversationsRef = useRef<CoachConversation[]>([]);
+  /** Demo conversations the patient named by hand; auto-naming leaves these alone. */
+  const demoRenamedRef = useRef(new Set<string>());
+  /**
+   * Conversation rows the server has confirmed for a rename/archive, keyed by
+   * id. A list or detail read that started BEFORE the write can land after
+   * it; instead of letting that older snapshot repaint (and re-cache) the
+   * previous title or resurrect an archived row, late reads are reconciled
+   * against the newest committed version here.
+   */
+  const committedConversationsRef = useRef(new Map<string, CoachConversation>());
+  const reconcileConversation = useCallback((row: CoachConversation): CoachConversation => {
+    const committed = committedConversationsRef.current.get(row.id);
+    return committed && committed.version > row.version ? committed : row;
+  }, []);
   const demoConversationCounterRef = useRef(0);
   const scopeEpochRef = useRef(0);
   // Account epochs deliberately do not reuse a cache after sign-out/revoke,
@@ -846,6 +863,7 @@ export function CoachChatProvider({
     conversationCacheRef.current.clear();
     conversationRequestsRef.current.clear();
     historyCacheRef.current.clear();
+    committedConversationsRef.current.clear();
     historyRequestsRef.current.clear();
     outboxRef.current = [];
     persistedRef.current.clear();
@@ -978,6 +996,7 @@ export function CoachChatProvider({
     conversationCacheRef.current.clear();
     conversationRequestsRef.current.clear();
     historyCacheRef.current.clear();
+    committedConversationsRef.current.clear();
     historyRequestsRef.current.clear();
     abortRef.current?.abort();
     if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
@@ -1355,13 +1374,20 @@ export function CoachChatProvider({
       const requestGeneration = cacheGenerationRef.current;
       const request = api
         .listCoachConversations(archived, offset)
-        .then(page => {
+        .then(fetched => {
           if (
             cacheGenerationRef.current !== requestGeneration ||
             historyScopeKeyRef.current !== scope
           ) {
             throw staleCoachReadError();
           }
+          const conversations = fetched.conversations
+            .map(reconcileConversation)
+            .filter(row => Boolean(row.archivedAt) === archived);
+          const page = conversations.length === fetched.conversations.length
+            && conversations.every((row, index) => row === fetched.conversations[index])
+            ? fetched
+            : { ...fetched, conversations };
           historyCacheRef.current.set(cacheKey, { page, fetchedAt: Date.now() });
           setAccessDeniedError(null);
           return page;
@@ -1542,7 +1568,7 @@ export function CoachChatProvider({
         const requestGeneration = cacheGenerationRef.current;
         request = api.fetchCoachConversation(id, undefined, localTodayKey()).then(snapshot => {
           const entry: CachedConversation = {
-            conversation: snapshot.conversation,
+            conversation: reconcileConversation(snapshot.conversation),
             messages: snapshot.messages.map(wireToCoachMessage),
             nextBefore: snapshot.nextBefore,
             fetchedAt: Date.now(),
@@ -1855,6 +1881,7 @@ export function CoachChatProvider({
       try {
         const updated = await api.updateCoachConversation(conversation.id, archived, conversation.version);
         if (!operationCurrent()) throw staleCoachReadError();
+        committedConversationsRef.current.set(updated.id, updated);
         if (selectedConversationRef.current?.id === updated.id) {
           selectedConversationRef.current = updated;
           setSelectedConversation(updated);
@@ -1876,6 +1903,59 @@ export function CoachChatProvider({
       }
     },
     [flushOutbox, revokeConversationAccess],
+  );
+
+  const renameConversation = useCallback(
+    async (conversation: CoachConversation, rawTitle: string): Promise<CoachConversation> => {
+      const title = cleanCoachTitle(rawTitle);
+      if (!title) throw new Error(`Give the conversation a name of 1 to ${COACH_TITLE_MAX_CHARS} characters.`);
+      const operationAccount = accountKeyRef.current;
+      const operationGeneration = cacheGenerationRef.current;
+      const operationCurrent = () =>
+        accountKeyRef.current === operationAccount && cacheGenerationRef.current === operationGeneration;
+      const applyRenamed = (updated: CoachConversation) => {
+        const scope = historyScopeKeyRef.current;
+        if (scope) {
+          for (const key of historyCacheRef.current.keys()) {
+            if (key.startsWith(`${scope}:`)) historyCacheRef.current.delete(key);
+          }
+          conversationCacheRef.current.delete(`${scope}:conversation:${conversation.id}`);
+        }
+        if (selectedConversationRef.current?.id === updated.id) {
+          selectedConversationRef.current = { ...selectedConversationRef.current, ...updated };
+          setSelectedConversation(selectedConversationRef.current);
+        }
+      };
+      if (accountRef.current.kind === 'demo') {
+        const updated = { ...conversation, title, titleState: 'ready' as const, version: conversation.version + 1 };
+        demoRenamedRef.current.add(conversation.id);
+        demoConversationsRef.current = demoConversationsRef.current.map(row =>
+          row.id === conversation.id ? { ...row, ...updated } : row,
+        );
+        applyRenamed(updated);
+        return updated;
+      }
+      const api = chatApiRef.current;
+      if (!api) throw new Error('Your coach conversations are still loading. Please try again.');
+      try {
+        const updated = await api.renameCoachConversation(conversation.id, title, conversation.version);
+        if (!operationCurrent()) throw staleCoachReadError();
+        committedConversationsRef.current.set(updated.id, updated);
+        applyRenamed(updated);
+        return updated;
+      } catch (error) {
+        if (!operationCurrent()) throw staleCoachReadError();
+        const status =
+          error && typeof error === 'object' && 'status' in error
+            ? (error as { status?: unknown }).status
+            : undefined;
+        if (status === 401 || status === 403) {
+          revokeConversationAccess(error instanceof Error ? error.message : 'Conversation access is unavailable.');
+        }
+        throw error;
+      }
+    },
+    [reconcileConversation, revokeConversationAccess],
   );
 
   const refreshThread = useCallback(async (force = false) => {
@@ -1944,6 +2024,16 @@ export function CoachChatProvider({
     const stored = { ...conversation, updatedAt: new Date().toISOString(), messages } as CoachConversation & {
       messages: CoachMessage[];
     };
+    // Name the demo conversation from its first message, the way the server
+    // job does for real accounts; a patient rename is never replaced.
+    if (stored.title === DEFAULT_COACH_TITLE && !demoRenamedRef.current.has(conversation.id)) {
+      const first = messages.find(message => message.role === 'user' && message.text.trim());
+      if (first) {
+        stored.title = demoCoachTitleFromMessage(first.text);
+        selectedConversationRef.current = { ...conversation, title: stored.title };
+        setSelectedConversation(selectedConversationRef.current);
+      }
+    }
     demoConversationsRef.current = demoConversationsRef.current.map(row =>
       row.id === conversation.id ? stored : row,
     );
@@ -2234,7 +2324,7 @@ export function CoachChatProvider({
       const now = new Date().toISOString();
       const conversation: CoachConversation & { messages?: CoachMessage[] } = {
         id: `demo-coach-${++demoConversationCounterRef.current}`,
-        title: 'New conversation',
+        title: DEFAULT_COACH_TITLE,
         titleState: 'ready',
         archivedAt: null,
         createdAt: now,
@@ -2907,6 +2997,7 @@ export function CoachChatProvider({
     conversationCacheRef.current.clear();
     conversationRequestsRef.current.clear();
     historyCacheRef.current.clear();
+    committedConversationsRef.current.clear();
     historyRequestsRef.current.clear();
     abortRef.current?.abort();
     if (revealRef.current?.timer) clearInterval(revealRef.current.timer);
@@ -2985,6 +3076,7 @@ export function CoachChatProvider({
       getCachedConversations,
       listConversations,
       setArchived,
+      renameConversation,
       loadOlder,
       refreshThread,
       send,
@@ -3018,6 +3110,7 @@ export function CoachChatProvider({
       getCachedConversations,
       listConversations,
       setArchived,
+      renameConversation,
       loadOlder,
       refreshThread,
       send,

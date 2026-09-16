@@ -1196,19 +1196,25 @@ export const GetPatientCoachConversationResponse = zod.object({
 
 
 /**
- * @summary Archive or restore a coach conversation
+ * @summary Archive, restore, or rename a coach conversation
  */
 export const UpdatePatientCoachConversationParams = zod.object({
   "conversationId": zod.coerce.string()
 })
 
 
+export const updatePatientCoachConversationBodyTwoTitleMax = 200;
 
 
-export const UpdatePatientCoachConversationBody = zod.object({
+
+
+export const UpdatePatientCoachConversationBody = zod.union([zod.object({
   "archived": zod.boolean(),
   "expectedVersion": zod.number().min(1)
-})
+}),zod.object({
+  "title": zod.string().min(1).max(updatePatientCoachConversationBodyTwoTitleMax),
+  "expectedVersion": zod.number().min(1)
+})]).describe('Archive\/restore (archived) or rename (title); send one of the two with the current version.')
 
 export const UpdatePatientCoachConversationResponse = zod.object({
   "conversation": zod.object({

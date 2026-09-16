@@ -16,6 +16,7 @@ const MIGRATION = path.resolve(here, "../../../../supabase/migrations/2026100800
 const MEMORY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261008010000_coach_memory.sql");
 const REVIEW_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261008030000_coach_review_guards.sql");
 const SENTENCE_POLICY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261008040000_coach_memory_sentence_policy.sql");
+const TITLES_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261019000000_coach_conversation_titles.sql");
 const has = (binary: string) => spawnSync("which", [binary], { stdio: "ignore" }).status === 0;
 const available = ["initdb", "pg_ctl", "psql"].every(has);
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -81,6 +82,7 @@ describe.skipIf(!available)("coach conversations migration (real PostgreSQL)", (
     execFileSync("psql", [...args().filter(arg => arg !== "-At"), "-f", MEMORY_MIGRATION], { stdio: "pipe", encoding: "utf8" });
     execFileSync("psql", [...args().filter(arg => arg !== "-At"), "-f", REVIEW_MIGRATION], { stdio: "pipe", encoding: "utf8" });
     execFileSync("psql", [...args().filter(arg => arg !== "-At"), "-f", SENTENCE_POLICY_MIGRATION], { stdio: "pipe", encoding: "utf8" });
+    execFileSync("psql", [...args().filter(arg => arg !== "-At"), "-f", TITLES_MIGRATION], { stdio: "pipe", encoding: "utf8" });
   }, 60_000);
   afterAll(() => {
     if (dataDir) spawnSync("pg_ctl", ["-D", dataDir, "-m", "immediate", "stop"], { stdio: "ignore" });
@@ -206,6 +208,46 @@ describe.skipIf(!available)("coach conversations migration (real PostgreSQL)", (
     expect(psql(`select processing_state from public.patient_chat_conversations where id='${id}'`)).toBe("pending");
     psql(`update public.coach_conversation_work set state='ready' where conversation_id='${id}' and kind='memory'`);
     expect(psql(`select processing_state from public.patient_chat_conversations where id='${id}'`)).toBe("ready");
+  });
+
+  it("stores model titles from the first message, cleans them, and never overwrites a patient rename", () => {
+    const id = psql(`select id from public.coach_conversation_create('${PATIENT_A}','title-key')`);
+    psql(`select public.coach_conversation_append('${PATIENT_A}','${id}',
+      '[{"client_id":"t-u1","role":"user","text":"What can I eat at Chipotle tonight?"},{"client_id":"t-a1","role":"assistant","text":"Here is a plan."}]'::jsonb)`);
+    const claim = rows<{ work_id: string; text: string; claim_token: string }>(
+      `select work_id,text,claim_token from public.coach_title_claim_processing(300) where conversation_id='${id}'`)[0];
+    expect(claim.text).toBe("What can I eat at Chipotle tonight?");
+    expect(psql(`select public.coach_title_complete_processing('${claim.work_id}','${PATIENT_A}','${id}','${claim.claim_token}',E'  Chipotle   dinner\tplan  ')`)).toBe("t");
+    expect(rows<{ title: string; title_state: string; title_source: string }>(
+      `select title,title_state,title_source from public.patient_chat_conversations where id='${id}'`))
+      .toEqual([{ title: "Chipotle dinner plan", title_state: "ready", title_source: "system" }]);
+
+    // Unusable model output falls back instead of storing junk.
+    const second = psql(`select id from public.coach_conversation_create('${PATIENT_A}','title-key-2')`);
+    psql(`select public.coach_conversation_append('${PATIENT_A}','${second}',
+      '[{"client_id":"t2-u1","role":"user","text":"hi"},{"client_id":"t2-a1","role":"assistant","text":"Hello."}]'::jsonb)`);
+    const claim2 = rows<{ work_id: string; claim_token: string }>(
+      `select work_id,claim_token from public.coach_title_claim_processing(300) where conversation_id='${second}'`)[0];
+    expect(psql(`select public.coach_title_complete_processing('${claim2.work_id}','${PATIENT_A}','${second}','${claim2.claim_token}','${"x".repeat(41)}')`)).toBe("t");
+    expect(psql(`select title from public.patient_chat_conversations where id='${second}'`)).toBe("Coach conversation");
+
+    // Patient rename: version race, validation, owner scope, and precedence over the job.
+    const version = Number(psql(`select version from public.patient_chat_conversations where id='${id}'`));
+    expect(psql(`select public.coach_conversation_rename('${PATIENT_A}','${id}','   ',${version})`)).toBe("invalid");
+    expect(psql(`select public.coach_conversation_rename('${PATIENT_A}','${id}','Burrito night',${version + 5})`)).toBe("conflict");
+    expect(psql(`select public.coach_conversation_rename('${PATIENT_B}','${id}','Burrito night',${version})`)).toBe("missing");
+    expect(psql(`select public.coach_conversation_rename('${PATIENT_A}','${id}','  Burrito   night ',${version})`)).toBe("ok");
+    expect(rows<{ title: string; title_source: string; version: number }>(
+      `select title,title_source,version from public.patient_chat_conversations where id='${id}'`))
+      .toEqual([{ title: "Burrito night", title_source: "patient", version: version + 1 }]);
+    psql(`update public.coach_conversation_work set state='pending' where conversation_id='${id}' and kind='title'`);
+    const again = rows<{ work_id: string; claim_token: string }>(
+      `select work_id,claim_token from public.coach_title_claim_processing(300) where conversation_id='${id}'`)[0];
+    expect(psql(`select public.coach_title_complete_processing('${again.work_id}','${PATIENT_A}','${id}','${again.claim_token}','Model title')`)).toBe("t");
+    expect(psql(`select title from public.patient_chat_conversations where id='${id}'`)).toBe("Burrito night");
+    expect(psql(`select state from public.coach_conversation_work where id='${again.work_id}'`)).toBe("ready");
+    // Leave no memory work behind for the extraction cases below to claim.
+    psql(`delete from public.coach_conversation_work where kind='memory' and conversation_id in ('${id}','${second}')`);
   });
 
   it("never returns pending or pre-extraction sensitive text as historical excerpts", () => {

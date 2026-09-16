@@ -707,11 +707,22 @@ export interface CoachConversationAppendInput {
   messages: CoachChatWireMessage[];
 }
 
-export interface CoachConversationUpdateInput {
+/**
+ * Archive/restore (archived) or rename (title); send one of the two with the current version.
+ */
+export type CoachConversationUpdateInput = {
   archived: boolean;
   /** @minimum 1 */
   expectedVersion: number;
-}
+} | {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /** @minimum 1 */
+  expectedVersion: number;
+};
 
 export type CoachConversationDetailPatient = {
   firstName: string;

@@ -3130,7 +3130,7 @@ export const getUpdatePatientCoachConversationUrl = (conversationId: string,) =>
 }
 
 /**
- * @summary Archive or restore a coach conversation
+ * @summary Archive, restore, or rename a coach conversation
  */
 export const updatePatientCoachConversation = async (conversationId: string,
     coachConversationUpdateInput: CoachConversationUpdateInput, options?: Parameters<typeof customFetch>[1]): Promise<CoachConversationResult> => {
@@ -3180,7 +3180,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdatePatientCoachConversationMutationError = ErrorType<void>
 
     /**
- * @summary Archive or restore a coach conversation
+ * @summary Archive, restore, or rename a coach conversation
  */
 export const useUpdatePatientCoachConversation = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePatientCoachConversation>>, TError,{conversationId: string;data: BodyType<CoachConversationUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

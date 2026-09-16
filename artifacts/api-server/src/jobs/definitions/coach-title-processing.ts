@@ -1,6 +1,9 @@
-import { safeCoachTitle } from "../../coach/title";
+import { generateCoachTitle } from "../../coach/title";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import type { JobContext, JobDefinition } from "../types";
+
+/** Well under the 300 s work lease; a slow model call falls back, never stalls the queue. */
+const TITLE_CALL_TIMEOUT_MS = 45_000;
 
 export async function runCoachTitleProcessing(ctx: JobContext): Promise<void> {
   if (ctx.dryRun) {
@@ -18,12 +21,18 @@ export async function runCoachTitleProcessing(ctx: JobContext): Promise<void> {
     if (typeof row.work_id !== "string" || typeof row.conversation_id !== "string" || typeof row.patient_id !== "string" ||
       typeof row.text !== "string" || typeof row.claim_token !== "string") return;
     try {
+      const named = await generateCoachTitle({
+        firstMessage: row.text,
+        signal: AbortSignal.timeout(TITLE_CALL_TIMEOUT_MS),
+        log: { warn: (detail, message) => ctx.log(message, { conversationId: row.conversation_id, ...detail }) },
+      });
       const completed = await supabaseAdmin("POST", "/rest/v1/rpc/coach_title_complete_processing", {
         p_work_id: row.work_id, p_patient_id: row.patient_id, p_conversation_id: row.conversation_id,
-        p_claim_token: row.claim_token, p_title: safeCoachTitle(row.text),
+        p_claim_token: row.claim_token, p_title: named.title,
       });
       if (completed.status >= 300 || completed.json !== true) throw new Error("coach title completion refused");
       ctx.tally("titles");
+      if (named.source === "fallback") ctx.tally("fallbackTitles");
     } catch {
       await supabaseAdmin("POST", "/rest/v1/rpc/coach_title_fail_processing", {
         p_work_id: row.work_id, p_patient_id: row.patient_id, p_conversation_id: row.conversation_id,
@@ -37,8 +46,8 @@ export async function runCoachTitleProcessing(ctx: JobContext): Promise<void> {
 export const coachTitleProcessingJob: JobDefinition = {
   name: "coach-title-processing",
   title: "Coach conversation titles",
-  description: "Assigns a short safe allowlisted title after a substantive exchange.",
-  intervalMs: 60_000,
+  description: "Names each conversation from its first message once the coach has replied.",
+  intervalMs: 20_000,
   leaseSeconds: 10 * 60,
   run: runCoachTitleProcessing,
 };

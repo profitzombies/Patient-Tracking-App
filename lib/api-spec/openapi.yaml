@@ -1197,7 +1197,7 @@ paths:
     patch:
       operationId: updatePatientCoachConversation
       tags: [coach]
-      summary: Archive or restore a coach conversation
+      summary: Archive, restore, or rename a coach conversation
       parameters:
         - $ref: "#/components/parameters/CoachConversationId"
       requestBody:
@@ -1205,6 +1205,7 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationUpdateInput" } } }
       responses:
         "200": { description: Updated conversation, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationResult" } } } }
+        "400": { description: Name is empty or longer than 40 characters }
         "404": { description: Conversation not found }
         "409": { description: Conversation changed; refresh before retrying }
   /patient-coach/conversations/{conversationId}/messages:
@@ -3093,12 +3094,20 @@ components:
       properties:
         messages: { type: array, minItems: 1, maxItems: 20, items: { $ref: "#/components/schemas/CoachChatWireMessage" } }
     CoachConversationUpdateInput:
-      type: object
-      additionalProperties: false
-      required: [archived, expectedVersion]
-      properties:
-        archived: { type: boolean }
-        expectedVersion: { type: number, minimum: 1 }
+      description: Archive/restore (archived) or rename (title); send one of the two with the current version.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [archived, expectedVersion]
+          properties:
+            archived: { type: boolean }
+            expectedVersion: { type: number, minimum: 1 }
+        - type: object
+          additionalProperties: false
+          required: [title, expectedVersion]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 200 }
+            expectedVersion: { type: number, minimum: 1 }
     CoachConversationDetail:
       type: object
       required: [conversation, messages, nextBefore, patient]

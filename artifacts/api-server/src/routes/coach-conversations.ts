@@ -4,6 +4,7 @@
  * this router are scoped in SQL to the bearer-derived patient or office.
  */
 import { Router, type IRouter, type Response } from "express";
+import { COACH_TITLE_MAX_CHARS, shapeCoachTitle } from "../coach/title";
 import { z } from "zod";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -32,10 +33,11 @@ const detailPage = z.object({
   today: z.string().max(20).optional(),
 });
 const createBody = z.object({ clientKey: z.string().trim().min(1).max(128) }).strict();
-const updateBody = z.object({
-  archived: z.boolean(),
-  expectedVersion: z.number().int().positive(),
-}).strict();
+// One PATCH, two intents: archive/restore, or rename. Never both at once.
+const updateBody = z.union([
+  z.object({ archived: z.boolean(), expectedVersion: z.number().int().positive() }).strict(),
+  z.object({ title: z.string().min(1).max(200), expectedVersion: z.number().int().positive() }).strict(),
+]);
 
 interface ConversationRow {
   id: unknown;
@@ -306,18 +308,24 @@ router.patch("/patient-coach/conversations/:conversationId", async (req, res) =>
   try {
     const auth = await resolvePatient(req);
     if (!auth.ok) { res.status(auth.status).json({ error: auth.error, ...auth.details }); return; }
-    const result = await rpc("coach_conversation_archive", {
-      p_patient_id: auth.patientId, p_conversation_id: id.data,
-      p_archived: body.data.archived, p_expected_version: body.data.expectedVersion,
-    });
-    if (result.status >= 300) throw new Error(`coach archive failed (${result.status})`);
+    const result = "title" in body.data
+      ? await rpc("coach_conversation_rename", {
+        p_patient_id: auth.patientId, p_conversation_id: id.data,
+        p_title: shapeCoachTitle(body.data.title), p_expected_version: body.data.expectedVersion,
+      })
+      : await rpc("coach_conversation_archive", {
+        p_patient_id: auth.patientId, p_conversation_id: id.data,
+        p_archived: body.data.archived, p_expected_version: body.data.expectedVersion,
+      });
+    if (result.status >= 300) throw new Error(`coach conversation update failed (${result.status})`);
+    if (result.json === "invalid") { res.status(400).json({ error: `Give the conversation a name of 1 to ${COACH_TITLE_MAX_CHARS} characters.` }); return; }
     if (result.json === "missing") { res.status(404).json({ error: "Conversation not found." }); return; }
     if (result.json === "conflict") { res.status(409).json({ error: "This conversation changed. Refresh and try again." }); return; }
     const conversation = await loadConversation(auth.patientId, id.data);
     if (!conversation) throw new Error("updated conversation disappeared");
     res.json({ conversation: coachConversationDto(conversation) });
   } catch (error) {
-    req.log?.error({ err: error }, "patient coach conversation archive failed");
+    req.log?.error({ err: error }, "patient coach conversation update failed");
     res.status(502).json({ error: "Couldn't update this conversation right now. Please try again." });
   }
 });

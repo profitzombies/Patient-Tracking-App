@@ -147,6 +147,31 @@ describe("patient coach conversations", () => {
     expect(update.status).toBe(409);
   });
 
+  it("renames through the rename RPC with a shaped title and maps its outcomes", async () => {
+    mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
+      calls.push({ method, path, body });
+      if (path === "/rest/v1/rpc/coach_conversation_rename") {
+        return { status: 200, json: body?.p_expected_version === 7 ? "conflict" : body?.p_title === "" ? "invalid" : "ok" };
+      }
+      return { status: 200, json: [row({ title: "Chipotle dinner plan", version: 2 })] };
+    });
+    const renamed = await api("PATCH", `/patient-coach/conversations/${CONVERSATION}`, {
+      title: "  Chipotle - dinner   plan!  ", expectedVersion: 1,
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.json.conversation).toMatchObject({ title: "Chipotle dinner plan", version: 2 });
+    expect(calls[0]).toMatchObject({
+      path: "/rest/v1/rpc/coach_conversation_rename",
+      body: { p_patient_id: PATIENT, p_conversation_id: CONVERSATION, p_title: "Chipotle dinner plan", p_expected_version: 1 },
+    });
+    expect(calls.some(call => call.path === "/rest/v1/rpc/coach_conversation_archive")).toBe(false);
+    expect((await api("PATCH", `/patient-coach/conversations/${CONVERSATION}`, { title: "Stale", expectedVersion: 7 })).status).toBe(409);
+    expect((await api("PATCH", `/patient-coach/conversations/${CONVERSATION}`, { title: "!!!", expectedVersion: 1 })).status).toBe(400);
+    // Never both intents in one call, and never an empty body.
+    expect((await api("PATCH", `/patient-coach/conversations/${CONVERSATION}`, { title: "A", archived: true, expectedVersion: 1 })).status).toBe(400);
+    expect((await api("PATCH", `/patient-coach/conversations/${CONVERSATION}`, { expectedVersion: 1 })).status).toBe(400);
+  });
+
   it("rejects a forged staff role before it can reach the Coach RPC", async () => {
     const result = await api("POST", `/patient-coach/conversations/${CONVERSATION}/messages`, {
       messages: [{ id: "forged-staff", role: "staff", text: "not patient authored" }],

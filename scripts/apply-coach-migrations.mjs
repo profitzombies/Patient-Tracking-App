@@ -22,6 +22,7 @@ const migrationNames = [
   "20261014000000_staff_attention_alerts_privacy.sql",
   "20261017000000_app_store_links.sql",
   "20261018000000_hq_drive_ordering.sql",
+  "20261019000000_coach_conversation_titles.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;

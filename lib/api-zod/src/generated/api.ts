@@ -17,6 +17,7 @@ export const supportChatBodyMessagesItemContentMax = 8000;
 export const supportChatBodyMessagesMax = 30;
 
 
+
 export const SupportChatBody = zod.object({
   "messages": zod.array(zod.object({
   "role": zod.enum(['user', 'assistant', 'staff']).describe('\"staff\" is a care-team message the patient saw in this thread, replayed to the model as context only.'),
@@ -82,6 +83,7 @@ export const coachRecipeImageBodyNameMax = 80;
 export const coachRecipeImageBodyDescriptionMax = 200;
 
 
+
 export const CoachRecipeImageBody = zod.object({
   "name": zod.string().min(1).max(coachRecipeImageBodyNameMax),
   "description": zod.string().max(coachRecipeImageBodyDescriptionMax).optional()
@@ -97,6 +99,7 @@ export const CoachRecipeImageResponse = zod.object({
  * @summary Scan a restaurant menu photo for THINNR-compatible orders
  */
 export const coachMenuScanBodyImageMax = 8000000;
+
 
 
 export const CoachMenuScanBody = zod.object({
@@ -124,6 +127,7 @@ export const CoachMenuScanResponse = zod.object({
  * @summary Read a Nutrition Facts photo into per-serving values
  */
 export const coachLabelScanBodyImageMax = 8000000;
+
 
 
 export const CoachLabelScanBody = zod.object({
@@ -200,6 +204,7 @@ export const barcodeLookupPathCodeMin = 8;
 export const barcodeLookupPathCodeMax = 24;
 
 
+
 export const BarcodeLookupParams = zod.object({
   "code": zod.coerce.string().min(barcodeLookupPathCodeMin).max(barcodeLookupPathCodeMax).describe('Barcode as typed or scanned - 8, 12, 13, or zero-led 14 digits; spaces and hyphens are tolerated')
 })
@@ -235,6 +240,7 @@ export const catalogSearchQueryBrandedDefault = false;
 export const catalogSearchQueryIntentDefault = `basic`;
 export const catalogSearchQueryApprovedOnlyDefault = false;
 export const catalogSearchQueryCursorMax = 2048;
+
 
 
 export const CatalogSearchQueryParams = zod.object({
@@ -338,6 +344,7 @@ export const CatalogSearchResponse = zod.object({
 export const catalogFamilyPathFamilyKeyMax = 100;
 
 
+
 export const CatalogFamilyParams = zod.object({
   "familyKey": zod.coerce.string().min(1).max(catalogFamilyPathFamilyKeyMax)
 })
@@ -433,6 +440,7 @@ export const CatalogFamilyResponse = zod.object({
 export const catalogSelectBodyIdMax = 100;
 
 
+
 export const CatalogSelectBody = zod.object({
   "id": zod.string().min(1).max(catalogSelectBodyIdMax)
 })
@@ -524,6 +532,7 @@ export const CatalogSelectResponse = zod.object({
 export const progressPhotoFileQueryPathMax = 500;
 
 
+
 export const ProgressPhotoFileQueryParams = zod.object({
   "path": zod.coerce.string().max(progressPhotoFileQueryPathMax).describe('Canonical object path returned by finalize')
 })
@@ -544,6 +553,7 @@ export const trainingVideoUploadUrlBodyFileNameMax = 300;
 export const trainingVideoUploadUrlBodyContentTypeMax = 100;
 
 export const trainingVideoUploadUrlBodySizeBytesMax = 524288000;
+
 
 
 export const TrainingVideoUploadUrlBody = zod.object({
@@ -567,6 +577,7 @@ export const TrainingVideoFinalizeParams = zod.object({
 })
 
 export const trainingVideoFinalizeBodyObjectPathMax = 500;
+
 
 
 export const TrainingVideoFinalizeBody = zod.object({
@@ -606,6 +617,7 @@ export const trainingThumbnailUploadUrlBodyFileNameMax = 300;
 export const trainingThumbnailUploadUrlBodySizeBytesMax = 10485760;
 
 
+
 export const TrainingThumbnailUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingThumbnailUploadUrlBodyFileNameMax).describe('Original file name, for browser metadata only'),
   "contentType": zod.enum(['image/jpeg', 'image/png', 'image/webp']).describe('MIME type sent on the presigned PUT'),
@@ -630,6 +642,7 @@ export const TrainingThumbnailUploadParams = zod.object({
 export const trainingThumbnailUploadBodyObjectPathMax = 500;
 
 export const trainingThumbnailUploadBodyVideoSourceMax = 500;
+
 
 
 export const TrainingThumbnailUploadBody = zod.object({
@@ -659,6 +672,7 @@ export const trainingAttachmentUploadUrlBodyContentTypeMax = 100;
 export const trainingAttachmentUploadUrlBodySizeBytesMax = 26214400;
 
 
+
 export const TrainingAttachmentUploadUrlBody = zod.object({
   "fileName": zod.string().max(trainingAttachmentUploadUrlBodyFileNameMax).describe('Original file name, for logs and error copy only'),
   "contentType": zod.string().max(trainingAttachmentUploadUrlBodyContentTypeMax).describe('MIME type the browser will send on the PUT (PDF, Word, Excel, PowerPoint, text, CSV, or common image types)'),
@@ -684,6 +698,7 @@ export const trainingAttachmentFinalizeBodyObjectPathMax = 500;
 export const trainingAttachmentFinalizeBodyNameMax = 300;
 
 export const trainingAttachmentFinalizeBodyContentTypeMax = 100;
+
 
 
 export const TrainingAttachmentFinalizeBody = zod.object({
@@ -792,6 +807,7 @@ export const trainingVideoThumbnailBodyAtSecondsMin = 0;
 export const trainingVideoThumbnailBodyAtSecondsMax = 86400;
 
 
+
 export const TrainingVideoThumbnailBody = zod.object({
   "atSeconds": zod.number().min(trainingVideoThumbnailBodyAtSecondsMin).max(trainingVideoThumbnailBodyAtSecondsMax).describe('Video time of the frame to capture, clamped to the duration')
 })
@@ -813,6 +829,7 @@ export const TrainingVideoProcessParams = zod.object({
 export const trainingVideoProcessBodyStepsMax = 4;
 
 
+
 export const TrainingVideoProcessBody = zod.object({
   "steps": zod.array(zod.enum(['transcribe', 'describe', 'chapters', 'thumbnail'])).max(trainingVideoProcessBodyStepsMax).optional().describe('Subset of steps to run, in pipeline order; omit for the full pass. Used by retries to resume from a failed step without re-spending the ones that succeeded.')
 })
@@ -827,6 +844,7 @@ export const TrainingVideoProcessResponse = zod.unknown()
 export const knowledgeUploadUrlBodyFileNameMax = 300;
 
 export const knowledgeUploadUrlBodySizeBytesMax = 26214400;
+
 
 
 export const KnowledgeUploadUrlBody = zod.object({
@@ -874,6 +892,7 @@ export const knowledgeCreateDocumentBodyDocumentIdMax = 60;
 export const knowledgeCreateDocumentBodyObjectPathMax = 500;
 
 export const knowledgeCreateDocumentBodyFileNameMax = 300;
+
 
 
 export const KnowledgeCreateDocumentBody = zod.object({
@@ -934,6 +953,7 @@ export const KnowledgeRenameDocumentParams = zod.object({
 export const knowledgeRenameDocumentBodyTitleMax = 200;
 
 
+
 export const KnowledgeRenameDocumentBody = zod.object({
   "title": zod.string().min(1).max(knowledgeRenameDocumentBodyTitleMax)
 })
@@ -980,6 +1000,7 @@ export const knowledgeReplaceUploadUrlBodyFileNameMax = 300;
 export const knowledgeReplaceUploadUrlBodySizeBytesMax = 26214400;
 
 
+
 export const KnowledgeReplaceUploadUrlBody = zod.object({
   "fileName": zod.string().min(1).max(knowledgeReplaceUploadUrlBodyFileNameMax).describe('Original file name; becomes the document title (sans extension)'),
   "contentType": zod.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain', 'text/markdown']).describe('Canonical MIME type the browser will send on the PUT'),
@@ -1004,6 +1025,7 @@ export const KnowledgeReplaceFileParams = zod.object({
 export const knowledgeReplaceFileBodyObjectPathMax = 500;
 
 export const knowledgeReplaceFileBodyFileNameMax = 300;
+
 
 
 export const KnowledgeReplaceFileBody = zod.object({
@@ -1062,6 +1084,7 @@ export const listPatientCoachConversationsQueryOffsetDefault = 0;
 export const listPatientCoachConversationsQueryOffsetMin = 0;
 
 
+
 export const ListPatientCoachConversationsQueryParams = zod.object({
   "archived": zod.coerce.boolean().default(listPatientCoachConversationsQueryArchivedDefault),
   "limit": zod.coerce.number().min(1).max(listPatientCoachConversationsQueryLimitMax).default(listPatientCoachConversationsQueryLimitDefault),
@@ -1088,6 +1111,7 @@ export const ListPatientCoachConversationsResponse = zod.object({
  * @summary Lazily create a coach conversation using an idempotent client key
  */
 export const createPatientCoachConversationBodyClientKeyMax = 128;
+
 
 
 export const CreatePatientCoachConversationBody = zod.object({
@@ -1120,6 +1144,7 @@ export const getPatientCoachConversationQueryLimitDefault = 100;
 export const getPatientCoachConversationQueryLimitMax = 100;
 
 export const getPatientCoachConversationQueryTodayMax = 20;
+
 
 
 export const GetPatientCoachConversationQueryParams = zod.object({
@@ -1181,6 +1206,8 @@ export const UpdatePatientCoachConversationParams = zod.object({
 export const updatePatientCoachConversationBodyTwoTitleMax = 200;
 
 
+
+
 export const UpdatePatientCoachConversationBody = zod.union([zod.object({
   "archived": zod.boolean(),
   "expectedVersion": zod.number().min(1)
@@ -1219,6 +1246,7 @@ export const appendPatientCoachMessagesBodyMessagesItemQuickRepliesMax = 4;
 
 export const appendPatientCoachMessagesBodyMessagesItemReplyToIdRegExp = new RegExp('^[A-Za-z0-9._:-]{1,64}$');
 export const appendPatientCoachMessagesBodyMessagesMax = 20;
+
 
 
 export const AppendPatientCoachMessagesBody = zod.object({
@@ -1264,6 +1292,7 @@ export const listPatientCoachMemoriesQueryOffsetDefault = 0;
 export const listPatientCoachMemoriesQueryOffsetMin = 0;
 
 
+
 export const ListPatientCoachMemoriesQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(listPatientCoachMemoriesQueryLimitMax).default(listPatientCoachMemoriesQueryLimitDefault),
   "offset": zod.coerce.number().min(listPatientCoachMemoriesQueryOffsetMin).default(listPatientCoachMemoriesQueryOffsetDefault)
@@ -1298,6 +1327,7 @@ export const UpdatePatientCoachMemoryParams = zod.object({
 
 
 export const updatePatientCoachMemoryBodyTextMax = 2000;
+
 
 
 export const UpdatePatientCoachMemoryBody = zod.object({
@@ -1338,6 +1368,7 @@ export const listOfficePatientCoachConversationsQueryOffsetDefault = 0;
 export const listOfficePatientCoachConversationsQueryOffsetMin = 0;
 
 
+
 export const ListOfficePatientCoachConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "limit": zod.coerce.number().min(1).max(listOfficePatientCoachConversationsQueryLimitMax).default(listOfficePatientCoachConversationsQueryLimitDefault),
@@ -1371,6 +1402,7 @@ export const GetOfficePatientCoachConversationParams = zod.object({
 
 export const getOfficePatientCoachConversationQueryLimitDefault = 100;
 export const getOfficePatientCoachConversationQueryLimitMax = 100;
+
 
 
 export const GetOfficePatientCoachConversationQueryParams = zod.object({
@@ -1435,6 +1467,7 @@ export const listOfficePatientCoachMemoriesQueryOffsetDefault = 0;
 export const listOfficePatientCoachMemoriesQueryOffsetMin = 0;
 
 
+
 export const ListOfficePatientCoachMemoriesQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "limit": zod.coerce.number().min(1).max(listOfficePatientCoachMemoriesQueryLimitMax).default(listOfficePatientCoachMemoriesQueryLimitDefault),
@@ -1475,6 +1508,7 @@ export const getOfficeRosterResponsePatientsItemOperationalActivityTwoLoggedLast
 export const getOfficeRosterResponsePatientsItemOperationalActivityTwoTopSideEffectsTwoMax = 3;
 
 export const getOfficeRosterResponsePatientsItemAttentionReasonsItemDaysMin = 0;
+
 
 
 export const GetOfficeRosterResponse = zod.object({
@@ -1583,6 +1617,7 @@ export const GetOfficeAlertsQueryParams = zod.object({
 export const getOfficeAlertsResponseItemsItemReasonsItemDaysMin = 0;
 
 
+
 export const GetOfficeAlertsResponse = zod.object({
   "asOf": zod.coerce.date(),
   "count": zod.number(),
@@ -1625,6 +1660,7 @@ export const GetOfficeAlertDigestsQueryParams = zod.object({
 })
 
 export const getOfficeAlertDigestsResponseDigestTwoItemsItemReasonsItemDaysMin = 0;
+
 
 
 export const GetOfficeAlertDigestsResponse = zod.object({
@@ -1681,6 +1717,7 @@ export const UpdateOfficeAlertSettingsQueryParams = zod.object({
 })
 
 export const updateOfficeAlertSettingsBodyExpectedVersionMin = 0;
+
 
 
 export const UpdateOfficeAlertSettingsBody = zod.object({
@@ -1744,6 +1781,7 @@ export const UnregisterStaffNotificationDeviceResponse = zod.unknown()
 export const getHqStaffAlertDeliveriesQueryLimitMax = 200;
 
 
+
 export const GetHqStaffAlertDeliveriesQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(getHqStaffAlertDeliveriesQueryLimitMax).optional()
 })
@@ -1784,6 +1822,7 @@ export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMin = 7;
 export const getOfficePatientRecordResponseEngagementLoggedLast7TwoMax = 7;
 
 export const getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax = 3;
+
 
 
 export const GetOfficePatientRecordResponse = zod.object({
@@ -2105,6 +2144,7 @@ export const getOfficeConversationsQueryOffsetDefault = 0;
 export const getOfficeConversationsQueryOffsetMin = 0;
 
 
+
 export const GetOfficeConversationsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "channel": zod.enum(['all', 'care_team', 'ai']).default(getOfficeConversationsQueryChannelDefault),
@@ -2243,8 +2283,10 @@ export const GetOfficeConversationEventsParams = zod.object({
 })
 
 
+
 export const getOfficeConversationEventsQueryLimitDefault = 50;
 export const getOfficeConversationEventsQueryLimitMax = 100;
+
 
 
 export const GetOfficeConversationEventsQueryParams = zod.object({
@@ -2311,6 +2353,8 @@ export const ReadOfficeConversationQueryParams = zod.object({
 })
 
 
+
+
 export const ReadOfficeConversationBody = zod.object({
   "throughSeq": zod.number().min(1)
 })
@@ -2333,6 +2377,7 @@ export const AssignOfficeConversationQueryParams = zod.object({
 })
 
 export const assignOfficeConversationBodyAssigneeUserIdMax = 80;
+
 
 
 export const AssignOfficeConversationBody = zod.object({
@@ -2438,6 +2483,7 @@ export const replyOfficeConversationBodyClientIdRegExp = new RegExp('^[A-Za-z0-9
 export const replyOfficeConversationBodyTextMax = 4000;
 
 
+
 export const ReplyOfficeConversationBody = zod.object({
   "clientId": zod.string().min(1).max(replyOfficeConversationBodyClientIdMax).regex(replyOfficeConversationBodyClientIdRegExp).optional(),
   "text": zod.string().min(1).max(replyOfficeConversationBodyTextMax)
@@ -2522,6 +2568,7 @@ export const AddOfficeConversationNoteQueryParams = zod.object({
 export const addOfficeConversationNoteBodyBodyMax = 4000;
 
 
+
 export const AddOfficeConversationNoteBody = zod.object({
   "body": zod.string().min(1).max(addOfficeConversationNoteBodyBodyMax)
 })
@@ -2549,6 +2596,7 @@ export const EscalateOfficeConversationQueryParams = zod.object({
 })
 
 export const escalateOfficeConversationBodyReasonMax = 2000;
+
 
 
 export const EscalateOfficeConversationBody = zod.object({
@@ -2642,8 +2690,10 @@ export const GetPatientCareTeamMessagesParams = zod.object({
 })
 
 
+
 export const getPatientCareTeamMessagesQueryLimitDefault = 50;
 export const getPatientCareTeamMessagesQueryLimitMax = 100;
+
 
 
 export const GetPatientCareTeamMessagesQueryParams = zod.object({
@@ -2692,6 +2742,7 @@ export const sendPatientCareTeamMessageBodyClientIdRegExp = new RegExp('^[A-Za-z
 export const sendPatientCareTeamMessageBodyTextMax = 4000;
 
 
+
 export const SendPatientCareTeamMessageBody = zod.object({
   "clientId": zod.string().min(1).max(sendPatientCareTeamMessageBodyClientIdMax).regex(sendPatientCareTeamMessageBodyClientIdRegExp),
   "text": zod.string().min(1).max(sendPatientCareTeamMessageBodyTextMax)
@@ -2715,6 +2766,8 @@ export const SendPatientCareTeamMessageResponse = zod.object({
 export const ReadPatientCareTeamParams = zod.object({
   "conversationId": zod.coerce.string()
 })
+
+
 
 
 export const ReadPatientCareTeamBody = zod.object({
@@ -2743,6 +2796,7 @@ export const getHqConversationsQueryLimitMax = 100;
 
 export const getHqConversationsQueryOffsetDefault = 0;
 export const getHqConversationsQueryOffsetMin = 0;
+
 
 
 export const GetHqConversationsQueryParams = zod.object({
@@ -2791,8 +2845,10 @@ export const GetHqConversationEventsParams = zod.object({
 })
 
 
+
 export const getHqConversationEventsQueryLimitDefault = 50;
 export const getHqConversationEventsQueryLimitMax = 100;
+
 
 
 export const GetHqConversationEventsQueryParams = zod.object({
@@ -2843,6 +2899,8 @@ export const ReadHqConversationParams = zod.object({
 })
 
 
+
+
 export const ReadHqConversationBody = zod.object({
   "throughSeq": zod.number().min(1)
 })
@@ -2862,6 +2920,7 @@ export const getHqEscalationsQueryLimitMax = 100;
 
 export const getHqEscalationsQueryOffsetDefault = 0;
 export const getHqEscalationsQueryOffsetMin = 0;
+
 
 
 export const GetHqEscalationsQueryParams = zod.object({
@@ -2901,6 +2960,7 @@ export const ResolveHqEscalationParams = zod.object({
 })
 
 export const resolveHqEscalationBodyNoteMax = 2000;
+
 
 
 export const ResolveHqEscalationBody = zod.object({
@@ -3196,6 +3256,7 @@ export const getHqSettingsResponseRetentionAuditEventDaysMin = 365;
 export const getHqSettingsResponseRetentionAuditEventDaysMax = 3650;
 
 
+
 export const GetHqSettingsResponse = zod.object({
   "organizationName": zod.string(),
   "supportEmail": zod.string().nullable(),
@@ -3298,6 +3359,7 @@ export const updateHqSettingsBodyRetentionAuditEventDaysMax = 3650;
 export const updateHqSettingsBodyExportLinkHoursMax = 168;
 
 
+
 export const UpdateHqSettingsBody = zod.object({
   "expectedVersion": zod.number().min(1).optional(),
   "organizationName": zod.string().min(1).max(updateHqSettingsBodyOrganizationNameMax).optional(),
@@ -3342,6 +3404,7 @@ export const updateHqSettingsResponseRetentionNotificationHistoryDaysMax = 3650;
 
 export const updateHqSettingsResponseRetentionAuditEventDaysMin = 365;
 export const updateHqSettingsResponseRetentionAuditEventDaysMax = 3650;
+
 
 
 export const UpdateHqSettingsResponse = zod.object({
@@ -3582,6 +3645,7 @@ export const GetOfficeFilesResponse = zod.object({
 export const searchOfficeFilesQueryQMax = 120;
 
 
+
 export const SearchOfficeFilesQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
   "q": zod.coerce.string().min(1).max(searchOfficeFilesQueryQMax).describe('Case-insensitive substring of the file name')
@@ -3656,6 +3720,7 @@ export const updateOfficeSettingsOverridesBodyExpectedVersionMin = 0;
 export const updateOfficeSettingsOverridesBodyQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesBodyQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesBodyEscalationEmailMax = 320;
+
 
 
 export const UpdateOfficeSettingsOverridesBody = zod.object({
@@ -3788,6 +3853,7 @@ export const createHqFileUploadBodyContentTypeMax = 120;
 export const createHqFileUploadBodySizeMax = 262144000;
 
 
+
 export const CreateHqFileUploadBody = zod.object({
   "name": zod.string().min(1).max(createHqFileUploadBodyNameMax),
   "contentType": zod.string().min(1).max(createHqFileUploadBodyContentTypeMax),
@@ -3869,6 +3935,7 @@ export const finalizeHqFileBodySizeMax = 262144000;
 export const finalizeHqFileBodyObjectPathMax = 500;
 
 
+
 export const FinalizeHqFileBody = zod.object({
   "fileId": zod.string(),
   "name": zod.string().min(1).max(finalizeHqFileBodyNameMax),
@@ -3908,6 +3975,7 @@ export const FinalizeHqFileResponse = zod.object({
 export const searchHqFilesQueryQMax = 120;
 
 
+
 export const SearchHqFilesQueryParams = zod.object({
   "q": zod.coerce.string().min(1).max(searchHqFilesQueryQMax).describe('Case-insensitive substring of the file name')
 })
@@ -3943,6 +4011,7 @@ export const SearchHqFilesResponse = zod.object({
 export const reorderHqDriveBodyFolderIdsMax = 500;
 
 export const reorderHqDriveBodyFileIdsMax = 500;
+
 
 
 export const ReorderHqDriveBody = zod.object({
@@ -3982,6 +4051,7 @@ export const createHqFileReplacementBodyContentTypeMax = 120;
 export const createHqFileReplacementBodySizeMax = 262144000;
 
 
+
 export const CreateHqFileReplacementBody = zod.object({
   "name": zod.string().min(1).max(createHqFileReplacementBodyNameMax),
   "contentType": zod.string().min(1).max(createHqFileReplacementBodyContentTypeMax),
@@ -4011,6 +4081,7 @@ export const replaceHqFileBodyContentTypeMax = 120;
 export const replaceHqFileBodySizeMax = 262144000;
 
 export const replaceHqFileBodyObjectPathMax = 500;
+
 
 
 export const ReplaceHqFileBody = zod.object({
@@ -4068,6 +4139,7 @@ export const UpdateHqFileParams = zod.object({
 export const updateHqFileBodyNameMax = 240;
 
 
+
 export const UpdateHqFileBody = zod.object({
   "name": zod.string().min(1).max(updateHqFileBodyNameMax).optional(),
   "folderId": zod.string().nullish().describe('New folder; null moves the file to the root'),
@@ -4115,6 +4187,7 @@ export const DeleteHqFileResponse = zod.object({
 export const createHqFolderBodyNameMax = 120;
 
 
+
 export const CreateHqFolderBody = zod.object({
   "name": zod.string().min(1).max(createHqFolderBodyNameMax),
   "parentId": zod.string().nullish().describe('Parent folder; null or omitted creates it at the root')
@@ -4137,6 +4210,7 @@ export const UpdateHqFolderParams = zod.object({
 })
 
 export const updateHqFolderBodyNameMax = 120;
+
 
 
 export const UpdateHqFolderBody = zod.object({
@@ -4371,6 +4445,7 @@ export const listBloodworkReportsResponseReportsItemProcessingTotalPagesMax = 10
 export const listBloodworkReportsResponseReportsItemProcessingElapsedSecondsMin = 0;
 
 
+
 export const ListBloodworkReportsResponse = zod.object({
   "reports": zod.array(zod.object({
   "id": zod.string(),
@@ -4413,6 +4488,7 @@ export const createBloodworkReportBodyFilesItemClientFileIdRegExp = new RegExp('
 export const createBloodworkReportBodyFilesItemSizeMax = 20000000;
 
 export const createBloodworkReportBodyFilesMax = 10;
+
 
 
 export const CreateBloodworkReportBody = zod.object({
@@ -4467,6 +4543,7 @@ export const getBloodworkReportResponseResultsItemOneUnitsMax = 500;
 export const getBloodworkReportResponseResultsItemOneReferenceRangeMax = 500;
 
 export const getBloodworkReportResponseResultsItemOneLabFlagMax = 500;
+
 
 
 export const GetBloodworkReportResponse = zod.object({
@@ -4537,6 +4614,7 @@ export const UpdateBloodworkReportParams = zod.object({
 export const updateBloodworkReportBodyTitleMax = 200;
 
 
+
 export const UpdateBloodworkReportBody = zod.object({
   "expectedVersion": zod.number(),
   "title": zod.string().min(1).max(updateBloodworkReportBodyTitleMax),
@@ -4550,6 +4628,7 @@ export const updateBloodworkReportResponseProcessingTotalPagesMin = 0;
 export const updateBloodworkReportResponseProcessingTotalPagesMax = 100;
 
 export const updateBloodworkReportResponseProcessingElapsedSecondsMin = 0;
+
 
 
 export const UpdateBloodworkReportResponse = zod.object({
@@ -4622,6 +4701,7 @@ export const commitBloodworkReportResponseResultsItemOneUnitsMax = 500;
 export const commitBloodworkReportResponseResultsItemOneReferenceRangeMax = 500;
 
 export const commitBloodworkReportResponseResultsItemOneLabFlagMax = 500;
+
 
 
 export const CommitBloodworkReportResponse = zod.object({
@@ -4702,6 +4782,7 @@ export const retryBloodworkExtractionResponseProcessingTotalPagesMax = 100;
 export const retryBloodworkExtractionResponseProcessingElapsedSecondsMin = 0;
 
 
+
 export const RetryBloodworkExtractionResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
@@ -4751,6 +4832,7 @@ export const getBloodworkFilePagePathReportIdRegExp = new RegExp('^[0-9a-fA-F-]{
 export const getBloodworkFilePagePathFileIdRegExp = new RegExp('^[0-9a-fA-F-]{36}$');
 
 
+
 export const GetBloodworkFilePageParams = zod.object({
   "patientId": zod.coerce.string(),
   "reportId": zod.coerce.string().regex(getBloodworkFilePagePathReportIdRegExp),
@@ -4790,6 +4872,7 @@ export const correctBloodworkResultBodyOneReferenceRangeMax = 500;
 export const correctBloodworkResultBodyOneLabFlagMax = 500;
 
 
+
 export const CorrectBloodworkResultBody = zod.object({
   "testName": zod.string().max(correctBloodworkResultBodyOneTestNameMax).nullable(),
   "valueText": zod.string().max(correctBloodworkResultBodyOneValueTextMax).nullable(),
@@ -4810,6 +4893,7 @@ export const correctBloodworkResultResponseOneUnitsMax = 500;
 export const correctBloodworkResultResponseOneReferenceRangeMax = 500;
 
 export const correctBloodworkResultResponseOneLabFlagMax = 500;
+
 
 
 export const CorrectBloodworkResultResponse = zod.object({
@@ -4867,6 +4951,7 @@ export const listBloodworkCorrectionsResponseCorrectionsItemAfterReferenceRangeM
 export const listBloodworkCorrectionsResponseCorrectionsItemAfterLabFlagMax = 500;
 
 
+
 export const ListBloodworkCorrectionsResponse = zod.object({
   "corrections": zod.array(zod.object({
   "id": zod.string(),
@@ -4892,4 +4977,5 @@ export const ListBloodworkCorrectionsResponse = zod.object({
   "version": zod.number()
 }))
 })
+
 

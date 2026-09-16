@@ -126,7 +126,7 @@
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
 - [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
-- [HQ file drive](hq-file-drive.md) — replace = CAS swap; one-row responses enrich like listings; archived rows stay real; providers read-only via shared read module; downloads open a new tab.
+- [HQ file drive](hq-file-drive.md) — replace = CAS swap; archived rows stay real; providers read-only via shared read module; HQ-only manual order (null-first position, RPC count = 409, no updated_at bump).
 - [Fixed-layout table width budget](fixed-table-width-budget.md) — truncate needs table-fixed; reserve widths for all but one column and keep the sum under the card width or the free column starves.
 - [HQ drill-in office scope](hq-drillin-office-scope.md) — office screens under /admin/accounts/:id/office must send ?office= on every live request and hide HQ-forbidden care-team writes; hold the frame while accounts load.
 - [Inbox notes side panel](inbox-notes-side-panel.md) — white thread + separate docked/overlay notes panel; HQ never composes notes on any thread; back-button breakpoint must equal list-pane breakpoint.

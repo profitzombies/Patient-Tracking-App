@@ -219,6 +219,8 @@ export * from './hqConversationSummaryChannel';
 export * from './hqConversationSummaryResult';
 export * from './hqConversationSummaryStatus';
 export * from './hqConversationSummaryThread';
+export * from './hqDriveOrderInput';
+export * from './hqDriveOrderResult';
 export * from './hqEscalationResolveInput';
 export * from './hqEscalationsResult';
 export * from './hqEscalationsResultDepartmentsItem';

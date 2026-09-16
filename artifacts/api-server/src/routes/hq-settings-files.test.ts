@@ -614,4 +614,81 @@ describe("HQ file drive folders", () => {
     expect(mocks.admin.mock.calls[1][1]).not.toContain("archived_at");
     expect(mocks.admin.mock.calls.at(-1)?.[1]).toContain("/hq_file_folders");
   });
+
+  describe("manual drive order", () => {
+    const otherId = "00000000-0000-4000-8000-000000000009";
+    const put = (body: unknown) => fetch(`${base}/hq/files/order`, {
+      method: "PUT",
+      headers: { authorization: "Bearer admin", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    it("lists children in saved order with unordered items first", async () => {
+      mocks.admin
+        .mockResolvedValueOnce({ status: 200, json: [
+          folderRow(childId, "Zebra"), { ...folderRow(otherId, "Apple"), position: 1 }, { ...folderRow(folderId, "Mango"), position: 0 },
+        ] })
+        .mockResolvedValueOnce({ status: 200, json: [] });
+      const response = await fetch(`${base}/hq/files`, { headers: { authorization: "Bearer admin" } });
+      expect(response.status).toBe(200);
+      const body = await response.json() as { folders: Array<{ id: string }> };
+      expect(body.folders.map(folder => folder.id)).toEqual([childId, folderId, otherId]);
+      expect(mocks.admin.mock.calls[1][1]).toContain("order=position.asc.nullsfirst,created_at.desc,id.desc");
+    });
+
+    it("rejects malformed, duplicate, and unknown-parent requests", async () => {
+      expect((await put({ parentId: null, fileIds: ["nope"] })).status).toBe(400);
+      expect((await put({ parentId: null, fileIds: [fileId, fileId] })).status).toBe(400);
+      expect((await put({ fileIds: [fileId] })).status).toBe(400);
+      mocks.admin.mockResolvedValueOnce({ status: 200, json: [] });
+      expect((await put({ parentId: folderId, fileIds: [fileId] })).status).toBe(404);
+      expect(mocks.admin).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes folder and file order through the one-statement RPC", async () => {
+      mocks.admin
+        .mockResolvedValueOnce({ status: 200, json: [folderRow()] })
+        .mockResolvedValueOnce({ status: 200, json: 2 })
+        .mockResolvedValueOnce({ status: 200, json: 1 });
+      const response = await put({ parentId: folderId, folderIds: [childId, otherId], fileIds: [fileId] });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true, folders: 2, files: 1 });
+      expect(mocks.admin.mock.calls[1]).toEqual(["POST", "/rest/v1/rpc/hq_reorder_drive_items", { p_kind: "folders", p_parent_id: folderId, p_ids: [childId, otherId] }]);
+      expect(mocks.admin.mock.calls[2]).toEqual(["POST", "/rest/v1/rpc/hq_reorder_drive_items", { p_kind: "files", p_parent_id: folderId, p_ids: [fileId] }]);
+    });
+
+    it("reports a stale listing when the RPC touches fewer rows than sent", async () => {
+      mocks.admin.mockResolvedValueOnce({ status: 200, json: 1 });
+      const response = await put({ parentId: null, fileIds: [fileId, otherId] });
+      expect(response.status).toBe(409);
+    });
+
+    it("forgets a file's position when it moves to another folder", async () => {
+      mocks.admin
+        .mockResolvedValueOnce({ status: 200, json: [{ id: fileId, name: "old.pdf", content_type: "application/pdf", folder_id: null }] })
+        .mockResolvedValueOnce({ status: 200, json: [folderRow()] })
+        .mockResolvedValueOnce({ status: 200, json: [{ id: fileId, name: "old.pdf", content_type: "application/pdf", size_bytes: 8, folder_id: folderId, created_at: "x", updated_at: "y" }] })
+        .mockResolvedValueOnce({ status: 200, json: [folderRow()] });
+      const moved = await fetch(`${base}/hq/files/${fileId}`, {
+        method: "PATCH",
+        headers: { authorization: "Bearer admin", "content-type": "application/json" },
+        body: JSON.stringify({ folderId }),
+      });
+      expect(moved.status).toBe(200);
+      expect(mocks.admin.mock.calls[2][2]).toMatchObject({ folder_id: folderId, position: null });
+
+      mocks.admin.mockReset()
+        .mockResolvedValueOnce({ status: 200, json: [{ id: fileId, name: "old.pdf", content_type: "application/pdf", folder_id: folderId }] })
+        .mockResolvedValueOnce({ status: 200, json: [folderRow()] })
+        .mockResolvedValueOnce({ status: 200, json: [{ id: fileId, name: "new.pdf", content_type: "application/pdf", size_bytes: 8, folder_id: folderId, created_at: "x", updated_at: "y" }] })
+        .mockResolvedValueOnce({ status: 200, json: [folderRow()] });
+      const renamed = await fetch(`${base}/hq/files/${fileId}`, {
+        method: "PATCH",
+        headers: { authorization: "Bearer admin", "content-type": "application/json" },
+        body: JSON.stringify({ name: "new.pdf" }),
+      });
+      expect(renamed.status).toBe(200);
+      expect(mocks.admin.mock.calls[2][2]).not.toHaveProperty("position");
+    });
+  });
 });

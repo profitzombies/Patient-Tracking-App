@@ -2103,7 +2103,7 @@ paths:
         - { name: view, in: query, required: false, schema: { type: string, enum: [active, archived] }, description: Pass archived to list every archived file with its original folder path instead of a folder; folderId is then ignored }
       responses:
         "200":
-          description: The folder, its breadcrumb trail, child folders A-Z and files newest first
+          description: The folder, its breadcrumb trail, child folders and files in their saved manual order (items never ordered come first, folders A-Z and files newest first)
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileListResult" } } }
         "404": { description: Folder not found }
     post:
@@ -2132,6 +2132,22 @@ paths:
         "200":
           description: Up to 50 matches, best match first (name starts with the query, then contains it; newest first within a tier)
           content: { application/json: { schema: { $ref: "#/components/schemas/HqFileSearchResult" } } }
+  /hq/files/order:
+    put:
+      operationId: reorderHqDrive
+      tags: [hq]
+      summary: Save the manual display order of the folders and/or files directly inside one folder (root when parentId is null)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HqDriveOrderInput" }
+      responses:
+        "200":
+          description: Order saved
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqDriveOrderResult" } } }
+        "404": { description: Parent folder not found }
+        "409": { description: The listing changed underneath the caller (an id is no longer an active child of parentId); reload and retry }
   /hq/files/{fileId}/content:
     get:
       operationId: getHqFileContent
@@ -3633,6 +3649,29 @@ components:
         size: { type: number, minimum: 1, maximum: 52428800 }
         objectPath: { type: string, minLength: 1, maxLength: 500 }
         compress: { type: boolean, description: Same semantics as finalize }
+    HqDriveOrderInput:
+      type: object
+      additionalProperties: false
+      required: [parentId]
+      properties:
+        parentId: { type: ["string", "null"], description: Folder whose direct children are being ordered; null for the root }
+        folderIds:
+          type: array
+          maxItems: 500
+          items: { type: string }
+          description: Child folder ids in the desired top-to-bottom order; omit to leave folder order untouched
+        fileIds:
+          type: array
+          maxItems: 500
+          items: { type: string }
+          description: Active file ids in the desired top-to-bottom order; omit to leave file order untouched
+    HqDriveOrderResult:
+      type: object
+      required: [ok, folders, files]
+      properties:
+        ok: { type: boolean }
+        folders: { type: number, description: Folders whose position was written }
+        files: { type: number, description: Files whose position was written }
     HqFileSearchResult:
       type: object
       required: [files]

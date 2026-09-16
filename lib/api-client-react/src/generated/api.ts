@@ -120,6 +120,8 @@ import type {
   HqAuditEventsResult,
   HqConversationEventsResult,
   HqConversationSummaryResult,
+  HqDriveOrderInput,
+  HqDriveOrderResult,
   HqEscalationResolveInput,
   HqEscalationsResult,
   HqFile,
@@ -8277,6 +8279,77 @@ export function useSearchHqFiles<TData = Awaited<ReturnType<typeof searchHqFiles
 
 
 
+
+export const getReorderHqDriveUrl = () => {
+
+
+
+
+  return `/api/hq/files/order`
+}
+
+/**
+ * @summary Save the manual display order of the folders and/or files directly inside one folder (root when parentId is null)
+ */
+export const reorderHqDrive = async (hqDriveOrderInput: HqDriveOrderInput, options?: Parameters<typeof customFetch>[1]): Promise<HqDriveOrderResult> => {
+
+  return customFetch<HqDriveOrderResult>(getReorderHqDriveUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqDriveOrderInput)
+  }
+);}
+
+
+
+
+
+export const getReorderHqDriveMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderHqDrive>>, TError,{data: BodyType<HqDriveOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderHqDrive>>, TError,{data: BodyType<HqDriveOrderInput>}, TContext> => {
+
+const mutationKey = ['reorderHqDrive'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderHqDrive>>, {data: BodyType<HqDriveOrderInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  reorderHqDrive(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderHqDriveMutationResult = NonNullable<Awaited<ReturnType<typeof reorderHqDrive>>>
+    export type ReorderHqDriveMutationBody = BodyType<HqDriveOrderInput>
+    export type ReorderHqDriveMutationError = ErrorType<void>
+
+    /**
+ * @summary Save the manual display order of the folders and/or files directly inside one folder (root when parentId is null)
+ */
+export const useReorderHqDrive = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderHqDrive>>, TError,{data: BodyType<HqDriveOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reorderHqDrive>>,
+        TError,
+        {data: BodyType<HqDriveOrderInput>},
+        TContext
+      > => {
+      return useMutation(getReorderHqDriveMutationOptions(options));
+    }
 
 export const getGetHqFileContentUrl = (fileId: string,) => {
 

@@ -9,7 +9,11 @@ import Files from '../src/pages/admin/Files';
 import { UploadPanel } from '../src/components/admin/files/UploadPanel';
 import { UploadQueue, type UploadItem } from '../src/components/admin/files/upload-queue';
 import { FileDetailDialog } from '../src/components/admin/files/FileDetailDialog';
-import type { HqFile } from '@workspace/api-client-react';
+import { FolderGrid } from '../src/components/admin/files/FolderGrid';
+import { FileGrid } from '../src/components/admin/files/FileGrid';
+import { FileTable } from '../src/components/admin/files/FileTable';
+import { reorderIds, stepIds, orderBy, DRAG_TYPES } from '../src/components/admin/files/reorder';
+import type { HqFile, HqFolder } from '@workspace/api-client-react';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 class WindowStub extends EventTarget {
@@ -27,7 +31,7 @@ const ok = (condition: unknown, name: string) => {
   else { failures += 1; console.error(`FAIL ${name}`); }
 };
 const text = (root: { toJSON(): unknown }) => JSON.stringify(root.toJSON());
-const click = async (node: ReactTestInstance) => { await act(async () => { await node.props.onClick?.({ preventDefault() {}, stopPropagation() {} }); }); };
+const click = async (node: ReactTestInstance) => { await act(async () => { await (node.props.onClick ?? node.props.onSelect)?.({ preventDefault() {}, stopPropagation() {} }); }); };
 const file = (name: string, type: string, size = 100) => ({ name, type, size }) as File;
 const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   id: 'image-1', name: 'logo.png', contentType: 'image/png', size: 100,
@@ -141,11 +145,84 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   renderer!.unmount();
 }
 
+// Manual ordering helpers.
+{
+  ok(reorderIds(['a', 'b', 'c'], 'c', 'a', false).join() === 'c,a,b', 'reorderIds drops before the target');
+  ok(reorderIds(['a', 'b', 'c'], 'a', 'c', true).join() === 'b,c,a', 'reorderIds drops after the target');
+  ok(reorderIds(['a', 'b', 'c'], 'a', 'b', false).join() === 'a,b,c', 'reorderIds keeps an already-correct order');
+  ok(reorderIds(['a', 'b'], 'zzz', 'a', false).join() === 'a,b', 'reorderIds ignores unknown ids');
+  ok(stepIds(['a', 'b', 'c'], 'c', -1).join() === 'a,c,b' && stepIds(['a', 'b', 'c'], 'a', -1).join() === 'a,b,c', 'stepIds moves one slot and clamps at the edges');
+  ok(orderBy([{ id: 'a' }, { id: 'b' }, { id: 'c' }], ['c', 'a']).map((item) => item.id).join() === 'c,a,b', 'orderBy applies the id order and keeps strangers at the end');
+}
+
+// Drag-and-drop reorder: cards and rows, folders and files; providers get none of it.
+{
+  const folders: HqFolder[] = ['f1', 'f2', 'f3'].map((id) => ({ id, name: id.toUpperCase(), parentId: null, createdAt: '2026-01-02T15:30:00Z', updatedAt: '' }));
+  const files: HqFile[] = ['x1', 'x2', 'x3'].map((id) => liveFile({ id, name: `${id}.png` }));
+  const transfer = (type: string, id: string) => {
+    const store: Record<string, string> = {};
+    return { types: [type], effectAllowed: '', dropEffect: '', setData(key: string, value: string) { store[key] = value; }, getData(key: string) { return store[key] ?? ''; }, ...(id ? { preset: () => { store[type] = id; } } : {}) };
+  };
+  const drag = async (from: ReactTestInstance, to: ReactTestInstance, type: string, fromId: string, point: { clientX: number; clientY: number }) => {
+    const dataTransfer = transfer(type, fromId);
+    await act(async () => { from.props.onDragStart({ dataTransfer }); });
+    await act(async () => { to.props.onDragOver({ dataTransfer, preventDefault() {}, clientX: point.clientX, clientY: point.clientY, currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 40 }) } }); });
+    await act(async () => { to.props.onDrop({ dataTransfer, preventDefault() {} }); });
+    await act(async () => { from.props.onDragEnd?.(); });
+  };
+
+  let folderOrder: string[] | null = null;
+  let renderer: ReturnType<typeof create>;
+  let movedFolder = '';
+  await act(async () => { renderer = create(<FolderGrid folders={folders} onOpen={() => {}} onReorder={(ids, moved) => { folderOrder = ids; movedFolder = moved; }} />); });
+  const card = (id: string) => renderer!.root.findByProps({ 'data-testid': `folder-card-${id}` });
+  ok(card('f1').props.draggable === true, 'HQ folder cards are draggable');
+  await drag(card('f3'), card('f1'), DRAG_TYPES.folder, 'f3', { clientX: 10, clientY: 20 });
+  ok(folderOrder?.join() === 'f3,f1,f2' && movedFolder === 'f3', 'dropping on the left half of a card places the folder before it (and names the moved one)');
+  await drag(card('f1'), card('f2'), DRAG_TYPES.folder, 'f1', { clientX: 90, clientY: 20 });
+  ok(folderOrder?.join() === 'f2,f1,f3', 'dropping on the right half of a card places the folder after it');
+  folderOrder = null;
+  const fileTransfer = transfer(DRAG_TYPES.file, 'x1');
+  await act(async () => { card('f2').props.onDrop({ dataTransfer: fileTransfer, preventDefault() {} }); });
+  ok(folderOrder === null, 'a file drag dropped on a folder card is ignored');
+  await click(renderer!.root.findByProps({ 'data-testid': 'folder-move-down-f1' }));
+  ok(folderOrder?.join() === 'f2,f1,f3' && movedFolder === 'f1', 'Move down steps a folder one slot later');
+  ok(renderer!.root.findByProps({ 'data-testid': 'folder-move-up-f1' }).props.disabled === true, 'Move up is disabled for the first item');
+  renderer!.unmount();
+
+  let fileOrder: string[] | null = null;
+  await act(async () => { renderer = create(<FileGrid files={files} downloadingId={null} onOpen={() => {}} onReorder={(ids) => { fileOrder = ids; }} />); });
+  const fileCard = (id: string) => renderer!.root.findByProps({ 'data-testid': `file-card-${id}` });
+  await drag(fileCard('x1'), fileCard('x3'), DRAG_TYPES.file, 'x1', { clientX: 90, clientY: 20 });
+  ok(fileOrder?.join() === 'x2,x3,x1', 'file cards reorder by drag');
+  ok(text(renderer!).includes('"PNG"') && text(renderer!).includes('100 B') && text(renderer!).includes('Jan 2, 2026'), 'file card shows type, size and date');
+  renderer!.unmount();
+
+  fileOrder = null; folderOrder = null;
+  await act(async () => { renderer = create(<FileTable files={files} downloadingId={null} onOpen={() => {}} onReorder={(ids) => { fileOrder = ids; }} folders={folders} onOpenFolder={() => {}} onReorderFolders={(ids) => { folderOrder = ids; }} />); });
+  const row = (testId: string) => renderer!.root.findByProps({ 'data-testid': testId });
+  await drag(row('file-x3'), row('file-x1'), DRAG_TYPES.file, 'x3', { clientX: 50, clientY: 5 });
+  ok(fileOrder?.join() === 'x3,x1,x2', 'list rows: dropping on the top half places the file above');
+  await drag(row('folder-row-f1'), row('folder-row-f3'), DRAG_TYPES.folder, 'f1', { clientX: 50, clientY: 35 });
+  ok(folderOrder?.join() === 'f2,f3,f1', 'list rows: dropping on the bottom half places the folder below');
+  ok(text(renderer!).includes('Folder') && renderer!.root.findAllByProps({ 'data-testid': 'folder-row-f2' }).length === 1, 'list view shows folders as rows in the same table');
+  renderer!.unmount();
+
+  await act(async () => { renderer = create(<><FolderGrid folders={folders} onOpen={() => {}} /><FileTable files={files} downloadingId={null} onOpen={() => {}} /></>); });
+  ok(renderer!.root.findByProps({ 'data-testid': 'folder-card-f1' }).props.draggable === undefined, 'without onReorder folder cards are not draggable (provider portal)');
+  ok(renderer!.root.findByProps({ 'data-testid': 'file-x1' }).props.draggable === undefined, 'without onReorder file rows are not draggable (provider portal)');
+  ok(!text(renderer!).includes('Move up') && !text(renderer!).includes('Move back'), 'without onReorder there are no move actions');
+  renderer!.unmount();
+}
+
 // Live drive integration: list, breadcrumbs, new folder and folder delete warning.
 {
   __setSession({ authStatus: 'signed-in', authUser: { id: 'admin' }, hqRole: 'Admin' });
   const folder = { id: 'a', name: 'Brand', parentId: null, createdAt: '', updatedAt: '' };
+  const folderB = { id: 'b', name: 'Clinical', parentId: null, createdAt: '', updatedAt: '' };
   let updateBody: any;
+  let orderBody: any;
+  let rootFolders = [folder, folderB];
   let resolveFolderDelete: ((response: Response) => void) | undefined;
   const folderDelete = new Promise<Response>((resolve) => { resolveFolderDelete = resolve; });
   globalThis.fetch = async (input, init) => {
@@ -153,6 +230,11 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
     if (url.endsWith('/api/hq/folders/a') && init?.method === 'DELETE') return folderDelete;
     if (url.includes('/content')) return new Response(new Blob(['image']), { status: 200, headers: { 'Content-Type': 'image/png' } });
     if (url.includes('/search')) return new Response(JSON.stringify({ files: [liveFile({ id: 'search-1', name: 'Campaign logo.png' })] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (init?.method === 'PUT' && url.endsWith('/api/hq/files/order')) {
+      orderBody = JSON.parse(String(init.body));
+      if (orderBody.folderIds) rootFolders = orderBy(rootFolders, orderBody.folderIds); // the server would list the saved order
+      return new Response(JSON.stringify({ ok: true, folders: orderBody.folderIds?.length ?? 0, files: orderBody.fileIds?.length ?? 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     if (init?.method === 'PATCH' && url.includes('/api/hq/files/')) {
       updateBody = JSON.parse(String(init.body));
       return new Response(JSON.stringify(liveFile({ archivedAt: updateBody.archived ? '2026-02-03T12:00:00Z' : null })), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -160,7 +242,7 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
     if (init?.method === 'POST') return new Response(JSON.stringify(folder), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (url.includes('view=archived')) return new Response(JSON.stringify({ folder: null, breadcrumbs: [], folders: [], files: [liveFile({ id: 'archived-1', archivedAt: '2026-02-03T12:00:00Z' })] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     const nested = url.includes('folderId=a');
-    return new Response(JSON.stringify({ folder: nested ? folder : null, breadcrumbs: nested ? [folder] : [], folders: nested ? [] : [folder], files: nested ? [liveFile()] : [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ folder: nested ? folder : null, breadcrumbs: nested ? [folder] : [], folders: nested ? [] : rootFolders, files: nested ? [liveFile()] : [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   const location = memoryLocation({ path: '/admin/files?folder=a', record: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -205,6 +287,21 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   const transfer = { types: ['Files'], files: [] };
   await act(async () => { window.dispatchEvent(Object.assign(new Event('dragenter'), { dataTransfer: transfer })); });
   ok(text(renderer!).includes('Drop to upload into'), 'window file drag shows drop overlay');
+
+  // Back to the root: cards by default, list on demand, and a reorder saves through PUT /hq/files/order.
+  const back = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Back to files'))[0];
+  await click(back);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
+  ok(renderer!.root.findAllByProps({ 'data-testid': 'folder-grid' }).length === 1 && renderer!.root.findByProps({ 'data-testid': 'view-cards' }).props['aria-pressed'] === true, 'cards view is the default');
+  await click(renderer!.root.findByProps({ 'data-testid': 'view-list' }));
+  ok(renderer!.root.findAllByProps({ 'data-testid': 'folder-grid' }).length === 0 && renderer!.root.findAllByProps({ 'data-testid': 'folder-row-a' }).length === 1, 'list view shows folders as rows');
+  ok(renderer!.root.findAllByProps({ 'data-testid': 'folder-row-b' }).length === 1, 'list view shows every sibling folder');
+  await click(renderer!.root.findByProps({ 'data-testid': 'folder-move-down-a' }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+  ok(orderBody?.parentId === null && orderBody?.folderIds?.join() === 'b,a', 'Move down saves the new folder order for the current folder');
+  const rowsNow = renderer!.root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('folder-row-')).map((node) => node.props['data-testid']);
+  ok(rowsNow.join() === 'folder-row-b,folder-row-a', 'new order shows immediately (optimistic)');
+  ok(renderer!.root.findByProps({ 'data-testid': 'order-notice' }).props.children === 'Brand moved to position 2 of 2.', 'reorder is announced to screen readers');
   renderer!.unmount();
 }
 

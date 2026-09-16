@@ -4000,6 +4000,28 @@ export const SearchHqFilesResponse = zod.object({
 
 
 /**
+ * @summary Save the manual display order of the folders and/or files directly inside one folder (root when parentId is null)
+ */
+export const reorderHqDriveBodyFolderIdsMax = 500;
+
+export const reorderHqDriveBodyFileIdsMax = 500;
+
+
+
+export const ReorderHqDriveBody = zod.object({
+  "parentId": zod.string().nullable().describe('Folder whose direct children are being ordered; null for the root'),
+  "folderIds": zod.array(zod.string()).max(reorderHqDriveBodyFolderIdsMax).optional().describe('Child folder ids in the desired top-to-bottom order; omit to leave folder order untouched'),
+  "fileIds": zod.array(zod.string()).max(reorderHqDriveBodyFileIdsMax).optional().describe('Active file ids in the desired top-to-bottom order; omit to leave file order untouched')
+})
+
+export const ReorderHqDriveResponse = zod.object({
+  "ok": zod.boolean(),
+  "folders": zod.number().describe('Folders whose position was written'),
+  "files": zod.number().describe('Files whose position was written')
+})
+
+
+/**
  * @summary Stream the stored bytes inline for in-app preview (bearer-authenticated, Content-Disposition inline)
  */
 export const GetHqFileContentParams = zod.object({

@@ -1546,6 +1546,32 @@ export interface HqFileReplaceInput {
   compress?: boolean;
 }
 
+export interface HqDriveOrderInput {
+  /**
+     * Folder whose direct children are being ordered; null for the root
+     * @nullable
+     */
+  parentId: string | null;
+  /**
+     * Child folder ids in the desired top-to-bottom order; omit to leave folder order untouched
+     * @maxItems 500
+     */
+  folderIds?: string[];
+  /**
+     * Active file ids in the desired top-to-bottom order; omit to leave file order untouched
+     * @maxItems 500
+     */
+  fileIds?: string[];
+}
+
+export interface HqDriveOrderResult {
+  ok: boolean;
+  /** Folders whose position was written */
+  folders: number;
+  /** Files whose position was written */
+  files: number;
+}
+
 export interface HqFolder {
   id: string;
   name: string;

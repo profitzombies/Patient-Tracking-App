@@ -110,6 +110,22 @@ describe("office files", () => {
     expect(body.breadcrumbs.map((item: { id: string }) => item.id)).toEqual([folderId, childId]);
   });
 
+  it("shows providers the HQ manual order (unordered first, then by position)", async () => {
+    const ordered = [
+      folders[0], { ...folders[1], name: "Zed", position: 0 },
+      { id: "00000000-0000-4000-8000-00000000000a", name: "Alpha", parent_id: folderId, position: 1, created_at: "2026-10-15T00:00:00Z", updated_at: "2026-10-15T00:00:00Z" },
+      { id: "00000000-0000-4000-8000-00000000000b", name: "Newest", parent_id: folderId, position: null, created_at: "2026-10-15T00:00:00Z", updated_at: "2026-10-15T00:00:00Z" },
+    ];
+    mocks.admin
+      .mockResolvedValueOnce({ status: 200, json: ordered })
+      .mockResolvedValueOnce({ status: 200, json: [] });
+    const response = await fetch(`${base}/office/files?folderId=${folderId}`);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { folders: Array<{ name: string }> };
+    expect(body.folders.map(folder => folder.name)).toEqual(["Newest", "Zed", "Alpha"]);
+    expect(mocks.admin.mock.calls[1][1]).toContain("order=position.asc.nullsfirst,created_at.desc,id.desc");
+  });
+
   it("searches active files", async () => {
     mocks.admin
       .mockResolvedValueOnce({ status: 200, json: folders })

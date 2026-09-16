@@ -6,6 +6,7 @@ import {
   CreateHqFileUploadBody,
   CreateHqFileReplacementBody,
   FinalizeHqFileBody,
+  ReorderHqDriveBody,
   ReplaceHqFileBody,
   UpdateHqFileBody,
   UpdateHqFolderBody,
@@ -613,6 +614,57 @@ router.post("/hq/files/:fileId/replace", async (req, res) => {
   }
 });
 
+router.put("/hq/files/order", async (req, res) => {
+  const parsed = ReorderHqDriveBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Check the order details." });
+    return;
+  }
+  const parentId = parsed.data.parentId ?? null;
+  const folderIds = parsed.data.folderIds ?? [];
+  const fileIds = parsed.data.fileIds ?? [];
+  const wellFormed = (ids: string[]) => ids.every(id => idPattern.test(id)) && new Set(ids).size === ids.length;
+  if ((parentId && !idPattern.test(parentId)) || !wellFormed(folderIds) || !wellFormed(fileIds)) {
+    res.status(400).json({ error: "Check the order details." });
+    return;
+  }
+  if (!folderIds.length && !fileIds.length) {
+    res.json({ ok: true, folders: 0, files: 0 });
+    return;
+  }
+  try {
+    if (parentId) {
+      const folders = await allFolders();
+      if (!folders.some(folder => folder.id === parentId)) {
+        res.status(404).json({ error: "Folder not found." });
+        return;
+      }
+    }
+    const reorder = async (kind: "folders" | "files", ids: string[]) => {
+      if (!ids.length) return 0;
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_reorder_drive_items", { p_kind: kind, p_parent_id: parentId, p_ids: ids });
+      if (result.status >= 300) throw new Error(`HQ drive reorder failed (${result.status})`);
+      return Number(result.json);
+    };
+    // Folders first, then files: a stale file list should not undo a folder
+    // order that already landed, and vice versa is reported as 409 below.
+    const folders = await reorder("folders", folderIds);
+    if (folders !== folderIds.length) {
+      res.status(409).json({ error: "This folder changed. Reload and try again." });
+      return;
+    }
+    const files = await reorder("files", fileIds);
+    if (files !== fileIds.length) {
+      res.status(409).json({ error: "This folder changed. Reload and try again." });
+      return;
+    }
+    res.json({ ok: true, folders, files });
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ drive reorder failed");
+    res.status(502).json({ error: "Could not save the new order right now." });
+  }
+});
+
 router.patch("/hq/files/:fileId", async (req, res) => {
   if (!idPattern.test(req.params.fileId)) {
     res.status(404).json({ error: "File not found." });
@@ -658,6 +710,11 @@ router.patch("/hq/files/:fileId", async (req, res) => {
     if (hasArchived) {
       update.archived_at = parsed.data.archived === true ? (typeof existing.archived_at === "string" ? existing.archived_at : new Date().toISOString()) : null;
       if (parsed.data.archived === false && folderId !== existing.folder_id) update.folder_id = folderId;
+    }
+    // A file that changes folders (or comes back from the archive) has no
+    // place in its destination's manual order yet: it lands at the top.
+    if ((hasFolder && folderId !== (typeof existing.folder_id === "string" ? existing.folder_id : null)) || (hasArchived && parsed.data.archived === false)) {
+      update.position = null;
     }
     const result = await supabaseAdmin(
       "PATCH",
@@ -790,7 +847,11 @@ router.patch("/hq/folders/:folderId", async (req, res) => {
     const result = await supabaseAdmin(
       "PATCH",
       `/rest/v1/hq_file_folders?id=eq.${encodeURIComponent(existing.id)}`,
-      { name: nextName, parent_id: parentId, updated_at: new Date().toISOString() },
+      {
+        name: nextName, parent_id: parentId, updated_at: new Date().toISOString(),
+        // Moving under a new parent forgets the old manual position (lands at the top there).
+        ...(parentId !== existing.parent_id ? { position: null } : {}),
+      },
       "return=representation",
     );
     if (result.status === 409) {

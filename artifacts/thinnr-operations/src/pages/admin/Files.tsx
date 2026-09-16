@@ -18,6 +18,8 @@ import {
   Presentation,
   Download,
   FileX2,
+  LayoutGrid,
+  List,
   Trash2,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -56,14 +58,18 @@ import {
   useUpdateHqFolder,
   useDeleteHqFolder,
   useUpdateHqFile,
+  useReorderHqDrive,
   useSearchHqFiles,
   getSearchHqFilesQueryKey,
   getHqFileDownload,
   type HqFile,
+  type HqFileListResult,
   type HqFolder,
 } from '@workspace/api-client-react';
 import { FolderGrid } from '@/components/admin/files/FolderGrid';
+import { FileGrid } from '@/components/admin/files/FileGrid';
 import { FileTable } from '@/components/admin/files/FileTable';
+import { orderBy } from '@/components/admin/files/reorder';
 import { MoveDialog } from '@/components/admin/files/MoveDialog';
 import { DropOverlay } from '@/components/admin/files/DropOverlay';
 import { UploadPanel } from '@/components/admin/files/UploadPanel';
@@ -71,6 +77,25 @@ import { UploadQueue, type UploadItem } from '@/components/admin/files/upload-qu
 import { apiError, openDownload } from '@/components/admin/files/utils';
 import { FileDetailDialog } from '@/components/admin/files/FileDetailDialog';
 import { SearchResults } from '@/components/admin/files/SearchResults';
+
+type DriveView = 'cards' | 'list';
+const VIEW_KEY = 'hq-files-view';
+function readStoredView(): DriveView {
+  try { return window.localStorage?.getItem(VIEW_KEY) === 'list' ? 'list' : 'cards'; } catch { return 'cards'; }
+}
+function storeView(view: DriveView) {
+  try { window.localStorage?.setItem(VIEW_KEY, view); } catch { /* private mode: view just won't persist */ }
+}
+
+function ViewToggle({ view, onChange }: { view: DriveView; onChange(view: DriveView): void }) {
+  const option = (value: DriveView, label: string, icon: React.ReactNode) => (
+    <button type="button" aria-pressed={view === value} aria-label={`${label} view`} title={`${label} view`} data-testid={`view-${value}`} className={`inline-flex h-8 items-center gap-1.5 rounded-[6px] px-2.5 text-xs font-semibold transition ${view === value ? 'bg-white text-navy shadow-xs' : 'text-muted-foreground hover:text-navy'}`} onClick={() => onChange(value)}>{icon}<span className="hidden sm:inline">{label}</span></button>
+  );
+  return <div role="group" aria-label="Layout" className="inline-flex rounded-[7px] border border-border bg-paper-alt p-0.5">
+    {option('cards', 'Cards', <LayoutGrid size={14} aria-hidden="true" />)}
+    {option('list', 'List', <List size={14} aria-hidden="true" />)}
+  </div>;
+}
 
 const FILE_ICONS: Record<DriveFileKind, React.ReactNode> = {
   doc: <FileText size={15} />,
@@ -334,6 +359,10 @@ function LiveFiles() {
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [uploadsMinimized, setUploadsMinimized] = useState(false);
   const [dropVisible, setDropVisible] = useState(false);
+  const [view, setView] = useState<DriveView>(readStoredView);
+  const [orderNotice, setOrderNotice] = useState('');
+  const orderSeqRef = useRef(0);
+  const changeView = (next: DriveView) => { setView(next); storeView(next); };
   const dragDepth = useRef(0);
   const queryParams = archivedView ? { view: 'archived' as const } : folderId ? { folderId } : undefined;
   const queryKey = [...getGetHqFilesQueryKey(queryParams), authUser?.id] as const;
@@ -345,6 +374,7 @@ function LiveFiles() {
   const updateFolder = useUpdateHqFolder();
   const deleteFolder = useDeleteHqFolder();
   const updateFile = useUpdateHqFile();
+  const reorderDrive = useReorderHqDrive();
   const searchParams = { q: debouncedSearch };
   const searchResult = useSearchHqFiles(searchParams, { query: { queryKey: getSearchHqFilesQueryKey(searchParams), enabled: debouncedSearch.length > 0 } });
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: ['/api/hq/files'] }), [queryClient]);
@@ -432,10 +462,40 @@ function LiveFiles() {
     setDebouncedSearch('');
     navigate(id ? `/admin/files?folder=${encodeURIComponent(id)}` : '/admin/files', { replace: true });
   };
+  /**
+   * Manual order: show the new order immediately, then save it. On failure
+   * the previous listing comes back and (on a stale-listing 409) reloads.
+   */
+  const applyOrder = async (kind: 'folders' | 'files', ids: string[], movedId: string) => {
+    // Stop an in-flight listing from overwriting the optimistic order, and
+    // remember which reorder is the newest so only the latest one may roll back.
+    const seq = ++orderSeqRef.current;
+    await queryClient.cancelQueries({ queryKey });
+    const previous = queryClient.getQueryData<HqFileListResult>(queryKey);
+    const items: Array<{ id: string; name: string }> = previous ? (kind === 'folders' ? previous.folders : previous.files) : [];
+    queryClient.setQueryData<HqFileListResult>(queryKey, (current) => !current ? current
+      : kind === 'folders' ? { ...current, folders: orderBy(current.folders, ids) } : { ...current, files: orderBy(current.files, ids) });
+    const movedName = items.find((item) => item.id === movedId)?.name;
+    if (movedName) setOrderNotice(`${movedName} moved to position ${ids.indexOf(movedId) + 1} of ${ids.length}.`);
+    try {
+      await reorderDrive.mutateAsync({ data: { parentId: folderId, ...(kind === 'folders' ? { folderIds: ids } : { fileIds: ids }) } });
+      if (seq === orderSeqRef.current) await queryClient.invalidateQueries({ queryKey });
+    } catch (caught) {
+      if (seq !== orderSeqRef.current) return; // a newer reorder owns the screen now
+      queryClient.setQueryData(queryKey, previous);
+      toast({ variant: 'destructive', title: 'Could not save the new order', description: apiError(caught, 'Please try again.') });
+      if ((caught as { status?: number }).status === 409) await refresh();
+    }
+  };
   const mutate = async (work: () => Promise<unknown>, success: string) => {
     try { await work(); await refresh(); toast({ variant: 'success', title: success }); }
     catch (caught) { toast({ variant: 'destructive', title: 'Could not save changes', description: apiError(caught, 'Please try again.') }); throw caught; }
   };
+
+  const renameFile = (item: HqFile) => { setRenameValue(item.name); setEditItem({ kind: 'file', item, action: 'rename' }); };
+  const moveFile = (item: HqFile) => setEditItem({ kind: 'file', item, action: 'move' });
+  const renameFolder = (item: HqFolder) => { setRenameValue(item.name); setEditItem({ kind: 'folder', item, action: 'rename' }); };
+  const moveFolder = (item: HqFolder) => setEditItem({ kind: 'folder', item, action: 'move' });
 
   const handleDownload = async (file: HqFile) => {
     try {
@@ -476,6 +536,7 @@ function LiveFiles() {
 
   return (
     <AdminPage>
+      <p className="sr-only" aria-live="polite" data-testid="order-notice">{orderNotice}</p>
       <PageHeader
         kicker="Library"
         title="Files"
@@ -511,7 +572,10 @@ function LiveFiles() {
       <SectionCard
         title={fileSearch.trim() ? `Results for “${fileSearch.trim()}”` : 'HQ Drive'}
         sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Files</button>{archivedView ? <><ChevronRight size={11} /><strong className="text-xs text-navy">Archived</strong></> : data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
-        action={!fileSearch.trim() ? <button type="button" className={`${archivedView ? BTN_PRIMARY : BTN_SECONDARY} h-8 px-3 text-xs`} onClick={() => { setFileSearch(''); setDebouncedSearch(''); navigate(archivedView ? '/admin/files' : '/admin/files?view=archived', { replace: true }); }}>{archivedView ? 'Back to files' : 'Archived'}</button> : undefined}
+        action={!fileSearch.trim() ? <div className="flex items-center gap-2">
+          {!archivedView && <ViewToggle view={view} onChange={changeView} />}
+          <button type="button" className={`${archivedView ? BTN_PRIMARY : BTN_SECONDARY} h-8 px-3 text-xs`} onClick={() => { setFileSearch(''); setDebouncedSearch(''); navigate(archivedView ? '/admin/files' : '/admin/files?view=archived', { replace: true }); }}>{archivedView ? 'Back to files' : 'Archived'}</button>
+        </div> : undefined}
       >
         <div className="px-5 py-4">
           {fileSearch.trim() ? (
@@ -523,10 +587,16 @@ function LiveFiles() {
           ) : !data?.files.length && !data?.folders.length ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{archivedView ? 'Nothing archived.' : 'This folder is empty.'}</p>
           ) : (
-            <div className="space-y-4">
-              {!archivedView && <FolderGrid folders={data.folders} onOpen={(folder) => goFolder(folder.id)} onRename={(item) => { setRenameValue(item.name); setEditItem({ kind: 'folder', item, action: 'rename' }); }} onMove={(item) => setEditItem({ kind: 'folder', item, action: 'move' })} onDelete={setFolderToDelete} />}
-              <FileTable files={data.files} downloadingId={downloadingId} onOpen={setSelectedFile} showPath={archivedView} onFolder={(folder) => goFolder(folder.id)} onDownload={handleDownload} onRename={!archivedView ? (item) => { setRenameValue(item.name); setEditItem({ kind: 'file', item, action: 'rename' }); } : undefined} onMove={!archivedView ? (item) => setEditItem({ kind: 'file', item, action: 'move' }) : undefined} onDelete={setFileToDelete} onRestore={archivedView ? (item) => void mutate(() => updateFile.mutateAsync({ fileId: item.id, data: { archived: false } }), 'Restored') : undefined} />
-            </div>
+            archivedView ? (
+              <FileTable files={data.files} downloadingId={downloadingId} onOpen={setSelectedFile} showPath onFolder={(folder) => goFolder(folder.id)} onDownload={handleDownload} onDelete={setFileToDelete} onRestore={(item) => void mutate(() => updateFile.mutateAsync({ fileId: item.id, data: { archived: false } }), 'Restored')} />
+            ) : view === 'list' ? (
+              <FileTable files={data.files} downloadingId={downloadingId} onOpen={setSelectedFile} onDownload={handleDownload} onRename={renameFile} onMove={moveFile} onDelete={setFileToDelete} onReorder={(ids, moved) => void applyOrder('files', ids, moved)} folders={data.folders} onOpenFolder={(folder) => goFolder(folder.id)} onRenameFolder={renameFolder} onMoveFolder={moveFolder} onDeleteFolder={setFolderToDelete} onReorderFolders={(ids, moved) => void applyOrder('folders', ids, moved)} />
+            ) : (
+              <div className="space-y-4">
+                <FolderGrid folders={data.folders} onOpen={(folder) => goFolder(folder.id)} onRename={renameFolder} onMove={moveFolder} onDelete={setFolderToDelete} onReorder={(ids, moved) => void applyOrder('folders', ids, moved)} />
+                <FileGrid files={data.files} downloadingId={downloadingId} onOpen={setSelectedFile} onDownload={handleDownload} onRename={renameFile} onMove={moveFile} onDelete={setFileToDelete} onReorder={(ids, moved) => void applyOrder('files', ids, moved)} />
+              </div>
+            )
           )}
         </div>
       </SectionCard>

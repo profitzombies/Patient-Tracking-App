@@ -6,7 +6,9 @@ import { supabaseAdmin } from "./supabase-admin";
 export const MAX_HQ_FILE_BYTES = 50 * 1024 * 1024;
 export const DOWNLOAD_TTL_SEC = 300;
 export const hqFileIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-export const FILE_SELECT = "id,name,content_type,size_bytes,folder_id,original_size_bytes,compressed_at,archived_at,created_by,created_at,updated_at,object_missing_at";
+export const FILE_SELECT = "id,name,content_type,size_bytes,folder_id,position,original_size_bytes,compressed_at,archived_at,created_by,created_at,updated_at,object_missing_at";
+// Manual order first (null = never ordered here, shown on top, newest first).
+export const ACTIVE_FILE_ORDER = "position.asc.nullsfirst,created_at.desc,id.desc";
 
 export type HqFileReadOptions = {
   includeArchived: boolean;
@@ -21,9 +23,22 @@ export type FolderRow = {
   id: string;
   name: string;
   parent_id: string | null;
+  position?: number | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Sibling folders: hand-ordered ones by position, unordered ones first A-Z. */
+export function sortSiblingFolders<T extends Pick<FolderRow, "name" | "position">>(folders: T[]): T[] {
+  return [...folders].sort((a, b) => {
+    const left = a.position ?? null;
+    const right = b.position ?? null;
+    if (left === null && right !== null) return -1;
+    if (left !== null && right === null) return 1;
+    if (left !== null && right !== null && left !== right) return left - right;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  });
+}
 
 export function rfc5987(value: string): string {
   return encodeURIComponent(value).replace(/['()*]/g, character =>
@@ -99,7 +114,7 @@ export async function filesWithUploaders(rows: Record<string, unknown>[], byId: 
 export async function allFolders(): Promise<FolderRow[]> {
   const result = await supabaseAdmin(
     "GET",
-    "/rest/v1/hq_file_folders?select=id,name,parent_id,created_at,updated_at&limit=5000",
+    "/rest/v1/hq_file_folders?select=id,name,parent_id,position,created_at,updated_at&limit=5000",
   );
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`HQ folders lookup failed (${result.status})`);
@@ -124,11 +139,9 @@ export async function listHqFiles(req: Request, res: Response, options: HqFileRe
       return;
     }
     const filter = folderId ? `eq.${encodeURIComponent(folderId)}` : "is.null";
-    const result = await supabaseAdmin("GET", `/rest/v1/hq_private_files?${archived ? "archived_at=not.is.null" : `folder_id=${filter}&archived_at=is.null`}&select=${FILE_SELECT}&order=${archived ? "archived_at" : "created_at"}.desc,id.desc&limit=500`);
+    const result = await supabaseAdmin("GET", `/rest/v1/hq_private_files?${archived ? "archived_at=not.is.null" : `folder_id=${filter}&archived_at=is.null`}&select=${FILE_SELECT}&order=${archived ? "archived_at.desc,id.desc" : ACTIVE_FILE_ORDER}&limit=500`);
     if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`HQ files list failed (${result.status})`);
-    const children = folders
-      .filter(candidate => candidate.parent_id === folderId)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    const children = sortSiblingFolders(folders.filter(candidate => candidate.parent_id === folderId));
     const breadcrumbs: FolderRow[] = [];
     let current = folder;
     while (current) {

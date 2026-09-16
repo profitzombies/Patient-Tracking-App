@@ -1,8 +1,11 @@
 import { logger } from "../lib/logger";
 import { breakEvenMinimum, belowMinimum } from "./fees";
-import { getSettings, loadDefaultImages, productImageUrl, recordCatalogChange } from "./catalog";
+import {
+  getSettings, loadDefaultImages, pageContent, productCadences, productImageUrl, recordCatalogChange,
+  subscribeSavePercent, subscriptionUnitPrice,
+} from "./catalog";
 import { connectedOpts, getStripe, isStripeMissing } from "./stripe-client";
-import { remove, selectMany, selectOne, update, upsert } from "./store";
+import { remove, selectMany, selectOne, update, upsert, type CadencePriceMirror } from "./store";
 import type { OfficePrice, OfficePricesResponse } from "./types";
 
 export class BillingPriceError extends Error {
@@ -15,6 +18,7 @@ export async function listOfficePrices(providerId: string): Promise<OfficePrices
     getSettings(), loadDefaultImages(),
   ]);
   const prices = new Map(rows.map((row) => [row.product_id, row]));
+  const percent = subscribeSavePercent(settings);
   // Offices see active products plus anything they already price, except
   // archived products, which leave every office surface.
   const visible = products.filter((product) => product.status !== "archived" && (product.active || prices.has(product.id)));
@@ -22,21 +26,114 @@ export async function listOfficePrices(providerId: string): Promise<OfficePrices
     products: visible.map((product): OfficePrice => {
       const price = prices.get(product.id);
       const image = images.get(product.id);
+      const page = pageContent(product);
+      const subscribable = Boolean(price?.subscription_enabled);
       return {
         product_id: product.id, slug: product.slug, name: product.name, description: product.description ?? "",
+        category: page.category, tagline: page.tagline, ...productCadences(product),
         image_url: image ? productImageUrl(image.id) : null, active: product.active,
         floor_price_cents: product.floor_price_cents,
         break_even_minimum_cents: breakEvenMinimum(product.floor_price_cents, settings),
         sell_price_cents: price?.sell_price_cents ?? null,
-        subscription_enabled: price?.subscription_enabled ?? false, offered: Boolean(price),
+        subscription_enabled: subscribable, offered: Boolean(price),
         below_minimum: belowMinimum(price?.sell_price_cents ?? null, product.floor_price_cents, settings),
+        subscribe_save_percent: subscribable ? percent : 0,
+        subscription_price_cents: price && subscribable ? subscriptionUnitPrice(price.sell_price_cents, percent) : null,
       };
     }),
     settings: {
       shipping_charge_cents: settings.shipping_charge_cents,
       card_fee_bps: settings.card_fee_bps, card_fee_fixed_cents: settings.card_fee_fixed_cents,
+      subscribe_save_enabled: settings.subscribe_save_enabled, subscribe_save_percent: settings.subscribe_save_percent,
     },
   };
+}
+
+type StripeClient = Awaited<ReturnType<typeof getStripe>>;
+type RecurringTarget = { product: string; unit_amount: number; weeks: number };
+/**
+ * A recurring price on the connected account that still matches its target
+ * exactly (active, same amount, same weekly interval). Missing resources
+ * read as "not usable"; any other Stripe failure propagates.
+ */
+async function usableRecurring(stripe: StripeClient, acct: string, priceId: string | null | undefined, target: RecurringTarget): Promise<boolean> {
+  if (!priceId) return false;
+  try {
+    const current = await stripe.prices.retrieve(priceId, {}, connectedOpts(acct));
+    return current.active && current.unit_amount === target.unit_amount
+      && current.recurring?.interval === "week" && current.recurring?.interval_count === target.weeks;
+  } catch (error) {
+    if (!isStripeMissing(error)) throw error;
+    return false;
+  }
+}
+
+/**
+ * Mirrors one recurring Stripe price per offered cadence (plus the matching
+ * shipping price, since every item on a Stripe subscription must share an
+ * interval). Idempotency keys are versioned by cadence, amount, and the id
+ * they replace, so a changed price never replays a stale key; prices that
+ * still match are reused untouched. The legacy 4-week ids are recognized as
+ * the 4-week cadence whenever their amounts still match. Cadences HQ stops
+ * offering keep their entries (still valid for renewals) but are not
+ * refreshed.
+ */
+async function ensureCadencePrices(input: {
+  stripe: StripeClient; acct: string; providerId: string; productId: string;
+  stripeProductId: string; shippingProductId: string; legacyPriceId: string | null; legacyShippingPriceId: string | null;
+  sellPriceCents: number; shippingChargeCents: number; percent: number; cadences: number[];
+  previous: Record<string, CadencePriceMirror>;
+}): Promise<Record<string, CadencePriceMirror>> {
+  const { stripe, acct, providerId, productId } = input;
+  const unit = subscriptionUnitPrice(input.sellPriceCents, input.percent);
+  const next: Record<string, CadencePriceMirror> = { ...input.previous };
+  for (const weeks of input.cadences) {
+    const key = String(weeks);
+    const current = input.previous[key];
+    const priceTarget: RecurringTarget = { product: input.stripeProductId, unit_amount: unit, weeks };
+    const shippingTarget: RecurringTarget = { product: input.shippingProductId, unit_amount: input.shippingChargeCents, weeks };
+    let priceId: string | null = null;
+    let priceOnAccount: string | null = null;
+    // Reuse order: this cadence's own mirror, then the legacy 4-week price.
+    for (const candidate of [current?.price_id, weeks === 4 && unit === input.sellPriceCents ? input.legacyPriceId : null]) {
+      if (!candidate || priceId) continue;
+      if (await usableRecurring(stripe, acct, candidate, priceTarget)) priceId = candidate;
+      else if (candidate === current?.price_id) priceOnAccount = candidate;
+    }
+    if (!priceId) {
+      const created = await stripe.prices.create({
+        product: input.stripeProductId, currency: "usd", unit_amount: unit,
+        recurring: { interval: "week", interval_count: weeks },
+        metadata: { thinnr_cadence_weeks: key, thinnr_subscribe_save_percent: String(input.percent) },
+      }, connectedOpts(acct, `price:${providerId}:${productId}:${weeks}w:${unit}:${priceOnAccount ?? "initial"}:${acct}`));
+      priceId = created.id;
+      if (priceOnAccount && priceOnAccount !== created.id && priceOnAccount !== input.legacyPriceId) {
+        try { await stripe.prices.update(priceOnAccount, { active: false }, connectedOpts(acct)); }
+        catch (error) { if (!isStripeMissing(error)) throw error; }
+      }
+    }
+    let shippingId: string | null = null;
+    let shippingOnAccount: string | null = null;
+    for (const candidate of [current?.shipping_price_id, weeks === 4 ? input.legacyShippingPriceId : null]) {
+      if (!candidate || shippingId) continue;
+      if (await usableRecurring(stripe, acct, candidate, shippingTarget)) shippingId = candidate;
+      else if (candidate === current?.shipping_price_id) shippingOnAccount = candidate;
+    }
+    if (!shippingId) {
+      const created = await stripe.prices.create({
+        product: input.shippingProductId, currency: "usd", unit_amount: input.shippingChargeCents,
+        recurring: { interval: "week", interval_count: weeks },
+        metadata: { thinnr_cadence_weeks: key },
+      }, connectedOpts(acct, `shipping-price:${providerId}:${weeks}w:${input.shippingChargeCents}:${shippingOnAccount ?? "initial"}:${acct}`));
+      shippingId = created.id;
+      if (shippingOnAccount && shippingOnAccount !== created.id && shippingOnAccount !== input.legacyShippingPriceId) {
+        try { await stripe.prices.update(shippingOnAccount, { active: false }, connectedOpts(acct)); }
+        catch (error) { if (!isStripeMissing(error)) throw error; }
+      }
+    }
+    next[key] = { price_id: priceId, unit_amount_cents: unit, shipping_price_id: shippingId };
+  }
+  return next;
 }
 
 export async function ensureRecurringPrices(providerId: string, productId: string) {
@@ -93,10 +190,12 @@ export async function ensureRecurringPrices(providerId: string, productId: strin
   let shippingId = price.stripe_shipping_price_id;
   let shippingOnAccount = false;
   let replaceShipping = true;
+  let shippingProductId: string | null = null;
   if (shippingId) {
     try {
       const current = await stripe.prices.retrieve(shippingId, {}, connectedOpts(acct));
       shippingOnAccount = true;
+      shippingProductId = typeof current.product === "string" ? current.product : current.product?.id ?? null;
       replaceShipping = !current.active || current.unit_amount !== settings.shipping_charge_cents;
     } catch (error) {
       if (!isStripeMissing(error)) throw error;
@@ -114,13 +213,21 @@ export async function ensureRecurringPrices(providerId: string, productId: strin
       recurring: { interval: "week", interval_count: 4 },
     }, connectedOpts(acct, `shipping-price:${providerId}:${settings.shipping_charge_cents}:${oldShippingId ?? "initial"}:${acct}`));
     shippingId = shipping.id;
+    shippingProductId = shippingProduct.id;
     if (oldShippingId && oldShippingId !== shipping.id) {
       await stripe.prices.update(oldShippingId, { active: false }, connectedOpts(acct));
     }
   }
+  const cadencePrices = await ensureCadencePrices({
+    stripe, acct, providerId, productId, stripeProductId, shippingProductId: shippingProductId ?? "",
+    legacyPriceId: recurringId, legacyShippingPriceId: shippingId,
+    sellPriceCents: price.sell_price_cents, shippingChargeCents: settings.shipping_charge_cents,
+    percent: subscribeSavePercent(settings), cadences: productCadences(product).offered_cadences_weeks,
+    previous: price.stripe_cadence_prices ?? {},
+  });
   return update("billing_office_prices",
     `provider_id=eq.${encodeURIComponent(providerId)}&product_id=eq.${encodeURIComponent(productId)}`,
-    { stripe_product_id: stripeProductId, stripe_price_id: recurringId, stripe_shipping_price_id: shippingId });
+    { stripe_product_id: stripeProductId, stripe_price_id: recurringId, stripe_shipping_price_id: shippingId, stripe_cadence_prices: cadencePrices });
 }
 
 export async function setOfficePrice(

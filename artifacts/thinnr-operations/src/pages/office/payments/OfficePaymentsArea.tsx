@@ -61,6 +61,7 @@ import {
   parseDollarsToCents,
   SUBSCRIPTION_STATUS_LABEL,
   subscriptionTone,
+  cadenceSummary,
 } from '@/lib/billing-format';
 import type { OfficeBillingStatus, OfficePrice, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
@@ -281,14 +282,14 @@ function PricesTable({ products, demo = false }: { products: OfficePrice[]; demo
   return (
     <SectionCard
       title="Catalog"
-      sub="Subscriptions renew every 4 weeks. A product is only for sale while it is marked Offered with a price at or above its minimum."
+      sub="Set your own price for each product; anything you have not priced is sold to your patients at the THINNR default (floor) price, one-time only. Subscriptions need your own price at or above the minimum."
     >
       <div className={`hidden gap-4 border-b border-border bg-secondary/50 px-5 py-2.5 lg:grid lg:items-center ${PRICE_GRID}`} aria-hidden="true">
         <span className={PANEL_LABEL}>Product</span>
         <span className={PANEL_LABEL}>Floor</span>
         <span className={PANEL_LABEL}>Minimum</span>
         <span className={PANEL_LABEL}>Sell price</span>
-        <span className={PANEL_LABEL}>Offered</span>
+        <span className={PANEL_LABEL}>Own price</span>
         <span className={PANEL_LABEL}>Subscription</span>
         <span />
       </div>
@@ -327,7 +328,7 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
         return setError(
           price.trim()
             ? parsed.error
-            : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Offered to stop selling ${product.name}.`,
+            : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Own price to sell ${product.name} at the default price.`,
         );
       if (parsed.cents < product.break_even_minimum_cents)
         return setError(`Price must be at least ${formatCents(product.break_even_minimum_cents)}.`);
@@ -369,6 +370,12 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
             {product.below_minimum && <span className={`${CHIP_WARM} ml-2 align-middle`}>Below minimum</span>}
           </b>
           {product.description && <p className="line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{product.description}</p>}
+          <p className="text-[11px] text-muted-foreground" data-testid={`text-price-plan-${product.product_id}`}>
+            Subscriptions {cadenceSummary(product.offered_cadences_weeks, product.default_cadence_weeks).toLowerCase()}
+            {product.subscribe_save_percent > 0 && product.subscription_price_cents != null
+              ? ` · subscribe and save ${product.subscribe_save_percent}% (${formatCents(product.subscription_price_cents)} per renewal)`
+              : ''}
+          </p>
         </div>
       </div>
       <LabelValue label="Floor" value={formatCents(product.floor_price_cents)} />
@@ -388,11 +395,11 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
           onBlur={() => setPrice((current) => normalizeDollarsInput(current))}
           invalid={Boolean(error)}
         />
-        {!offered && <span className="mt-1 block text-[11px] text-muted-foreground lg:hidden">Not for sale</span>}
+        {!offered && <span className="mt-1 block text-[11px] text-muted-foreground lg:hidden">Default price</span>}
       </label>
-      <Check label="Offered" checked={offered} disabled={demo} onChange={toggleOffered} />
+      <Check label="Own price" checked={offered} disabled={demo} onChange={toggleOffered} />
       <Check
-        label="4-week subscription"
+        label="Subscription"
         checked={subscription}
         disabled={!offered || demo}
         onChange={setSubscription}

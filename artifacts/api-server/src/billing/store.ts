@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
-import type { OrderSummary, Payer } from "./types";
+import type { CadenceWeeks, OrderSummary, Payer, ProductCategory, ProductFactRow, ProductFaq } from "./types";
 
 export type BillingTable =
   | "billing_settings" | "billing_products" | "billing_product_images" | "billing_catalog_changes"
@@ -12,6 +12,7 @@ export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
   id: number; shipping_charge_cents: number; shipping_cost_cents: number;
   card_fee_bps: number; card_fee_fixed_cents: number; version: number; updated_by: string | null;
+  subscribe_save_enabled: boolean; subscribe_save_percent: number;
 }
 export type BillingProductStatus = "draft" | "active" | "retired" | "archived";
 export interface BillingProductRow extends TimestampedRow {
@@ -19,6 +20,9 @@ export interface BillingProductRow extends TimestampedRow {
   /** Mirrors `status === "active"` (enforced by a DB check); checkout and pricing read this boolean. */
   active: boolean; status: BillingProductStatus; retired_at: string | null; archived_at: string | null;
   sort_order: number; stripe_tax_code: string | null;
+  category: ProductCategory; tagline: string; format: string; benefits: string[]; how_to_take: string;
+  facts_title: string; facts: ProductFactRow[]; faqs: ProductFaq[]; disclaimer: string;
+  offered_cadences_weeks: CadenceWeeks[]; default_cadence_weeks: CadenceWeeks;
 }
 export interface BillingProductImageRow extends TimestampedRow {
   id: string; product_id: string; object_path: string; content_type: string; size_bytes: number;
@@ -43,7 +47,10 @@ export interface BillingOfficePriceRow extends TimestampedRow {
   provider_id: string; product_id: string; sell_price_cents: number; subscription_enabled: boolean;
   stripe_product_id: string | null; stripe_price_id: string | null;
   stripe_shipping_price_id: string | null; updated_by: string | null;
+  /** Per-cadence recurring price mirror keyed by weeks ("2".."12"); see prices.ts. */
+  stripe_cadence_prices: Record<string, CadencePriceMirror>;
 }
+export interface CadencePriceMirror { price_id: string; unit_amount_cents: number; shipping_price_id: string }
 export interface BillingPaymentLinkRow extends TimestampedRow {
   id: string; token: string; provider_id: string; patient_id: string | null; created_by: string;
   label: string | null; active: boolean; expires_at: string | null; uses: number; last_used_at: string | null;

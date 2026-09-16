@@ -96,3 +96,5 @@ export function ProductThumb({
 }
 
 export const FIELD_LABEL = 'mb-1.5 block text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground';
+
+export { CADENCE_LABEL, PRODUCT_CATEGORY_LABEL, cadenceSummary } from '@/lib/billing-format';

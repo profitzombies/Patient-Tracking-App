@@ -2,7 +2,7 @@
  * Money and status formatting shared by every payments screen. Money is
  * integer cents on the wire; dollars exist only here and in price inputs.
  */
-import type { FulfillmentStatus, OrderKind, OrderStatus, SubscriptionStatus } from '@/lib/billing-types';
+import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus } from '@/lib/billing-types';
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -165,4 +165,25 @@ export function humanizeRequirement(key: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+
+export const PRODUCT_CATEGORY_LABEL: Record<ProductCategory, string> = {
+  drops: 'Drops',
+  supplement: 'Supplement',
+  bundle: 'Bundle',
+};
+export const CADENCE_LABEL: Record<CadenceWeeks, string> = {
+  2: 'Every 2 weeks',
+  4: 'Every 4 weeks',
+  6: 'Every 6 weeks',
+  8: 'Every 8 weeks',
+  10: 'Every 10 weeks',
+  12: 'Every 12 weeks',
+};
+/** "Every 2, 4 or 8 weeks · default 4" for list rows and office screens. */
+export function cadenceSummary(offered: readonly CadenceWeeks[], fallback: CadenceWeeks): string {
+  if (offered.length === 1) return `Every ${offered[0]} weeks`;
+  const head = offered.slice(0, -1).join(', ');
+  return `Every ${head} or ${offered[offered.length - 1]} weeks · default ${fallback}`;
 }

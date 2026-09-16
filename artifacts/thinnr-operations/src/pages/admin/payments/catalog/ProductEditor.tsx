@@ -14,12 +14,24 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { useHqCatalog, useHqCatalogMutations, useHqProduct } from '@/hooks/use-billing';
 import { centsToDollarsInput, formatCents, formatDateTime, parseDollarsToCents } from '@/lib/billing-format';
-import type { CatalogProductDetail, ProductImage, ProductStatus } from '@/lib/billing-types';
+import {
+  CADENCE_WEEKS,
+  type BillingSettings,
+  type CadenceWeeks,
+  type CatalogProductDetail,
+  type ProductCategory,
+  type ProductFactRow,
+  type ProductFaq,
+  type ProductImage,
+  type ProductStatus,
+} from '@/lib/billing-types';
 import { DEMO_CATALOG } from '../demo-data';
 import { useBillingSandbox } from '../use-billing-sandbox';
 import { ErrorBox, Gate, Header, Preview } from './../shared';
 import {
+  CADENCE_LABEL,
   FIELD_LABEL,
+  PRODUCT_CATEGORY_LABEL,
   PRODUCT_STATUS_HELP,
   PRODUCT_STATUS_LABEL,
   ProductStatusPill,
@@ -83,6 +95,54 @@ interface Draft {
   description: string;
   floor: string;
   hard: string;
+  category: ProductCategory;
+  tagline: string;
+  format: string;
+  /** One benefit per line. */
+  benefits: string;
+  how_to_take: string;
+  facts_title: string;
+  /** One row per line: "Name — detail" (detail optional). */
+  facts: string;
+  /** Blank-line-separated blocks: question on the first line, answer below. */
+  faqs: string;
+  disclaimer: string;
+  cadences: CadenceWeeks[];
+  default_cadence: CadenceWeeks;
+}
+
+const FACT_SEPARATOR = ' — ';
+
+export function factsToText(facts: ProductFactRow[]): string {
+  return facts.map((fact) => (fact.detail ? `${fact.name}${FACT_SEPARATOR}${fact.detail}` : fact.name)).join('\n');
+}
+export function parseFacts(text: string): ProductFactRow[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const at = line.indexOf(FACT_SEPARATOR);
+      if (at === -1) return { name: line, detail: null };
+      const detail = line.slice(at + FACT_SEPARATOR.length).trim();
+      return { name: line.slice(0, at).trim(), detail: detail || null };
+    });
+}
+export function faqsToText(faqs: ProductFaq[]): string {
+  return faqs.map((faq) => `${faq.question}\n${faq.answer}`).join('\n\n');
+}
+export function parseFaqs(text: string): ProductFaq[] {
+  return text
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const [question, ...rest] = block.split('\n');
+      return { question: question.trim(), answer: rest.join('\n').trim() };
+    });
+}
+export function parseLines(text: string): string[] {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
 function draftOf(product: CatalogProductDetail | null): Draft {
@@ -91,6 +151,17 @@ function draftOf(product: CatalogProductDetail | null): Draft {
     description: product?.description ?? '',
     floor: centsToDollarsInput(product?.floor_price_cents),
     hard: centsToDollarsInput(product?.hard_cost_cents),
+    category: product?.category ?? 'supplement',
+    tagline: product?.tagline ?? '',
+    format: product?.format ?? '',
+    benefits: (product?.benefits ?? []).join('\n'),
+    how_to_take: product?.how_to_take ?? '',
+    facts_title: product?.facts_title ?? '',
+    facts: factsToText(product?.facts ?? []),
+    faqs: faqsToText(product?.faqs ?? []),
+    disclaimer: product?.disclaimer ?? '',
+    cadences: product?.offered_cadences_weeks ?? [...CADENCE_WEEKS],
+    default_cadence: product?.default_cadence_weeks ?? 4,
   };
 }
 
@@ -104,7 +175,7 @@ function Editor({
   demo: boolean;
   canWrite: boolean;
   product: CatalogProductDetail | null;
-  settings: FeeSettings;
+  settings: FeeSettings & Pick<BillingSettings, 'subscribe_save_enabled' | 'subscribe_save_percent'>;
   sandbox?: boolean;
 }) {
   const [, navigate] = useLocation();
@@ -148,6 +219,19 @@ function Editor({
       setError(`Hard cost: ${parsedHard.error}`);
       return;
     }
+    if (draft.cadences.length === 0) {
+      setError('Offer at least one subscription cadence.');
+      return;
+    }
+    if (!draft.cadences.includes(draft.default_cadence)) {
+      setError('The default cadence must be one of the offered cadences.');
+      return;
+    }
+    const faqs = parseFaqs(draft.faqs);
+    if (faqs.some((faq) => !faq.answer)) {
+      setError('Every FAQ needs an answer on the line below its question.');
+      return;
+    }
     setError(null);
     if (demo) {
       previewOnly();
@@ -158,6 +242,17 @@ function Editor({
       description: draft.description.trim(),
       floor_price_cents: parsedFloor.cents,
       hard_cost_cents: parsedHard.cents,
+      category: draft.category,
+      tagline: draft.tagline.trim(),
+      format: draft.format.trim(),
+      benefits: parseLines(draft.benefits),
+      how_to_take: draft.how_to_take.trim(),
+      facts_title: draft.facts_title.trim(),
+      facts: parseFacts(draft.facts),
+      faqs,
+      disclaimer: draft.disclaimer.trim(),
+      offered_cadences_weeks: [...draft.cadences].sort((x, y) => x - y),
+      default_cadence_weeks: draft.default_cadence,
     };
     const fail = (err: Error) => setError(err.message);
     if (product) {
@@ -244,6 +339,36 @@ function Editor({
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
                 />
               </label>
+              <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+                <label className="block">
+                  <span className={FIELD_LABEL}>Tagline</span>
+                  <input
+                    data-testid="input-catalog-tagline"
+                    className={`${INPUT_CLASS} h-9 w-full`}
+                    value={draft.tagline}
+                    disabled={readOnly}
+                    maxLength={120}
+                    placeholder="e.g. Metabolic & Appetite Support"
+                    onChange={(e) => setDraft((d) => ({ ...d, tagline: e.target.value }))}
+                  />
+                </label>
+                <label className="block">
+                  <span className={FIELD_LABEL}>Category</span>
+                  <select
+                    data-testid="select-catalog-category"
+                    className={`${INPUT_CLASS} h-9 w-full`}
+                    value={draft.category}
+                    disabled={readOnly}
+                    onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value as ProductCategory }))}
+                  >
+                    {(Object.keys(PRODUCT_CATEGORY_LABEL) as ProductCategory[]).map((category) => (
+                      <option key={category} value={category}>
+                        {PRODUCT_CATEGORY_LABEL[category]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <label className="block">
                 <span className={FIELD_LABEL}>Description</span>
                 <textarea
@@ -283,6 +408,83 @@ function Editor({
               </div>
             </div>
           </SectionCard>
+          <SectionCard title="Product page" sub="The full page patients read in the app. Drafted from the program documents; every field is yours to edit.">
+            <div className="space-y-5 p-5" data-testid="catalog-product-page">
+              <label className="block">
+                <span className={FIELD_LABEL}>Format</span>
+                <input
+                  data-testid="input-catalog-format"
+                  className={`${INPUT_CLASS} h-9 w-full`}
+                  value={draft.format}
+                  disabled={readOnly}
+                  maxLength={160}
+                  placeholder="e.g. Dietary Supplement · 60 Vegetarian Capsules"
+                  onChange={(e) => setDraft((d) => ({ ...d, format: e.target.value }))}
+                />
+              </label>
+              <LinesField
+                testId="input-catalog-benefits"
+                label="Benefits"
+                help="One benefit per line."
+                value={draft.benefits}
+                disabled={readOnly}
+                onChange={(benefits) => setDraft((d) => ({ ...d, benefits }))}
+              />
+              <label className="block">
+                <span className={FIELD_LABEL}>How to take it</span>
+                <textarea
+                  data-testid="input-catalog-how-to-take"
+                  className={`${INPUT_CLASS} min-h-[72px] w-full resize-y py-2 leading-relaxed`}
+                  value={draft.how_to_take}
+                  disabled={readOnly}
+                  maxLength={1000}
+                  onChange={(e) => setDraft((d) => ({ ...d, how_to_take: e.target.value }))}
+                />
+              </label>
+              <div className="grid gap-4 sm:grid-cols-[220px_minmax(0,1fr)]">
+                <label className="block">
+                  <span className={FIELD_LABEL}>Facts heading</span>
+                  <input
+                    data-testid="input-catalog-facts-title"
+                    className={`${INPUT_CLASS} h-9 w-full`}
+                    value={draft.facts_title}
+                    disabled={readOnly}
+                    maxLength={80}
+                    placeholder="Key Ingredients"
+                    onChange={(e) => setDraft((d) => ({ ...d, facts_title: e.target.value }))}
+                  />
+                </label>
+                <LinesField
+                  testId="input-catalog-facts"
+                  label="Supplement facts / ingredients"
+                  help={`One row per line as "Name${FACT_SEPARATOR}detail"; the detail is optional.`}
+                  value={draft.facts}
+                  disabled={readOnly}
+                  onChange={(facts) => setDraft((d) => ({ ...d, facts }))}
+                />
+              </div>
+              <LinesField
+                testId="input-catalog-faqs"
+                label="FAQs"
+                help="Question on one line, its answer on the next; leave a blank line between questions."
+                value={draft.faqs}
+                disabled={readOnly}
+                tall
+                onChange={(faqs) => setDraft((d) => ({ ...d, faqs }))}
+              />
+              <label className="block">
+                <span className={FIELD_LABEL}>Disclaimer</span>
+                <textarea
+                  data-testid="input-catalog-disclaimer"
+                  className={`${INPUT_CLASS} min-h-[60px] w-full resize-y py-2 leading-relaxed`}
+                  value={draft.disclaimer}
+                  disabled={readOnly}
+                  maxLength={600}
+                  onChange={(e) => setDraft((d) => ({ ...d, disclaimer: e.target.value }))}
+                />
+              </label>
+            </div>
+          </SectionCard>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-6">
@@ -304,6 +506,51 @@ function Editor({
                 </dd>
               </div>
             </dl>
+          </SectionCard>
+          <SectionCard title="Subscription plans" sub="Which renewal cadences patients may pick when an office sells this on subscription.">
+            <fieldset className="space-y-3 p-5" data-testid="catalog-cadences">
+              <legend className="sr-only">Offered cadences</legend>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {CADENCE_WEEKS.map((weeks) => (
+                  <label key={weeks} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      data-testid={`checkbox-cadence-${weeks}`}
+                      checked={draft.cadences.includes(weeks)}
+                      disabled={readOnly}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          cadences: e.target.checked ? [...d.cadences, weeks].sort((x, y) => x - y) : d.cadences.filter((w) => w !== weeks),
+                        }))
+                      }
+                    />
+                    <span>{CADENCE_LABEL[weeks]}</span>
+                  </label>
+                ))}
+              </div>
+              <label className="block">
+                <span className={FIELD_LABEL}>Preselected cadence</span>
+                <select
+                  data-testid="select-default-cadence"
+                  className={`${INPUT_CLASS} h-9 w-full`}
+                  value={draft.default_cadence}
+                  disabled={readOnly}
+                  onChange={(e) => setDraft((d) => ({ ...d, default_cadence: Number(e.target.value) as CadenceWeeks }))}
+                >
+                  {CADENCE_WEEKS.map((weeks) => (
+                    <option key={weeks} value={weeks} disabled={!draft.cadences.includes(weeks)}>
+                      {CADENCE_LABEL[weeks]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                {settings.subscribe_save_enabled
+                  ? `Subscribe and save is on: every cadence is quoted ${settings.subscribe_save_percent}% under the office price.`
+                  : 'Subscribe and save is off in program settings, so subscriptions charge the full office price.'}
+              </p>
+            </fieldset>
           </SectionCard>
           {product ? (
             <SectionCard title="Status" sub={PRODUCT_STATUS_HELP[product.status]}>
@@ -541,6 +788,43 @@ function UploadCard({ product, demo, canWrite, mutations }: { product: CatalogPr
   );
 }
 
+function LinesField({
+  testId,
+  label,
+  help,
+  value,
+  disabled,
+  tall,
+  onChange,
+}: {
+  testId: string;
+  label: string;
+  help: string;
+  value: string;
+  disabled: boolean;
+  tall?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const helpId = `${testId}-help`;
+  return (
+    <label className="block">
+      <span className={FIELD_LABEL}>{label}</span>
+      <textarea
+        data-testid={testId}
+        aria-describedby={helpId}
+        className={`${INPUT_CLASS} ${tall ? 'min-h-[160px]' : 'min-h-[96px]'} w-full resize-y py-2 leading-relaxed`}
+        value={value}
+        disabled={disabled}
+        maxLength={6000}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <span id={helpId} className="mt-1 block text-[11px] text-muted-foreground">
+        {help}
+      </span>
+    </label>
+  );
+}
+
 function isEqual(a: Draft, b: Draft): boolean {
-  return a.name === b.name && a.description === b.description && a.floor === b.floor && a.hard === b.hard;
+  return JSON.stringify(a) === JSON.stringify(b);
 }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,12 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = [
   "../../../../supabase/migrations/20261011000000_billing_connect.sql",
+  "../../../../supabase/migrations/20261012000000_billing_catalog_images_status.sql",
   "../../../../supabase/migrations/20261013020000_billing_webhook_retry_count.sql",
   "../../../../supabase/migrations/20261013030000_billing_subscription_dunning.sql",
+  "../../../../supabase/migrations/20261021000000_billing_product_pages.sql",
 ].map((migration) => path.resolve(here, migration));
+const MOBILE_CATALOG = path.resolve(here, "../../../thinnr-mobile/data/product-catalog.json");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -205,6 +208,40 @@ describe.skipIf(!POSTGRES_AVAILABLE)(
          where provider_id = 'provider-1' and product_id = '${productId}'`,
       );
       expect(new Date(after).getTime()).toBeGreaterThan(new Date(before).getTime());
+    });
+
+    it("seeds product-page content verbatim from the program catalog and defaults every cadence", () => {
+      type Fact = { name: string; detail?: string | null };
+      type Source = { slug: string; category: string; tagline: string; format: string; factsTitle: string; facts: Fact[]; benefits: string[]; disclaimer: string };
+      // Stored facts always carry a detail key (null when the source lists only the name).
+      const facts = (list: Fact[]) => list.map((fact) => ({ name: fact.name, detail: fact.detail ?? null }));
+      const source = (JSON.parse(readFileSync(MOBILE_CATALOG, "utf8")) as { products: Source[] }).products;
+      const seeded = rows<{ slug: string; category: string; tagline: string; format: string; facts_title: string; facts: unknown[]; benefits: string[]; disclaimer: string; how_to_take: string; faqs: unknown[]; offered_cadences_weeks: number[]; default_cadence_weeks: number }>(`
+        select slug, category, tagline, format, facts_title, facts, benefits, disclaimer, how_to_take, faqs,
+          offered_cadences_weeks, default_cadence_weeks
+        from public.billing_products order by sort_order
+      `);
+      expect(seeded.every((row) => row.tagline !== "" && row.how_to_take !== "" && row.benefits.length > 0)).toBe(true);
+      expect(seeded.every((row) => row.offered_cadences_weeks.join(",") === "2,4,6,8,10,12" && row.default_cadence_weeks === 4)).toBe(true);
+      // Wording is copied exactly from the program catalog wherever it has the product.
+      const compared = seeded.filter((row) => source.some((item) => item.slug === row.slug));
+      expect(compared.length).toBeGreaterThanOrEqual(7);
+      for (const row of compared) {
+        const item = source.find((candidate) => candidate.slug === row.slug)!;
+        expect({ slug: row.slug, category: row.category, tagline: row.tagline, format: row.format, facts_title: row.facts_title, facts: facts(row.facts as Fact[]), benefits: row.benefits, disclaimer: row.disclaimer })
+          .toEqual({ slug: item.slug, category: item.category, tagline: item.tagline, format: item.format, facts_title: item.factsTitle, facts: facts(item.facts), benefits: item.benefits, disclaimer: item.disclaimer });
+      }
+    });
+
+    it("constrains categories, cadences, and the subscribe-and-save percent", () => {
+      expect(fails("update public.billing_products set category = 'gadget' where slug = 'control'")).toMatch(/category/);
+      expect(fails("update public.billing_products set offered_cadences_weeks = '{3}' where slug = 'control'")).toMatch(/cadence/);
+      expect(fails("update public.billing_products set offered_cadences_weeks = '{}' where slug = 'control'")).toMatch(/cadence/);
+      expect(fails("update public.billing_products set offered_cadences_weeks = '{2,6}', default_cadence_weeks = 4 where slug = 'control'")).toMatch(/cadence/);
+      psql("update public.billing_products set offered_cadences_weeks = '{2,6}', default_cadence_weeks = 6 where slug = 'control'");
+      expect(fails("update public.billing_settings set subscribe_save_percent = 95")).toMatch(/subscribe_save/);
+      expect(rows("select subscribe_save_enabled, subscribe_save_percent from public.billing_settings")).toEqual([{ subscribe_save_enabled: false, subscribe_save_percent: 10 }]);
+      expect(scalar<string>("column_default from information_schema.columns where table_schema = 'public' and table_name = 'billing_office_prices' and column_name = 'stripe_cadence_prices'")).toContain("'{}'");
     });
 
     it("rejects a second settings row", () => {

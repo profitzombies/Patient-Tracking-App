@@ -82,8 +82,51 @@ export interface BillingSettings {
   shipping_cost_cents: number;
   card_fee_bps: number;
   card_fee_fixed_cents: number;
+  /** Subscribe-and-save: when off, no discount is quoted or charged anywhere. */
+  subscribe_save_enabled: boolean;
+  /** Whole percent off every subscription renewal while enabled (kept while off). */
+  subscribe_save_percent: number;
   version: number;
   updated_at: string | null;
+}
+
+/** Subscription renewal cadences a product may offer, in weeks. */
+export type CadenceWeeks = 2 | 4 | 6 | 8 | 10 | 12;
+export const CADENCE_WEEKS: readonly CadenceWeeks[] = [2, 4, 6, 8, 10, 12];
+
+export type ProductCategory = 'drops' | 'supplement' | 'bundle';
+
+/** One supplement-facts / ingredients row. */
+export interface ProductFactRow {
+  name: string;
+  detail: string | null;
+}
+
+export interface ProductFaq {
+  question: string;
+  answer: string;
+}
+
+/** Product-page content, drafted from the program documents and edited by HQ. */
+export interface ProductPageContent {
+  category: ProductCategory;
+  tagline: string;
+  /** e.g. "Dietary Supplement · 60 Vegetarian Capsules". */
+  format: string;
+  benefits: string[];
+  how_to_take: string;
+  /** Heading for `facts` (e.g. "Key Ingredients", "Active Ingredients (HPUS)"). */
+  facts_title: string;
+  facts: ProductFactRow[];
+  faqs: ProductFaq[];
+  /** Regulatory disclaimer that travels with the copy. */
+  disclaimer: string;
+}
+
+/** Which subscription cadences a product offers and which one is preselected. */
+export interface ProductCadences {
+  offered_cadences_weeks: CadenceWeeks[];
+  default_cadence_weeks: CadenceWeeks;
 }
 
 export type ProductStatus = 'draft' | 'active' | 'retired' | 'archived';
@@ -99,7 +142,7 @@ export interface ProductImage {
   created_at: string;
 }
 
-export interface CatalogProduct {
+export interface CatalogProduct extends ProductPageContent, ProductCadences {
   id: string;
   slug: string;
   name: string;
@@ -155,11 +198,13 @@ export interface CatalogChange {
   created_at: string;
 }
 
-export interface OfficePrice {
+export interface OfficePrice extends ProductCadences {
   product_id: string;
   slug: string;
   name: string;
   description: string;
+  category: ProductCategory;
+  tagline: string;
   image_url: string | null;
   active: boolean;
   floor_price_cents: number;
@@ -168,6 +213,10 @@ export interface OfficePrice {
   subscription_enabled: boolean;
   offered: boolean;
   below_minimum: boolean;
+  /** Effective subscribe-and-save percent (0 while the HQ setting is off). */
+  subscribe_save_percent: number;
+  /** Per-renewal unit price after subscribe-and-save; null unless priced with subscriptions on. */
+  subscription_price_cents: number | null;
 }
 
 export interface PaymentLink {
@@ -466,7 +515,10 @@ export interface OfficeRefundRow {
 
 export interface OfficePricesResponse {
   products: OfficePrice[];
-  settings: { shipping_charge_cents: number; card_fee_bps: number; card_fee_fixed_cents: number };
+  settings: {
+    shipping_charge_cents: number; card_fee_bps: number; card_fee_fixed_cents: number;
+    subscribe_save_enabled: boolean; subscribe_save_percent: number;
+  };
 }
 
 export interface PatientSearchHit {
@@ -567,7 +619,7 @@ export interface HqCatalogResponse {
   offices_below_minimum: number;
 }
 
-export interface CatalogProductInput {
+export interface CatalogProductInput extends Partial<ProductPageContent>, Partial<ProductCadences> {
   name: string;
   slug?: string;
   description?: string;
@@ -591,13 +643,23 @@ export interface FulfillmentUpdate {
 
 // ---------- public ----------
 
-export interface PublicLinkProduct {
+export interface PublicLinkProduct extends ProductPageContent {
   product_id: string;
   name: string;
   description: string;
   image_url: string | null;
+  /** The office's price, or the catalog floor price when the office has not priced the product. */
   unit_price_cents: number;
+  /** False when the office has not set its own price (floor fallback). */
+  office_priced: boolean;
   subscription_available: boolean;
+  /** Cadences the patient may subscribe on (empty unless subscription_available). */
+  subscription_cadences_weeks: CadenceWeeks[];
+  default_cadence_weeks: CadenceWeeks;
+  /** Effective subscribe-and-save percent (0 while off or when subscriptions are unavailable). */
+  subscribe_save_percent: number;
+  /** Per-renewal unit price after subscribe-and-save; null when subscriptions are unavailable. */
+  subscription_unit_price_cents: number | null;
 }
 
 export interface PublicLink {

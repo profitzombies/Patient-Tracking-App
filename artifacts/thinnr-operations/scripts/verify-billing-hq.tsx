@@ -16,7 +16,7 @@ import { DEMO_CATALOG, DEMO_SUBSCRIPTIONS } from '../src/pages/admin/payments/de
 import { PaymentsCatalogHistory } from '../src/pages/admin/payments/catalog/CatalogHistory';
 import { ProductEditorPage } from '../src/pages/admin/payments/catalog/ProductEditor';
 import { PaymentsHealthBannerView } from '../src/components/billing/PaymentsHealthBanner';
-import type { PaymentsHealth } from '../src/lib/billing-types';
+import { CADENCE_WEEKS, type HqCatalogResponse, type PaymentsHealth } from '../src/lib/billing-types';
 import { AreaChart, hourLabel } from '../src/components/billing/hq/RevenueCharts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -206,6 +206,7 @@ await check('transactions demo rows', '/admin/payments/transactions', PaymentsTr
 await check('fulfillment demo rows', '/admin/payments/fulfillment?status=to_ship', PaymentsFulfillment, ['TH-D3MO01', 'Mark shipped', 'Copy address']);
 await check('catalog demo rows', '/admin/payments/catalog', PaymentsCatalog, [
   'Control', 'Maintenance + Detox Stack', 'Add product', 'Active products', 'Program settings', 'Card fee rate', '"2.90"', '/admin/payments/catalog/products/new',
+  'Metabolic & Appetite Support', 'Supplement · Every 2, 4, 6, 8, 10 or 12 weeks · default 4', 'Drops · Every 4, 8 or 12 weeks · default 4', 'Subscribe and save',
 ]);
 await check('catalog history demo rows', '/admin/payments/catalog/history', PaymentsCatalogHistory, [
   'Office price changed', 'Jenkins Wellness', 'Alex Morgan', '/admin/team?member=hq-1', 'floor $109.99 → $119.99', 'price $79.99 → $84.99', ':27',
@@ -214,7 +215,10 @@ await check(
   'product editor demo page',
   '/admin/payments/catalog/products/catalog-1',
   () => <ProductEditorPage params={{ productId: 'catalog-1' }} />,
-  ['Control', 'Back to product catalog', 'Pictures', 'Fee math', 'Retire', 'Archive', 'Drag pictures here', 'Browse files'],
+  ['Control', 'Back to product catalog', 'Pictures', 'Fee math', 'Retire', 'Archive', 'Drag pictures here', 'Browse files',
+    'Product page', 'Metabolic & Appetite Support', 'Dietary Supplement · 60 Vegetarian Capsules', 'Helps support healthy appetite**',
+    'African Mango — Helps support healthy appetite and metabolic function.**', 'Where can I get Control?', 'Subscription plans', 'Every 12 weeks',
+    'Subscribe and save is on: every cadence is quoted 10% under the office price.'],
 );
 await check(
   'provider detail back link',
@@ -247,6 +251,81 @@ await check(
   ].filter(Boolean);
   if (problems.length) { failures += 1; console.error(`FAIL new product live fee math: ${problems.join('; ')}`); }
   else console.log('ok new product live fee math');
+  await act(async () => { renderer!.unmount(); });
+}
+
+{
+  // Product-page editor round-trip: the line-based fields parse back into the
+  // exact structures the API stores, and the cadence rules are enforced before save.
+  const { parseFacts, factsToText, parseFaqs, faqsToText, parseLines } = await import('../src/pages/admin/payments/catalog/ProductEditor');
+  const control = DEMO_CATALOG.products[0];
+  const boost = DEMO_CATALOG.products[6];
+  const roundTrips = [
+    JSON.stringify(parseFacts(factsToText(control.facts))) === JSON.stringify(control.facts),
+    JSON.stringify(parseFacts(factsToText(boost.facts))) === JSON.stringify(boost.facts),
+    JSON.stringify(parseFaqs(faqsToText(boost.faqs))) === JSON.stringify(boost.faqs),
+    JSON.stringify(parseLines(control.benefits.join('\n'))) === JSON.stringify(control.benefits),
+    JSON.stringify(parseFacts('Creatine Monohydrate — 5 g — helps support lean muscle**')) === JSON.stringify([{ name: 'Creatine Monohydrate', detail: '5 g — helps support lean muscle**' }]),
+  ];
+  const location = memoryLocation({ path: '/admin/payments/catalog/products/catalog-1' });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/admin/payments" nest><ProductEditorPage params={{ productId: 'catalog-1' }} /></Route></Router></DateRangeProvider></QueryClientProvider>);
+  });
+  const byId = (id: string) => renderer!.root.find(node => node.props['data-testid'] === id && ['input', 'select', 'textarea', 'button'].includes(String(node.type)));
+  const checked = () => CADENCE_WEEKS.filter(weeks => byId(`checkbox-cadence-${weeks}`).props.checked);
+  const initial = checked().join(',');
+  // Uncheck everything but 4 and 8, then pick 8 as the default.
+  for (const weeks of [2, 6, 10, 12]) await act(async () => { byId(`checkbox-cadence-${weeks}`).props.onChange({ target: { checked: false } }); });
+  await act(async () => { byId('select-default-cadence').props.onChange({ target: { value: '8' } }); });
+  const trimmed = checked().join(',');
+  const defaultAfter = byId('select-default-cadence').props.value;
+  const disabledOptions = byId('select-default-cadence').findAll(node => node.type === 'option' && node.props.disabled).map(node => node.props.value);
+  // Dropping the default's cadence must be caught before any save.
+  await act(async () => { byId('checkbox-cadence-8').props.onChange({ target: { checked: false } }); });
+  const saveButton = renderer!.root.find(node => node.type === 'button' && String(node.children.join('')) === 'Save changes');
+  await act(async () => { saveButton.props.onClick(); });
+  const alertText = JSON.stringify(renderer!.root.findAll(node => node.props.role === 'alert').map(node => JSON.stringify(node.children)));
+  const problems = [
+    roundTrips.some(ok => !ok) ? `field round-trips failed: ${roundTrips.map(ok => (ok ? 'ok' : 'FAIL')).join(',')}` : '',
+    initial !== '2,4,6,8,10,12' ? `expected every cadence offered initially, got ${initial}` : '',
+    trimmed !== '4,8' ? `expected 4,8 offered after unchecking, got ${trimmed}` : '',
+    Number(defaultAfter) !== 8 ? `default should be 8, got ${defaultAfter}` : '',
+    disabledOptions.join(',') !== '2,6,10,12' ? `unoffered cadences should be disabled as defaults, got ${disabledOptions.join(',')}` : '',
+    !alertText.includes('default cadence must be one of the offered cadences') ? `expected the default-cadence error, got ${alertText}` : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL product page editor: ${problems.join('; ')}`); }
+  else console.log('ok product page editor');
+  await act(async () => { renderer!.unmount(); });
+}
+
+{
+  // Subscribe-and-save: the percent field follows the switch, and the saved body carries both.
+  const location = memoryLocation({ path: '/admin/payments/catalog' });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const tree = (data: HqCatalogResponse) => (
+    <QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><SettingsCard data={data} canWrite demo={false} /></Router></DateRangeProvider></QueryClientProvider>
+  );
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => { renderer = create(tree({ ...DEMO_CATALOG, settings: { ...DEMO_CATALOG.settings, subscribe_save_enabled: false, subscribe_save_percent: 15 } })); });
+  const toggle = () => renderer!.root.find(node => node.props['data-testid'] === 'checkbox-settings-subscribe-save' && node.type === 'input');
+  const percent = () => renderer!.root.find(node => node.props['data-testid'] === 'input-settings-subscribe-save-percent' && node.type === 'input');
+  const offState = { checked: toggle().props.checked, disabled: percent().props.disabled, value: percent().props.value };
+  await act(async () => { toggle().props.onChange({ target: { checked: true } }); });
+  const onState = { checked: toggle().props.checked, disabled: percent().props.disabled };
+  await act(async () => { percent().props.onChange({ target: { value: '95' } }); });
+  await act(async () => { renderer!.root.find(node => node.props['data-testid'] === 'button-settings-save').props.onClick(); });
+  const tooHigh = JSON.stringify(renderer!.root.findAll(node => node.props.role === 'alert').map(node => JSON.stringify(node.children)));
+  const text = JSON.stringify(renderer!.toJSON());
+  const problems = [
+    offState.checked !== false || offState.disabled !== true || offState.value !== '15' ? `off state wrong: ${JSON.stringify(offState)}` : '',
+    onState.checked !== true || onState.disabled !== false ? `on state wrong: ${JSON.stringify(onState)}` : '',
+    !tooHigh.includes('whole number from 0 to 90') ? `95% should be refused before saving, got ${tooHigh}` : '',
+    !text.includes('quoted at the office price minus this discount') ? 'on-state help copy missing' : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL subscribe-and-save settings: ${problems.join('; ')}`); }
+  else console.log('ok subscribe-and-save settings');
   await act(async () => { renderer!.unmount(); });
 }
 

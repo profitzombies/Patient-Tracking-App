@@ -51,6 +51,7 @@ import {
 import { hqBilling } from '@/lib/billing-api';
 import {
   accountStatusLabel,
+  cadenceSummary,
   formatCents,
   formatDate,
   formatDateTime,
@@ -395,6 +396,7 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
                     <th>Floor</th>
                     <th>Minimum</th>
                     <th>Office price</th>
+                    <th className="text-left">Subscription</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -411,13 +413,25 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
                       <td>
                         <MoneyCell cents={p.sell_price_cents} />
                       </td>
+                      <td className="max-w-[26ch] py-2 pr-3 text-left text-[11px] leading-snug text-muted-foreground" data-testid={`text-provider-plan-${p.product_id}`}>
+                        {p.subscription_enabled ? (
+                          <>
+                            {cadenceSummary(p.offered_cadences_weeks, p.default_cadence_weeks)}
+                            {p.subscribe_save_percent > 0 && p.subscription_price_cents != null
+                              ? ` · save ${p.subscribe_save_percent}% (${formatCents(p.subscription_price_cents)})`
+                              : ''}
+                          </>
+                        ) : (
+                          'Not offered'
+                        )}
+                      </td>
                       <td>
                         {p.below_minimum ? (
                           <StatusPill tone="bad">Below minimum</StatusPill>
                         ) : p.offered ? (
-                          'Offered'
+                          'Own price'
                         ) : (
-                          'Not offered'
+                          'Default price'
                         )}
                       </td>
                     </tr>

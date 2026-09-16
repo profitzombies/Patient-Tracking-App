@@ -1,7 +1,8 @@
 import type {
   CatalogChange, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
-  HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, SeriesPoint, SubscriptionRow,
+  HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, ProductPageContent, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
+import { DEMO_PRODUCT_PAGES } from './demo-product-pages';
 
 /**
  * Thirty fixed daily points ending on the demo anchor (Sept 24, 2026). Sums
@@ -177,16 +178,26 @@ const productBlurbs: Record<string, string> = {
   boost: 'Metabolic support for stalled progress.', 'maintenance-stack': 'The core maintenance routine after goal weight.',
   'maintenance-stack-2': 'A two-product maintenance routine.', 'maintenance-detox-stack': 'Maintenance plus a periodic detox reset.',
 };
+const EMPTY_PAGE: ProductPageContent = {
+  category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
+};
+function demoPage(slug: string): ProductPageContent {
+  const page = DEMO_PRODUCT_PAGES[slug];
+  if (!page) return EMPTY_PAGE;
+  const { description: _description, ...content } = page;
+  return content;
+}
 export const DEMO_CATALOG: HqCatalogResponse = {
   products: productSeeds.map(([slug, name, floor, hard, minimum], index) => ({
     id: `catalog-${index + 1}`, slug, name, description: productBlurbs[slug] ?? '', floor_price_cents: floor, hard_cost_cents: hard,
+    ...demoPage(slug), offered_cadences_weeks: index === 6 ? [4, 8, 12] : [2, 4, 6, 8, 10, 12], default_cadence_weeks: 4,
     active: index !== 8, status: index === 8 ? 'retired' : 'active', retired_at: index === 8 ? '2026-09-18T12:00:00Z' : null,
     archived_at: null, image_url: null, image_count: 0, updated_at: '2026-09-21T14:00:00Z', sort_order: index + 1,
     thinnr_share_cents: Math.floor(floor * .6), break_even_minimum_cents: minimum,
     hq_profit_per_unit_cents: Math.floor(floor * .6) - hard, offices_offering: 3 + index % 4,
     offices_below_minimum: index === 6 ? 2 : 0,
   })),
-  settings: { shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, version: 4, updated_at: '2026-09-21T14:00:00Z' },
+  settings: { shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, subscribe_save_enabled: true, subscribe_save_percent: 10, version: 4, updated_at: '2026-09-21T14:00:00Z' },
   offices_below_minimum: 2,
 };
 
@@ -208,9 +219,13 @@ export const DEMO_PROVIDER_DETAILS: Record<string, HqProviderDetail> = Object.fr
     ] : [],
     prices: DEMO_CATALOG.products.slice(0, 5).map((product, productIndex) => ({
       product_id: product.id, slug: product.slug, name: product.name, description: product.description, image_url: null, active: product.active,
+      category: product.category, tagline: product.tagline,
+      offered_cadences_weeks: product.offered_cadences_weeks, default_cadence_weeks: product.default_cadence_weeks,
       floor_price_cents: product.floor_price_cents, break_even_minimum_cents: product.break_even_minimum_cents,
       sell_price_cents: index === 5 && productIndex < 2 ? product.break_even_minimum_cents - 100 : product.floor_price_cents + 2000,
       subscription_enabled: productIndex < 2, offered: true, below_minimum: index === 5 && productIndex < 2,
+      subscribe_save_percent: productIndex < 2 ? 10 : 0,
+      subscription_price_cents: productIndex < 2 ? Math.round((product.floor_price_cents + 2000) * 0.9) : null,
     })),
     subscriptions: { active: index + 1, past_due: index === 3 ? 1 : 0, canceled: index % 2 },
     activity_30d: {

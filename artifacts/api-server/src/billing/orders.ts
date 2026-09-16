@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
-import { getSettings } from "./catalog";
+import { getSettings, resolveOffering } from "./catalog";
 import { breakEvenMinimum, computeOrderFees, estimateStripeFee, hqProfit } from "./fees";
 import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
@@ -45,18 +45,21 @@ export async function quoteOrder(link: BillingPaymentLinkRow, items: ItemInput[]
   const productMap = new Map(products.map((row) => [row.id, row]));
   const seen = new Set<string>();
   const lines = items.map((item): QuoteLine => {
-    const price = priceMap.get(item.product_id);
+    const price = priceMap.get(item.product_id) ?? null;
     const product = productMap.get(item.product_id);
-    if (seen.has(item.product_id) || !price || !product || (purchase === "subscription" && !price.subscription_enabled)) {
+    // Unpriced products sell one-time at the catalog floor price; subscriptions
+    // need the office's own price (that is what the Stripe mirror is built on).
+    const offering = product ? resolveOffering(product, price, settings) : null;
+    if (seen.has(item.product_id) || !product || !offering || (purchase === "subscription" && !price?.subscription_enabled)) {
       throw new BillingOrderError("One or more products are not available.", 400, "items");
     }
-    if (price.sell_price_cents < breakEvenMinimum(product.floor_price_cents, settings)) {
+    if (offering.unit_price_cents < breakEvenMinimum(product.floor_price_cents, settings)) {
       throw new BillingOrderError(`${product.name} has a price below the current minimum.`, 409, "items");
     }
     seen.add(item.product_id);
     return {
       product_id: product.id, name: product.name, quantity: item.quantity,
-      unit_price_cents: price.sell_price_cents, floor_price_cents: product.floor_price_cents,
+      unit_price_cents: offering.unit_price_cents, floor_price_cents: product.floor_price_cents,
       hard_cost_cents: product.hard_cost_cents, stripe_tax_code: product.stripe_tax_code,
     };
   });

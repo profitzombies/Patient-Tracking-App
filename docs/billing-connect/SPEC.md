@@ -167,6 +167,21 @@ trigger pattern if one exists, otherwise a new `billing_touch_updated_at()`).
   maintenance-stack→Maintenance Stack 9999/1249,
   maintenance-stack-2→Maintenance Stack – 2 Products 9999/1249,
   maintenance-detox-stack→Maintenance + Detox Stack 14999/1928.
+- Product pages and plans (migration `20261021000000_billing_product_pages.sql`, additive):
+  `billing_products` gains `category text` (`drops|supplement|bundle`), `tagline`, `format`,
+  `benefits jsonb` (string[]), `how_to_take`, `facts_title`, `facts jsonb` (`[{name, detail|null}]`),
+  `faqs jsonb` (`[{question, answer}]`), `disclaimer`, `offered_cadences_weeks int[]`
+  (subset of `{2,4,6,8,10,12}`, non-empty, default `{4}`) and `default_cadence_weeks int`
+  (must be offered, default 4). Content is seeded verbatim from the program catalog
+  (`artifacts/thinnr-mobile/data/product-catalog.json`; Boost FAQs from the protocol
+  knowledge base) and is HQ-editable; every change lands in `billing_catalog_changes`
+  as `product_updated` with the full before/after snapshot, exactly like prices.
+  `billing_settings` gains `subscribe_save_enabled bool default false` and
+  `subscribe_save_percent int default 10` (0–90). When the switch is off the effective
+  percent is 0 everywhere: nothing is quoted, mirrored, or charged. `billing_office_prices`
+  gains `stripe_cadence_prices jsonb` (`{"<weeks>": {price_id, unit_amount_cents, shipping_price_id}}`),
+  the per-cadence Stripe mirror; the legacy `stripe_price_id` stays the full-price 4-week price
+  existing subscriptions renew on. Existing subscriptions are the 4-week cadence with no discount.
 - `billing_catalog_changes`: `id`, `product_id null`, `kind text`
   (`product_created|product_updated|product_retired|product_reactivated|settings_updated`),
   `before jsonb`, `after jsonb`, `actor_user_id uuid`, `created_at`.
@@ -186,7 +201,11 @@ trigger pattern if one exists, otherwise a new `billing_touch_updated_at()`).
   `stripe_price_id text null` (recurring 4-week price mirrored on the connected
   account; recreated when sell price changes — old price archived),
   `stripe_shipping_price_id text null`, `updated_by`, pk(provider_id, product_id).
-  Missing row ⇒ product not offered by that office (offices opt in per product).
+  Missing row ⇒ the office has not priced the product: it is still shown to that
+  office's patients at the catalog floor price (one-time only, no subscription)
+  as long as the floor clears the break-even minimum; `offered` in the office
+  price list means "has its own price row". Offices control price, HQ controls
+  which products exist (retire/archive removes a product everywhere).
 - `billing_payment_links`: `id uuid`, `token text unique` (32 url-safe chars),
   `provider_id`, `patient_id uuid null` (per-patient link locks identity),
   `created_by uuid`, `label text null`, `active bool default true`,
@@ -315,6 +334,24 @@ office too), create Customer, `subscriptions.create` with
 `expand: ["latest_invoice.payment_intent"]`, metadata with `thinnr_subscription_id`.
 Store `billing_subscriptions` (`incomplete`) + an order with kind
 `subscription_initial` (`pending`), return the PI `client_secret`.
+
+**Cadence mirror (`prices.ts`, `ensureRecurringPrices`):** after the legacy
+4-week mirror above, one recurring price per cadence the product offers is
+mirrored into `billing_office_prices.stripe_cadence_prices`, each with a
+matching shipping price (every item on a Stripe subscription must share an
+interval). The unit amount is the office price minus subscribe-and-save
+(`sell − round(sell × pct / 100)`, pct = 0 while the switch is off), so office
+net reporting stays exact integer cents; no coupons are created. Idempotency
+keys are versioned: `price:<office>:<product>:<weeks>w:<unit>:<replaced id|initial>:<acct>`
+and `shipping-price:<office>:<weeks>w:<cents>:<replaced id|initial>:<acct>`.
+A price that still matches (active, same amount, same weekly interval) is
+reused untouched; the legacy 4-week price doubles as the 4-week cadence
+whenever the discount is off. Replaced cadence prices are archived (the
+legacy price never is, existing subscriptions renew on it); prices that
+vanished from the account are rebuilt without archiving. Cadences HQ stops
+offering keep their entries but are not refreshed. Checkout today still
+subscribes on the legacy 4-week price with no discount; choosing a cadence at
+checkout is a later task.
 Webhooks: `invoice.paid` (subscription_create ⇒ initial order paid + fee
 adjustment; subscription_cycle ⇒ create a `subscription_renewal` order from
 the invoice lines), `invoice.created` with `billing_reason=subscription_cycle`
@@ -374,7 +411,8 @@ and `?cursor=` (opaque created_at|id) and return `{ items, next_cursor }`.
 - `POST /connect/account-session` → `{ client_secret, publishable_key, sandbox }`
 - `POST /connect/sync` → `{ account }`
 - `GET  /dashboard?from&to` → `{ balance: { available_cents, pending_cents }, next_payout: {amount_cents, arrival_date}|null, collected_cents, thinnr_fee_cents, stripe_fee_cents, refunded_cents, net_cents, orders: n, active_subscriptions: n, series: [{date, collected_cents, net_cents}] }`
-- `GET  /prices` → `{ products: [{ product_id, slug, name, floor_price_cents, break_even_minimum_cents, sell_price_cents|null, subscription_enabled, offered, below_minimum }] , settings: { shipping_charge_cents } }`
+- `GET  /prices` → `{ products: [{ product_id, slug, name, description, category, tagline, image_url, active, floor_price_cents, break_even_minimum_cents, sell_price_cents|null, subscription_enabled, offered, below_minimum, offered_cadences_weeks, default_cadence_weeks, subscribe_save_percent (0 when off or not subscribable), subscription_price_cents|null (per-renewal unit after the discount) }] , settings: { shipping_charge_cents, card_fee_bps, card_fee_fixed_cents, subscribe_save_enabled, subscribe_save_percent } }`
+  Cadences and the discount are read-only for offices (HQ owns them); a product the office has not priced is still shown to its patients at the floor price (one-time only).
 - `PUT  /prices/:product_id` `{ sell_price_cents|null (null = stop offering), subscription_enabled }` → 400 `field:"sell_price_cents"` below minimum → `{ product }`
 - `GET  /links` / `POST /links { patient_id?, label? }` / `DELETE /links/:id` (deactivate) → link rows with `url`
 - `GET  /orders?status&fulfillment&patient_id&from&to&q` / `GET /orders/:id` (items, fee breakdown, refunds, disputes, ledger) / `POST /orders/:id/refund`
@@ -388,14 +426,15 @@ and `?cursor=` (opaque created_at|id) and return `{ items, next_cursor }`.
 - `GET  /providers/:provider_id` → `{ office, account, events, prices (with floor/min/sell/flag), subscriptions summary, recent orders, payouts }`
 - `GET  /transactions?provider_id&status&kind&from&to&q` / `GET /transactions/:id` (everything incl. hq profit + fulfillment + stripe refs) / `POST /transactions/:id/refund` (`provider_manage`)
 - `GET  /fulfillment?status=to_ship|shipped|canceled&provider_id&q` / `PUT /fulfillment/:order_id { status, tracking_number?, carrier?, canceled_reason? }` (`provider_manage`) — shipping an order emails the payer the tracking number.
-- `GET  /catalog` → `{ products: [ …, thinnr_share_cents, break_even_minimum_cents, hq_profit_per_unit_cents ], settings, offices_below_minimum: n }`
-- `POST /catalog/products` / `PUT /catalog/products/:id` / `POST /catalog/products/:id/retire` / `POST /catalog/products/:id/reactivate` (`settings_manage`; record change rows)
-- `PUT  /catalog/settings { shipping_charge_cents, shipping_cost_cents, card_fee_bps, card_fee_fixed_cents, expected_version }` (409 stale)
+- `GET  /catalog` → `{ products: [ …, category, tagline, format, benefits, how_to_take, facts_title, facts, faqs, disclaimer, offered_cadences_weeks, default_cadence_weeks, thinnr_share_cents, break_even_minimum_cents, hq_profit_per_unit_cents ], settings (incl. subscribe_save_enabled, subscribe_save_percent), offices_below_minimum: n }`
+- `POST /catalog/products` / `PUT /catalog/products/:id` / `POST /catalog/products/:id/retire` / `POST /catalog/products/:id/reactivate` (`settings_manage`; record change rows). Product bodies accept every page-content field plus `offered_cadences_weeks` (non-empty subset of 2/4/6/8/10/12) and `default_cadence_weeks` (400 `field:"default_cadence_weeks"` when not offered); all optional so older clients keep working.
+- `PUT  /catalog/settings { shipping_charge_cents, shipping_cost_cents, card_fee_bps, card_fee_fixed_cents, subscribe_save_enabled?, subscribe_save_percent? (0–90), expected_version }` (409 stale; omitted subscribe-and-save fields keep their value)
 - `GET  /catalog/changes` → change history with actor display names.
 - `GET  /subscriptions?provider_id&status` → program-wide list.
 
 ### Public (`/api/billing/public/...`)
-- `GET  /links/:token`, `POST /links/:token/orders`, `GET /orders/:id/status?token=`,
+- `GET  /links/:token` → link products carry the page content (`category, tagline, format, benefits, how_to_take, facts_title, facts, faqs, disclaimer`), `office_priced` (false = floor-price fallback, one-time only), `subscription_available`, `subscription_cadences_weeks` (empty unless subscribable), `default_cadence_weeks`, `subscribe_save_percent` (0 when off) and `subscription_unit_price_cents|null`. Priced products list first in the office's order, then unpriced active products by catalog order. The same builder feeds the patient app's `GET /api/patient/billing/overview`.
+- `POST /links/:token/orders`, `GET /orders/:id/status?token=`,
   `GET /subscriptions/:cancel_token`, `POST /subscriptions/:cancel_token/cancel`,
   `GET /config` → `{ sandbox }` (for the badge before a link loads).
 

@@ -7,9 +7,10 @@ import {
   type BillingProductImageRow, type BillingProductRow, type BillingProductStatus, type BillingSettingsRow,
 } from "./store";
 import type {
-  BillingSettings, CatalogChange, CatalogChangeKind, CatalogProduct, CatalogProductDetail, CatalogProductInput,
-  HqCatalogResponse, ProductImage, PublicLinkProduct,
+  BillingSettings, CadenceWeeks, CatalogChange, CatalogChangeKind, CatalogProduct, CatalogProductDetail, CatalogProductInput,
+  HqCatalogResponse, ProductCadences, ProductImage, ProductPageContent, PublicLinkProduct,
 } from "./types";
+import { CADENCE_WEEKS } from "./types";
 
 export class BillingCatalogError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -24,8 +25,33 @@ function settingsDto(row: BillingSettingsRow): BillingSettings {
   return {
     shipping_charge_cents: row.shipping_charge_cents, shipping_cost_cents: row.shipping_cost_cents,
     card_fee_bps: row.card_fee_bps, card_fee_fixed_cents: row.card_fee_fixed_cents,
+    subscribe_save_enabled: row.subscribe_save_enabled, subscribe_save_percent: row.subscribe_save_percent,
     version: row.version, updated_at: row.updated_at ?? null,
   };
+}
+/** The percent actually applied to subscriptions: zero whenever the HQ switch is off. */
+export function subscribeSavePercent(settings: Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent">): number {
+  return settings.subscribe_save_enabled ? settings.subscribe_save_percent : 0;
+}
+/** Per-renewal unit price after subscribe-and-save (whole cents; the discount rounds half up). */
+export function subscriptionUnitPrice(sellPriceCents: number, percent: number): number {
+  return sellPriceCents - Math.round((sellPriceCents * percent) / 100);
+}
+/** Product-page content exactly as stored (defaults keep older rows well-formed). */
+export function pageContent(row: BillingProductRow): ProductPageContent {
+  return {
+    category: row.category ?? "supplement", tagline: row.tagline ?? "", format: row.format ?? "",
+    benefits: Array.isArray(row.benefits) ? row.benefits : [], how_to_take: row.how_to_take ?? "",
+    facts_title: row.facts_title ?? "", facts: Array.isArray(row.facts) ? row.facts : [],
+    faqs: Array.isArray(row.faqs) ? row.faqs : [], disclaimer: row.disclaimer ?? "",
+  };
+}
+/** Offered cadences, normalized to the fixed set; rows predating cadences read as the 4-week plan. */
+export function productCadences(row: Pick<BillingProductRow, "offered_cadences_weeks" | "default_cadence_weeks">): ProductCadences {
+  const offered = CADENCE_WEEKS.filter((weeks) => (row.offered_cadences_weeks ?? [4]).includes(weeks));
+  const listed = offered.length ? offered : [4 as CadenceWeeks];
+  const fallback = listed.includes(4) ? 4 as CadenceWeeks : listed[0];
+  return { offered_cadences_weeks: listed, default_cadence_weeks: listed.includes(row.default_cadence_weeks) ? row.default_cadence_weeks : fallback };
 }
 export async function getSettings(): Promise<BillingSettingsRow> {
   const row = await selectOne("billing_settings", "id=eq.1");
@@ -60,24 +86,54 @@ export async function loadDefaultImages(): Promise<Map<string, BillingProductIma
 
 /** The single payer-facing offering builder shared by public and patient checkout reads. */
 export async function officeOffering(providerId: string): Promise<PublicLinkProduct[]> {
-  const [prices, products, images] = await Promise.all([
+  const [prices, products, images, settings] = await Promise.all([
     selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}`),
     selectMany("billing_products", "active=eq.true"),
     loadDefaultImages(),
+    getSettings(),
   ]);
-  const productMap = new Map(products.map((product) => [product.id, product]));
-  return prices.flatMap((price) => {
-    const product = productMap.get(price.product_id);
-    const image = images.get(price.product_id);
-    return product ? [{
+  const priceMap = new Map(prices.map((price) => [price.product_id, price]));
+  const percent = subscribeSavePercent(settings);
+  // Products the office priced come first (in the office's own order), then
+  // every other active product at the catalog floor price.
+  const ordered = [
+    ...prices.flatMap((price) => products.filter((product) => product.id === price.product_id)),
+    ...products.filter((product) => !priceMap.has(product.id)).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+  ];
+  return ordered.flatMap((product) => {
+    const price = priceMap.get(product.id);
+    const image = images.get(product.id);
+    const offering = resolveOffering(product, price ?? null, settings);
+    if (!offering) return [];
+    const cadences = productCadences(product);
+    const subscribable = Boolean(price?.subscription_enabled);
+    return [{
       product_id: product.id,
       name: product.name,
       description: product.description ?? "",
+      ...pageContent(product),
       image_url: image ? productImageUrl(image.id) : null,
-      unit_price_cents: price.sell_price_cents,
-      subscription_available: price.subscription_enabled,
-    }] : [];
+      unit_price_cents: offering.unit_price_cents,
+      office_priced: offering.office_priced,
+      subscription_available: subscribable,
+      subscription_cadences_weeks: subscribable ? cadences.offered_cadences_weeks : [],
+      default_cadence_weeks: cadences.default_cadence_weeks,
+      subscribe_save_percent: subscribable ? percent : 0,
+      subscription_unit_price_cents: subscribable ? subscriptionUnitPrice(offering.unit_price_cents, percent) : null,
+    }];
   });
+}
+/**
+ * What a patient of this office pays per unit: the office's own price, else
+ * the catalog floor price. Null when nothing can be sold (a floor that no
+ * longer covers processing costs).
+ */
+export function resolveOffering(
+  product: Pick<BillingProductRow, "floor_price_cents">, price: { sell_price_cents: number } | null, settings: FeeSettings,
+): { unit_price_cents: number; office_priced: boolean } | null {
+  if (price) return { unit_price_cents: price.sell_price_cents, office_priced: true };
+  if (product.floor_price_cents < breakEvenMinimum(product.floor_price_cents, settings)) return null;
+  return { unit_price_cents: product.floor_price_cents, office_priced: false };
 }
 
 /** Every catalog write lands one audit row; office price changes ride the same table. */
@@ -95,7 +151,21 @@ const change = (productId: string | null, kind: CatalogChangeKind, before: Recor
 const snapshot = (row: BillingProductRow): Record<string, unknown> => ({
   slug: row.slug, name: row.name, description: row.description, floor_price_cents: row.floor_price_cents,
   hard_cost_cents: row.hard_cost_cents, status: row.status, sort_order: row.sort_order,
+  ...pageContent(row), ...productCadences(row),
 });
+/** Validates the page-content and cadence half of a product write; returns only the keys present. */
+export function normalizeProductInput(input: Partial<CatalogProductInput>): Partial<CatalogProductInput> {
+  const out: Partial<CatalogProductInput> = { ...input };
+  if (input.offered_cadences_weeks !== undefined || input.default_cadence_weeks !== undefined) {
+    const offered = CADENCE_WEEKS.filter((weeks) => (input.offered_cadences_weeks ?? [4]).includes(weeks));
+    if (!offered.length) throw new BillingCatalogError("Offer at least one subscription cadence.", 400, "offered_cadences_weeks");
+    const fallback = input.default_cadence_weeks ?? (offered.includes(4) ? 4 : offered[0]);
+    if (!offered.includes(fallback)) throw new BillingCatalogError("The default cadence must be one of the offered cadences.", 400, "default_cadence_weeks");
+    out.offered_cadences_weeks = offered;
+    out.default_cadence_weeks = fallback;
+  }
+  return out;
+}
 
 function productDto(
   product: BillingProductRow, settings: BillingSettingsRow,
@@ -108,6 +178,7 @@ function productDto(
   const fallback = defaultImages(images).get(product.id);
   return {
     id: product.id, slug: product.slug, name: product.name, description: product.description ?? "",
+    ...pageContent(product), ...productCadences(product),
     floor_price_cents: product.floor_price_cents, hard_cost_cents: product.hard_cost_cents,
     active: product.active, status: product.status, retired_at: product.retired_at, archived_at: product.archived_at ?? null,
     image_url: fallback ? productImageUrl(fallback.id) : null, image_count: images.length, updated_at: product.updated_at ?? product.created_at,
@@ -141,7 +212,7 @@ export async function getProduct(id: string): Promise<CatalogProductDetail> {
 export async function createProduct(input: CatalogProductInput, actor: string): Promise<CatalogProductDetail> {
   const slug = (input.slug?.trim() || slugify(input.name));
   if (!slug) throw new BillingCatalogError("Enter a product name.", 400, "name");
-  const { status = "active", sort_order, ...values } = input;
+  const { status = "active", sort_order, ...values } = normalizeProductInput(input) as CatalogProductInput;
   let order = sort_order;
   if (order === undefined) {
     const last = await selectMany("billing_products", "select=sort_order&order=sort_order.desc&limit=1");
@@ -156,7 +227,7 @@ export async function createProduct(input: CatalogProductInput, actor: string): 
 }
 export async function editProduct(id: string, input: Partial<CatalogProductInput>, actor: string): Promise<CatalogProductDetail> {
   const before = await requireProduct(id);
-  const { status: _status, ...values } = input;
+  const { status: _status, ...values } = normalizeProductInput(input);
   if (Object.keys(values).length) {
     const after = await update("billing_products", `id=eq.${enc(id)}`, values);
     if (!after) throw new BillingCatalogError("Product not found.", 404);
@@ -305,12 +376,19 @@ export async function productImageSignedUrl(imageId: string): Promise<string | n
   return objectStorage.signedDownloadURL(image.object_path, 3600);
 }
 export async function updateSettings(
-  input: Pick<BillingSettingsRow, "shipping_charge_cents" | "shipping_cost_cents" | "card_fee_bps" | "card_fee_fixed_cents"> & { expected_version: number },
+  input: Pick<BillingSettingsRow, "shipping_charge_cents" | "shipping_cost_cents" | "card_fee_bps" | "card_fee_fixed_cents">
+    & Partial<Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent">> & { expected_version: number },
   actor: string,
 ): Promise<BillingSettings> {
   const before = await getSettings();
   if (before.version !== input.expected_version) throw new BillingCatalogError("Billing settings changed. Refresh and try again.", 409);
-  const { expected_version, ...values } = input;
+  const { expected_version, ...rest } = input;
+  // Older clients send only the fee fields; subscribe-and-save keeps its value.
+  const values = {
+    ...rest,
+    subscribe_save_enabled: rest.subscribe_save_enabled ?? before.subscribe_save_enabled,
+    subscribe_save_percent: rest.subscribe_save_percent ?? before.subscribe_save_percent,
+  };
   const result = await supabaseAdmin("PATCH", `/rest/v1/billing_settings?id=eq.1&version=eq.${expected_version}`, {
     ...values, version: expected_version + 1, updated_by: actor,
   }, "return=representation");

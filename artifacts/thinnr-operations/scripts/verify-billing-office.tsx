@@ -51,6 +51,8 @@ const status = (overrides: Record<string, unknown> = {}) => ({
 const price = {
   product_id: 'control', slug: 'control', name: 'Control', description: '', image_url: null, active: true, floor_price_cents: 5999,
   break_even_minimum_cents: 3767, sell_price_cents: 7999, subscription_enabled: true, offered: true, below_minimum: false,
+  category: 'supplement', tagline: 'Metabolic & Appetite Support', offered_cadences_weeks: [2, 4, 8], default_cadence_weeks: 4,
+  subscribe_save_percent: 10, subscription_price_cents: 7199,
 };
 
 function reset(kind: 'demo' | 'owner' | 'hq' = 'owner') {
@@ -179,6 +181,8 @@ console.log('\noffice billing: prices');
   await act(async () => input.props.onChange({ target: { value: '30.00' } }));
   await act(async () => one(page.root, 'button-save-price-control').props.onClick());
   check('below-minimum price is rejected locally with minimum shown', requests.length === 2 && text(page.root).includes('$37.67'), JSON.stringify(requests));
+  const plan = text(one(page.root, 'text-price-plan-control'));
+  check('cadences and subscribe-and-save are shown read-only', plan.includes('every 2, 4 or 8 weeks · default 4') && plan.includes('subscribe and save 10% ($71.99 per renewal)'), plan);
   await act(async () => input.props.onChange({ target: { value: '82.50' } }));
   responses = [json(200, { product: { ...price, sell_price_cents: 8250 } }), json(200, status())];
   await act(async () => one(page.root, 'button-save-price-control').props.onClick());

@@ -78,7 +78,8 @@ afterAll(async () => {
 });
 beforeEach(() => {
   settings = { id: 1, shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290,
-    card_fee_fixed_cents: 30, version: 2, updated_by: null, updated_at: null, created_at: "2026-01-01T00:00:00Z" };
+    card_fee_fixed_cents: 30, subscribe_save_enabled: false, subscribe_save_percent: 10,
+    version: 2, updated_by: null, updated_at: null, created_at: "2026-01-01T00:00:00Z" };
   product = { id: "product-1", slug: "control", name: "Control", description: "", floor_price_cents: 5999, hard_cost_cents: 433,
     active: true, status: "active", retired_at: null, archived_at: null, sort_order: 1, stripe_tax_code: null, created_at: "2026-01-01T00:00:00Z" };
   second = { ...product, id: "product-2", slug: "regulate", name: "Regulate", sort_order: 2 };
@@ -192,6 +193,62 @@ describe("billing HQ catalog routes", () => {
       targetId: "product-1",
       metadata: { product_id: "product-1", floor_price_cents: 6499 },
     }));
+  });
+  it("exposes product-page content, cadences, and subscribe-and-save with older rows reading as the 4-week plan", async () => {
+    const result = await call("GET", "/billing/hq/catalog", "reader");
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({
+      settings: { subscribe_save_enabled: false, subscribe_save_percent: 10 },
+      products: [{
+        category: "supplement", tagline: "", format: "", benefits: [], how_to_take: "", facts_title: "", facts: [], faqs: [], disclaimer: "",
+        offered_cadences_weeks: [4], default_cadence_weeks: 4,
+      }, { name: "Regulate", offered_cadences_weeks: [4] }],
+    });
+  });
+  it("saves product-page content and cadences, auditing them like prices", async () => {
+    const page = {
+      category: "drops", tagline: "Supports Any Weight Loss", format: "Sublingual Drops",
+      benefits: ["Sublingual drops - easy administration"], how_to_take: "Take as directed by your THINNR provider.",
+      facts_title: "Active Ingredients (HPUS)", facts: [{ name: "Chelidonium", detail: null }],
+      faqs: [{ question: "Any side effects?", answer: "Homeopathic products typically have little to no side effects." }],
+      disclaimer: "*Claims are based on traditional homeopathic practice.",
+      offered_cadences_weeks: [8, 2, 4], default_cadence_weeks: 8,
+    };
+    const result = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", page);
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ product: { ...page, offered_cadences_weeks: [2, 4, 8] } });
+    expect(changes).toEqual([expect.objectContaining({
+      kind: "product_updated",
+      before: expect.objectContaining({ tagline: "", offered_cadences_weeks: [4], default_cadence_weeks: 4 }),
+      after: expect.objectContaining({ tagline: "Supports Any Weight Loss", category: "drops", offered_cadences_weeks: [2, 4, 8], default_cadence_weeks: 8 }),
+    })]);
+  });
+  it("rejects a default cadence that is not offered, an unknown cadence, and an empty set", async () => {
+    const wrongDefault = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { offered_cadences_weeks: [2, 6], default_cadence_weeks: 4 });
+    expect(wrongDefault).toMatchObject({ status: 400, json: { field: "default_cadence_weeks" } });
+    const unknown = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { offered_cadences_weeks: [3] });
+    expect(unknown.status).toBe(400);
+    const empty = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { offered_cadences_weeks: [] });
+    expect(empty.status).toBe(400);
+    expect(product.offered_cadences_weeks).toBeUndefined();
+    expect(changes).toEqual([]);
+  });
+  it("turns subscribe-and-save on with a percent, and keeps it when an older client omits it", async () => {
+    const on = await call("PUT", "/billing/hq/catalog/settings", "manager", {
+      shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30,
+      subscribe_save_enabled: true, subscribe_save_percent: 15, expected_version: 2,
+    });
+    expect(on).toMatchObject({ status: 200, json: { settings: { subscribe_save_enabled: true, subscribe_save_percent: 15, version: 3 } } });
+    expect(recordAdminAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_settings_updated", metadata: { keys_changed: 6 } }));
+    const legacy = await call("PUT", "/billing/hq/catalog/settings", "manager", {
+      shipping_charge_cents: 1100, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, expected_version: 3,
+    });
+    expect(legacy).toMatchObject({ status: 200, json: { settings: { shipping_charge_cents: 1100, subscribe_save_enabled: true, subscribe_save_percent: 15 } } });
+    const tooHigh = await call("PUT", "/billing/hq/catalog/settings", "manager", {
+      shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30,
+      subscribe_save_enabled: true, subscribe_save_percent: 95, expected_version: 4,
+    });
+    expect(tooHigh).toMatchObject({ status: 400, json: { field: "subscribe_save_percent" } });
   });
   it("reorders products and records the new order", async () => {
     const result = await call("PUT", "/billing/hq/catalog/order", "manager", { ids: ["product-2", "product-1"] });

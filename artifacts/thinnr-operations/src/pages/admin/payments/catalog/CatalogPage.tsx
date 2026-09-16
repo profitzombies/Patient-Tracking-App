@@ -20,7 +20,7 @@ import type { CatalogProduct, HqCatalogResponse, ProductStatus } from '@/lib/bil
 import { DEMO_CATALOG } from '../demo-data';
 import { useBillingSandbox } from '../use-billing-sandbox';
 import { ErrorBox, Gate, Header, Preview } from './../shared';
-import { FIELD_LABEL, ProductStatusPill, ProductThumb } from './shared';
+import { FIELD_LABEL, PRODUCT_CATEGORY_LABEL, ProductStatusPill, ProductThumb, cadenceSummary } from './shared';
 
 export function PaymentsCatalog() {
   return <Gate>{(demo, canWrite) => <CatalogBody demo={demo} canWrite={canWrite} />}</Gate>;
@@ -261,7 +261,10 @@ function ProductTable({ data, demo, canWrite }: { data: HqCatalogResponse; demo:
                           <Link href={`/catalog/products/${p.id}`} className="block truncate font-semibold text-navy hover:underline">
                             {p.name}
                           </Link>
-                          <p className="max-w-[32ch] truncate text-[11px] text-muted-foreground">{p.description || 'No description yet'}</p>
+                          <p className="max-w-[32ch] truncate text-[11px] text-muted-foreground">{p.tagline || p.description || 'No description yet'}</p>
+                          <p className="max-w-[40ch] truncate text-[10px] text-muted-foreground" data-testid={`text-catalog-plan-${p.slug}`}>
+                            {`${PRODUCT_CATEGORY_LABEL[p.category]} · ${cadenceSummary(p.offered_cadences_weeks, p.default_cadence_weeks)}`}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -378,6 +381,13 @@ function ProductTable({ data, demo, canWrite }: { data: HqCatalogResponse; demo:
   );
 }
 
+function parseWholePercent(raw: string): number | null {
+  const trimmed = raw.trim().replace(/%$/, '');
+  if (!/^\d{1,2}$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return value >= 0 && value <= 90 ? value : null;
+}
+
 export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse; canWrite: boolean; demo: boolean }) {
   const mutation = useHqCatalogMutations().settings;
   const { toast } = useToast();
@@ -387,6 +397,8 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     shipping_cost: centsToDollarsInput(settings.shipping_cost_cents),
     card_fee_percent: bpsToPercentInput(settings.card_fee_bps),
     card_fee_fixed: centsToDollarsInput(settings.card_fee_fixed_cents),
+    subscribe_save_enabled: settings.subscribe_save_enabled,
+    subscribe_save_percent: String(settings.subscribe_save_percent),
   });
   const [form, setForm] = useState(() => fromSettings(s));
   // The version we send is the one the fields were filled from, so a save
@@ -413,7 +425,7 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     setError(null);
   };
   const [error, setError] = useState<string | null>(null);
-  const field = (key: keyof typeof form) => ({
+  const field = (key: Exclude<keyof typeof form, 'subscribe_save_enabled'>) => ({
     value: form[key],
     disabled: !canWrite,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -430,6 +442,8 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     if (!cost.ok) return setError(`Shipping cost: ${cost.error}`);
     if (!percent.ok) return setError(`Card fee: ${percent.error}`);
     if (!fixed.ok) return setError(`Card fee fixed amount: ${fixed.error}`);
+    const savePercent = parseWholePercent(form.subscribe_save_percent);
+    if (savePercent === null) return setError('Subscribe-and-save discount: enter a whole number from 0 to 90.');
     if (demo) {
       toast({ title: 'Preview only', description: 'Sign in to change live payment settings.' });
       return;
@@ -440,6 +454,8 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
         shipping_cost_cents: cost.cents,
         card_fee_bps: percent.bps,
         card_fee_fixed_cents: fixed.cents,
+        subscribe_save_enabled: form.subscribe_save_enabled,
+        subscribe_save_percent: savePercent,
         expected_version: baseline.version,
       },
       {
@@ -476,6 +492,43 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
           <span className={FIELD_LABEL}>Card fee per payment</span>
           <MoneyInput data-testid="input-settings-card-fee-fixed" {...field('card_fee_fixed')} />
         </label>
+      </div>
+      <div className="border-t border-border px-5 py-4" data-testid="settings-subscribe-save">
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+          <label className="flex items-start gap-3 text-xs">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              data-testid="checkbox-settings-subscribe-save"
+              checked={form.subscribe_save_enabled}
+              disabled={!canWrite}
+              onChange={(event) => {
+                setError(null);
+                setForm((x) => ({ ...x, subscribe_save_enabled: event.target.checked }));
+              }}
+            />
+            <span>
+              <b className="block font-semibold text-navy">Subscribe and save</b>
+              <span className="text-muted-foreground">
+                {form.subscribe_save_enabled
+                  ? 'Subscriptions are quoted at the office price minus this discount, on every cadence.'
+                  : 'Off: subscriptions charge the full office price and no discount is shown anywhere.'}
+              </span>
+            </span>
+          </label>
+          <label className="block">
+            <span className={FIELD_LABEL}>Discount</span>
+            <PercentInput
+              data-testid="input-settings-subscribe-save-percent"
+              {...field('subscribe_save_percent')}
+              disabled={!canWrite || !form.subscribe_save_enabled}
+              aria-describedby="settings-subscribe-save-help"
+            />
+            <span id="settings-subscribe-save-help" className="mt-1 block text-[11px] text-muted-foreground">
+              Whole percent, 0 to 90. Kept while the switch is off.
+            </span>
+          </label>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-3">
         {canWrite && (

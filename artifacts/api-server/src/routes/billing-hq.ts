@@ -18,11 +18,24 @@ import { getConnectClientId, getStripeCredentials, isSandbox } from "../billing/
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 
 const router: IRouter = Router();
+const Cadence = z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]);
 const ProductSchema = z.object({
   name: z.string().trim().min(1).max(120), slug: z.string().trim().min(1).max(120).optional(),
   description: z.string().trim().max(2000).optional(),
   floor_price_cents: z.number().int().nonnegative(), hard_cost_cents: z.number().int().nonnegative(),
   sort_order: z.number().int().optional(), status: z.enum(["draft", "active"]).optional(),
+  // Product page content (all optional so older clients keep working).
+  category: z.enum(["drops", "supplement", "bundle"]).optional(),
+  tagline: z.string().trim().max(200).optional(),
+  format: z.string().trim().max(200).optional(),
+  benefits: z.array(z.string().trim().min(1).max(300)).max(20).optional(),
+  how_to_take: z.string().trim().max(2000).optional(),
+  facts_title: z.string().trim().max(120).optional(),
+  facts: z.array(z.object({ name: z.string().trim().min(1).max(200), detail: z.string().trim().max(1000).nullable() })).max(40).optional(),
+  faqs: z.array(z.object({ question: z.string().trim().min(1).max(300), answer: z.string().trim().min(1).max(2000) })).max(20).optional(),
+  disclaimer: z.string().trim().max(1000).optional(),
+  offered_cadences_weeks: z.array(Cadence).min(1).max(6).optional(),
+  default_cadence_weeks: Cadence.optional(),
 });
 const StatusSchema = z.object({ status: z.enum(["draft", "active", "retired", "archived"]) });
 const OrderSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
@@ -31,6 +44,7 @@ const ImageFinalizeSchema = ImageUploadSchema.extend({ image_id: z.string().uuid
 const SettingsSchema = z.object({
   shipping_charge_cents: z.number().int().nonnegative(), shipping_cost_cents: z.number().int().nonnegative(),
   card_fee_bps: z.number().int().min(0).max(10_000), card_fee_fixed_cents: z.number().int().nonnegative(),
+  subscribe_save_enabled: z.boolean().optional(), subscribe_save_percent: z.number().int().min(0).max(90).optional(),
   expected_version: z.number().int().nonnegative(),
 });
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }
@@ -178,7 +192,8 @@ router.put("/billing/hq/catalog/settings", requireHqPermission("settings_manage"
   if (!parsed.success) { res.status(400).json({ error: "Check the billing settings.", field: String(parsed.error.issues[0]?.path[0] ?? "") }); return; }
   try {
     const settings = await updateSettings(parsed.data, actor(res));
-    await audit(req, res, "billing_settings_updated", "billing_settings", "1", { keys_changed: 4 });
+    const { expected_version: _v, ...changed } = parsed.data;
+    await audit(req, res, "billing_settings_updated", "billing_settings", "1", { keys_changed: Object.keys(changed).length });
     res.json({ settings });
   } catch (error) { fail(req, res, error); }
 });

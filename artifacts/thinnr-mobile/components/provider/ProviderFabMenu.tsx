@@ -33,7 +33,7 @@ const DESTINATIONS: {
   { key: 'patients', label: 'Patients', icon: 'users', href: '/patients' },
   { key: 'outcomes', label: 'Outcomes', icon: 'bar-chart-2', href: '/outcomes' },
   { key: 'leaderboard', label: 'Leaderboard', icon: 'award', href: '/leaderboard' },
-  { key: 'subscriptions', label: 'Subscriptions', icon: 'package', href: '/subscriptions' },
+  { key: 'payments', label: 'Payments', icon: 'credit-card', href: '/payments' },
   { key: 'training', label: 'Training', icon: 'book-open', href: '/training' },
 ];
 

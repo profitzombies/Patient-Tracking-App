@@ -58,12 +58,18 @@ export interface InvitePatientInput {
 
 export type InvitationEmailOutcome = 'sent' | 'failed' | 'not_configured';
 
-interface OfficeRequestScope {
+export interface OfficeRequestScope {
   userId: string;
   signal?: AbortSignal;
+  /** Extra request headers (an Idempotency-Key on money writes). */
+  headers?: Record<string, string>;
+  /** Fallback error copy when the server sends no message ("The payments request failed"). */
+  failedMessage?: string;
 }
 
-export async function officeBearerRequest<T>(method: 'GET' | 'POST', path: string, body?: unknown, scope?: OfficeRequestScope): Promise<T> {
+export type OfficeRequestMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: string, body?: unknown, scope?: OfficeRequestScope): Promise<T> {
   if (!supabase) throw new OfficeRosterError(NOT_CONFIGURED, 503);
   let base: string;
   try {
@@ -84,6 +90,7 @@ export async function officeBearerRequest<T>(method: 'GET' | 'POST', path: strin
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
+        ...scope?.headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: scope?.signal,
@@ -124,7 +131,7 @@ export async function officeBearerRequest<T>(method: 'GET' | 'POST', path: strin
   }
   if (!response.ok) {
     throw new OfficeRosterError(
-      typeof json.error === 'string' ? json.error : `The roster request failed (${response.status}).`,
+      typeof json.error === 'string' ? json.error : `${scope?.failedMessage ?? 'The roster request failed'} (${response.status}).`,
       response.status,
       typeof json.field === 'string' ? json.field : null,
     );

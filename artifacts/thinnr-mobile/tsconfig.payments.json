@@ -1,0 +1,28 @@
+{
+  // tsx config for scripts/verify-payments-*.tsx ONLY (not part of
+  // typecheck — tsconfig.json includes the app sources alone).
+  //
+  // Renders the REAL Payments area screens (demo and live branches) under
+  // react-test-renderer. '@/lib/supabase' is a scripted session emitter and
+  // '@/lib/coach-api' a fixed apiBase so the real office-billing-api client
+  // runs against a scripted global fetch. Native-only bare specifiers map
+  // to Node stand-ins; exact path keys win over the '@/*' wildcard.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/leaderboard-stubs/supabase.ts"],
+      "@/lib/coach-api": ["./scripts/invite-patient-stubs/coach-api.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/leaderboard-stubs/react-native.ts"],
+      "react-native-svg": ["./scripts/payments-stubs/react-native-svg.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/payments-stubs/expo-router.ts"],
+      "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
+      "react-native-safe-area-context": ["./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"],
+      "react-native-keyboard-controller": ["./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/onboarding-gate-stubs/async-storage.ts"]
+    }
+  }
+}

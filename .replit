@@ -108,6 +108,22 @@ args = "patient-purchases-api"
 task = "workflow.run"
 args = "patient-purchases-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "payments-mobile-core"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "payments-mobile-reporting"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "payments-mobile-operations"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "payments-mobile-sell"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1526,6 +1542,50 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "payments-mobile-core"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run test:payments-overview && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "payments-mobile-reporting"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:payments-activity && pnpm --filter @workspace/thinnr-mobile run test:payments-transactions && pnpm --filter @workspace/thinnr-mobile run test:payments-refunds && pnpm --filter @workspace/thinnr-mobile run test:payments-payouts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "payments-mobile-operations"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run test:payments-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:payments-prices && pnpm --filter @workspace/thinnr-mobile run test:payments-links && pnpm --filter @workspace/thinnr-mobile run test:payments-status"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "payments-mobile-sell"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:sell-to-patient && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate"
 
 [workflows.workflow.metadata]
 isValidation = true

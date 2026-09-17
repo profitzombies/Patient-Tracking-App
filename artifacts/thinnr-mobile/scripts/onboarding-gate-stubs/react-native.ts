@@ -111,6 +111,15 @@ export const Linking = {
   },
 };
 
+/** Messages handed to the native share sheet by payment-link screens. */
+export const sharedMessages: string[] = [];
+export const Share = {
+  async share(content: { message?: string; url?: string }): Promise<{ action: string }> {
+    sharedMessages.push(content.message ?? content.url ?? '');
+    return { action: 'sharedAction' };
+  },
+};
+
 export const Alert = {
   alert(_title: string, _message?: string, buttons?: Array<{ onPress?: () => void; style?: string }>) {
     buttons?.find(button => button.style === 'destructive')?.onPress?.();

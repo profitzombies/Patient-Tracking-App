@@ -20,6 +20,7 @@ import { LedgerCard, MetricCard, SectionHeader, EmptyState } from '@/components/
 import { PhotoLightbox, LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { Image } from 'expo-image';
 import { CoachReviewPanel } from '@/components/office/CoachReviewPanel';
+import { Button } from '@/components/payments/primitives';
 
 export default function LivePatientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -148,6 +149,7 @@ function LivePatientData({
   colors: ReturnType<typeof useColors>;
   bottomPad: number;
 }) {
+  const router = useRouter();
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
@@ -283,6 +285,14 @@ function LivePatientData({
           <Text style={[styles.detailText, { color: colors.subtleText }]}>
             Program started {program.startDate ?? 'Not recorded'}
           </Text>
+          <Button
+            label="Sell to patient"
+            accessibilityLabel={`Sell to ${identity.name || 'patient'}`}
+            testID="button-sell-to-patient"
+            variant="primary"
+            onPress={() => router.push({ pathname: '/sell-to-patient', params: { patientId: rawId, name: identity.name || 'Patient' } })}
+            style={{ alignSelf: 'flex-start', marginTop: 12 }}
+          />
         </View>
 
         <View style={styles.row}>

@@ -313,6 +313,131 @@ describe("office overview, activity, refunds and fulfillment status", () => {
   });
 });
 
+describe("per-patient purchases summary", () => {
+  const PATIENT = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d";
+  const OTHER_PATIENT = "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6e";
+  const FIRST = "0a1b2c3d-0000-4000-8000-000000000001";
+  function seedPatientPurchases() {
+    tables.patients = [
+      { id: PATIENT, provider_id: "office-1" },
+      { id: OTHER_PATIENT, provider_id: "office-2" },
+    ];
+    const first = tables.billing_orders[0];
+    first.patient_id = PATIENT;
+    tables.billing_orders.push(
+      // Renewal, partially refunded and shipped through the shipments table.
+      { ...first, id: "0a1b2c3d-0000-4000-8000-000000000002", order_number: "TH-REN001", kind: "subscription_renewal", subscription_id: "sub-p1",
+        status: "partially_refunded", total_cents: 7000, fulfillment_status: "shipped", created_at: "2026-02-01T00:00:00Z", paid_at: "2026-02-01T00:01:00Z" },
+      // Failed renewal: never paid, so it counts for the payment problem but not the totals.
+      { ...first, id: "0a1b2c3d-0000-4000-8000-000000000003", order_number: "TH-FAIL01", kind: "subscription_renewal", subscription_id: "sub-p1",
+        status: "failed", total_cents: 7000, created_at: "2026-03-01T00:00:00Z", paid_at: null, failure_message: "Card declined", canceled_reason: null, updated_at: "2026-03-01T00:02:00Z" },
+      // Same patient at ANOTHER office: never part of office-1's summary.
+      { ...first, id: "0a1b2c3d-0000-4000-8000-000000000004", order_number: "TH-ELSE01", provider_id: "office-2", total_cents: 99_000, created_at: "2026-03-02T00:00:00Z" },
+      // Another patient at this office.
+      { ...first, id: "0a1b2c3d-0000-4000-8000-000000000005", order_number: "TH-OTHR01", patient_id: OTHER_PATIENT, total_cents: 5000, created_at: "2026-03-03T00:00:00Z" },
+    );
+    tables.billing_order_items.push({ ...tables.billing_order_items[0], id: "item-2", order_id: "0a1b2c3d-0000-4000-8000-000000000002", product_name_snapshot: "Control", quantity: 2 });
+    tables.billing_refunds.push({ id: "ref-1", order_id: "0a1b2c3d-0000-4000-8000-000000000002", amount_cents: 1500, status: "succeeded", created_at: "2026-02-05T00:00:00Z" });
+    tables.billing_shipments = [{ id: "ship-1", order_id: "0a1b2c3d-0000-4000-8000-000000000002", status: "shipped", carrier: "usps", tracking_number: "9400111", tracking_url: null,
+      shipped_at: "2026-02-02T00:00:00Z", delivered_at: null, canceled_at: null, created_at: "2026-02-02T00:00:00Z" }];
+    tables.billing_products = [{ id: "product-1", name: "Control" }];
+    tables.billing_subscriptions.push(
+      { id: "sub-p1", provider_id: "office-1", patient_id: PATIENT, product_id: "product-1", status: "past_due", paused_at: null,
+        unit_price_cents: 6000, shipping_charge_cents: 1000, cadence_weeks: 4, quantity: 1, current_period_end: "2026-04-01T00:00:00Z",
+        next_shipment_at: "2026-03-29T00:00:00Z", cancel_at_period_end: false, payment_failure_count: 1, last_payment_failed_at: "2026-03-05T00:00:00Z",
+        last_failure_message: "Your card was declined.", last_hosted_invoice_url: "https://invoice.stripe.test/pay", shipping_address: first.shipping_address, created_at: "2026-01-15T00:00:00Z" },
+      // Canceled while dunning: immediate cancellation leaves the failure count
+      // and timestamp in place, so this row must NOT surface as a live problem
+      // even though its failure is the newest of all.
+      { id: "sub-p0", provider_id: "office-1", patient_id: PATIENT, product_id: "product-1", status: "canceled", paused_at: null,
+        unit_price_cents: 6000, shipping_charge_cents: 1000, cadence_weeks: 4, quantity: 1, current_period_end: "2026-01-01T00:00:00Z",
+        next_shipment_at: null, cancel_at_period_end: false, payment_failure_count: 3, last_payment_failed_at: "2026-03-20T00:00:00Z",
+        last_failure_message: "old", last_hosted_invoice_url: "https://invoice.stripe.test/old", shipping_address: first.shipping_address, created_at: "2025-11-01T00:00:00Z" },
+      { id: "sub-else", provider_id: "office-2", patient_id: PATIENT, product_id: "product-1", status: "active", paused_at: null,
+        unit_price_cents: 6000, shipping_charge_cents: 1000, cadence_weeks: 4, quantity: 1, current_period_end: "2026-04-01T00:00:00Z",
+        next_shipment_at: null, cancel_at_period_end: false, payment_failure_count: 0, last_payment_failed_at: null,
+        last_failure_message: null, last_hosted_invoice_url: null, shipping_address: first.shipping_address, created_at: "2026-02-01T00:00:00Z" },
+    );
+  }
+
+  it("summarizes one patient's subscriptions, recent orders, totals and last payment problem for the office only", async () => {
+    seedPatientPurchases();
+    const result = await call("GET", `/billing/office/patients/${PATIENT}/summary`);
+    expect(result.status).toBe(200);
+    expect(result.json.patient_id).toBe(PATIENT);
+    // Office-2's subscription for the same patient never appears; newest first.
+    expect(result.json.subscriptions.map((row: Row) => [row.id, row.status, row.product_name, row.cadence_weeks, row.next_shipment_at])).toEqual([
+      ["sub-p1", "past_due", "Control", 4, "2026-03-29T00:00:00Z"],
+      ["sub-p0", "canceled", "Control", 4, "2026-01-01T00:00:00Z"],
+    ]);
+    expect(result.json.orders.map((row: Row) => row.order_number)).toEqual(["TH-FAIL01", "TH-REN001", "TH-ABC123"]);
+    const renewal = result.json.orders.find((row: Row) => row.order_number === "TH-REN001");
+    expect(renewal).toMatchObject({ status: "partially_refunded", refunded_cents: 1500, items_label: "Control × 2", item_count: 2, subscription_id: "sub-p1" });
+    expect(renewal.shipment).toMatchObject({ status: "shipped", carrier: "usps", tracking_number: "9400111" });
+    expect(result.json.orders.find((row: Row) => row.order_number === "TH-ABC123").shipment.status).toBe("processing");
+    // Paid + partially refunded count; the failed renewal and other-office order do not.
+    expect(result.json.totals).toEqual({
+      order_count: 3, lifetime_paid_cents: 14_000, lifetime_refunded_cents: 1500, lifetime_net_cents: 12_500,
+      last_paid_at: "2026-02-01T00:01:00Z", active_subscription_count: 1,
+    });
+    // The dunning subscription (Mar 5) outranks the failed order (Mar 1); the canceled one's newer failure (Mar 20) is ignored.
+    expect(result.json.last_payment_problem).toEqual({
+      source: "subscription", subscription_id: "sub-p1", order_id: null, order_number: null, at: "2026-03-05T00:00:00Z",
+      message: "Your card was declined.", hosted_invoice_url: "https://invoice.stripe.test/pay",
+    });
+    // No Stripe customer on the payer row: no card, and Stripe was never asked.
+    expect(result.json.saved_card).toEqual({ state: "none", brand: null, last4: null, exp_month: null, exp_year: null });
+  });
+
+  it("falls back to the failed order when no subscription is dunning, and reports the card on file", async () => {
+    seedPatientPurchases();
+    // A paid retry flips the status back to active; the historical failure
+    // count and timestamp stay behind exactly as the webhook leaves them.
+    Object.assign(tables.billing_subscriptions.find((row) => row.id === "sub-p1")!, { status: "active" });
+    tables.billing_payers[0].patient_id = PATIENT;
+    tables.billing_payers[0].stripe_customer_id = "cus_1";
+    __setStripeForTests({
+      paymentMethods: { list: vi.fn(async () => ({ data: [
+        { id: "pm_old", card: { brand: "visa", last4: "1111", exp_month: 1, exp_year: 2027 } },
+        { id: "pm_default", card: { brand: "mastercard", last4: "4444", exp_month: 6, exp_year: 2029 } },
+      ] })) },
+      customers: { retrieve: vi.fn(async () => ({ invoice_settings: { default_payment_method: "pm_default" } })) },
+    } as never);
+    const result = await call("GET", `/billing/office/patients/${PATIENT}/summary`);
+    expect(result.status).toBe(200);
+    expect(result.json.last_payment_problem).toMatchObject({ source: "order", order_id: FIRST.replace(/1$/, "3"), order_number: "TH-FAIL01", message: "Card declined" });
+    expect(result.json.saved_card).toEqual({ state: "on_file", brand: "mastercard", last4: "4444", exp_month: 6, exp_year: 2029 });
+    expect(result.json.totals.active_subscription_count).toBe(1);
+  });
+
+  it("degrades the card to unknown when Stripe fails instead of failing the summary", async () => {
+    seedPatientPurchases();
+    tables.billing_payers[0].patient_id = PATIENT;
+    tables.billing_payers[0].stripe_customer_id = "cus_1";
+    __setStripeForTests({
+      paymentMethods: { list: vi.fn(async () => { throw new Error("stripe down"); }) },
+      customers: { retrieve: vi.fn(async () => ({})) },
+    } as never);
+    const result = await call("GET", `/billing/office/patients/${PATIENT}/summary`);
+    expect(result.status).toBe(200);
+    expect(result.json.saved_card.state).toBe("unknown");
+    expect(result.json.totals.lifetime_net_cents).toBe(12_500);
+  });
+
+  it("returns 404 for another office's patient, a foreign office scope, and a non-UUID id", async () => {
+    seedPatientPurchases();
+    expect((await call("GET", `/billing/office/patients/${OTHER_PATIENT}/summary`)).status).toBe(404);
+    // HQ drilled into office-2 cannot read office-1's patient even though office-2 has rows for them.
+    expect((await call("GET", `/billing/office/patients/${PATIENT}/summary?office=office-2`)).status).toBe(404);
+    expect((await call("GET", "/billing/office/patients/not-a-uuid/summary")).status).toBe(404);
+    // A patient with no purchases at all still gets an empty, well-formed summary.
+    tables.patients.push({ id: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6f", provider_id: "office-1" });
+    const empty = await call("GET", "/billing/office/patients/9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6f/summary");
+    expect(empty.status).toBe(200);
+    expect(empty.json).toMatchObject({ subscriptions: [], orders: [], last_payment_problem: null, totals: { order_count: 0, lifetime_net_cents: 0, active_subscription_count: 0 } });
+  });
+});
+
 describe("billing order routes", () => {
   it("lists the shipping queue as paid detail rows with items and address", async () => {
     tables.billing_orders.push({

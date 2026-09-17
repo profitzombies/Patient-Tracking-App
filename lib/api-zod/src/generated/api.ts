@@ -1593,7 +1593,8 @@ export const GetOfficeRosterResponse = zod.object({
   "days": zod.number().min(getOfficeRosterResponsePatientsItemAttentionReasonsItemDaysMin).nullable()
 })),
   "signature": zod.string().nullable()
-})
+}),
+  "activeSubscription": zod.boolean().nullish().describe('True when the patient has an active, past-due, or unpaid shop subscription at this office; null when the billing tables could not be read (unknown, never false).')
 })),
   "summary": zod.object({
   "totalPatients": zod.number(),

@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight, Check } from "lucide-react";
-import { useScopedPatients, useScopedProviders } from "@/data/scoped-data";
+import { Search, Filter, ArrowUpDown, ChevronRight, Check, ShoppingBag } from "lucide-react";
+import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { getNudgeAssessment } from "@/data/stall-nudge";
 import { usePatientSession } from "@/contexts/patient-session";
@@ -50,6 +50,24 @@ function StatusChip({ status }: { status: string }) {
     <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${tone}`} title={status === 'unknown' ? 'Activity signals did not load for this patient' : undefined}>
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
       {displayStatus}
+    </span>
+  );
+}
+
+/**
+ * Shop subscription signal. Live rows carry true/false from the billing
+ * tables or null when they could not be read; null renders nothing rather
+ * than "no subscription" (unknown is not a fact about the patient).
+ */
+function SubscriptionChip({ patientId }: { patientId: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border border-[#b9c8e8] bg-[#eef3ff] px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-[#2b4a8f]"
+      title="Has an active shop subscription at this office"
+      data-testid={`chip-subscription-${patientId}`}
+    >
+      <ShoppingBag size={10} aria-hidden="true" />
+      Subscribed
     </span>
   );
 }
@@ -124,7 +142,7 @@ function FollowUpPill({ patientId, reason, currentStatus, office }: {
 
 /** Status column body: exactly one chip, then the follow-up pills in one row. */
 function StatusCell({ patient, office, align = 'left' }: {
-  patient: { id: string; status: string; isLive: boolean; showResend: boolean; rawLive?: OfficePatient };
+  patient: { id: string; status: string; isLive: boolean; showResend: boolean; activeSubscription: boolean | null; rawLive?: OfficePatient };
   office: string | null;
   align?: 'left' | 'right';
 }) {
@@ -133,6 +151,7 @@ function StatusCell({ patient, office, align = 'left' }: {
     <div className={`flex flex-col gap-1.5 ${align === 'right' ? 'items-end' : 'items-start'}`}>
       {patient.rawLive && <InvitationChip patient={patient.rawLive} />}
       {!patient.showResend && <StatusChip status={patient.status} />}
+      {patient.activeSubscription === true && <SubscriptionChip patientId={patient.id} />}
       {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
       {reasons.length > 0 && (
         <div className={`flex flex-wrap gap-1 ${align === 'right' ? 'justify-end' : ''}`} onClick={(e) => e.stopPropagation()} data-testid={`follow-ups-${patient.id}`}>
@@ -195,6 +214,7 @@ export default function Patients() {
   // One office's roster inside the HQ drill-in; the full program otherwise.
   const patients = useScopedPatients();
   const providers = useScopedProviders();
+  const demoSubscriptions = useScopedSubscriptions();
   // Live invitations only exist for authenticated scopes: a signed-in
   // provider office (server derives the office from the bearer token) or an
   // HQ drill-in on an explicitly scoped account. Demo personas never call
@@ -208,11 +228,13 @@ export default function Patients() {
   const arrivedLapsed = urlParams.get('logging') === 'lapsed';
   const arrivedStatus = urlParams.get('status');
   const arrivedReason = urlParams.get('reason');
+  const arrivedSubscription = urlParams.get('subscription') === 'active';
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(arrivedStatus || 'all');
   const [loggingFilter, setLoggingFilter] = useState<LoggingFilter>(arrivedLapsed ? 'lapsed' : 'all');
   const [reasonFilter, setReasonFilter] = useState<string>(arrivedReason || 'all');
+  const [subscriptionFilter, setSubscriptionFilter] = useState<'all' | 'active'>(arrivedSubscription ? 'active' : 'all');
   const [sortField, setSortField] = useState<SortField>(arrivedLapsed ? 'logging' : 'startDate');
   const [sortOrder, setSortOrder] = useState<SortOrder>(arrivedLapsed ? 'asc' : 'desc');
   const [resending, setResending] = useState<string | null>(null);
@@ -256,6 +278,13 @@ export default function Patients() {
     [patients],
   );
 
+  // Seeded subscriptions: paused and overdue ones are still open (the same
+  // definition the live roster uses); cancelled ones are not.
+  const demoSubscriptionActive = useMemo(
+    () => new Map(demoSubscriptions.map((subscription) => [subscription.patientId, subscription.status !== 'cancelled'])),
+    [demoSubscriptions],
+  );
+
   const unifiedRows = useMemo(() => {
     if (liveEnabled) {
       if (!liveRosterData) return [];
@@ -293,6 +322,8 @@ export default function Patients() {
           stats: null as LoggingStats | null,
           activity: activity as RosterActivity | null,
           medicationAdherence: p.medicationAdherence ?? null,
+          // Billing signal: true/false from the server, null when it could not be read.
+          activeSubscription: p.activeSubscription ?? null,
           outreachChip: !p.outreach || p.outreach.state === 'none' ? null : p.outreach,
           isLive: true as boolean,
           showResend,
@@ -322,13 +353,14 @@ export default function Patients() {
         stats: stats as LoggingStats | null,
         activity: null as RosterActivity | null,
         medicationAdherence: null,
+        activeSubscription: demoSubscriptionActive.get(p.id) ?? false,
         outreachChip: getNudgeAssessment(p).active ? DEMO_ELIGIBLE_OUTREACH : null,
         isLive: false as boolean,
         showResend: false,
         rawLive: undefined
       };
     });
-  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById]);
+  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive]);
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = unifiedRows.filter(p => {
@@ -357,7 +389,11 @@ export default function Patients() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesLogging && matchesReason;
+      // Unknown (null) never matches the subscription filter: a billing outage
+      // must not present a patient as subscribed or as unsubscribed.
+      const matchesSubscription = subscriptionFilter === 'all' || p.activeSubscription === true;
+
+      return matchesSearch && matchesStatus && matchesLogging && matchesReason && matchesSubscription;
     });
 
     result.sort((a, b) => {
@@ -390,7 +426,7 @@ export default function Patients() {
     });
 
     return result;
-  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, sortField, sortOrder]);
+  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, subscriptionFilter, sortField, sortOrder]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -471,6 +507,16 @@ export default function Patients() {
             >
               <option value="all">All logging</option>
               <option value="lapsed">Lapsed {LAPSED_AFTER_DAYS}+ days</option>
+            </select>
+            <select
+              aria-label="Filter by shop subscription"
+              value={subscriptionFilter}
+              onChange={(e) => setSubscriptionFilter(e.target.value as 'all' | 'active')}
+              className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
+              data-testid="select-subscription-filter"
+            >
+              <option value="all">All purchases</option>
+              <option value="active">Active subscription</option>
             </select>
             {liveEnabled && (
               <select

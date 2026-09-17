@@ -47,6 +47,7 @@ const ROUTES: Record<string, Access> = {
   "GET /billing/office/prices": "office-read",
   "GET /billing/office/links": "office-read",
   "GET /billing/office/patients/search": "office-read",
+  "GET /billing/office/patients/:patientId/summary": "office-read",
   "GET /billing/office/dashboard": "office-read",
   "GET /billing/office/overview/today": "office-read",
   "GET /billing/office/activity": "office-read",
@@ -232,7 +233,7 @@ function bodyFor(route: string): unknown {
 
 function concretePath(pattern: string, access: Access): string {
   let path = pattern.replace(/:cancel_token|:token/g, "test-token").replace(/:provider_id/g, OFFICE_A)
-    .replace(/:product_id|:order_id|:imageId|:id/g, ROW_ID);
+    .replace(/:product_id|:order_id|:patientId|:imageId|:id/g, ROW_ID);
   if ((access === "office-read" || access === "office-write") && !path.includes("?")) path += `?office=${OFFICE_A}`;
   if (pattern.endsWith("/change-quote")) path += `${path.includes("?") ? "&" : "?"}product_id=${ROW_ID}`;
   return path;

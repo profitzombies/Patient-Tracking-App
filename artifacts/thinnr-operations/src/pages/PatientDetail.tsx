@@ -22,6 +22,7 @@ import { WeightTrend } from "@/components/patient/WeightTrend";
 import { BodyMeasurementsCard } from "@/components/patient/BodyMeasurements";
 import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
 import { LiveMedications } from "@/components/office/LiveMedications";
+import { LivePatientPurchases, PatientPurchasesPanel, demoPurchasesSummary } from "@/components/office/PatientPurchases";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
@@ -332,6 +333,9 @@ function DemoPatientDetail() {
         </aside>
 
         <div className="lg:col-span-3">
+          <PatientPurchasesPanel summary={demoPurchasesSummary(patient, subscription, MOCK_PRODUCTS)} demo />
+        </div>
+        <div className="lg:col-span-3">
           <SectionCard title="Bloodwork Reports">
             <EmptyState>Demo only: Bloodwork requires a real patient record.</EmptyState>
           </SectionCard>
@@ -603,6 +607,9 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           <SectionCard title="Progress photos" sub="Milestones uploaded by the patient.">
             <div className="p-5">{photos.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{photos.map((photo) => <figure key={photo.id} className="overflow-hidden rounded-lg border border-border bg-card">{photo.url ? <img src={photo.url} alt={`${photo.label || 'Progress'} photo for ${identity.name}`} className="aspect-square w-full bg-accent object-cover" loading="lazy" /> : <EmptyState>Photo preview unavailable.</EmptyState>}<figcaption className="p-2"><b className="text-xs text-navy">{photo.label || 'Progress photo'}</b><p className="text-[10px] text-muted-foreground">{formatDate(photo.dateKey, true)}{photo.angle ? ` · ${photo.angle}` : ''}</p></figcaption></figure>)}</div> : <EmptyState>No progress photos have been uploaded.</EmptyState>}</div>
           </SectionCard>
+        </div>
+        <div className="lg:col-span-3">
+          <LivePatientPurchases patientId={id} office={office} />
         </div>
         <div className="lg:col-span-3">
           <PatientBloodwork patientId={id} office={office} canEdit={canEdit} />

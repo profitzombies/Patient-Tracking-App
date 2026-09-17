@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireOfficeBillingScope } from "../billing/auth";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
 import { getBalance, listPayouts } from "../billing/payouts";
+import { loadPatientPurchases } from "../billing/patient-purchases";
 import { BillingReportingError, officeActivity, officeDashboard, officeRefunds, officeToday } from "../billing/reporting";
 import {
   BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
@@ -12,8 +13,10 @@ import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from 
 import { getOrderBundle, officeName } from "../billing/store-orders";
 import { stripeRejection } from "../billing/stripe-client";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
+import { supabaseAdmin } from "../lib/supabase-admin";
 
 const router: IRouter = Router();
+const PatientIdSchema = z.string().uuid();
 function audit(req: Request, scope: { actorUserId: string; providerId: string; isHq: boolean }, action: string, targetKind: string, targetId: string, metadata: AuditMetadata) {
   return recordAdminAuditEvent({
     action, actorUserId: scope.actorUserId, actorKind: scope.isHq ? "hq" : "team_member",
@@ -133,6 +136,24 @@ router.post("/billing/office/orders/:id/refund", async (req, res) => {
       order_id: row.id, amount_cents: refund.amount_cents, reason: "requested_by_customer",
     });
     res.json({ refund });
+  } catch (error) { fail(req, res, error); }
+});
+/**
+ * One patient's purchases at this office for the patient record's Purchases
+ * panel (office staff, or HQ through `?office=`). The roster check comes
+ * first so another office's patient id reads as "not found" rather than an
+ * empty summary, and every billing read below is pinned to the same office.
+ */
+router.get("/billing/office/patients/:patientId/summary", async (req, res) => {
+  try {
+    const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
+    const patientId = String(req.params.patientId);
+    if (!PatientIdSchema.safeParse(patientId).success) { res.status(404).json({ error: "Patient not found." }); return; }
+    const roster = await supabaseAdmin("GET",
+      `/rest/v1/patients?id=eq.${encodeURIComponent(patientId)}&provider_id=eq.${encodeURIComponent(scope.providerId)}&select=id&limit=1`);
+    if (roster.status >= 300 || !Array.isArray(roster.json)) throw new Error(`patient lookup failed (${roster.status})`);
+    if (!roster.json.length) { res.status(404).json({ error: "Patient not found." }); return; }
+    res.json(await loadPatientPurchases(patientId, scope.providerId));
   } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/office/subscriptions", async (req, res) => {

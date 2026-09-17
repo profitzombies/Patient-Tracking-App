@@ -3976,6 +3976,12 @@ components:
           $ref: "#/components/schemas/OperationalPatient"
         attention:
           $ref: "#/components/schemas/PatientAttention"
+        activeSubscription:
+          type: ["boolean", "null"]
+          description: >-
+            True when the patient has an active, past-due, or unpaid shop
+            subscription at this office; null when the billing tables could
+            not be read (unknown, never false).
     OperationalPatient:
       type: object
       description: >-

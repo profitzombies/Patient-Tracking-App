@@ -32,6 +32,7 @@ import type {
   OrderDetail,
   OrderSummary,
   Paged,
+  PatientPurchasesSummary,
   PatientSearchHit,
   PaymentLink,
   PaymentsHealth,
@@ -121,6 +122,9 @@ export const officeBilling = {
     }),
   subscriptions: (filters: ListFilters, office?: string | null) =>
     officeRequest<Paged<SubscriptionRow>>(`${OFFICE}/subscriptions${qs(filters, office)}`, MESSAGES),
+  /** One patient's purchases at this office (the patient record's Purchases panel). */
+  patientPurchases: (patientId: string, office?: string | null) =>
+    officeRequest<PatientPurchasesSummary>(`${OFFICE}/patients/${encodeURIComponent(patientId)}/summary${qs({}, office)}`, MESSAGES),
   cancelSubscription: (subscriptionId: string, body: { at_period_end: boolean }, office?: string | null) =>
     officeRequest<{ subscription: SubscriptionRow }>(
       `${OFFICE}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel${qs({}, office)}`,

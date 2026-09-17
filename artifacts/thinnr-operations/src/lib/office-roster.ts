@@ -113,6 +113,13 @@ export interface OfficePatient {
 
   medicationAdherence?: MedicationAdherenceDto | null;
 
+  /**
+   * Shop subscription signal: true when the patient has an active, past-due,
+   * or unpaid subscription at this office; null when the billing tables could
+   * not be read (unknown, never treated as false).
+   */
+  activeSubscription?: boolean | null;
+
   program?: {
     id: string | null;
     day?: number;

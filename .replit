@@ -100,6 +100,14 @@ args = "shop-emails-web"
 task = "workflow.run"
 args = "shop-emails-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-purchases-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-purchases-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1496,6 +1504,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:patient-billing && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-purchases-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/billing-orders.test.ts src/routes/office-roster.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-purchases-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

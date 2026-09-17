@@ -32,3 +32,5 @@ The api-server care-team live-smoke harness writes helper HTML under `tmp/` but 
 
 ## Care-team smoke harness drift (Sept 2026)
 `verify --keep` now fails at conversation creation (`patient_chat_conversations_coach_identity_check`) — the harness predates that constraint. `prepare` + `helper` still work; have the tester create threads/replies/notes through the real UI instead. `cleanup` can fail its "audit rows removed" assertion when the tester's browser is still polling as a fixture user (a late `access_denied` audit row lands after the delete); audit rows are append-only outside the harness's replica-role transaction, so just re-run `cleanup` after the tester is idle.
+
+**Harness rows only cover the harness's own feature.** When a browser check needs data from another domain (e.g. billing rows for a staff panel), seed that domain fully enough that its OWN gates pass — a synthetic office with orders but no connected payment account made every payments-area link look broken — and delete those rows yourself before `cleanup`; the harness never knows about them.

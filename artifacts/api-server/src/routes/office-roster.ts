@@ -39,6 +39,7 @@ import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
 import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicationState, medicationAdherenceDto } from "../medications/store";
 import { shiftDateKey } from "../medications/schedule";
+import { activeSubscriptionPatientIds } from "../billing/patient-purchases";
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
@@ -450,7 +451,7 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState] = await Promise.all([
+    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -466,6 +467,13 @@ router.get("/office/roster", async (req, res) => {
       // Medication adherence is an additional roster input (own field,
       // own null semantics); the engagement definitions above are untouched.
       loadOfficeMedicationState(scope.providerId, shiftDateKey(asOf, -(ADHERENCE_WINDOW_DAYS + 1))),
+      // Shop subscriptions are a roster signal, not a roster dependency: if
+      // the billing tables cannot be read the flag goes null (unknown) for
+      // every row and the rest of the roster still loads.
+      activeSubscriptionPatientIds(scope.providerId).catch((error: unknown) => {
+        req.log?.warn({ err: error }, "roster subscription signal unavailable");
+        return null;
+      }),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
     if (pendingDeletions.status >= 300) throw new Error(`deletion roster load failed (${pendingDeletions.status})`);
@@ -512,6 +520,8 @@ router.get("/office/roster", async (req, res) => {
         medicationAdherence: meds
           ? medicationAdherenceDto(meds.medications, meds.doseLogs, typeof row.timezone === "string" ? row.timezone : null, now)
           : null,
+        // true/false from the billing tables; null when they could not be read.
+        activeSubscription: subscribedPatients ? subscribedPatients.has(String(row.id)) : null,
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted

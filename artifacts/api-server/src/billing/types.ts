@@ -804,6 +804,14 @@ export interface PatientBillingOverview {
   subscriptions: PatientBillingSubscription[];
 }
 
+/** Card on file for the patient at this office; "unknown" when Stripe could not be asked. */
+export interface PatientPurchasesCard {
+  state: 'on_file' | 'none' | 'unknown';
+  brand: string | null;
+  last4: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+}
 export interface PatientCheckoutLinkRequest {
   /** Preselect one product on the checkout page; null lets the patient choose. */
   product_id?: string | null;
@@ -1028,4 +1036,39 @@ export interface SubscriptionPlanRequest {
 
 export interface SubscriptionCardRequest {
   payment_method_id: string;
+}
+
+export interface PatientPurchasesTotals {
+  /** Every order ever placed at this office, not just the recent slice. */
+  order_count: number;
+  lifetime_paid_cents: number;
+  lifetime_refunded_cents: number;
+  /** paid minus refunded. */
+  lifetime_net_cents: number;
+  last_paid_at: string | null;
+  active_subscription_count: number;
+}
+
+/** Staff-facing purchases summary for one patient, scoped to one office. */
+export interface PatientPurchasesSummary {
+  patient_id: string;
+  /** Every subscription at this office, newest first (canceled ones included). */
+  subscriptions: PatientBillingSubscription[];
+  /** The most recent orders with shipment state, newest first. */
+  orders: PatientBillingOrder[];
+  totals: PatientPurchasesTotals;
+  saved_card: PatientPurchasesCard;
+  last_payment_problem: PatientPaymentProblem | null;
+}
+
+/** The most recent failed charge, whether a renewal or a one-off order. */
+export interface PatientPaymentProblem {
+  source: 'subscription' | 'order';
+  subscription_id: string | null;
+  order_id: string | null;
+  order_number: string | null;
+  at: string;
+  message: string | null;
+  /** Stripe-hosted page to settle an open failed invoice, when one exists. */
+  hosted_invoice_url: string | null;
 }

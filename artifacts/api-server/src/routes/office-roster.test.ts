@@ -60,6 +60,7 @@ let operationalFollowUps: Row[] = [];
 let outreachStates: Row[] = [];
 let deletionRequests: Row[] = [];
 let tombstones: Row[] = [];
+let billingSubscriptions: Row[] | "unavailable" = [];
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -176,6 +177,7 @@ beforeEach(() => {
   outreachStates = [];
   deletionRequests = [];
   tombstones = [];
+  billingSubscriptions = [];
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -242,6 +244,12 @@ beforeEach(() => {
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
     if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response(outreachStates);
+    if (url.pathname === "/rest/v1/billing_subscriptions") {
+      if (billingSubscriptions === "unavailable") return response({ message: "relation missing" }, 500);
+      const officeId = (url.searchParams.get("provider_id") ?? "").replace("eq.", "");
+      const statuses = (url.searchParams.get("status") ?? "").replace(/^in\.\((.*)\)$/, "$1").split(",");
+      return response(billingSubscriptions.filter((row) => row.provider_id === officeId && statuses.includes(String(row.status))));
+    }
     if (url.pathname === "/rest/v1/patient_deletion_requests" || url.pathname === "/rest/v1/patient_tombstones") {
       const source = url.pathname.endsWith("requests") ? deletionRequests : tombstones;
       return response(source.filter((row) => [...url.searchParams.entries()].every(([key, raw]) => !raw.startsWith("eq.") || String(row[key]) === raw.slice(3))));
@@ -402,6 +410,29 @@ describe("office scope", () => {
     expect(goneBody.deleted).toMatchObject({ id: GONE_1, wasActivated: true });
     // Another office's tombstone is invisible.
     expect((await api(`/office/patients/${GONE_2}`, "provider-token")).status).toBe(404);
+  });
+
+  it("flags patients with an active shop subscription and goes null when billing cannot be read", async () => {
+    const none = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(none.patients.map((row) => row.activeSubscription)).toEqual([false]);
+
+    billingSubscriptions = [
+      { provider_id: "office-1", patient_id: "pat-own", status: "past_due" },
+      { provider_id: "office-1", patient_id: "pat-own", status: "canceled" },
+      // Another office's subscription for a different patient never leaks in.
+      { provider_id: "office-2", patient_id: "pat-other", status: "active" },
+    ];
+    const flagged = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(flagged.patients.map((row) => [row.id, row.activeSubscription])).toEqual([["pat-own", true]]);
+
+    billingSubscriptions = [{ provider_id: "office-1", patient_id: "pat-own", status: "canceled" }];
+    const canceled = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(canceled.patients[0].activeSubscription).toBe(false);
+
+    billingSubscriptions = "unavailable";
+    const unknown = await api("/office/roster", "provider-token");
+    expect(unknown.status).toBe(200);
+    expect((await unknown.json() as { patients: Row[] }).patients[0].activeSubscription).toBeNull();
   });
 
   it("reports no deletion state for an untouched roster", async () => {

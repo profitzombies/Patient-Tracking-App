@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -135,3 +136,4 @@
 - [Billing product pages & plans](billing-product-pages.md) — discount = discounted per-cadence Stripe prices (no coupons), legacy 4-week price untouched; no office price row = floor-price fallback, not opt-out.
 - [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; only definite Stripe answers fail a line; reads scope patient + office.
 - [Branded shop emails](shop-customer-emails.md) — claim keyed on the changed value inside the transition owner; end-state actions need an already-there guard; email links must hit a real app route; Stripe emails off is structural, warn on unverified.
+- [In-office sales](in-office-sales.md) — Elements need paymentMethodCreation manual; CAS-only prebuilt cart transitions; paid = all groups; attempt bumps only on definite card failure; guest payer by verified phone.

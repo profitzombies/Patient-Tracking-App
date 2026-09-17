@@ -17,7 +17,7 @@ export function viewerOfficeRole(scope: Pick<BillingOfficeScope, "officeRole" | 
 export async function requireOfficeBillingScope(
   req: Request,
   res: Response,
-  options: { write: boolean },
+  options: { write: boolean; sell?: boolean },
 ): Promise<BillingOfficeScope | null> {
   const bodyOffice = req.body && typeof req.body.office === "string" ? req.body.office : null;
   const resolved = await resolveOfficeScope({
@@ -31,7 +31,7 @@ export async function requireOfficeBillingScope(
     return null;
   }
   const manage = canManageOffice(resolved.scope);
-  if (resolved.scope.actorKind !== "hq" && !manage) {
+  if (resolved.scope.actorKind !== "hq" && !manage && !options.sell) {
     res.status(403).json({ error: "Only office owners and admins can manage payments." });
     return null;
   }

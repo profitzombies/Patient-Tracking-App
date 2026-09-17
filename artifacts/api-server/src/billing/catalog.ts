@@ -419,7 +419,7 @@ export async function listCatalogChanges(): Promise<CatalogChange[]> {
   const officeNames = new Map(rowsOf(providers).map((row) => [String(row.provider_id), String(row.office_name ?? row.provider_name ?? "").trim() || "Office"]));
   return rows.map((row) => ({
     id: row.id, product_id: row.product_id,
-    product_name: products.find((product) => product.id === row.product_id)?.name ?? null,
+    product_name: (products as BillingProductRow[]).find((product) => product.id === row.product_id)?.name ?? null,
     kind: row.kind as CatalogChange["kind"], before: row.before, after: row.after,
     actor_user_id: row.actor_user_id, actor_name: row.actor_user_id ? names.get(row.actor_user_id) ?? null : null,
     actor_member_id: row.actor_user_id ? memberIds.get(row.actor_user_id) ?? null : null,

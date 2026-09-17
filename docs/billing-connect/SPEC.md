@@ -5,6 +5,16 @@ route, table and screen below follows the same names. Where a builder needs
 something the spec does not cover, choose the simplest option consistent with
 the decisions here and note it in `docs/billing-connect/DECISIONS.md`.
 
+## Sell in office
+
+Office staff can charge a patient's card in person or create a verified,
+single-use QR cart. The binding request/response and privacy contract is
+[SELL-IN-OFFICE.md](./SELL-IN-OFFICE.md). Staff endpoints are
+`/billing/office/sales/context`, `/billing/office/sales/quote`,
+`/billing/office/sales`, and `/billing/office/carts`; the public verified payer
+flow is under `/billing/public/carts/:token` (peek, phone, verify, details,
+checkout, and status).
+
 ## 1. Product decisions (confirmed with the owner)
 
 - **Money model:** direct charges on each office's connected account with an

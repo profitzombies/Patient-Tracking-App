@@ -206,7 +206,7 @@ export async function spendUndelivered(row: VerificationRow): Promise<void> {
   if (spent !== 1) throw new Error("undelivered auth send could not be spent");
 }
 
-export type CodePurpose = "login" | "signup" | "recovery" | "password_change";
+export type CodePurpose = "login" | "signup" | "recovery" | "password_change" | "cart_pay";
 
 export interface RegisterSendInput {
   purpose: CodePurpose;

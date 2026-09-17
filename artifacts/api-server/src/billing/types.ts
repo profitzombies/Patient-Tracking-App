@@ -1038,6 +1038,8 @@ export interface SubscriptionCardRequest {
   payment_method_id: string;
 }
 
+export type PrebuiltCartStatus = 'open' | 'verified' | 'checkout' | 'paid' | 'failed' | 'expired' | 'revoked' | 'locked';
+
 export interface PatientPurchasesTotals {
   /** Every order ever placed at this office, not just the recent slice. */
   order_count: number;
@@ -1071,4 +1073,72 @@ export interface PatientPaymentProblem {
   message: string | null;
   /** Stripe-hosted page to settle an open failed invoice, when one exists. */
   hosted_invoice_url: string | null;
+}
+
+export type PublicCartStatusValue = 'open' | 'verified' | 'expired' | 'used' | 'revoked' | 'locked';
+
+export interface PrebuiltCart {
+  id: string;
+  token: string;
+  url: string;
+  status: PrebuiltCartStatus;
+  partial: boolean;
+  patient: { id: string; name: string } | null;
+  lines: CartLineInput[];
+  quote: CartQuote;
+  label: string | null;
+  expires_at: string;
+  created_at: string;
+  paid_at: string | null;
+  orders: PrebuiltCartOrder[];
+}
+
+export interface PublicCartPeek {
+  status: PublicCartStatusValue;
+  office: { name: string };
+  sandbox: boolean;
+}
+
+export interface PublicCartDetails {
+  office: { name: string; city: string | null; state: string | null };
+  patient: { name: string; email: string | null; phone: string | null } | null;
+  lines: CartQuoteLine[];
+  quote: CartQuote;
+  products: PublicLinkProduct[];
+  default_address: ShippingAddress | null;
+  shipping_charge_cents: number;
+  tax_enabled: boolean;
+  stripe_account_id: string;
+  publishable_key: string;
+  sandbox: boolean;
+  expires_at: string;
+}
+
+export interface PublicCartStatus {
+  /** Real cart state (the caller already verified the phone), including paid/failed. */
+  status: PrebuiltCartStatus;
+  partial: boolean;
+  orders: Array<{ order_number: string; kind: CartPurchase; status: string; total_cents: number }>;
+  office_name: string;
+  paid_at: string | null;
+}
+
+export interface PrebuiltCartOrder {
+  order_id: string;
+  order_number: string;
+  kind: CartPurchase;
+  status: string;
+}
+
+export interface StaffSaleContext {
+  patient: { id: string; name: string; email: string | null; phone: string | null };
+  default_address: ShippingAddress | null;
+  products: PublicLinkProduct[];
+  shipping_charge_cents: number;
+  subscribe_save_percent: number;
+  stripe_account_id: string | null;
+  publishable_key: string;
+  sandbox: boolean;
+  available: boolean;
+  unavailable_reason: ShopUnavailableReason | null;
 }

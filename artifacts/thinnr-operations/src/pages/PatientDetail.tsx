@@ -43,6 +43,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSession } from "@/contexts/session";
 import { useProviderScope } from "@/contexts/provider-scope";
 import { PatientBloodwork } from "@/components/bloodwork/PatientBloodwork";
+import { SellToPatientDialog } from "@/components/billing/SellToPatientDialog";
 import {
   fetchOfficePatient,
   fetchOfficePatientNotifications,
@@ -204,7 +205,7 @@ function DemoPatientDetail() {
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{profile.email}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{profile.phone}</span></div>
             </div>
           </div>
-          <button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button>
+          <div className="flex gap-2"><button type="button" disabled className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button><button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button></div>
         </div>
         {isEditing && <form className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary p-4 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); setIsEditing(false); toast({ variant: "success", title: "Patient profile updated", description: "The synthetic record was updated for this session." }); }}>
           <label className={PANEL_LABEL}>Email<input type="email" required value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} className={`${INPUT_CLASS} mt-1 block h-9 w-full`} /></label>
@@ -405,6 +406,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
   const canEdit = useCanEditLiveRecord();
   const { toast } = useToast();
   const [weightEntryOpen, setWeightEntryOpen] = useState(false);
+  const [sellOpen, setSellOpen] = useState(false);
   const [securityReason, setSecurityReason] = useState<Exclude<SecurityReason, 'staff_request'>>('patient_request');
   const detail = useQuery({
     queryKey: livePatientQueryKey(office, id),
@@ -499,12 +501,14 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setSellOpen(true)} className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button>
             {!isHq && <button onClick={handleMessage} disabled={startConv.isPending} className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-message-patient">{startConv.isPending ? 'Starting...' : 'Message'}</button>}
             {canEdit && <EditPatientProfile patient={record.patient} office={office} />}
           </div>
         </div>
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>
+      <SellToPatientDialog open={sellOpen} onOpenChange={setSellOpen} patient={{ id: identity.id, name: identity.name }} office={office} />
       <main className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <SectionCard title="Progress at a glance" sub={program.id ? 'Program enrollment summary' : 'No program enrollment recorded'}>

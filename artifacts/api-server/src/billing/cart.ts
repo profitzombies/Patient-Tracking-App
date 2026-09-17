@@ -9,7 +9,7 @@ import { ensureRecurringPrices } from "./prices";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox, isStripeMissing } from "./stripe-client";
 import {
   insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingCartRow, type BillingConnectedAccountRow,
-  type BillingOrderRow, type BillingPaymentLinkRow, type BillingProductRow, type BillingSettingsRow,
+  type BillingOrderRow, type BillingPaymentLinkRow, type BillingPayerRow, type BillingProductRow, type BillingSettingsRow,
 } from "./store";
 import { markSubscriptionInvoicePaid, nextShipmentAt, periodEnd } from "./subscriptions";
 import type {
@@ -130,8 +130,9 @@ export async function planCart(providerId: string, input: CartLineInput[]): Prom
 }
 
 export type CheckoutInput = {
-  patientId: string; providerId: string; cartId: string; lines: CartLineInput[];
+  patientId: string | null; providerId: string; cartId: string; lines: CartLineInput[];
   shipping_address: ShippingAddress; payment_method_id: string; set_default?: boolean;
+  resolvedPayer?: BillingPayerRow;
 };
 
 function checkoutStatus(items: CartCheckoutItem[]): CheckoutStatus {
@@ -225,7 +226,8 @@ async function abandonSwappedCart(
   const acct = pinned.stripe_account_id;
   const opts = connectedOpts(acct);
   const message = "Your office's payment account changed while this checkout was in progress. Start a new checkout.";
-  const orders = await selectMany("billing_orders", `cart_id=eq.${enc(input.cartId)}&patient_id=eq.${enc(input.patientId)}&order=created_at.asc,id.asc`);
+  const patientFilter = input.patientId ? `patient_id=eq.${enc(input.patientId)}` : "patient_id=is.null";
+  const orders = await selectMany("billing_orders", `cart_id=eq.${enc(input.cartId)}&${patientFilter}&order=created_at.asc,id.asc`);
   const items: CartCheckoutItem[] = [];
   const swallowMissing = async (call: () => Promise<unknown>) => { try { await call(); } catch (error) { if (!isStripeMissing(error)) throw error; } };
   for (const order of orders) {
@@ -303,8 +305,9 @@ function storedPlan(cart: BillingCartRow): CartPlan | null {
 }
 
 /** A retried checkout (same Idempotency-Key) replays what the first attempt created. */
-export async function existingCheckout(cartId: string, patientId: string): Promise<CartCheckoutResponse | null> {
-  const orders = await selectMany("billing_orders", `cart_id=eq.${enc(cartId)}&patient_id=eq.${enc(patientId)}&order=created_at.asc,id.asc`);
+export async function existingCheckout(cartId: string, patientId: string | null): Promise<CartCheckoutResponse | null> {
+  const patientFilter = patientId ? `patient_id=eq.${enc(patientId)}` : "patient_id=is.null";
+  const orders = await selectMany("billing_orders", `cart_id=eq.${enc(cartId)}&${patientFilter}&order=created_at.asc,id.asc`);
   if (!orders.length) return null;
   const cart = await selectOne("billing_carts", `id=eq.${enc(cartId)}`);
   const account = cart ? (await resumeAccount(cart, orders[0].provider_id)).account
@@ -411,7 +414,7 @@ export async function checkoutCart(input: CheckoutInput): Promise<CartCheckoutRe
     plan = storedPlan(cart) ?? plan ?? await planCart(input.providerId, input.lines);
   }
   if (!plan || !account) throw new BillingCartError("Checkout could not be started. Try again.", 503);
-  const payer = await resolvePayer(input.providerId, { patient_id: input.patientId } as BillingPaymentLinkRow);
+  const payer = input.resolvedPayer ?? await resolvePayer(input.providerId, { patient_id: input.patientId } as BillingPaymentLinkRow);
   const stripe = await getStripe();
   const customerId = await ensureCustomer(payer, input.shipping_address, account);
   await attachCard(stripe, account, customerId, input.payment_method_id, input.cartId, input.set_default);

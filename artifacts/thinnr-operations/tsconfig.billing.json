@@ -13,6 +13,8 @@
       "@/components/ui/dropdown-menu": ["./scripts/office-admin-stubs/dropdown-menu.tsx"],
       "@stripe/connect-js": ["./scripts/billing-stubs/connect-js.ts"],
       "@stripe/react-connect-js": ["./scripts/billing-stubs/react-connect-js.tsx"],
+      "@stripe/stripe-js": ["./scripts/billing-public-stubs/stripe-js.ts"],
+      "@stripe/react-stripe-js": ["./scripts/billing-public-stubs/react-stripe-js.tsx"],
       "@/*": ["./src/*"]
     }
   }

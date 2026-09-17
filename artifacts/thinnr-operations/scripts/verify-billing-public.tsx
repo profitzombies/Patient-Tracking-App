@@ -33,10 +33,10 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
   status, headers: { 'Content-Type': 'application/json' },
 });
 let queue: Response[] = [];
-const requests: Array<{ url: string; method: string; body: any }> = [];
+const requests: Array<{ url: string; method: string; body: any; headers?: HeadersInit }> = [];
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  requests.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
+  requests.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null, headers: init?.headers });
   const response = queue.shift();
   if (!response) throw new Error(`Unexpected fetch: ${url}`);
   return response;
@@ -176,6 +176,104 @@ await change(one(view.root, 'input-postal_code'), '02110');
 await act(async () => { view.root.findAllByType('form')[0].props.onSubmit({ preventDefault() {} }); });
 await settle();
 check('locked payer is omitted from the order request', requests.at(-1)?.body?.payer === undefined);
+view.unmount();
+
+console.log('\nbilling public: prebuilt cart');
+const cartPeek = { status: 'open', office: { name: 'Beacon Hill Aesthetics' }, sandbox: true };
+const cartQuote = {
+  lines: [{ product_id: 'control', name: 'Control', purchase: 'one_time', quantity: 2, cadence_weeks: null, unit_price_cents: 6999, list_price_cents: 6999, discount_cents: 0, line_total_cents: 13998 }],
+  groups: [{ kind: 'one_time', product_id: null, cadence_weeks: null, quantity: 2, subtotal_cents: 13998, shipping_charge_cents: 1000, total_cents: 14998 }],
+  subtotal_cents: 13998, discount_cents: 0, shipping_charge_cents: 1000, total_cents: 14998,
+};
+const cartDetails = {
+  office: { name: 'Beacon Hill Aesthetics', city: 'Boston', state: 'MA' },
+  patient: { name: 'Maya Thompson', email: 'maya@example.com', phone: '6175550100' },
+  lines: cartQuote.lines, quote: cartQuote, products: [], shipping_charge_cents: 1000, tax_enabled: false,
+  default_address: { name: 'Maya Thompson', line1: '10 Main St', line2: null, city: 'Boston', state: 'MA', postal_code: '02110', country: 'US', phone: '6175550100' },
+  stripe_account_id: 'acct_cart', publishable_key: 'pk_test_cart', sandbox: true, expires_at: '2099-01-01T00:00:00Z',
+};
+requests.length = 0;
+queue = [
+  json(200, cartPeek),
+  json(200, { request_id: 'verify-1', devCode: '246810' }),
+  json(200, { session: 'cart-session-1' }),
+  json(200, cartDetails),
+  json(200, {
+    cart_id: 'cart-1', status: 'paid',
+    items: [{ kind: 'one_time', order_id: 'order-cart', order_number: 'TH-CART01', subscription_id: null, status: 'paid', client_secret: null, error: null, total_cents: 14998 }],
+    stripe_account_id: 'acct_cart', publishable_key: 'pk_test_cart', sandbox: true,
+  }),
+];
+view = await render('/cart/cart-token');
+const phoneForm = view.root.find((node) => node.type === 'form' && text(node).includes('Enter the mobile number on file'));
+await change(phoneForm.findByType('input'), '6175550100');
+await act(async () => phoneForm.props.onSubmit({ preventDefault() {} })); await settle();
+check('cart phone advances to code and displays devCode as test-mode only', text(view).includes('Test-mode code:') && text(view).includes('246810'), text(view));
+const codeForm = view.root.find((node) => node.type === 'form' && text(node).includes('Enter your code'));
+await change(codeForm.findByType('input'), '246810');
+await act(async () => codeForm.props.onSubmit({ preventDefault() {} })); await settle();
+check('cart details send X-Cart-Session and render quote lines', new Headers(requests.find((request) => request.url.endsWith('/details'))?.headers).get('X-Cart-Session') === 'cart-session-1' && text(view).includes('2 × Control') && text(view).includes('$149.98'));
+const cartStripeForm = one(view.root, 'stripe-payment-method-form');
+await act(async () => cartStripeForm.props.onSubmit({ preventDefault() {} })); await settle();
+const cartCheckout = requests.find((request) => request.url.endsWith('/checkout'));
+check('cart checkout sends session, payment method and prefilled address', new Headers(cartCheckout?.headers).get('X-Cart-Session') === 'cart-session-1'
+  && cartCheckout?.body.payment_method_id === 'pm_test_staff_sale'
+  && JSON.stringify(cartCheckout?.body.shipping_address) === JSON.stringify(cartDetails.default_address)
+  && cartCheckout?.body.payer === undefined,
+JSON.stringify(cartCheckout));
+check('paid cart renders receipt and order number', text(one(view.root, 'cart-payment-receipt')).includes('TH-CART01') && text(one(view.root, 'cart-payment-receipt')).includes('$149.98'));
+view.unmount();
+
+queue = [
+  json(200, cartPeek),
+  json(200, { request_id: 'verify-partial', devCode: '246810' }),
+  json(200, { session: 'cart-session-partial' }),
+  json(200, cartDetails),
+  json(200, {
+    cart_id: 'cart-partial', status: 'partial',
+    items: [
+      { kind: 'one_time', order_id: 'order-paid', order_number: 'TH-PAID02', subscription_id: null, status: 'paid', client_secret: null, error: null, total_cents: 6999 },
+      { kind: 'subscription', order_id: 'order-failed', order_number: 'TH-FAIL02', subscription_id: 'sub-failed', status: 'failed', client_secret: null, error: 'The subscription payment was declined.', total_cents: 7999 },
+    ],
+    stripe_account_id: 'acct_cart', publishable_key: 'pk_test_cart', sandbox: true,
+  }),
+];
+view = await render('/cart/partial-cart');
+const partialPhoneForm = view.root.findByType('form');
+await change(partialPhoneForm.findByType('input'), '6175550100');
+await act(async () => partialPhoneForm.props.onSubmit({ preventDefault() {} })); await settle();
+const partialCodeForm = view.root.findByType('form');
+await change(partialCodeForm.findByType('input'), '246810');
+await act(async () => partialCodeForm.props.onSubmit({ preventDefault() {} })); await settle();
+await act(async () => one(view.root, 'stripe-payment-method-form').props.onSubmit({ preventDefault() {} })); await settle();
+const partialReceipt = one(view.root, 'cart-partial-receipt');
+check('partial cart receipt identifies paid and failed items and prevents a misleading retry',
+  text(partialReceipt).includes('Some items were paid')
+    && text(partialReceipt).includes('TH-PAID02 · Paid')
+    && text(partialReceipt).includes('TH-FAIL02 · Failed')
+    && text(partialReceipt).includes('The subscription payment was declined.')
+    && text(partialReceipt).includes('Contact the office')
+    && !text(view).includes('No payment was completed')
+    && !text(view).includes('Try another card'));
+view.unmount();
+
+queue = [json(200, { status: 'expired', office: { name: 'Beacon Hill Aesthetics' }, sandbox: true })];
+view = await render('/cart/expired-cart');
+check('expired cart has friendly terminal copy', text(view).includes('This cart has expired') && text(view).includes('create a new QR code'));
+view.unmount();
+
+requests.length = 0;
+queue = [json(200, cartPeek), json(400, { error: "That number doesn't match the patient on file.", attempts_left: 3 })];
+view = await render('/cart/wrong-phone');
+const wrongPhoneForm = view.root.findByType('form');
+await change(wrongPhoneForm.findByType('input'), '6175559999');
+await act(async () => wrongPhoneForm.props.onSubmit({ preventDefault() {} })); await settle();
+check('wrong phone announces attempts left', text(view).includes("That number doesn't match the patient on file. 3 attempts left."));
+view.unmount();
+
+queue = [json(200, { status: 'locked', office: { name: 'Beacon Hill Aesthetics' }, sandbox: true })];
+view = await render('/cart/locked-cart');
+check('locked cart has friendly terminal copy', text(view).includes('This cart is locked') && text(view).includes('Too many phone numbers'));
 view.unmount();
 
 console.log('\nbilling public: done and cancel');

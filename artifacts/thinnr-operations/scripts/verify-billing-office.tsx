@@ -28,14 +28,15 @@ const check = (name: string, pass: boolean, detail = '') => {
 };
 const json = (status: number, body: unknown) => () => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 let responses: Array<() => Response> = [];
-const requests: Array<{ url: string; method: string; body: any }> = [];
+const requests: Array<{ url: string; method: string; body: any; headers?: HeadersInit }> = [];
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-  requests.push({ url, method: (init?.method ?? 'GET').toUpperCase(), body: init?.body ? JSON.parse(String(init.body)) : null });
+  requests.push({ url, method: (init?.method ?? 'GET').toUpperCase(), body: init?.body ? JSON.parse(String(init.body)) : null, headers: init?.headers });
   const next = responses.shift();
   if (!next) throw new Error(`unexpected fetch ${url}`);
   return next();
 };
+const queuedFetch = g.fetch;
 
 const account = {
   provider_id: 'office-1', stripe_account_id: 'acct_1', origin: 'created', dashboard_type: 'none',
@@ -134,6 +135,7 @@ console.log('office billing: gates and setup');
       && Boolean(one(demoLinks.root, 'select-link-expiry')?.props.disabled)
       && demoLinks.root.findAll((node) => node.type === 'button' && text(node) === 'Edit' && node.props.disabled === true).length > 0,
   );
+  check('demo Sell to patient action is present and disabled', one(demoLinks.root, 'button-sell-to-patient')?.props.disabled === true);
   demoLinks.renderer.unmount();
 
   const demoDetail = await render('/transactions/demo-order-1');
@@ -264,6 +266,137 @@ console.log('\noffice billing: patient links and HQ scope');
   const hq = await render('/get-paid');
   check('HQ drill-in appends office to live calls', requests[0]?.url === '/api/billing/office/status?office=office-1', JSON.stringify(requests));
   hq.renderer.unmount();
+}
+
+console.log('\noffice billing: sell to patient');
+{
+  const saleProduct = {
+    product_id: 'control', name: 'Control', description: 'Daily support', image_url: null,
+    unit_price_cents: 7999, office_priced: true, subscription_available: true,
+    subscription_cadences_weeks: [2, 4, 8], default_cadence_weeks: 4,
+    subscribe_save_percent: 10, subscription_unit_price_cents: 7199,
+    page: { eyebrow: '', headline: '', dek: '', highlights: [], how_it_works: [], ingredients: [], directions: '', warnings: '' },
+  };
+  const saleContext = {
+    patient: { id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: '6175550100' },
+    default_address: { name: 'Maya Thompson', line1: '10 Main St', line2: null, city: 'Boston', state: 'MA', postal_code: '02110', country: 'US', phone: '6175550100' },
+    products: [saleProduct], shipping_charge_cents: 1000, subscribe_save_percent: 10,
+    stripe_account_id: 'acct_1', publishable_key: 'pk_test_1', sandbox: true, available: true, unavailable_reason: null,
+  };
+  const subscribedLines = [{ product_id: 'control', quantity: 3, purchase: 'subscription', cadence_weeks: 8 }];
+  const quote = {
+    lines: [{ product_id: 'control', name: 'Control', purchase: 'subscription', quantity: 3, cadence_weeks: 8, unit_price_cents: 7199, list_price_cents: 7999, discount_cents: 2400, line_total_cents: 21597 }],
+    groups: [{ kind: 'subscription', product_id: 'control', cadence_weeks: 8, quantity: 3, subtotal_cents: 21597, shipping_charge_cents: 1000, total_cents: 22597 }],
+    subtotal_cents: 23997, discount_cents: 2400, shipping_charge_cents: 1000, total_cents: 22597,
+  };
+  const installSaleFetch = (mode: 'card' | 'partial' | 'qr') => {
+    g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ url, method, body, headers: init?.headers });
+      if (url === '/api/billing/office/status') return json(200, status())();
+      if (url === '/api/billing/office/links') return json(200, { items: [] })();
+      if (url === '/api/billing/office/prices') return json(200, { products: [price], settings: {} })();
+      if (url.startsWith('/api/billing/office/patients/search')) return json(200, { items: [{ id: 'patient-1', name: 'Maya Thompson', email: 'maya@example.com', phone: '6175550100' }] })();
+      if (url.startsWith('/api/billing/office/sales/context')) return json(200, saleContext)();
+      if (url === '/api/billing/office/sales/quote') return json(200, quote)();
+      if (url === '/api/billing/office/sales' && (mode === 'card' || mode === 'partial')) return json(200, {
+        cart_id: body.cart_id, status: mode === 'partial' ? 'partial' : 'paid',
+        items: mode === 'partial'
+          ? [
+              { kind: 'one_time', order_id: 'order-paid', order_number: 'TH-PAID01', subscription_id: null, status: 'paid', client_secret: null, error: null, total_cents: 7999 },
+              { kind: 'subscription', order_id: 'order-failed', order_number: 'TH-FAIL01', subscription_id: 'sub-failed', status: 'failed', client_secret: null, error: 'Card declined for this renewal.', total_cents: 14598 },
+            ]
+          : [{ kind: 'subscription', order_id: 'order-1', order_number: 'TH-SALE01', subscription_id: 'sub-1', status: 'paid', client_secret: null, error: null, total_cents: 22597 }],
+        stripe_account_id: 'acct_1', publishable_key: 'pk_test_1', sandbox: true,
+      })();
+      if (url === '/api/billing/office/carts' && method === 'POST' && mode === 'qr') return json(200, {
+        id: 'cart-1', token: 'cart-token', url: 'https://payments.example/pay/cart/cart-token', status: 'open', partial: false,
+        patient: { id: 'patient-1', name: 'Maya Thompson' }, lines: body.lines, quote, label: null,
+        expires_at: '2099-01-01T00:00:00Z', created_at: '2026-10-11T00:00:00Z', paid_at: null, orders: [],
+      })();
+      if (url === '/api/billing/office/carts/cart-1' && mode === 'qr') return json(200, {
+        id: 'cart-1', token: 'cart-token', url: 'https://payments.example/pay/cart/cart-token', status: 'paid', partial: false,
+        patient: { id: 'patient-1', name: 'Maya Thompson' }, lines: body?.lines ?? subscribedLines, quote, label: null,
+        expires_at: '2099-01-01T00:00:00Z', created_at: '2026-10-11T00:00:00Z', paid_at: '2026-10-11T00:05:00Z',
+        orders: [{ order_id: 'order-qr', order_number: 'TH-QR001', kind: 'subscription', status: 'paid' }],
+      })();
+      throw new Error(`unexpected fetch ${method} ${url}`);
+    };
+  };
+  const openSale = async (page: Awaited<ReturnType<typeof render>>) => {
+    await act(async () => one(page.root, 'input-patient-search').props.onChange({ target: { value: 'Maya' } }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    await settle();
+    await act(async () => one(page.root, 'patient-result-patient-1').props.onClick());
+    await act(async () => one(page.root, 'button-sell-to-patient').props.onClick());
+    await settle();
+  };
+
+  reset(); installSaleFetch('card');
+  const card = await render('/links');
+  await openSale(card);
+  await act(async () => card.root.find((node) => node.props['aria-label'] === 'Select Control').props.onChange({ target: { checked: true } }));
+  const purchaseSelect = card.root.findAllByType('select').find((node) => node.props.value === 'one_time')!;
+  await act(async () => purchaseSelect.props.onChange({ target: { value: 'subscription' } }));
+  await act(async () => card.root.find((node) => node.props['aria-label'] === 'Control cadence').props.onChange({ target: { value: '8' } }));
+  await act(async () => card.root.find((node) => node.props['aria-label'] === 'Control quantity').props.onChange({ target: { value: '3' } }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); }); await settle();
+  const quotePost = requests.findLast((request) => request.url === '/api/billing/office/sales/quote');
+  check('sale quote sends exact patient, purchase, cadence and quantity', JSON.stringify(quotePost?.body) === JSON.stringify({ patient_id: 'patient-1', lines: subscribedLines }), JSON.stringify(quotePost?.body));
+  await act(async () => card.root.find((node) => node.type === 'button' && text(node) === 'Continue').props.onClick());
+  await act(async () => card.root.find((node) => node.type === 'button' && text(node) === 'Charge card here').props.onClick());
+  await settle();
+  const stripeForm = one(card.root, 'stripe-payment-method-form');
+  await act(async () => stripeForm.props.onSubmit({ preventDefault() {} })); await settle();
+  const salePost = requests.find((request) => request.url === '/api/billing/office/sales');
+  const saleHeaders = new Headers(salePost?.headers);
+  check('card sale sends exact body and stable Idempotency-Key', salePost?.body.patient_id === 'patient-1'
+    && JSON.stringify(salePost?.body.lines) === JSON.stringify(subscribedLines)
+    && salePost?.body.payment_method_id === 'pm_test_staff_sale'
+    && salePost?.body.cart_id === saleHeaders.get('Idempotency-Key')
+    && Boolean(saleHeaders.get('Idempotency-Key')),
+  JSON.stringify(salePost));
+  check('card sale renders completion order number', text(one(card.root, 'sale-completion')).includes('TH-SALE01'));
+  card.renderer.unmount();
+
+  reset(); installSaleFetch('partial');
+  const partial = await render('/links');
+  await openSale(partial);
+  await act(async () => partial.root.find((node) => node.props['aria-label'] === 'Select Control').props.onChange({ target: { checked: true } }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); }); await settle();
+  await act(async () => partial.root.find((node) => node.type === 'button' && text(node) === 'Continue').props.onClick());
+  await act(async () => partial.root.find((node) => node.type === 'button' && text(node) === 'Charge card here').props.onClick());
+  await settle();
+  await act(async () => one(partial.root, 'stripe-payment-method-form').props.onSubmit({ preventDefault() {} })); await settle();
+  const partialPanel = one(partial.root, 'sale-completion');
+  const partialPost = requests.findLast((request) => request.url === '/api/billing/office/sales');
+  check('partial sale names each paid and failed outcome without claiming completion',
+    text(partialPanel).includes('Partly complete')
+      && text(partialPanel).includes('TH-PAID01Paid')
+      && text(partialPanel).includes('TH-FAIL01Failed')
+      && text(partialPanel).includes('Card declined for this renewal.')
+      && !text(partialPanel).includes('Sale complete'));
+  await act(async () => partialPanel.find((node) => node.type === 'button' && text(node) === 'Check again').props.onClick()); await settle();
+  const partialRetry = requests.findLast((request) => request.url === '/api/billing/office/sales');
+  check('partial Check again reuses the same body and Idempotency-Key',
+    JSON.stringify(partialRetry?.body) === JSON.stringify(partialPost?.body)
+      && new Headers(partialRetry?.headers).get('Idempotency-Key') === new Headers(partialPost?.headers).get('Idempotency-Key'));
+  partial.renderer.unmount();
+
+  reset(); installSaleFetch('qr');
+  const qrPage = await render('/links'); await openSale(qrPage);
+  await act(async () => qrPage.root.find((node) => node.props['aria-label'] === 'Select Control').props.onChange({ target: { checked: true } }));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); }); await settle();
+  await act(async () => qrPage.root.find((node) => node.type === 'button' && text(node) === 'Continue').props.onClick());
+  await act(async () => qrPage.root.find((node) => node.type === 'button' && text(node) === 'Show QR code').props.onClick()); await settle();
+  const qrPanel = one(qrPage.root, 'sale-qr');
+  check('QR path renders a data image and root-relative cart URL', qrPanel.findByType('img').props.src.startsWith('data:image/png;base64,') && text(qrPanel).includes('/pay/cart/cart-token'));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 3100)); }); await settle();
+  check('QR poll flips the dialog to Paid and shows its order', text(one(qrPage.root, 'sale-qr')).includes('Paid') && text(one(qrPage.root, 'sale-qr')).includes('TH-QR001'));
+  qrPage.renderer.unmount();
+  g.fetch = queuedFetch;
 }
 
 console.log('\noffice billing: activity, refunds and fulfillment status');

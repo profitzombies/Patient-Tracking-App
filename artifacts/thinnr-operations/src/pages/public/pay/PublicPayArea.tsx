@@ -19,6 +19,7 @@ import type {
   PublicSubscription,
   ShippingAddress,
 } from '@/lib/billing-types';
+import CartPayPage from './CartPayPage';
 
 const STATES = [
   'AL',
@@ -878,6 +879,7 @@ function CancelPage() {
 export default function PublicPayArea() {
   return (
     <Switch>
+      <Route path="/cart/:token" component={CartPayPage} />
       <Route path="/cancel/:cancelToken" component={CancelPage} />
       <Route path="/:token/done" component={DonePage} />
       <Route path="/:token" component={CheckoutPage} />

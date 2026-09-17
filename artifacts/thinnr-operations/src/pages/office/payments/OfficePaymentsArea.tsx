@@ -32,6 +32,7 @@ import {
 import { RefundDialog } from '@/components/billing/RefundDialog';
 import { StripeCustomerEmailsFlag, StripeCustomerEmailsNotice } from '@/components/billing/StripeCustomerEmails';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
+import { SellToPatientDialog } from '@/components/billing/SellToPatientDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -502,6 +503,7 @@ function LinksView({
   const [q, setQ] = useState('');
   const [patients, setPatients] = useState<Array<{ id: string; name: string; email: string | null }>>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [salePatient, setSalePatient] = useState<{ id: string; name: string } | null>(null);
   const [expiresHours, setExpiresHours] = useState('');
   const [useLimit, setUseLimit] = useState('');
   const [productId, setProductId] = useState('');
@@ -633,6 +635,17 @@ function LinksView({
             >
               Create and copy
             </button>
+            <button
+              data-testid="button-sell-to-patient"
+              className={`${BTN_SECONDARY} ml-2 mt-3 h-9 px-3`}
+              disabled={!selected || demo}
+              onClick={() => {
+                const match = patients.find((item) => item.id === selected);
+                if (match) setSalePatient({ id: match.id, name: match.name });
+              }}
+            >
+              Sell to patient
+            </button>
           </div>
        <SectionCard title="New link options" sub="These options apply to the next office or patient link you create.">
          <div className="grid gap-4 p-5 sm:grid-cols-3">
@@ -664,6 +677,14 @@ function LinksView({
        </SectionCard>
         </SectionCard>
       </div>
+      {salePatient ? (
+        <SellToPatientDialog
+          open
+          onOpenChange={(next) => { if (!next) setSalePatient(null); }}
+          patient={salePatient}
+          office={office}
+        />
+      ) : null}
       <SectionCard title="Links">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">

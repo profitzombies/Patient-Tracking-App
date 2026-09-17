@@ -45,10 +45,12 @@ import patientCareTeamRouter from "./patient-care-team";
 import coachMemoryRouter from "./coach-memory";
 import coachConversationsRouter from "./coach-conversations";
 import billingOfficeRouter from "./billing-office";
+import billingOfficeSalesRouter from "./billing-office-sales";
 import billingOfficeOrdersRouter from "./billing-office-orders";
 import billingHqRouter from "./billing-hq";
 import billingHqOrdersRouter from "./billing-hq-orders";
 import billingPublicRouter from "./billing-public";
+import billingPublicCartsRouter from "./billing-public-carts";
 import officeAlertsRouter from "./office-alerts";
 import staffNotificationsRouter from "./staff-notifications";
 import hqStaffAlertsRouter from "./hq-staff-alerts";
@@ -106,9 +108,11 @@ router.use(exportsRouter);
 // Provider payments (Stripe Connect). Webhooks mount separately in app.ts
 // (raw body, before the JSON parser).
 router.use(billingOfficeRouter);
+router.use(billingOfficeSalesRouter);
 router.use(billingOfficeOrdersRouter);
 router.use(billingHqRouter);
 router.use(billingHqOrdersRouter);
 router.use(billingPublicRouter);
+router.use(billingPublicCartsRouter);
 
 export default router;

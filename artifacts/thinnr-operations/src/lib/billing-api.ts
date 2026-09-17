@@ -46,6 +46,15 @@ import type {
   SubscriptionChangeInput,
   SubscriptionChangeQuote,
   SubscriptionRow,
+  CartLineInput,
+  CartQuote,
+  CartCheckoutResponse,
+  PrebuiltCart,
+  PublicCartDetails,
+  PublicCartPeek,
+  PublicCartStatus,
+  ShippingAddress,
+  StaffSaleContext,
 } from '@/lib/billing-types';
 
 export { OfficeApiError as BillingApiError };
@@ -172,6 +181,28 @@ export const officeBilling = {
     officeRequest<Paged<OrderDetail>>(`${OFFICE}/fulfillment${qs(filters, office)}`, MESSAGES),
   searchPatients: (q: string, office?: string | null) =>
     officeRequest<{ items: PatientSearchHit[] }>(`${OFFICE}/patients/search${qs({ q }, office)}`, MESSAGES),
+  saleContext: (patientId: string, office?: string | null) =>
+    officeRequest<StaffSaleContext>(`${OFFICE}/sales/context${qs({ patient_id: patientId }, office)}`, MESSAGES),
+  saleQuote: (body: { patient_id: string; lines: CartLineInput[] }, office?: string | null) =>
+    officeRequest<CartQuote>(`${OFFICE}/sales/quote${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+  saleCheckout: (
+    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; payment_method_id: string; cart_id: string },
+    office?: string | null,
+    idempotencyKey?: string,
+  ) =>
+    officeRequest<CartCheckoutResponse>(`${OFFICE}/sales${qs({}, office)}`, MESSAGES, {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: JSON.stringify(body),
+    }),
+  createCart: (body: { patient_id?: string; lines: CartLineInput[]; label?: string; expires_in_minutes?: number }, office?: string | null) =>
+    officeRequest<PrebuiltCart>(`${OFFICE}/carts${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+  cart: (id: string, office?: string | null) =>
+    officeRequest<PrebuiltCart>(`${OFFICE}/carts/${encodeURIComponent(id)}${qs({}, office)}`, MESSAGES),
+  listCarts: (params: { patient_id?: string; status?: string }, office?: string | null) =>
+    officeRequest<{ items: PrebuiltCart[] }>(`${OFFICE}/carts${qs(params, office)}`, MESSAGES),
+  revokeCart: (id: string, office?: string | null) =>
+    officeRequest<PrebuiltCart>(`${OFFICE}/carts/${encodeURIComponent(id)}/revoke${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
 };
 
 // ---------------- HQ ----------------
@@ -279,7 +310,7 @@ export const hqBilling = {
 // ---------------- public (no session) ----------------
 
 export class PublicBillingError extends Error {
-  constructor(message: string, readonly status: number, readonly field: string | null = null) {
+  constructor(message: string, readonly status: number, readonly field: string | null = null, readonly attemptsLeft: number | null = null) {
     super(message);
     this.name = 'PublicBillingError';
   }
@@ -295,7 +326,7 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new PublicBillingError('Could not reach the payment service. Check your connection and try again.', 0);
   }
-  let body: { error?: unknown; field?: unknown } & Partial<T> = {};
+  let body: { error?: unknown; field?: unknown; attempts_left?: unknown } & Partial<T> = {};
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -306,6 +337,7 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
       typeof body.error === 'string' ? body.error : `The payment request failed (${response.status}).`,
       response.status,
       typeof body.field === 'string' ? body.field : null,
+      typeof body.attempts_left === 'number' ? body.attempts_left : null,
     );
   }
   return body as T;
@@ -326,5 +358,30 @@ export const publicBilling = {
     publicRequest<PublicSubscription>(`${PUBLIC}/subscriptions/${encodeURIComponent(cancelToken)}/cancel`, {
       method: 'POST',
       body: '{}',
+    }),
+  cartPeek: (token: string) => publicRequest<PublicCartPeek>(`${PUBLIC}/carts/${encodeURIComponent(token)}`),
+  cartPhone: (token: string, phone: string) =>
+    publicRequest<{ request_id: string; devCode?: string }>(`${PUBLIC}/carts/${encodeURIComponent(token)}/phone`, {
+      method: 'POST', body: JSON.stringify({ phone }),
+    }),
+  cartVerify: (token: string, requestId: string, code: string) =>
+    publicRequest<{ session: string }>(`${PUBLIC}/carts/${encodeURIComponent(token)}/verify`, {
+      method: 'POST', body: JSON.stringify({ request_id: requestId, code }),
+    }),
+  cartDetails: (token: string, session: string) =>
+    publicRequest<PublicCartDetails>(`${PUBLIC}/carts/${encodeURIComponent(token)}/details`, {
+      headers: { 'X-Cart-Session': session },
+    }),
+  cartCheckout: (
+    token: string,
+    session: string,
+    body: { shipping_address: ShippingAddress; payment_method_id: string; payer?: { name: string; email: string; phone: string } },
+  ) =>
+    publicRequest<CartCheckoutResponse>(`${PUBLIC}/carts/${encodeURIComponent(token)}/checkout`, {
+      method: 'POST', headers: { 'X-Cart-Session': session }, body: JSON.stringify(body),
+    }),
+  cartStatus: (token: string, session: string) =>
+    publicRequest<PublicCartStatus>(`${PUBLIC}/carts/${encodeURIComponent(token)}/status`, {
+      headers: { 'X-Cart-Session': session },
     }),
 };

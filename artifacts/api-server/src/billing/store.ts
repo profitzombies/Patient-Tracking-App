@@ -6,7 +6,8 @@ export type BillingTable =
   | "billing_connected_accounts" | "billing_account_events" | "billing_office_prices"
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
-  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails";
+  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
+  | "billing_prebuilt_carts";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
@@ -109,7 +110,15 @@ export interface BillingSubscriptionRow extends TimestampedRow {
 }
 export type BillingShipmentStatus = "processing" | "shipped" | "delivered" | "canceled";
 export interface BillingCartRow extends TimestampedRow {
-  id: string; provider_id: string; patient_id: string; status: "staging" | "ready"; quote: Record<string, unknown>;
+  id: string; provider_id: string; patient_id: string | null; status: "staging" | "ready"; quote: Record<string, unknown>;
+}
+
+export interface BillingPrebuiltCartRow extends TimestampedRow {
+  id: string; token: string; provider_id: string; patient_id: string | null; created_by_user_id: string | null;
+  label: string | null; lines: unknown[]; quote: Record<string, unknown>;
+  status: "open" | "verified" | "checkout" | "paid" | "failed" | "expired" | "revoked" | "locked";
+  expires_at: string; phone_attempts: number; verification_id: string | null; verified_at: string | null;
+  session_hash: string | null; checkout_attempt: number; cart_id: string | null; paid_at: string | null;
 }
 export interface BillingShipmentRow extends TimestampedRow {
   id: string; order_id: string; provider_id: string; status: BillingShipmentStatus;
@@ -158,6 +167,7 @@ export type BillingRows = {
   billing_payouts: BillingPayoutRow; billing_webhook_endpoints: BillingWebhookEndpointRow;
   billing_webhook_events: BillingWebhookEventRow; billing_shipments: BillingShipmentRow; billing_carts: BillingCartRow;
   billing_customer_emails: BillingCustomerEmailRow;
+  billing_prebuilt_carts: BillingPrebuiltCartRow;
 };
 
 export class BillingStoreError extends Error {

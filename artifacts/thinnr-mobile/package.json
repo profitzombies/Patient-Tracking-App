@@ -46,6 +46,10 @@
     "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts",
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
+    "test:shop": "tsx --tsconfig tsconfig.shop.json scripts/verify-shop.tsx",
+    "test:product-page": "tsx --tsconfig tsconfig.shop.json scripts/verify-product-page.tsx",
+    "test:cart-math": "tsx --tsconfig tsconfig.shop.json scripts/verify-cart-math.ts",
+    "test:checkout": "tsx --tsconfig tsconfig.shop.json scripts/verify-checkout.tsx",
     "test:leaderboard": "tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",
     "test:device-features": "tsx scripts/verify-device-features.ts",
     "test:medication-reminders": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-medication-reminders.ts",
@@ -128,6 +132,7 @@
   },
   "dependencies": {
     "@react-native-community/netinfo": "12.0.1",
+    "@stripe/react-stripe-js": "^6.10.0",
     "@stripe/stripe-js": "^9.16.0",
     "@stripe/stripe-react-native": "0.64.0",
     "@supabase/supabase-js": "^2.112.3",

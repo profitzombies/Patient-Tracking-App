@@ -133,7 +133,7 @@
 - [Staff attention alerts](staff-attention-alerts.md) — one evaluator feeds roster/bell/digest/email; staff outbox is separate from patient outbox; opt-outs applied at send; ALL mail via the templates library shell.
 - [Coach conversation titles](coach-conversation-titles.md) — model titles + patient rename decided by title_source in SQL; sensitive-text screen → fallback; mobile reconciles late reads against committed rows.
 - [Billing product pages & plans](billing-product-pages.md) — discount = discounted per-cadence Stripe prices (no coupons), legacy 4-week price untouched; no office price row = floor-price fallback, not opt-out.
-- [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; only definite Stripe answers fail a line; reads scope patient + office.
+- [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; ambiguous results replay the same id+request; never show pre-tax as due.
 - [Branded shop emails](shop-customer-emails.md) — claim keyed on the changed value inside the transition owner; end-state actions need an already-there guard; email links must hit a real app route; Stripe emails off is structural, warn on unverified.
 - [Provider mobile Payments area](mobile-payments-area.md) — one shell decides demo/live from auth; byte-identical demo copy + parity suite; relative `/billing/office` paths; sweep subagent output for golfed code.
 - [In-office sales](in-office-sales.md) — Elements need paymentMethodCreation manual; CAS-only prebuilt cart transitions; paid = all groups; attempt bumps only on definite card failure; guest payer by verified phone.

@@ -652,9 +652,13 @@ export interface FulfillmentUpdate {
 
 export interface PublicLinkProduct extends ProductPageContent {
   product_id: string;
+  /** Stable catalog slug (matches the bundled mobile catalog), so app deep links keyed by catalog id can find the storefront row. */
+  slug: string;
   name: string;
   description: string;
   image_url: string | null;
+  /** Every product image in display order (the default first); empty when HQ has uploaded none. */
+  image_urls: string[];
   /** The office's price, or the catalog floor price when the office has not priced the product. */
   unit_price_cents: number;
   /** False when the office has not set its own price (floor fallback). */
@@ -879,6 +883,8 @@ export interface PatientShop {
   stripe_account_id: string | null;
   publishable_key: string | null;
   sandbox: boolean;
+  /** Sales tax is added at payment for this office (estimated once a shipping address is known). */
+  tax_enabled: boolean;
 }
 
 export type CartPurchase = 'one_time' | 'subscription';
@@ -893,6 +899,8 @@ export interface CartLineInput {
 
 export interface CartQuoteRequest {
   lines: CartLineInput[];
+  /** When given, the quote includes the sales-tax estimate for this destination. */
+  shipping_address?: ShippingAddress;
 }
 
 export interface CartQuoteLine {
@@ -928,8 +936,17 @@ export interface CartQuote {
   subtotal_cents: number;
   discount_cents: number;
   shipping_charge_cents: number;
-  /** Charged today, before tax (tax is computed by Stripe per office at confirmation). */
+  /** Items plus shipping, before tax. */
   total_cents: number;
+  /** Whether this office collects sales tax at payment (Stripe Tax on its account). */
+  tax_enabled: boolean;
+  /**
+   * Estimated sales tax for the shipping address in the request; 0 when the
+   * office does not collect tax, null when it does and no address was given yet.
+   */
+  tax_cents: number | null;
+  /** total_cents + tax_cents: what the card is charged today; null while tax is still unknown. */
+  total_due_cents: number | null;
 }
 
 export interface CartCheckoutRequest extends CartQuoteRequest {
@@ -940,6 +957,12 @@ export interface CartCheckoutRequest extends CartQuoteRequest {
   set_default?: boolean;
   /** Stable per-cart key; the Idempotency-Key header takes precedence. Retrying the same key replays the first attempt. */
   cart_id?: string;
+  /**
+   * The amount the payer authorized on the Pay button: the quote's total_due_cents
+   * (tax included). The server refuses (422) a fresh cart whose current price plus
+   * tax differs, so the card is never charged an amount the payer did not see.
+   */
+  expected_total_due_cents: number;
 }
 
 export type CheckoutItemStatus = 'paid' | 'requires_action' | 'failed';
@@ -954,6 +977,10 @@ export interface CartCheckoutItem {
   client_secret: string | null;
   error: string | null;
   total_cents: number;
+  /** Sales tax inside total_cents once Stripe finalized the invoice. */
+  tax_cents?: number;
+  /** Cart lines this order carries (with kind, they identify the lines a partial result already paid). */
+  product_ids: string[];
 }
 
 export type CheckoutStatus = 'paid' | 'requires_action' | 'partial' | 'failed';

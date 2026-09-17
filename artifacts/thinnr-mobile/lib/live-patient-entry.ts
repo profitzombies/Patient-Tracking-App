@@ -39,7 +39,6 @@ function isStaffRoute(pathname: string): boolean {
     '/patient/',
     '/office-patient/',
     '/sell-to-patient',
-    '/product/',
     '/claim-account',
     '/claim-test',
   ].some(prefix => pathname.startsWith(prefix));

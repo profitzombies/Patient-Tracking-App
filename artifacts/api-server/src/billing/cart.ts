@@ -35,6 +35,53 @@ type InternalGroup = CartQuoteGroup & {
 };
 export type CartPlan = { quote: CartQuote; groups: InternalGroup[]; settings: BillingSettingsRow };
 
+/**
+ * Sales tax the office's own Stripe Tax settings will add at payment, estimated
+ * for this cart shipped to this address. The checkout invoices run automatic
+ * tax on the connected account, so the estimate uses the same engine, the same
+ * product tax codes, and the same address (shipping is taxed as its own line).
+ * Offices that do not collect tax owe nothing extra; the quote's total is exact.
+ */
+export async function estimateCartTax(
+  account: Pick<BillingConnectedAccountRow, "stripe_account_id" | "tax_enabled">, plan: CartPlan, address: ShippingAddress,
+): Promise<number> {
+  if (!account.tax_enabled) return 0;
+  const stripe = await getStripe();
+  // One calculation PER GROUP, each with its own shipping line: checkout
+  // finalizes one Stripe invoice per group (one-time order, each subscription),
+  // and tax rounds per invoice, so a single whole-cart calculation can differ
+  // from the sum Stripe actually bills by a cent per group.
+  let total = 0;
+  for (const [index, group] of plan.groups.entries()) {
+    let calculation: any;
+    try {
+      calculation = await stripe.tax.calculations.create({
+        currency: "usd",
+        line_items: group.lines.map((line, lineIndex) => ({
+          amount: line.line_total_cents, quantity: line.quantity, reference: `${index}:${lineIndex}:${line.product_id}`,
+          ...(line.stripe_tax_code ? { tax_code: line.stripe_tax_code } : {}),
+        })),
+        ...(group.shipping_charge_cents > 0 ? { shipping_cost: { amount: group.shipping_charge_cents } } : {}),
+        customer_details: {
+          address: {
+            line1: address.line1, line2: address.line2 ?? undefined, city: address.city, state: address.state,
+            postal_code: address.postal_code, country: address.country,
+          },
+          address_source: "shipping",
+        },
+      }, connectedOpts(account.stripe_account_id));
+    } catch (error) {
+      logger.error({ err: error, account: account.stripe_account_id }, "patient cart tax estimate failed");
+      throw new BillingCartError("Sales tax couldn't be calculated for this address right now. Please try again.", 503, "shipping_address");
+    }
+    const exclusive = Number(calculation?.tax_amount_exclusive ?? 0);
+    if (!Number.isFinite(exclusive) || exclusive < 0) {
+      throw new BillingCartError("Sales tax couldn't be calculated for this address right now. Please try again.", 503, "shipping_address");
+    }
+    total += Math.round(exclusive);
+  }
+  return total;
+}
 function orderNumber(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   return `TH-${[...crypto.randomBytes(6)].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
@@ -45,7 +92,7 @@ function orderNumber(): string {
  * shipping charge); every subscription line becomes its own subscription with
  * its own shipping charge, because each ships on its own schedule.
  */
-export async function planCart(providerId: string, input: CartLineInput[]): Promise<CartPlan> {
+export async function planCart(providerId: string, input: CartLineInput[], taxEnabled = false): Promise<CartPlan> {
   if (!Array.isArray(input) || input.length === 0) throw new BillingCartError("Add something to your cart first.", 400, "lines");
   if (input.length > MAX_CART_LINES) throw new BillingCartError(`A cart can hold up to ${MAX_CART_LINES} lines.`, 400, "lines");
   for (const line of input) {
@@ -125,13 +172,34 @@ export async function planCart(providerId: string, input: CartLineInput[]): Prom
     discount_cents: lines.reduce((sum, line) => sum + line.discount_cents, 0),
     shipping_charge_cents: groups.reduce((sum, item) => sum + item.shipping_charge_cents, 0),
     total_cents: groups.reduce((sum, item) => sum + item.total_cents, 0),
+    tax_enabled: taxEnabled, tax_cents: null, total_due_cents: null,
   };
+  if (!taxEnabled) { quote.tax_cents = 0; quote.total_due_cents = quote.total_cents; }
   return { quote, groups, settings };
 }
 
+/** The quote with its sales-tax estimate filled in (0 for offices that do not collect tax). */
+export function withTaxEstimate(quote: CartQuote, taxCents: number): CartQuote {
+  return { ...quote, tax_cents: taxCents, total_due_cents: quote.total_cents + taxCents };
+}
 export type CheckoutInput = {
   patientId: string | null; providerId: string; cartId: string; lines: CartLineInput[];
   shipping_address: ShippingAddress; payment_method_id: string; set_default?: boolean;
+  /**
+   * The amount the payer authorized on the button (the quote's total_due_cents).
+   * A fresh cart is refused (422) when today's plan plus tax no longer prices to
+   * exactly this, so a price, shipping, discount, or tax change between quote and
+   * Pay can never charge an amount the payer did not see. Omitted = unbound
+   * (staff-driven sales price and charge in one step).
+   */
+  expected_total_due_cents?: number | null;
+  /**
+   * The pre-tax total a payer page showed when it cannot know the tax yet
+   * (public prebuilt carts, priced before an address exists). A fresh cart is
+   * refused (422) when today's plan no longer prices to exactly this, and the
+   * finalized invoices are checked against it before any is paid.
+   */
+  expected_total_cents?: number | null;
   resolvedPayer?: BillingPayerRow;
   /**
    * The pre-tax total the payer was shown. A NEW checkout is refused when
@@ -142,10 +210,12 @@ export type CheckoutInput = {
   expected_total_cents?: number;
 };
 
+export const TOTAL_CHANGED_MESSAGE = "Your total changed since your cart was priced. Review your cart and try again.";
+
 export const QUOTE_CHANGED_MESSAGE = "The total changed since this order was quoted. Review the new total before paying.";
 /** Re-prices the lines today and throws 409 when the total the payer saw no longer holds. */
-export async function assertQuoteCurrent(providerId: string, lines: CartLineInput[], expectedTotalCents: number): Promise<CartPlan> {
-  const plan = await planCart(providerId, lines);
+export async function assertQuoteCurrent(providerId: string, lines: CartLineInput[], expectedTotalCents: number, taxEnabled = false): Promise<CartPlan> {
+  const plan = await planCart(providerId, lines, taxEnabled);
   if (plan.quote.total_cents !== expectedTotalCents) throw new BillingCartError(QUOTE_CHANGED_MESSAGE, 409, "expected_total_cents");
   return plan;
 }
@@ -194,6 +264,8 @@ function cartFingerprint(input: CheckoutInput): string {
       product_id: line.product_id, quantity: line.quantity, purchase: line.purchase, cadence_weeks: line.cadence_weeks ?? null,
     })),
     address: input.shipping_address, payment_method_id: input.payment_method_id,
+    expected_total_due_cents: input.expected_total_due_cents ?? null,
+    expected_total_cents: input.expected_total_cents ?? null,
   })).digest("hex");
 }
 
@@ -243,12 +315,14 @@ async function abandonSwappedCart(
   const message = "Your office's payment account changed while this checkout was in progress. Start a new checkout.";
   const patientFilter = input.patientId ? `patient_id=eq.${enc(input.patientId)}` : "patient_id=is.null";
   const orders = await selectMany("billing_orders", `cart_id=eq.${enc(input.cartId)}&${patientFilter}&order=created_at.asc,id.asc`);
+  const productIds = await productIdsByOrder(orders.map((order) => order.id));
   const items: CartCheckoutItem[] = [];
   const swallowMissing = async (call: () => Promise<unknown>) => { try { await call(); } catch (error) { if (!isStripeMissing(error)) throw error; } };
   for (const order of orders) {
     const base: CartCheckoutItem = {
       kind: order.kind === "one_time" ? "one_time" : "subscription", order_id: order.id, order_number: order.order_number,
       subscription_id: order.subscription_id, status: "failed", client_secret: null, error: message, total_cents: order.total_cents,
+      tax_cents: order.tax_cents ?? 0, product_ids: productIds.get(order.id) ?? [],
     };
     if (["paid", "partially_refunded", "refunded", "disputed"].includes(order.status)) { items.push({ ...base, status: "paid", error: null }); continue; }
     if (order.status === "failed") { items.push({ ...base, error: order.failure_message ?? message }); continue; }
@@ -259,8 +333,11 @@ async function abandonSwappedCart(
         logger.error({ orderId: order.id, account: acct, invoiceId: invoice.id }, "cart invoice paid on a replaced Connect account; needs staff resolution");
         throw new BillingCartError("A payment for this checkout already went through on your office's previous account. Contact your office to finish it.", 409);
       }
-      if (invoice?.status === "draft") await swallowMissing(() => stripe.invoices.del(invoice.id, opts));
-      else if (invoice?.status === "open") await swallowMissing(() => stripe.invoices.voidInvoice(invoice.id, {}, connectedOpts(acct, `order:${order.id}:void`)));
+      // A subscription's first invoice is released by cancelling the subscription below (voiding it directly would cancel the subscription behind Stripe's back).
+      if (!order.subscription_id) {
+        if (invoice?.status === "draft") await swallowMissing(() => stripe.invoices.del(invoice.id, opts));
+        else if (invoice?.status === "open") await swallowMissing(() => stripe.invoices.voidInvoice(invoice.id, {}, connectedOpts(acct, `order:${order.id}:void`)));
+      }
     }
     if (order.subscription_id) {
       const row = await selectOne("billing_subscriptions", `id=eq.${enc(order.subscription_id)}`);
@@ -306,6 +383,23 @@ async function claimCart(input: CheckoutInput, plan: CartPlan, fingerprint: stri
   return { cart: assertCartOwner(existing, input, fingerprint), fresh: false };
 }
 
+/**
+ * The button's amount must be today's amount. Runs BEFORE the claim, so a
+ * mismatch is a definite refusal with no rows and no Stripe objects behind it;
+ * the app re-quotes and asks again under a new key.
+ */
+async function assertAuthorizedTotal(account: BillingConnectedAccountRow, plan: CartPlan, input: CheckoutInput): Promise<void> {
+  const preTax = input.expected_total_cents;
+  if (preTax !== undefined && preTax !== null && plan.quote.total_cents !== preTax) {
+    throw new BillingCartError(TOTAL_CHANGED_MESSAGE, 422, "expected_total_cents");
+  }
+  const expected = input.expected_total_due_cents;
+  if (expected === undefined || expected === null) return;
+  const due = plan.quote.total_cents + await estimateCartTax(account, plan, input.shipping_address);
+  if (due !== expected) {
+    throw new BillingCartError(TOTAL_CHANGED_MESSAGE, 422, "expected_total_due_cents");
+  }
+}
 /** A fresh checkout needs an office that can take payments today. */
 async function liveAccount(providerId: string): Promise<BillingConnectedAccountRow> {
   const account = await selectOne("billing_connected_accounts", `provider_id=eq.${enc(providerId)}&disconnected_at=is.null`);
@@ -319,6 +413,14 @@ function storedPlan(cart: BillingCartRow): CartPlan | null {
   return stored?.plan && Array.isArray(stored.plan.groups) && stored.plan.settings ? stored.plan : null;
 }
 
+/** Which cart lines each order carries, so the app can drop exactly the paid lines after a partial result. */
+async function productIdsByOrder(orderIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!orderIds.length) return map;
+  const rows = await selectMany("billing_order_items", `order_id=in.(${orderIds.map(enc).join(",")})&order=id.asc`);
+  for (const row of rows) map.set(row.order_id, [...(map.get(row.order_id) ?? []), row.product_id]);
+  return map;
+}
 /** A retried checkout (same Idempotency-Key) replays what the first attempt created. */
 export async function existingCheckout(cartId: string, patientId: string | null): Promise<CartCheckoutResponse | null> {
   const patientFilter = patientId ? `patient_id=eq.${enc(patientId)}` : "patient_id=is.null";
@@ -328,24 +430,48 @@ export async function existingCheckout(cartId: string, patientId: string | null)
   const account = cart ? (await resumeAccount(cart, orders[0].provider_id)).account
     : await selectOne("billing_connected_accounts", `provider_id=eq.${enc(orders[0].provider_id)}`);
   const stripe = await getStripe();
+  const productIds = await productIdsByOrder(orders.map((order) => order.id));
   const items: CartCheckoutItem[] = [];
+  let settings: BillingSettingsRow | null = (cart && storedPlan(cart)?.settings) ?? null;
   for (const order of orders) {
     const base: CartCheckoutItem = {
       kind: order.kind === "one_time" ? "one_time" : "subscription", order_id: order.id, order_number: order.order_number,
-      subscription_id: order.subscription_id, status: "requires_action", client_secret: null, error: null, total_cents: order.total_cents,
+      subscription_id: order.subscription_id, status: "requires_action", client_secret: null, error: null, total_cents: order.total_cents, tax_cents: order.tax_cents ?? 0,
+      product_ids: productIds.get(order.id) ?? [],
     };
     if (["paid", "partially_refunded", "refunded", "disputed"].includes(order.status)) { items.push({ ...base, status: "paid" }); continue; }
     if (order.status === "failed") { items.push({ ...base, status: "failed", error: order.failure_message ?? "Payment failed." }); continue; }
     // Still pending: the original response may have been lost mid-3DS, so
-    // recover the live PaymentIntent state and hand back its client secret.
+    // recover the live PaymentIntent state, persist what Stripe settled, and
+    // hand back the client secret only while the intent is genuinely waiting.
     if (order.stripe_payment_intent_id && account) {
+      const opts = connectedOpts(account.stripe_account_id);
+      let intent: any;
       try {
-        const intent: any = await stripe.paymentIntents.retrieve(order.stripe_payment_intent_id, {}, connectedOpts(account.stripe_account_id));
-        if (intent?.status === "succeeded") { items.push({ ...base, status: "paid" }); continue; }
-        if (intent?.status === "canceled") { items.push({ ...base, status: "failed", error: "Payment was canceled." }); continue; }
-        items.push({ ...base, client_secret: intent?.client_secret ?? null });
+        intent = await stripe.paymentIntents.retrieve(order.stripe_payment_intent_id, {}, opts);
+      } catch (error) {
+        // Unknown is unknown: never let a lookup outage read as "nothing
+        // happened", or the app would retire this key and charge a new cart.
+        logger.warn({ err: error, orderId: order.id }, "checkout replay could not read the payment intent");
+        throw new BillingCartError("Your payment is still being confirmed. Try again in a moment.", 503, "idempotency_key");
+      }
+      if (intent?.status === "succeeded") {
+        await settlePaidReplay(stripe, account, order, opts);
+        items.push({ ...base, status: "paid" });
         continue;
-      } catch (error) { logger.warn({ err: error, orderId: order.id }, "checkout replay could not read the payment intent"); }
+      }
+      if (intent?.status === "canceled" || intent?.status === "requires_payment_method") {
+        // The device-side authentication failed or the intent was voided: a
+        // definite answer, recorded on the row so it can never loop as pending.
+        const message = intent.status === "canceled" ? "Payment was canceled."
+          : intent.last_payment_error ? stripeMessage(intent.last_payment_error) : "Your card could not be charged.";
+        settings ??= await getSettings();
+        await failOrder(order, settings, message, order.subscription_id);
+        items.push({ ...base, status: "failed", error: message });
+        continue;
+      }
+      items.push({ ...base, client_secret: intent?.client_secret ?? null });
+      continue;
     }
     items.push(base);
   }
@@ -355,6 +481,28 @@ export async function existingCheckout(cartId: string, patientId: string | null)
   };
 }
 
+/**
+ * A replayed intent that Stripe says succeeded is recorded now (the same
+ * paid path the first attempt would have taken), not left for the webhook:
+ * the response tells the patient "paid", so the rows must say so too.
+ */
+async function settlePaidReplay(stripe: any, account: BillingConnectedAccountRow, order: BillingOrderRow, opts: ReturnType<typeof connectedOpts>): Promise<void> {
+  if (!order.stripe_invoice_id) return;
+  const ctx: StripeEventContext = { kind: "connect", account: account.stripe_account_id, livemode: !await isSandbox() };
+  try {
+    const invoice: any = await stripe.invoices.retrieve(order.stripe_invoice_id, { expand: ["payments.data.payment.payment_intent"] } as any, opts);
+    if (invoice?.status !== "paid") return;
+    if (order.subscription_id) {
+      await markSubscriptionInvoicePaid({ ...invoice, billing_reason: invoice.billing_reason ?? "subscription_create" }, ctx);
+      await update("billing_subscriptions", `id=eq.${enc(order.subscription_id)}&status=eq.incomplete`, { status: "active" });
+    } else {
+      await markOrderPaidFromInvoice(invoice, ctx);
+    }
+  } catch (error) {
+    // The intent is paid regardless; the invoice webhook lands the row if this read failed.
+    logger.warn({ err: error, orderId: order.id }, "checkout replay could not record the paid invoice");
+  }
+}
 async function attachCard(stripe: any, account: BillingConnectedAccountRow, customerId: string, paymentMethodId: string, cartId: string, setDefault: boolean | undefined): Promise<void> {
   const opts = connectedOpts(account.stripe_account_id);
   let method: any;
@@ -366,7 +514,16 @@ async function attachCard(stripe: any, account: BillingConnectedAccountRow, cust
   const owner = typeof method.customer === "string" ? method.customer : method.customer?.id ?? null;
   if (owner && owner !== customerId) throw new BillingCartError("That card belongs to a different account.", 403, "payment_method_id");
   if (!owner) {
-    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }, connectedOpts(account.stripe_account_id, `cart:${cartId}:attach:${paymentMethodId}`));
+    try {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }, connectedOpts(account.stripe_account_id, `cart:${cartId}:attach:${paymentMethodId}`));
+    } catch (error: any) {
+      // Stripe runs the card check on attach, so a decline surfaces here
+      // before any order exists. That is a card answer (402), not an outage.
+      if (error?.type === "StripeCardError" || error?.raw?.type === "card_error" || error?.code === "card_declined") {
+        throw new BillingCartError(stripeMessage(error), 402, "payment_method_id");
+      }
+      throw error;
+    }
   }
   const customer: any = await stripe.customers.retrieve(customerId, {}, opts);
   const currentDefault = customer?.invoice_settings?.default_payment_method;
@@ -401,8 +558,9 @@ export async function checkoutCart(input: CheckoutInput): Promise<CartCheckoutRe
   } else {
     account = await liveAccount(input.providerId);
     plan = input.expected_total_cents === undefined
-      ? await planCart(input.providerId, input.lines)
-      : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents);
+      ? await planCart(input.providerId, input.lines, account.tax_enabled)
+      : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents, account.tax_enabled);
+    await assertAuthorizedTotal(account, plan, input);
     const claimed = await claimCart(input, plan, fingerprint, account);
     cart = claimed.cart; fresh = claimed.fresh;
   }
@@ -484,18 +642,25 @@ export async function checkoutCart(input: CheckoutInput): Promise<CartCheckoutRe
     pending.push({ group, order, subscriptionId });
   }
 
-  // 2. Charge each group on its own. Every Stripe idempotency key derives from
-  // the deterministic order id, so even a racing duplicate replays the same
-  // charge instead of creating a new one.
-  const items: CartCheckoutItem[] = [];
+  // 2. Finalize every group's Stripe invoice first (nothing is paid yet), then
+  // hold the SUM of what Stripe actually finalized against the amount the payer
+  // authorized, and only then pay group by group. Every Stripe idempotency key
+  // derives from the deterministic order id, so even a racing duplicate replays
+  // the same objects and the same charge instead of creating new ones.
+  const prepared: PreparedGroup[] = [];
   for (const entry of pending) {
     if (entry.order.status !== "pending") {
       const replayed = (await existingCheckout(input.cartId, input.patientId))?.items.find((item) => item.order_id === entry.order.id);
-      if (replayed) { items.push(replayed); continue; }
+      if (replayed) { prepared.push({ done: replayed }); continue; }
     }
-    items.push(entry.subscriptionId
-      ? await chargeSubscription(stripe, account, customerId, input, entry.order, entry.subscriptionId, entry.group, ctx, plan.settings, mirrorAllowed)
-      : await chargeOneTime(stripe, account, customerId, input, entry.order, entry.group, ctx, plan.settings));
+    prepared.push(entry.subscriptionId
+      ? await prepareSubscription(stripe, account, customerId, input, entry.order, entry.subscriptionId, entry.group, ctx, plan.settings, mirrorAllowed)
+      : await prepareOneTime(stripe, account, customerId, input, entry.order, entry.group, ctx, plan.settings));
+  }
+  await refuseOverAuthorized(stripe, account, input, prepared, plan.settings);
+  const items: CartCheckoutItem[] = [];
+  for (const group of prepared) {
+    items.push(group.done ?? await settleGroup(stripe, account, input, group, ctx, plan.settings));
   }
   // "ready" = every group was attempted; a retry from here on replays, never re-charges.
   await update("billing_carts", `id=eq.${enc(input.cartId)}`, { status: "ready" });
@@ -564,79 +729,29 @@ async function payInvoice(stripe: any, account: BillingConnectedAccountRow, invo
   }
 }
 
-async function chargeOneTime(
-  stripe: any, account: BillingConnectedAccountRow, customerId: string, input: CheckoutInput,
-  order: BillingOrderRow, group: InternalGroup, ctx: StripeEventContext, settings: BillingSettingsRow,
-): Promise<CartCheckoutItem> {
-  const acct = account.stripe_account_id;
-  const base: CartCheckoutItem = {
-    kind: "one_time", order_id: order.id, order_number: order.order_number, subscription_id: null,
-    status: "failed", client_secret: null, error: null, total_cents: order.total_cents,
-  };
-  let invoiceId: string | null = null;
-  // Same rule as subscriptions: after the invoice exists at Stripe, no later
-  // error may mark the order failed (the resume replays every step by key).
-  let stripeObjectCreated = false;
-  try {
-    const invoice = await stripe.invoices.create({
-      customer: customerId, collection_method: "charge_automatically", auto_advance: false,
-      automatic_tax: { enabled: account.tax_enabled }, application_fee_amount: group.application_fee_cents,
-      default_payment_method: input.payment_method_id,
-      metadata: { thinnr_order_id: order.id, thinnr_cart_id: input.cartId }, pending_invoice_items_behavior: "exclude",
-    } as any, connectedOpts(acct, `order:${order.id}:invoice`));
-    stripeObjectCreated = true;
-    invoiceId = invoice.id;
-    for (const line of group.lines) {
-      await stripe.invoiceItems.create({
-        customer: customerId, invoice: invoice.id, quantity: line.quantity, currency: "usd",
-        unit_amount_decimal: String(line.unit_price_cents), description: line.name,
-        ...(line.stripe_tax_code ? { tax_code: line.stripe_tax_code } : {}),
-      } as any, connectedOpts(acct, `order:${order.id}:item:${line.product_id}`));
-    }
-    await stripe.invoiceItems.create({
-      customer: customerId, invoice: invoice.id, quantity: 1, currency: "usd",
-      unit_amount_decimal: String(group.shipping_charge_cents), description: "Shipping",
-    } as any, connectedOpts(acct, `order:${order.id}:shipping`));
-    const finalized: any = await stripe.invoices.finalizeInvoice(invoice.id, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(acct, `order:${order.id}:finalize`));
-    const intent = intentOf(finalized);
-    const tax = Number(finalized.total_taxes?.reduce((sum: number, row: any) => sum + (row.amount ?? 0), 0) ?? finalized.tax ?? 0);
-    const total = Number(finalized.total ?? order.total_cents);
-    await update("billing_orders", `id=eq.${enc(order.id)}`, {
-      stripe_invoice_id: finalized.id, stripe_payment_intent_id: intent?.id ?? null, tax_cents: tax, total_cents: total,
-    });
-    base.total_cents = total;
-    if (finalized.status === "paid") {
-      // A resumed attempt can find the invoice already paid; never charge or fail it again.
-      await markOrderPaidFromInvoice(finalized, ctx);
-      return { ...base, status: "paid" };
-    }
-  } catch (error) {
-    logger.error({ err: error, orderId: order.id, stripeObjectCreated }, "patient cart one-time order initialization failed");
-    if (stripeObjectCreated || isAmbiguousStripeFailure(error)) throw error;
-    await failOrder(order, settings, "Payment could not be started. Please try again.", null);
-    return { ...base, error: "Payment could not be started. Please try again." };
-  }
-  const outcome = await payInvoice(stripe, account, invoiceId!, input.payment_method_id, `order:${order.id}:pay`);
-  if (outcome.kind === "paid") {
-    await markOrderPaidFromInvoice(outcome.invoice, ctx);
-    return { ...base, status: "paid" };
-  }
-  if (outcome.kind === "requires_action") return { ...base, status: "requires_action", client_secret: outcome.client_secret };
-  await failOrder(order, settings, outcome.message, null);
-  return { ...base, error: outcome.message };
-}
+/**
+ * A group whose Stripe invoice is finalized but not yet paid, or one that already
+ * reached its answer (`done`: paid earlier, replayed, or refused before any charge).
+ */
+type PreparedGroup =
+  | { done: CartCheckoutItem }
+  | {
+      done?: undefined; base: CartCheckoutItem; order: BillingOrderRow; invoiceId: string; total_cents: number; tax_cents: number;
+      subscriptionId: string | null; stripeSubscriptionId: string | null;
+    };
 
-async function chargeSubscription(
+async function prepareSubscription(
   stripe: any, account: BillingConnectedAccountRow, customerId: string, input: CheckoutInput,
   order: BillingOrderRow, subscriptionId: string, group: InternalGroup, ctx: StripeEventContext, settings: BillingSettingsRow,
   mirrorAllowed: boolean,
-): Promise<CartCheckoutItem> {
+): Promise<PreparedGroup> {
   const acct = account.stripe_account_id;
   const line = group.lines[0];
   const weeks = line.cadence_weeks ?? 4;
   const base: CartCheckoutItem = {
     kind: "subscription", order_id: order.id, order_number: order.order_number, subscription_id: subscriptionId,
-    status: "failed", client_secret: null, error: null, total_cents: order.total_cents,
+    status: "failed", client_secret: null, error: null, total_cents: order.total_cents, tax_cents: 0,
+    product_ids: [line.product_id],
   };
   let invoiceId: string | null = null;
   // Resolve the Stripe prices ONCE per subscription row and persist them before
@@ -654,7 +769,7 @@ async function chargeSubscription(
       // mirroring prices would land on the wrong account: fail the line for real.
       const message = "Your office's payment account changed. Start a new checkout for this subscription.";
       await failOrder(order, settings, message, subscriptionId);
-      return { ...base, error: message };
+      return { done: { ...base, error: message } };
     }
     // Price mirroring: a transient Stripe/store failure here is NOT a refusal of
     // this line; it propagates so the cart stays staging and the retry resumes.
@@ -664,7 +779,7 @@ async function chargeSubscription(
       // Definite: the office no longer sells this cadence at the quoted price; nothing was created at Stripe.
       const message = resolved ? "Subscription pricing changed. Quote again." : "Subscription pricing is unavailable.";
       await failOrder(order, settings, message, subscriptionId);
-      return { ...base, error: message };
+      return { done: { ...base, error: message } };
     }
     cadence = { price_id: resolved.price_id, shipping_price_id: resolved.shipping_price_id };
     await update("billing_subscriptions", `id=eq.${enc(subscriptionId)}`, { stripe_price_id: cadence.price_id, stripe_shipping_price_id: cadence.shipping_price_id });
@@ -695,30 +810,163 @@ async function chargeSubscription(
       next_shipment_at: nextShipmentAt(subscription) ?? renews,
     });
     const total = Number(invoice.total ?? group.total_cents);
+    const tax = invoice.total_taxes || invoice.tax !== undefined ? taxOf(invoice) : Math.max(0, total - group.total_cents);
     await update("billing_orders", `id=eq.${enc(order.id)}`, {
       stripe_invoice_id: invoice.id, stripe_payment_intent_id: intentOf(invoice)?.id ?? null,
-      tax_cents: Math.max(0, total - group.total_cents), total_cents: total,
+      tax_cents: tax, total_cents: total,
     });
     base.total_cents = total;
+    base.tax_cents = tax;
     if (invoice.status === "paid") {
       // Stripe settled the first invoice at creation (or an earlier attempt paid it): record it, never pay twice.
       await markSubscriptionInvoicePaid({ ...invoice, billing_reason: invoice.billing_reason ?? "subscription_create" }, ctx);
       await update("billing_subscriptions", `id=eq.${enc(subscriptionId)}&status=eq.incomplete`, { status: "active" });
-      return { ...base, status: "paid" };
+      return { done: { ...base, status: "paid" } };
     }
+    if (subscription.status === "canceled" || invoice.status === "void") {
+      // Cancelled by an earlier attempt's authorization check; the replayed key hands the same subscription back.
+      await failOrder(order, settings, TOTAL_CHANGED_MESSAGE, subscriptionId);
+      await update("billing_subscriptions", `id=eq.${enc(subscriptionId)}&status=eq.incomplete`, { status: "canceled", canceled_at: nowIso() });
+      return { done: { ...base, error: TOTAL_CHANGED_MESSAGE } };
+    }
+    return { base, order, invoiceId: invoice.id, total_cents: total, tax_cents: tax, subscriptionId, stripeSubscriptionId: subscription.id };
   } catch (error) {
     logger.error({ err: error, orderId: order.id, subscriptionId, stripeObjectCreated }, "patient cart subscription initialization failed");
     if (stripeObjectCreated || isAmbiguousStripeFailure(error)) throw error;
     await failOrder(order, settings, "Subscription could not be started. Please try again.", subscriptionId);
-    return { ...base, error: "Subscription could not be started. Please try again." };
+    return { done: { ...base, error: "Subscription could not be started. Please try again." } };
   }
-  const outcome = await payInvoice(stripe, account, invoiceId!, input.payment_method_id, `subscription:${subscriptionId}:pay`);
+}
+
+/** Pays one prepared group and records the outcome on its rows. */
+async function settleGroup(
+  stripe: any, account: BillingConnectedAccountRow, input: CheckoutInput, group: PreparedGroup & { done?: undefined },
+  ctx: StripeEventContext, settings: BillingSettingsRow,
+): Promise<CartCheckoutItem> {
+  const { base, order, invoiceId, subscriptionId } = group;
+  const key = subscriptionId ? `subscription:${subscriptionId}:pay` : `order:${order.id}:pay`;
+  const outcome = await payInvoice(stripe, account, invoiceId, input.payment_method_id, key);
   if (outcome.kind === "paid") {
-    await markSubscriptionInvoicePaid({ ...outcome.invoice, billing_reason: outcome.invoice.billing_reason ?? "subscription_create" }, ctx);
-    await update("billing_subscriptions", `id=eq.${enc(subscriptionId)}&status=eq.incomplete`, { status: "active" });
+    if (subscriptionId) {
+      await markSubscriptionInvoicePaid({ ...outcome.invoice, billing_reason: outcome.invoice.billing_reason ?? "subscription_create" }, ctx);
+      await update("billing_subscriptions", `id=eq.${enc(subscriptionId)}&status=eq.incomplete`, { status: "active" });
+    } else {
+      await markOrderPaidFromInvoice(outcome.invoice, ctx);
+    }
     return { ...base, status: "paid" };
   }
   if (outcome.kind === "requires_action") return { ...base, status: "requires_action", client_secret: outcome.client_secret };
   await failOrder(order, settings, outcome.message, subscriptionId);
   return { ...base, error: outcome.message };
+}
+
+function taxOf(invoice: any): number {
+  return Number(invoice?.total_taxes?.reduce((sum: number, row: any) => sum + (row.amount ?? 0), 0) ?? invoice?.tax ?? 0);
+}
+
+async function prepareOneTime(
+  stripe: any, account: BillingConnectedAccountRow, customerId: string, input: CheckoutInput,
+  order: BillingOrderRow, group: InternalGroup, ctx: StripeEventContext, settings: BillingSettingsRow,
+): Promise<PreparedGroup> {
+  const acct = account.stripe_account_id;
+  const base: CartCheckoutItem = {
+    kind: "one_time", order_id: order.id, order_number: order.order_number, subscription_id: null,
+    status: "failed", client_secret: null, error: null, total_cents: order.total_cents, tax_cents: 0,
+    product_ids: group.lines.map((member) => member.product_id),
+  };
+  let invoiceId: string | null = null;
+  // Same rule as subscriptions: after the invoice exists at Stripe, no later
+  // error may mark the order failed (the resume replays every step by key).
+  let stripeObjectCreated = false;
+  try {
+    const invoice = await stripe.invoices.create({
+      customer: customerId, collection_method: "charge_automatically", auto_advance: false,
+      automatic_tax: { enabled: account.tax_enabled }, application_fee_amount: group.application_fee_cents,
+      default_payment_method: input.payment_method_id,
+      metadata: { thinnr_order_id: order.id, thinnr_cart_id: input.cartId }, pending_invoice_items_behavior: "exclude",
+    } as any, connectedOpts(acct, `order:${order.id}:invoice`));
+    stripeObjectCreated = true;
+    invoiceId = invoice.id;
+    for (const line of group.lines) {
+      await stripe.invoiceItems.create({
+        customer: customerId, invoice: invoice.id, quantity: line.quantity, currency: "usd",
+        unit_amount_decimal: String(line.unit_price_cents), description: line.name,
+        ...(line.stripe_tax_code ? { tax_code: line.stripe_tax_code } : {}),
+      } as any, connectedOpts(acct, `order:${order.id}:item:${line.product_id}`));
+    }
+    await stripe.invoiceItems.create({
+      customer: customerId, invoice: invoice.id, quantity: 1, currency: "usd",
+      unit_amount_decimal: String(group.shipping_charge_cents), description: "Shipping",
+    } as any, connectedOpts(acct, `order:${order.id}:shipping`));
+    const finalized: any = await stripe.invoices.finalizeInvoice(invoice.id, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(acct, `order:${order.id}:finalize`));
+    const intent = intentOf(finalized);
+    const tax = taxOf(finalized);
+    const total = Number(finalized.total ?? order.total_cents);
+    await update("billing_orders", `id=eq.${enc(order.id)}`, {
+      stripe_invoice_id: finalized.id, stripe_payment_intent_id: intent?.id ?? null, tax_cents: tax, total_cents: total,
+    });
+    base.total_cents = total;
+    base.tax_cents = tax;
+    if (finalized.status === "paid") {
+      // A resumed attempt can find the invoice already paid; never charge or fail it again.
+      await markOrderPaidFromInvoice(finalized, ctx);
+      return { done: { ...base, status: "paid" } };
+    }
+    if (finalized.status === "void") {
+      // Voided by an earlier attempt's authorization check; the replayed keys hand the same void invoice back.
+      await failOrder(order, settings, TOTAL_CHANGED_MESSAGE, null);
+      return { done: { ...base, error: TOTAL_CHANGED_MESSAGE } };
+    }
+    return { base, order, invoiceId: finalized.id, total_cents: total, tax_cents: tax, subscriptionId: null, stripeSubscriptionId: null };
+  } catch (error) {
+    logger.error({ err: error, orderId: order.id, stripeObjectCreated }, "patient cart one-time order initialization failed");
+    if (stripeObjectCreated || isAmbiguousStripeFailure(error)) throw error;
+    await failOrder(order, settings, "Payment could not be started. Please try again.", null);
+    return { done: { ...base, error: "Payment could not be started. Please try again." } };
+  }
+}
+
+/**
+ * The last gate before money moves: the finalized invoices, summed across every
+ * group (paid-earlier and open alike), may never exceed what the payer
+ * authorized (`expected_total_due_cents`, or the pre-tax `expected_total_cents`
+ * when the payer page could not know the tax). Tax is estimated per group
+ * before the claim, but Stripe's own per-invoice rounding is what bills, so the
+ * real numbers are checked here and every OPEN group is voided and failed
+ * (definite, nothing charged) rather than paid over the shown amount.
+ */
+async function refuseOverAuthorized(
+  stripe: any, account: BillingConnectedAccountRow, input: CheckoutInput, prepared: PreparedGroup[], settings: BillingSettingsRow,
+): Promise<void> {
+  const due = input.expected_total_due_cents ?? null;
+  const preTax = input.expected_total_cents ?? null;
+  if (due === null && preTax === null) return;
+  let sumDue = 0;
+  let sumPreTax = 0;
+  for (const group of prepared) {
+    if (group.done) {
+      if (group.done.status === "failed") continue;
+      sumDue += group.done.total_cents;
+      sumPreTax += group.done.total_cents - (group.done.tax_cents ?? 0);
+      continue;
+    }
+    sumDue += group.total_cents;
+    sumPreTax += group.total_cents - group.tax_cents;
+  }
+  const over = (due !== null && sumDue > due) || (due === null && preTax !== null && sumPreTax > preTax);
+  if (!over) return;
+  logger.warn({ cartId: input.cartId, sumDue, sumPreTax, due, preTax }, "patient cart finalized above the authorized total; voiding");
+  for (const group of prepared) {
+    if (group.done) continue;
+    const opts = connectedOpts(account.stripe_account_id);
+    if (group.stripeSubscriptionId) {
+      // Cancelling an incomplete subscription voids its open first invoice.
+      await stripe.subscriptions.cancel(group.stripeSubscriptionId, {}, opts);
+    } else {
+      await stripe.invoices.voidInvoice(group.invoiceId, {}, opts);
+    }
+    await failOrder(group.order, settings, TOTAL_CHANGED_MESSAGE, group.subscriptionId);
+    if (group.subscriptionId) await update("billing_subscriptions", `id=eq.${enc(group.subscriptionId)}&status=eq.incomplete`, { status: "canceled", canceled_at: nowIso() });
+    (group as PreparedGroup).done = { ...group.base, error: TOTAL_CHANGED_MESSAGE };
+  }
 }

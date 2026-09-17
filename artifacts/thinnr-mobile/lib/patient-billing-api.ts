@@ -63,9 +63,22 @@ export function quoteCart(input: CartQuoteRequest): Promise<CartQuote> {
  * the rows the first attempt created instead of charging again, so callers
  * must keep the cart id stable across retries of a single tap.
  */
-export function checkoutCart(input: CartCheckoutRequest, cartId: string): Promise<CartCheckoutResponse> {
+const CHECKOUT_TIMEOUT_MS = 90_000;
+export function checkoutCart(input: CartCheckoutRequest, cartId: string, options?: { accessToken?: string }): Promise<CartCheckoutResponse> {
   return authedRequest('POST', '/patient-data/billing/cart/checkout', { ...input, cart_id: cartId }, {
+    // The bearer is the one the pay flow captured for the account that
+    // started the attempt, never whatever session is current when the POST
+    // finally leaves (an account switch during card entry must not charge the
+    // first patient's cart under the second's identity).
+    accessToken: options?.accessToken,
     idempotencyKey: `patient-billing-checkout-${cartId}`,
+    // A declined cart answers 402 with the same response shape (status
+    // "failed", per-item errors); keep that body instead of a bare error.
+    acceptStatuses: [402],
+    // Customer, card attach, PaymentIntent, and subscriptions are several
+    // sequential Stripe round-trips; the 15 s diary deadline aborts real
+    // checkouts mid-flight.
+    timeoutMs: CHECKOUT_TIMEOUT_MS,
   }) as Promise<CartCheckoutResponse>;
 }
 

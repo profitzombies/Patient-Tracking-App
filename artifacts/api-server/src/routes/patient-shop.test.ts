@@ -308,10 +308,20 @@ const stripe = {
     retrieve: vi.fn(async (id: string) => ({ id, status: "succeeded", latest_charge: { id: `ch_${id}`, application_fee_amount: 1000, balance_transaction: { id: `txn_${id}`, fee: 1300, fee_details: [{ type: "stripe_fee", amount: 300 }, { type: "application_fee", amount: 1000 }] } } })),
   },
   charges: { retrieve: vi.fn(async (id: string) => ({ id, receipt_url: `https://receipts.test/${id}` })) },
+  // Stripe Tax estimate: 8.25% of everything taxable, exclusive, per the office's account.
+  tax: {
+    calculations: {
+      create: vi.fn(async (params: any, _opts?: any) => {
+        const taxable = params.line_items.reduce((sum: number, row: any) => sum + row.amount, 0) + (params.shipping_cost?.amount ?? 0);
+        return { id: "taxcalc_1", tax_amount_exclusive: Math.round(taxable * 0.0825), tax_amount_inclusive: 0 };
+      }),
+    },
+  },
 };
 
 function resetStripe() {
   stripe.declineNext = null;
+  stripe.tax.calculations.create.mockClear();
   stripe.defaults.clear(); stripe.methods.clear(); stripe.invoiceTotals.clear(); stripe.customerKeys.clear(); stripe.invoiceSubscriptions.clear(); stripe.live.clear(); stripe.cycleResets.length = 0;
   stripe.methods.set("pm_visa", { id: "pm_visa", customer: null, card: { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 } });
   stripe.methods.set("pm_amex", { id: "pm_amex", customer: null, card: { brand: "amex", last4: "0005", exp_month: 1, exp_year: 2031 } });
@@ -427,10 +437,27 @@ const CART = {
   ],
 };
 
+/**
+ * Sends the checkout the way the app does: priced first, with the quoted
+ * total_due riding along as the amount the payer authorized (unless the test
+ * pins its own).
+ */
+const authorizedTotals = new Map<string, number>();
 async function checkout(token: string, key = crypto.randomUUID(), body: Row = {}) {
+  const request: Row = { ...CART, shipping_address: ADDRESS, payment_method_id: "pm_visa", ...body };
+  if (request.expected_total_due_cents === undefined) {
+    // Like the app, a replay under the same key re-sends the total it first authorized, even if prices drifted since.
+    let authorized = authorizedTotals.get(key);
+    if (authorized === undefined) {
+      const quote = await api("POST", "/api/patient-data/billing/cart/quote", { token, body: { lines: request.lines, shipping_address: request.shipping_address } });
+      authorized = quote.status === 200 ? quote.json.total_due_cents ?? quote.json.total_cents : 0;
+      authorizedTotals.set(key, authorized as number);
+    }
+    request.expected_total_due_cents = authorized;
+  }
   return api("POST", "/api/patient-data/billing/cart/checkout", {
     token, headers: { "Idempotency-Key": key },
-    body: { ...CART, shipping_address: ADDRESS, payment_method_id: "pm_visa", ...body },
+    body: request,
   });
 }
 
@@ -480,6 +507,47 @@ describe("cart quote", () => {
       expect.objectContaining({ kind: "subscription", product_id: PRODUCT, cadence_weeks: 8, subtotal_cents: 6299, shipping_charge_cents: 1000 }),
     ]);
     expect(json).toMatchObject({ subtotal_cents: 16997 + 6299, discount_cents: 700, shipping_charge_cents: 2000, total_cents: 16997 + 6299 + 2000 });
+    // No sales tax for this office: the total is exact with or without an address.
+    expect(json).toMatchObject({ tax_enabled: false, tax_cents: 0, total_due_cents: 16997 + 6299 + 2000 });
+    expect(stripe.tax.calculations.create).not.toHaveBeenCalled();
+  });
+
+  it("estimates sales tax from the office's Stripe Tax settings once a shipping address is known", async () => {
+    backend.tables.billing_connected_accounts[0].tax_enabled = true;
+    const blind = await api("POST", "/api/patient-data/billing/cart/quote", { token: "pat", body: CART });
+    expect(blind.status).toBe(200);
+    // Tax applies but nobody knows the address yet: the quote says so instead of pretending the total is final.
+    expect(blind.json).toMatchObject({ tax_enabled: true, tax_cents: null, total_due_cents: null, total_cents: 16997 + 6299 + 2000 });
+    expect(stripe.tax.calculations.create).not.toHaveBeenCalled();
+
+    const priced = await api("POST", "/api/patient-data/billing/cart/quote", { token: "pat", body: { ...CART, shipping_address: ADDRESS } });
+    expect(priced.status).toBe(200);
+    // Tax is estimated the way it will be billed: one calculation per invoice (the
+    // one-time order and each subscription), each with its own shipping line, so
+    // per-invoice rounding matches what Stripe finalizes.
+    const expectedTax = Math.round((16997 + 1000) * 0.0825) + Math.round((6299 + 1000) * 0.0825);
+    expect(priced.json).toMatchObject({ tax_enabled: true, tax_cents: expectedTax, total_due_cents: 16997 + 6299 + 2000 + expectedTax });
+    expect(stripe.tax.calculations.create).toHaveBeenCalledTimes(2);
+    const [oneTime, subscription] = stripe.tax.calculations.create.mock.calls;
+    expect(oneTime[0]).toMatchObject({
+      currency: "usd", shipping_cost: { amount: 1000 },
+      customer_details: { address: expect.objectContaining({ postal_code: "78701", state: "TX", country: "US" }), address_source: "shipping" },
+    });
+    expect(oneTime[0].line_items.map((row: any) => row.amount)).toEqual([6999 * 2, 2999]);
+    expect(subscription[0]).toMatchObject({ shipping_cost: { amount: 1000 } });
+    expect(subscription[0].line_items.map((row: any) => row.amount)).toEqual([6299]);
+    expect(oneTime[1]).toMatchObject({ stripeAccount: "acct_office-1" });
+
+    // The engine failing is an error the app must show, never a silently untaxed total.
+    stripe.tax.calculations.create.mockRejectedValueOnce(new Error("tax down"));
+    const failed = await api("POST", "/api/patient-data/billing/cart/quote", { token: "pat", body: { ...CART, shipping_address: ADDRESS } });
+    expect(failed.status).toBe(503);
+    expect(failed.json.error).toMatch(/sales tax/i);
+  });
+
+  it("rejects a malformed shipping address on a quote instead of ignoring it", async () => {
+    const { status } = await api("POST", "/api/patient-data/billing/cart/quote", { token: "pat", body: { ...CART, shipping_address: { ...ADDRESS, postal_code: "" } } });
+    expect(status).toBe(400);
   });
 
   it("binds a fresh checkout to the total the payer was shown", async () => {
@@ -533,7 +601,7 @@ describe("checkout", () => {
 
   it("needs an idempotency key and a valid body", async () => {
     backend.signedIn("pat", "office-1");
-    const missing = await api("POST", "/api/patient-data/billing/cart/checkout", { token: "pat", body: { ...CART, shipping_address: ADDRESS, payment_method_id: "pm_visa" } });
+    const missing = await api("POST", "/api/patient-data/billing/cart/checkout", { token: "pat", body: { ...CART, shipping_address: ADDRESS, payment_method_id: "pm_visa", expected_total_due_cents: 0 } });
     expect(missing.status).toBe(400);
     expect(missing.json.field).toBe("idempotency_key");
     const bad = await checkout("pat", crypto.randomUUID(), { shipping_address: { name: "x" } });
@@ -550,8 +618,8 @@ describe("checkout", () => {
     expect(json.status).toBe("paid");
     expect(json.cart_id).toBe(key);
     expect(json.items).toHaveLength(2);
-    expect(json.items[0]).toMatchObject({ kind: "one_time", status: "paid", subscription_id: null, total_cents: 6999 * 2 + 2999 + 1000 });
-    expect(json.items[1]).toMatchObject({ kind: "subscription", status: "paid", total_cents: 6299 + 1000 });
+    expect(json.items[0]).toMatchObject({ kind: "one_time", status: "paid", subscription_id: null, total_cents: 6999 * 2 + 2999 + 1000, product_ids: [PRODUCT, ADDON] });
+    expect(json.items[1]).toMatchObject({ kind: "subscription", status: "paid", total_cents: 6299 + 1000, product_ids: [PRODUCT] });
     expect(json.items[1].subscription_id).toBeTruthy();
 
     const orders = backend.tables.billing_orders;
@@ -722,14 +790,16 @@ describe("checkout", () => {
     const subscriptionOrder = backend.tables.billing_orders.find((row) => row.kind === "subscription_initial")!;
     expect(subscriptionOrder.status).toBe("pending");
     expect(backend.tables.billing_carts[0].status).toBe("staging");
-    // The retry (same key, same body) resumes: the paid one-time order replays and the subscription is created now.
+    // Nothing is paid until EVERY group's invoice is finalized: the one-time invoice was finalized, not charged.
+    expect(stripe.invoices.pay).not.toHaveBeenCalled();
+    expect(backend.tables.billing_orders.find((row) => row.kind === "one_time")!.status).toBe("pending");
+    // The retry (same key, same body) resumes: the subscription is created now and both groups are paid, once each.
     backend.tables.billing_carts[0].updated_at = "2026-01-01T00:00:00.000Z";
-    const payBefore = stripe.invoices.pay.mock.calls.length;
     const resumed = await checkout("pat", key);
     expect(resumed.status).toBe(200);
     expect(resumed.json.status).toBe("paid");
     expect(resumed.json.items.map((item: Row) => item.status)).toEqual(["paid", "paid"]);
-    expect(stripe.invoices.pay.mock.calls.length).toBe(payBefore + 1);
+    expect(stripe.invoices.pay.mock.calls.length).toBe(2);
     expect(backend.tables.billing_ledger.filter((row) => row.kind === "sale")).toHaveLength(2);
     // A definite Stripe refusal still fails the line honestly.
     stripe.subscriptions.create.mockImplementationOnce(async () => { throw Object.assign(new Error("No such price"), { type: "StripeInvalidRequestError" }); });
@@ -813,8 +883,8 @@ describe("checkout", () => {
     const { cartOrderId } = await import("../billing/cart");
     const account = () => backend.tables.billing_connected_accounts.find((row) => row.provider_id === "office-1")!;
     const stripeAccounts = (calls: any[][]) => calls.map((call) => call.at(-1)?.stripeAccount);
-    // 1. Stranded after the one-time invoice was finalized but before payment (Stripe holds an open invoice on acct_office-1)
-    //    and after the subscription row was inserted but never pinned or created.
+    // 1. Stranded after every invoice was finalized but before the first payment: Stripe holds an open one-time
+    //    invoice and an incomplete subscription (with its open first invoice) on acct_office-1.
     const key = crypto.randomUUID();
     const payImpl = stripe.invoices.pay.getMockImplementation()!;
     stripe.invoices.pay.mockImplementationOnce(async () => { throw new Stripe.errors.StripeConnectionError({ message: "socket hang up", type: "api_connection_error" } as any); });
@@ -836,13 +906,18 @@ describe("checkout", () => {
     expect(resumed.json.status).toBe("failed");
     expect(resumed.json.items.map((item: Row) => item.status)).toEqual(["failed", "failed"]);
     expect(resumed.json.items.every((item: Row) => /payment account changed/.test(item.error))).toBe(true);
-    // Nothing was charged anywhere: no pay and no new invoice on either account; the open invoice was voided on the pinned account.
+    // Nothing was charged anywhere: no pay and no new invoice or subscription on either account; the open invoice
+    // was voided and the incomplete subscription cancelled on the pinned account.
     expect(stripe.invoices.pay.mock.calls.length).toBe(paysBefore);
     expect(stripe.invoices.create.mock.calls.length).toBe(createsBefore);
-    expect(stripe.subscriptions.create).not.toHaveBeenCalled();
+    expect(stripe.subscriptions.create).toHaveBeenCalledTimes(1);
+    expect(stripeAccounts(stripe.subscriptions.create.mock.calls)).toEqual(["acct_office-1"]);
     expect(stripe.invoices.voidInvoice).toHaveBeenCalledTimes(1);
     expect(stripe.invoices.voidInvoice.mock.calls[0][0]).toBe(openInvoice);
     expect(stripeAccounts(stripe.invoices.voidInvoice.mock.calls)).toEqual(["acct_office-1"]);
+    expect(stripe.subscriptions.cancel).toHaveBeenCalledTimes(1);
+    expect(stripeAccounts(stripe.subscriptions.cancel.mock.calls)).toEqual(["acct_office-1"]);
+    expect(backend.tables.billing_subscriptions.find((row) => row.id === resumed.json.items[1].subscription_id)!.status).toBe("canceled");
     expect(stripeAccounts(stripe.invoices.retrieve.mock.calls.slice(-1))).toEqual(["acct_office-1"]);
     expect(oneTime().status).toBe("failed");
     expect(backend.tables.billing_orders.find((row) => row.id === cartOrderId(key, 1))!.status).toBe("failed");
@@ -1013,6 +1088,163 @@ describe("checkout", () => {
     expect(backend.tables.billing_orders.every((row) => row.patient_id === backend.tables.billing_carts[0].patient_id)).toBe(true);
   });
 
+  it("refuses a fresh cart whose amount due no longer matches the total the button showed, with no rows and no charge", async () => {
+    backend.signedIn("pat", "office-1");
+    const quoted = await api("POST", "/api/patient-data/billing/cart/quote", { token: "pat", body: CART });
+    const stale = await checkout("pat", crypto.randomUUID(), { expected_total_due_cents: quoted.json.total_due_cents - 100 });
+    expect(stale.status).toBe(422);
+    expect(stale.json).toMatchObject({ field: "expected_total_due_cents" });
+    expect(backend.tables.billing_orders).toHaveLength(0);
+    expect(backend.tables.billing_carts).toHaveLength(0);
+    expect(stripe.invoices.pay).not.toHaveBeenCalled();
+    // Missing outright is a schema error, never an unbound charge.
+    const unbound = await api("POST", "/api/patient-data/billing/cart/checkout", {
+      token: "pat", headers: { "Idempotency-Key": crypto.randomUUID() },
+      body: { ...CART, shipping_address: ADDRESS, payment_method_id: "pm_visa" },
+    });
+    expect(unbound.status).toBe(400);
+    expect(backend.tables.billing_orders).toHaveLength(0);
+    // The exact quoted amount goes through.
+    const exact = await checkout("pat", crypto.randomUUID(), { expected_total_due_cents: quoted.json.total_due_cents });
+    expect(exact.status).toBe(200);
+    expect(exact.json.status).toBe("paid");
+  });
+
+  it("never pays when the finalized invoices add up to more than the button showed: every open group is voided or cancelled, nothing charged", async () => {
+    backend.signedIn("pat", "office-1");
+    const { cartOrderId, TOTAL_CHANGED_MESSAGE } = await import("../billing/cart");
+    const key = crypto.randomUUID();
+    // The estimate before the claim agreed with the button, but Stripe finalizes the one-time invoice one cent higher
+    // (per-invoice rounding, a tax rate change between quote and finalize, whatever): the SUM across groups now exceeds what was authorized.
+    const finalizeImpl = stripe.invoices.finalizeInvoice.getMockImplementation()!;
+    stripe.invoices.finalizeInvoice.mockImplementationOnce(async (id: string) => ({ ...(await finalizeImpl(id)), total: (stripe.invoiceTotals.get(id) ?? 0) + 1 }));
+    const refused = await checkout("pat", key);
+    expect(refused.status).toBe(402);
+    expect(refused.json.status).toBe("failed");
+    expect(refused.json.items.map((item: Row) => [item.status, item.error])).toEqual([["failed", TOTAL_CHANGED_MESSAGE], ["failed", TOTAL_CHANGED_MESSAGE]]);
+    // Both groups had been finalized (invoice + subscription exist at Stripe) and neither was paid.
+    expect(stripe.subscriptions.create).toHaveBeenCalledTimes(1);
+    expect(stripe.invoices.pay).not.toHaveBeenCalled();
+    const oneTime = backend.tables.billing_orders.find((row) => row.id === cartOrderId(key, 0))!;
+    const initial = backend.tables.billing_orders.find((row) => row.id === cartOrderId(key, 1))!;
+    expect(stripe.invoices.voidInvoice).toHaveBeenCalledTimes(1);
+    expect(stripe.invoices.voidInvoice.mock.calls[0][0]).toBe(oneTime.stripe_invoice_id);
+    expect(stripe.subscriptions.cancel).toHaveBeenCalledTimes(1);
+    expect(stripe.subscriptions.cancel.mock.calls[0][0]).toBe(backend.tables.billing_subscriptions[0].stripe_subscription_id);
+    expect([oneTime.status, initial.status]).toEqual(["failed", "failed"]);
+    expect(oneTime.failure_message).toBe(TOTAL_CHANGED_MESSAGE);
+    expect(backend.tables.billing_subscriptions[0].status).toBe("canceled");
+    expect(backend.tables.billing_ledger.filter((row) => row.kind === "sale")).toHaveLength(0);
+    expect(backend.tables.billing_carts.find((row) => row.id === key)!.status).toBe("ready");
+    // A replay of the same key is the same definite answer: no second void, still no charge.
+    const replay = await checkout("pat", key);
+    expect(replay.status).toBe(402);
+    expect(replay.json.items.map((item: Row) => item.status)).toEqual(["failed", "failed"]);
+    expect(stripe.invoices.voidInvoice).toHaveBeenCalledTimes(1);
+    expect(stripe.invoices.pay).not.toHaveBeenCalled();
+    // The app re-quotes and binds the new amount under a new key: that goes through.
+    const again = await checkout("pat", crypto.randomUUID());
+    expect(again.status).toBe(200);
+    expect(again.json.status).toBe("paid");
+  });
+
+  it("holds the finalized sum against the authorized amount even when one group was already paid by an earlier attempt", async () => {
+    backend.signedIn("pat", "office-1");
+    const { cartOrderId, TOTAL_CHANGED_MESSAGE } = await import("../billing/cart");
+    const key = crypto.randomUUID();
+    // Attempt 1: the one-time order is paid, then the subscription pay dies with Stripe's answer unknown.
+    const payImpl = stripe.invoices.pay.getMockImplementation()!;
+    stripe.invoices.pay.mockImplementationOnce(payImpl).mockImplementationOnce(async () => { throw Object.assign(new Error("socket hang up"), { type: "StripeConnectionError" }); });
+    expect((await checkout("pat", key)).status).toBe(503);
+    expect(backend.tables.billing_orders.find((row) => row.id === cartOrderId(key, 0))!.status).toBe("paid");
+    const cart = backend.tables.billing_carts.find((row) => row.id === key)!;
+    expect(cart.status).toBe("staging");
+    cart.updated_at = "2026-01-01T00:00:00.000Z";
+    // Attempt 2 resumes; the subscription's first invoice now reads one cent higher than the plan (paid + open > authorized).
+    // (The fake does not replay idempotency keys, so the resumed create hands back a new subscription whose first invoice is the one that reads higher.)
+    const firstInvoice = stripe.live.get(backend.tables.billing_subscriptions[0].stripe_subscription_id as string).latest_invoice;
+    const retrieveImpl = stripe.invoices.retrieve.getMockImplementation()!;
+    stripe.invoices.retrieve.mockImplementation(async (id: string) => {
+      const invoice = await retrieveImpl(id);
+      return id.startsWith("in_first_") && id !== firstInvoice ? { ...invoice, total: invoice.total + 1 } : invoice;
+    });
+    const paysBefore = stripe.invoices.pay.mock.calls.length;
+    const resumed = await checkout("pat", key);
+    stripe.invoices.retrieve.mockImplementation(retrieveImpl);
+    expect(resumed.status).toBe(200);
+    expect(resumed.json.status).toBe("partial");
+    expect(resumed.json.items.map((item: Row) => item.status)).toEqual(["paid", "failed"]);
+    expect(resumed.json.items[1].error).toBe(TOTAL_CHANGED_MESSAGE);
+    expect(stripe.invoices.pay.mock.calls.length).toBe(paysBefore);
+    expect(stripe.subscriptions.cancel).toHaveBeenCalledTimes(1);
+    expect(stripe.subscriptions.cancel.mock.calls[0][0]).toBe(backend.tables.billing_subscriptions[0].stripe_subscription_id);
+    expect(stripe.invoices.voidInvoice).not.toHaveBeenCalled();
+    expect(backend.tables.billing_subscriptions[0].status).toBe("canceled");
+    expect(backend.tables.billing_orders.find((row) => row.id === cartOrderId(key, 1))!.status).toBe("failed");
+  });
+
+  it("answers a replay whose payment intent cannot be read as 503 still-confirming, never as a fresh start", async () => {
+    backend.signedIn("pat", "office-1");
+    const key = crypto.randomUUID();
+    const payImpl = stripe.invoices.pay.getMockImplementation()!;
+    stripe.invoices.pay.mockImplementation((async (id: string) => ({
+      id, status: "open", total: stripe.invoiceTotals.get(id) ?? 0, amount_paid: 0,
+      payment_intent: { id: `pi_${id}`, status: "requires_action", client_secret: `secret_${id}` },
+    })) as any);
+    const first = await checkout("pat", key);
+    stripe.invoices.pay.mockImplementation(payImpl);
+    expect(first.json.status).toBe("requires_action");
+    const payCalls = stripe.invoices.pay.mock.calls.length;
+    const retrieveImpl = stripe.paymentIntents.retrieve.getMockImplementation()!;
+    stripe.paymentIntents.retrieve.mockImplementation(async () => { throw Object.assign(new Error("socket hang up"), { type: "StripeConnectionError" }); });
+    const replay = await checkout("pat", key);
+    stripe.paymentIntents.retrieve.mockImplementation(retrieveImpl);
+    expect(replay.status).toBe(503);
+    expect(replay.json.field).toBe("idempotency_key");
+    // Nothing was retired: the rows are still pending and a later replay can settle them.
+    expect(backend.tables.billing_orders.every((row) => row.status === "pending")).toBe(true);
+    expect(stripe.invoices.pay.mock.calls.length).toBe(payCalls);
+  });
+
+  it("settles a replayed intent Stripe reports as succeeded, canceled, or needing a new card, and records each on the row", async () => {
+    backend.signedIn("pat", "office-1");
+    const key = crypto.randomUUID();
+    const payImpl = stripe.invoices.pay.getMockImplementation()!;
+    stripe.invoices.pay.mockImplementation((async (id: string) => ({
+      id, status: "open", total: stripe.invoiceTotals.get(id) ?? 0, amount_paid: 0,
+      payment_intent: { id: `pi_${id}`, status: "requires_action", client_secret: `secret_${id}` },
+    })) as any);
+    const first = await checkout("pat", key);
+    stripe.invoices.pay.mockImplementation(payImpl);
+    expect(first.json.status).toBe("requires_action");
+    const [oneTimeOrder, subscriptionOrder] = backend.tables.billing_orders;
+    const retrieveImpl = stripe.paymentIntents.retrieve.getMockImplementation()!;
+    stripe.paymentIntents.retrieve.mockImplementation(async (id: string) => {
+      if (id === oneTimeOrder.stripe_payment_intent_id) return { id, status: "succeeded" } as any;
+      return { id, status: "requires_payment_method", last_payment_error: { message: "Authentication failed." } } as any;
+    });
+    const retrieveInvoice = stripe.invoices.retrieve.getMockImplementation();
+    stripe.invoices.retrieve.mockImplementation(async (id: string) => ({
+      id, status: "paid", total: stripe.invoiceTotals.get(id) ?? 0, amount_paid: stripe.invoiceTotals.get(id) ?? 0,
+      payment_intent: `pi_${id}`, payments: { data: [{ payment: { payment_intent: { id: `pi_${id}`, latest_charge: `ch_${id}` } } }] },
+    }) as any);
+    const replay = await checkout("pat", key);
+    if (retrieveInvoice) stripe.invoices.retrieve.mockImplementation(retrieveInvoice);
+    stripe.paymentIntents.retrieve.mockImplementation(retrieveImpl);
+    expect(replay.status).toBe(200);
+    expect(replay.json.status).toBe("partial");
+    expect(replay.json.items[0]).toMatchObject({ status: "paid", order_id: oneTimeOrder.id });
+    expect(replay.json.items[1]).toMatchObject({ status: "failed", order_id: subscriptionOrder.id, error: "Authentication failed." });
+    // The rows say what the response said: never a "requires_action" that loops forever.
+    expect(backend.tables.billing_orders.find((row) => row.id === oneTimeOrder.id)!.status).toBe("paid");
+    expect(backend.tables.billing_orders.find((row) => row.id === subscriptionOrder.id)).toMatchObject({ status: "failed", failure_message: "Authentication failed." });
+    // A second replay reads the rows alone: same answer, no Stripe reads.
+    stripe.paymentIntents.retrieve.mockClear();
+    const again = await checkout("pat", key);
+    expect(again.json.items.map((item: Row) => item.status)).toEqual(["paid", "failed"]);
+    expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
+  });
+
   it("reports a declined subscription honestly while keeping the paid one-time order", async () => {
     backend.signedIn("pat", "office-1");
     stripe.invoices.pay.mockImplementationOnce(async (id: string) => ({ id, status: "paid", total: stripe.invoiceTotals.get(id) ?? 0, amount_paid: stripe.invoiceTotals.get(id) ?? 0, payment_intent: `pi_${id}` }));
@@ -1020,8 +1252,9 @@ describe("checkout", () => {
     const { status, json } = await checkout("pat");
     expect(status).toBe(200);
     expect(json.status).toBe("partial");
-    expect(json.items[0].status).toBe("paid");
-    expect(json.items[1]).toMatchObject({ status: "failed", error: "Your card was declined." });
+    // Each item names its cart lines so the app can drop exactly the paid ones.
+    expect(json.items[0]).toMatchObject({ status: "paid", kind: "one_time", product_ids: [PRODUCT, ADDON] });
+    expect(json.items[1]).toMatchObject({ status: "failed", error: "Your card was declined.", kind: "subscription", product_ids: [PRODUCT] });
     const failed = backend.tables.billing_orders.find((row) => row.kind === "subscription_initial")!;
     expect(failed.status).toBe("failed");
     expect(failed.failure_message).toBe("Your card was declined.");
@@ -1077,6 +1310,16 @@ describe("checkout", () => {
     expect(new Set(orders.map((row) => row.payer_id))).toEqual(new Set([payers[0].id]));
     const subscriptions = backend.tables.billing_subscriptions.filter((row) => row.patient_id === patientId);
     expect(new Set(subscriptions.map((row) => row.payer_id))).toEqual(new Set([payers[0].id]));
+  });
+
+  it("answers a card Stripe refuses at attach time as a 402 decline with no order rows, not an outage", async () => {
+    backend.signedIn("pat", "office-1");
+    stripe.paymentMethods.attach.mockImplementationOnce(async () => { throw declined("Your card was declined."); });
+    const { status, json } = await checkout("pat", crypto.randomUUID());
+    expect(status).toBe(402);
+    expect(json).toMatchObject({ error: "Your card was declined.", field: "payment_method_id" });
+    expect(backend.tables.billing_orders).toHaveLength(0);
+    expect(stripe.invoices.create).not.toHaveBeenCalled();
   });
 
   it("refuses a card that belongs to a different customer", async () => {

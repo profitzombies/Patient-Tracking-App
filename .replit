@@ -132,6 +132,10 @@ args = "patient-orders"
 task = "workflow.run"
 args = "patient-billing-notices-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-shop"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1616,6 +1620,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/billing/patient-notices.test.ts src/routes/patient-notifications.test.ts src/routes/patient-shop.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-shop"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:cart-math && pnpm --filter @workspace/thinnr-mobile run test:shop && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -75,8 +75,13 @@ export interface FabMenuItem {
   label: string;
   icon: FabMenuIcon;
   action: FabMenuAction;
-  /** Optional unread badge announced as part of the row's accessible name. */
+  /** Optional count badge announced as part of the row's accessible name. */
   unreadCount?: number;
+  /**
+   * How the badge reads in the accessible name; defaults to unread messages
+   * ("3 unread messages"). The Shop row passes cart wording.
+   */
+  badgeLabel?: (count: number) => string;
 }
 
 /**
@@ -280,7 +285,9 @@ export function FabMenu({
                       testID={`${idPrefix}-menu-${item.key}`}
                       accessibilityRole="button"
                       accessibilityLabel={item.unreadCount
-                        ? `${item.label}, ${item.unreadCount} unread message${item.unreadCount === 1 ? '' : 's'}`
+                        ? `${item.label}, ${item.badgeLabel
+                          ? item.badgeLabel(item.unreadCount)
+                          : `${item.unreadCount} unread message${item.unreadCount === 1 ? '' : 's'}`}`
                         : item.label}
                       accessibilityState={{ selected: active }}
                       aria-selected={active}

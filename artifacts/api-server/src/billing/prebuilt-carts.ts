@@ -277,11 +277,13 @@ export async function checkoutPrebuiltCart(token: string, session: unknown, inpu
     throw new PrebuiltCartError("Verify your phone to continue.", 401);
   }
   const resolvedPayer = row.patient_id ? undefined : await resolveGuestPayer(row.provider_id, verification!.identifier, input.payer);
-  // The page shows the quote stored at creation; refuse (before any state
-  // moves) if today's pricing would charge a different total.
-  const quotedTotal = (row.quote as unknown as CartQuote).total_cents;
-  if (!row.cart_id) await assertQuoteCurrent(row.provider_id, row.lines as CartLineInput[], quotedTotal);
   const cartId = row.cart_id ?? derivedCartId(row.id, row.checkout_attempt);
+  // The page showed the frozen quote's pre-tax total: a fresh claim must price
+  // to exactly that, and the finalized invoices may not exceed it.
+  const shownTotal = Number((row.quote as { total_cents?: unknown })?.total_cents);
+  if (!Number.isInteger(shownTotal) || shownTotal < 0) throw new PrebuiltCartError("This cart has no price on it. Ask the office to create another.", 409);
+  // Refuse before any state moves if today's pricing would charge a different total.
+  if (!row.cart_id) await assertQuoteCurrent(row.provider_id, row.lines as CartLineInput[], shownTotal);
   const active = await update("billing_prebuilt_carts",
     `id=eq.${enc(row.id)}&status=in.(verified,checkout)&session_hash=eq.${enc(sessionHash)}&expires_at=gt.${enc(new Date().toISOString())}`,
     { status: "checkout", cart_id: cartId });
@@ -290,7 +292,7 @@ export async function checkoutPrebuiltCart(token: string, session: unknown, inpu
     const result = await checkoutCart({
       patientId: row.patient_id, providerId: row.provider_id, cartId, lines: row.lines as CartLineInput[],
       shipping_address: input.shipping_address, payment_method_id: input.payment_method_id, resolvedPayer,
-      expected_total_cents: quotedTotal,
+      expected_total_cents: shownTotal,
     });
     if (result.status === "paid") await markPaidIfComplete(active, sessionHash);
     else if (result.status === "failed") await bumpFailedAttempt(active, sessionHash, cartId);

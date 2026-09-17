@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { addCard, BillingCardError, cardSetup, listCards, patientCustomer, removeCard, setDefaultCard } from "../billing/cards";
-import { BillingCartError, checkoutCart, MAX_CART_LINES, MAX_LINE_QUANTITY, planCart } from "../billing/cart";
+import { BillingCartError, checkoutCart, estimateCartTax, MAX_CART_LINES, MAX_LINE_QUANTITY, planCart, withTaxEstimate } from "../billing/cart";
 import { BillingCatalogError, officeOffering, subscribeSavePercent } from "../billing/catalog";
 import { BillingOrderError } from "../billing/orders";
 import {
@@ -43,9 +43,10 @@ const LineSchema = z.object({
   product_id: z.string().uuid(), quantity: z.number().int().min(1).max(MAX_LINE_QUANTITY),
   purchase: z.enum(["one_time", "subscription"]), cadence_weeks: z.number().int().nullable().optional(),
 });
-const QuoteSchema = z.object({ lines: z.array(LineSchema).min(1).max(MAX_CART_LINES) });
+const QuoteSchema = z.object({ lines: z.array(LineSchema).min(1).max(MAX_CART_LINES), shipping_address: AddressSchema.optional() });
 const CheckoutSchema = QuoteSchema.extend({
   shipping_address: AddressSchema, payment_method_id: z.string().trim().min(1).max(200), set_default: z.boolean().optional(),
+  expected_total_due_cents: z.number().int().min(0),
 });
 const CardAddSchema = z.object({ payment_method_id: z.string().trim().min(1).max(200), set_default: z.boolean().optional() });
 const MoveSchema = z.object({ next_shipment_at: z.string().trim().min(8).max(40) });
@@ -122,6 +123,7 @@ router.get("/patient-data/billing/shop", async (req, res) => {
       stripe_account_id: available ? account!.stripe_account_id : null,
       publishable_key: available ? await getPublishableKey() : null,
       sandbox: await isSandbox(),
+      tax_enabled: !!account?.tax_enabled,
     };
     res.json(body);
   } catch (error) { fail(req, res, error); }
@@ -135,8 +137,13 @@ router.post("/patient-data/billing/cart/quote", async (req, res) => {
   try {
     const ctx = await patientContext(req, res);
     if (!ctx) return;
-    if (!(await requireAccount(ctx, res))) return;
-    res.json((await planCart(ctx.providerId, parsed.data.lines)).quote);
+    const account = await requireAccount(ctx, res);
+    if (!account) return;
+    const plan = await planCart(ctx.providerId, parsed.data.lines, account.tax_enabled);
+    // With an address the quote carries the tax the card will actually be
+    // charged; without one a tax-collecting office's total stays "before tax".
+    const address = parsed.data.shipping_address;
+    res.json(address ? withTaxEstimate(plan.quote, await estimateCartTax(account, plan, address)) : plan.quote);
   } catch (error) { fail(req, res, error); }
 });
 
@@ -168,7 +175,7 @@ router.post("/patient-data/billing/cart/checkout", async (req, res) => {
     const result = await checkoutCart({
       patientId: ctx.patientId, providerId: ctx.providerId, cartId, lines: parsed.data.lines,
       shipping_address: parsed.data.shipping_address, payment_method_id: parsed.data.payment_method_id,
-      set_default: parsed.data.set_default,
+      set_default: parsed.data.set_default, expected_total_due_cents: parsed.data.expected_total_due_cents,
     });
     res.status(result.status === "failed" ? 402 : 200).json(result);
   } catch (error) { fail(req, res, error); }

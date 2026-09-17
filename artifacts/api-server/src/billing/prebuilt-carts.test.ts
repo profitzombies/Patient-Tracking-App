@@ -29,7 +29,7 @@ import { sha256 } from "../auth/ledger";
 const row = {
   id: "11111111-1111-4111-8111-111111111111", token: "abcdefghijklmnopqrstuvwxyz123456",
   provider_id: "office-1", patient_id: null, created_by_user_id: "user-1", label: null,
-  lines: [], quote: { groups: [] }, status: "open" as const, expires_at: "2099-01-01T00:00:00Z",
+  lines: [], quote: { groups: [], total_cents: 12999 }, status: "open" as const, expires_at: "2099-01-01T00:00:00Z",
   phone_attempts: 0, verification_id: null, verified_at: null, session_hash: null,
   checkout_attempt: 0, cart_id: null, paid_at: null, created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -208,5 +208,22 @@ describe("prebuilt cart lifecycle", () => {
     expect(checkoutCart).toHaveBeenCalledWith(expect.objectContaining({
       patientId: null, resolvedPayer: expect.objectContaining({ id: "payer-new", patient_id: null }),
     }));
+  });
+
+  it("binds the checkout to the pre-tax total the pay page showed, and refuses a cart with no price on it", async () => {
+    const verified = { ...row, patient_id: "patient-1", status: "verified" as const, session_hash: sha256("session") };
+    db.selectOne.mockImplementation(async (table: string) => table === "billing_prebuilt_carts" ? verified : null);
+    checkoutCart.mockResolvedValue({ status: "paid", cart_id: "cart-1", items: [], stripe_account_id: "acct", publishable_key: "pk", sandbox: true });
+    await checkoutPrebuiltCart(verified.token, "session", { shipping_address: {} as any, payment_method_id: "pm_1" });
+    // The frozen quote's total_cents (what "Total today" showed, before tax) rides along so a fresh claim that prices
+    // differently is refused and the finalized invoices are held under it.
+    expect(checkoutCart).toHaveBeenCalledWith(expect.objectContaining({ expected_total_cents: 12999 }));
+    expect(checkoutCart.mock.calls[0][0].expected_total_due_cents).toBeUndefined();
+    checkoutCart.mockClear();
+    const unpriced = { ...verified, quote: { groups: [] } };
+    db.selectOne.mockImplementation(async (table: string) => table === "billing_prebuilt_carts" ? unpriced : null);
+    await expect(checkoutPrebuiltCart(verified.token, "session", { shipping_address: {} as any, payment_method_id: "pm_1" }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(checkoutCart).not.toHaveBeenCalled();
   });
 });

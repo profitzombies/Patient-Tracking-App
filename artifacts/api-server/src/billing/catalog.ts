@@ -86,12 +86,13 @@ export async function loadDefaultImages(): Promise<Map<string, BillingProductIma
 
 /** The single payer-facing offering builder shared by public and patient checkout reads. */
 export async function officeOffering(providerId: string): Promise<PublicLinkProduct[]> {
-  const [prices, products, images, settings] = await Promise.all([
+  const [prices, products, imageRows, settings] = await Promise.all([
     selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}`),
     selectMany("billing_products", "active=eq.true"),
-    loadDefaultImages(),
+    selectMany("billing_product_images", "order=sort_order.asc"),
     getSettings(),
   ]);
+  const images = defaultImages(imageRows);
   const priceMap = new Map(prices.map((price) => [price.product_id, price]));
   const percent = subscribeSavePercent(settings);
   // Products the office priced come first (in the office's own order), then
@@ -107,12 +108,18 @@ export async function officeOffering(providerId: string): Promise<PublicLinkProd
     if (!offering) return [];
     const cadences = productCadences(product);
     const subscribable = Boolean(price?.subscription_enabled);
+    // Gallery: the default image leads, then the rest in sort order.
+    const gallery = imageRows
+      .filter((row) => row.product_id === product.id && row.id !== image?.id)
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
     return [{
       product_id: product.id,
+      slug: product.slug,
       name: product.name,
       description: product.description ?? "",
       ...pageContent(product),
       image_url: image ? productImageUrl(image.id) : null,
+      image_urls: [...(image ? [image] : []), ...gallery].map((row) => productImageUrl(row.id)),
       unit_price_cents: offering.unit_price_cents,
       office_priced: offering.office_priced,
       subscription_available: subscribable,

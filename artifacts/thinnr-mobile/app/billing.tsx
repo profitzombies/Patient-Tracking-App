@@ -31,6 +31,7 @@ import {
 import { subscriptionHref } from '@/lib/patient-billing-core';
 import type {
   PatientBillingOverview,
+  ProductPageContent,
   PublicLinkProduct,
 } from '@/lib/patient-billing-types';
 
@@ -38,9 +39,9 @@ const DEMO_OVERVIEW: PatientBillingOverview = {
   office: { provider_id: 'demo', office_name: 'Jenkins Wellness', payments_available: true },
   shipping_charge_cents: 1000,
   products: [
-    { product_id: 'demo-control', name: 'Control', description: 'Daily metabolic support.', image_url: null, unit_price_cents: 6999, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 6299 },
-    { product_id: 'demo-hydrate', name: 'Hydrate', description: 'Electrolyte drink mix.', image_url: null, unit_price_cents: 3499, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 3149 },
-    { product_id: 'demo-protein', name: 'Protein', description: 'Vanilla protein blend.', image_url: null, unit_price_cents: 4499, office_priced: true, subscription_available: false, subscription_cadences_weeks: [], default_cadence_weeks: 4, subscribe_save_percent: 0, subscription_unit_price_cents: null },
+    { ...DEMO_PAGE, product_id: 'demo-control', slug: 'control', name: 'Control', description: 'Daily metabolic support.', image_url: null, image_urls: [], unit_price_cents: 6999, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 6299 },
+    { ...DEMO_PAGE, product_id: 'demo-hydrate', slug: 'hydrate', name: 'Hydrate', description: 'Electrolyte drink mix.', image_url: null, image_urls: [], unit_price_cents: 3499, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 3149 },
+    { ...DEMO_PAGE, product_id: 'demo-protein', slug: 'protein', name: 'Protein', description: 'Vanilla protein blend.', image_url: null, image_urls: [], unit_price_cents: 4499, office_priced: true, subscription_available: false, subscription_cadences_weeks: [], default_cadence_weeks: 4, subscribe_save_percent: 0, subscription_unit_price_cents: null },
   ],
   orders: [],
   subscriptions: [],
@@ -284,3 +285,8 @@ const styles = StyleSheet.create({
   gap: { marginTop: 14 },
   smallGap: { marginTop: 9 },
 });
+
+/** Product-page copy is not shown on this screen; the demo rows carry empty content. */
+const DEMO_PAGE: ProductPageContent = {
+  category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
+};

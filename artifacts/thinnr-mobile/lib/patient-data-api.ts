@@ -91,6 +91,16 @@ interface RequestOptions {
    * lost without duplicating data.
    */
   idempotencyKey?: string;
+  /**
+   * Non-2xx statuses whose JSON body is a real result rather than an error
+   * envelope (checkout answers 402 with the full failed-payment response).
+   */
+  acceptStatuses?: number[];
+  /**
+   * Per-request deadline. Payment confirmation talks to Stripe several
+   * times before answering, so checkout overrides the diary default.
+   */
+  timeoutMs?: number;
 }
 export async function authedRequest(
   method: string,
@@ -114,7 +124,7 @@ export async function authedRequest(
   if (!token) throw new PatientDataError(SIGNED_OUT_MESSAGE, null, { kind: 'signedOut' });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(`${base}${path}`, {
@@ -138,7 +148,10 @@ export async function authedRequest(
   } catch {
     json = null;
   }
-  if (!response.ok) {
+  // An accepted non-2xx status only counts as a result when the body is a
+  // result; an error envelope on that status is still an error.
+  const envelope = json !== null && typeof json === 'object' && typeof (json as { error?: unknown }).error === 'string';
+  if (!response.ok && !(opts.acceptStatuses?.includes(response.status) && json !== null && !envelope)) {
     const failure = json as { error?: unknown; code?: unknown } | null;
     const message = failure?.error;
     throw new PatientDataError(

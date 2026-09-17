@@ -309,9 +309,12 @@ export default function CartPayPage() {
               </div>
             ))}
             <div className="mt-3 flex justify-between border-t pt-3 font-bold">
-              <span>Total today</span>
+              <span>Total today{details.tax_enabled ? ' (before tax)' : ''}</span>
               <span>{formatCents(details.quote.total_cents)}</span>
             </div>
+            {details.tax_enabled ? (
+              <p className="mt-1 text-xs text-muted-foreground">Sales tax is added for your shipping address and shown on your receipt.</p>
+            ) : null}
           </section>
           <section className="grid gap-3 rounded-lg border bg-card p-5 sm:grid-cols-2">
             <h2 className="font-serif text-xl font-bold text-navy sm:col-span-2">Contact and shipping</h2>

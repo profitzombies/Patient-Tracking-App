@@ -18,13 +18,23 @@ export interface RouterCall {
 }
 
 export const routerLog: RouterCall[] = [];
+/** Object hrefs ({ pathname, params }) log their pathname; params ride `lastParams`. */
+export let lastParams: Record<string, string> | null = null;
+const targetOf = (href: unknown): string => {
+  if (href && typeof href === 'object' && 'pathname' in href) {
+    lastParams = ((href as { params?: Record<string, string> }).params ?? null);
+    return String((href as { pathname: unknown }).pathname);
+  }
+  lastParams = null;
+  return String(href);
+};
 
 export const router = {
   push(href: unknown): void {
-    routerLog.push({ method: 'push', target: String(href) });
+    routerLog.push({ method: 'push', target: targetOf(href) });
   },
   replace(href: unknown): void {
-    routerLog.push({ method: 'replace', target: String(href) });
+    routerLog.push({ method: 'replace', target: targetOf(href) });
   },
   back(): void {
     routerLog.push({ method: 'back', target: '' });

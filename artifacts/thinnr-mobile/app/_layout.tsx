@@ -39,6 +39,7 @@ import { OnboardingProvider } from '@/context/OnboardingContext';
 import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
+import { CartProvider } from '@/context/CartContext';
 import { FoodLoggingProvider } from '@/context/FoodLoggingContext';
 import { DeviceBiometricGate, DeviceFeaturesProvider } from '@/context/DeviceFeaturesContext';
 import { PatientSyncNotice } from '@/components/patient/PatientSyncNotice';
@@ -275,11 +276,16 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
-      <Stack.Screen name="billing" options={{ headerShown: false, title: 'Shop' }} />
+      <Stack.Screen name="billing" options={{ headerShown: false, title: 'Payments & orders' }} />
       <Stack.Screen name="orders/index" options={{ headerShown: false, title: 'Orders' }} />
       <Stack.Screen name="orders/[id]" options={{ headerShown: false, title: 'Order' }} />
       <Stack.Screen name="my-subscriptions/index" options={{ headerShown: false, title: 'Subscriptions' }} />
       <Stack.Screen name="my-subscriptions/[id]" options={{ headerShown: false, title: 'Subscription' }} />
+      <Stack.Screen name="shop" options={{ headerShown: false, title: 'Shop' }} />
+      <Stack.Screen name="product/[id]" options={{ headerShown: false, title: 'Product' }} />
+      <Stack.Screen name="cart" options={{ headerShown: false, title: 'Cart' }} />
+      <Stack.Screen name="checkout" options={{ headerShown: false, title: 'Checkout', gestureEnabled: false }} />
+      <Stack.Screen name="order-confirmation" options={{ headerShown: false, title: 'Order confirmed', gestureEnabled: false }} />
       <Stack.Screen name="security" options={{ headerShown: false }} />
       <Stack.Screen name="security-report" options={{ headerShown: false }} />
       <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />
@@ -581,6 +587,7 @@ export default function RootLayout() {
                   <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
+                       <CartProvider>
                         <BloodworkDraftLifecycle />
                         <FoodLoggingProvider>
                         <DeviceFeaturesProvider>
@@ -599,6 +606,7 @@ export default function RootLayout() {
                          </OnboardingProvider>
                         </DeviceFeaturesProvider>
                         </FoodLoggingProvider>
+                       </CartProvider>
                       </PatientProvider>
                     </PatientAccountProvider>
                   </OperationsProvider>

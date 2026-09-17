@@ -7,8 +7,8 @@
  *
  * Two groups in one card. MENU holds the destinations that did not earn a
  * permanent slot in the pill bar — Library and Plan, reference material
- * patients read now and then — with the same active-tick/skip-when-already-
- * there semantics the staff rows use. QUICK ACTIONS below holds the fast
+ * patients read now and then, and Shop (its badge is the cart count) — with
+ * the same active-tick/skip-when-already-there semantics the staff rows use. QUICK ACTIONS below holds the fast
  * paths into screens that already exist:
  * - Scan a barcode opens the scanner (it logs to snacks, adjustable there).
  * - Snap a meal photo runs the same capture flow as every other meal-photo
@@ -30,12 +30,14 @@ import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useCareTeamUnreadCount } from '@/context/CareTeamUnreadContext';
+import { useCartCount } from '@/context/CartContext';
 
 export function PatientFabMenu() {
   const insets = useSafeAreaInsets();
   const mealPhoto = useMealPhotoFlow();
   const { account } = usePatientAccount();
   const careTeamUnreadCount = useCareTeamUnreadCount();
+  const cartCount = useCartCount();
 
   const sections: FabMenuSection[] = [
     {
@@ -53,6 +55,16 @@ export function PatientFabMenu() {
           label: 'Plan',
           icon: { family: 'feather', name: 'clipboard' },
           action: { kind: 'navigate', href: '/plan' },
+        },
+        // The in-app shop: the badge is the cart's item count. Pushed (not
+        // navigate) so Back returns to whatever tab the patient was on.
+        {
+          key: 'shop',
+          label: 'Shop',
+          icon: { family: 'feather', name: 'shopping-bag' },
+          unreadCount: cartCount,
+          badgeLabel: count => `${count} item${count === 1 ? '' : 's'} in your cart`,
+          action: { kind: 'push', href: '/shop' as Href },
         },
         // Real accounts manage their profile here; the guided demo opens the
         // same screen as a read-only security preview. Unresolved accounts

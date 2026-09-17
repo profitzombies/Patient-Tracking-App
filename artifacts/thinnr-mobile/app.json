@@ -84,7 +84,14 @@
           "configureAndroidBackup": true
         }
       ],
-      "react-native-health-connect"
+      "react-native-health-connect",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.thinnr.mobile",
+          "enableGooglePay": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

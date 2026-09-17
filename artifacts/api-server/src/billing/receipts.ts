@@ -89,13 +89,13 @@ export async function sendReceipt(input: {
     tax: money(order.tax_cents),
     total: money(order.total_cents),
     shipTo: shipTo || "No shipping address on file",
-    renewalNote: subscription ? "This order renews every 4 weeks." : "",
+    renewalNote: subscription ? `This order renews every ${subscription.cadence_weeks ?? 4} weeks.` : "",
     cancelLink: cancel,
     contactEmail: office.email ?? "",
   });
 }
 
-function trackingUrl(carrier: string | null, tracking: string): string | null {
+export function trackingUrl(carrier: string | null, tracking: string): string | null {
   const key = carrier?.toLowerCase() ?? "";
   if (key.includes("usps")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(tracking)}`;
   if (key.includes("ups")) return `https://www.ups.com/track?tracknum=${encodeURIComponent(tracking)}`;

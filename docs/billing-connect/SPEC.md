@@ -230,7 +230,36 @@ trigger pattern if one exists, otherwise a new `billing_touch_updated_at()`).
   `stripe_charge_id`, `stripe_balance_transaction_id`, `livemode`, `paid_at`,
   `fulfillment_status text` (`to_ship|shipped|canceled`) default `to_ship`,
   `tracking_number text null`, `carrier text null`, `shipped_at`, `shipped_by`,
-  `canceled_reason text null`, `metadata jsonb`.
+  `canceled_reason text null`, `metadata jsonb`, `cart_id uuid null` (groups the
+  orders one in-app checkout created; partial index). The fulfillment columns
+  remain as a **mirror** of `billing_shipments` (below) so every existing staff
+  reader, filter, and the shipped-notice email keep working unchanged.
+- `billing_carts` (migration `20261022000100_billing_carts.sql`): `id uuid pk` (= the
+  checkout's cart / Idempotency-Key id), `provider_id`, `patient_id`, `status`
+  (`staging|ready`), `quote jsonb` (fingerprint + the first attempt's priced plan). The primary-key insert is the atomic claim of a
+  checkout: it happens before any order row or Stripe call, one patient owns a key
+  forever, and every order / subscription id for the cart is derived from
+  (cart id, group index) so a retry or a racing duplicate can only ever land on
+  the same rows. `ready` means every group was attempted. The stored quote holds
+  product names, prices, and the fingerprint only (never the address or card);
+  `patient_id` references `patients` (cascade), the row sits under the patient
+  identity write guard, and the purge RPC deletes carts outright
+  (migration `20261022000200_billing_carts_privacy.sql`) because they carry no
+  accounting value once their orders exist.
+- `billing_shipments` (migration `20261022000000_billing_patient_shop.sql`): one row
+  per order (`order_id unique`, cascade), `provider_id`, `status text`
+  (`processing|shipped|delivered|canceled`), `carrier`, `tracking_number`,
+  `tracking_url` (derived for USPS/UPS/FedEx or provider-supplied),
+  `source text` (`staff|provider`), `external_id` (the shipping provider's parcel
+  id), `label_created_at`, `shipped_at`, `delivered_at`, `canceled_at`,
+  `canceled_reason`, `events jsonb` (append-only `[{at,status,detail}]`),
+  `updated_by`. An `after insert` trigger on `billing_orders` creates the
+  `processing` row for every order regardless of which path created it; existing
+  orders were backfilled from their fulfillment columns. All writes go through
+  `billing/shipments.ts#recordShipment`, which mirrors the legacy order columns
+  (`delivered` mirrors as `shipped`). A future shipping provider posts label /
+  transit / delivered updates into this row (`source='provider'`, `external_id`,
+  `events`) without touching the patient-facing contract.
 - `billing_order_items`: `id`, `order_id`, `product_id`, `product_name_snapshot`,
   `quantity int`, `unit_price_cents`, `floor_price_cents_snapshot`,
   `thinnr_share_cents` (per unit × qty), `hard_cost_cents_snapshot`.
@@ -239,7 +268,12 @@ trigger pattern if one exists, otherwise a new `billing_touch_updated_at()`).
   `status text` (`incomplete|active|past_due|canceled|unpaid`),
   `unit_price_cents`, `shipping_charge_cents`, `application_fee_cents`,
   `shipping_address jsonb`, `current_period_end`, `cancel_at_period_end bool`,
-  `canceled_at`, `cancel_token text unique` (for the email link), `livemode`.
+  `canceled_at`, `cancel_token text unique` (for the email link), `livemode`,
+  `cadence_weeks int` (2|4|6|8|10|12, default 4), `quantity int` (1..10),
+  `next_shipment_at timestamptz` (the next box's ship-and-charge date; staff screens
+  and emails read it; moved by skip / move-next, re-derived from Stripe on every
+  renewal and schedule write), `stripe_price_id`, `stripe_shipping_price_id`
+  (the cadence prices the live Stripe items point at).
 - `billing_ledger`: `id`, `provider_id`, `order_id null`, `subscription_id null`,
   `kind text` (`sale|refund|dispute_opened|dispute_won|dispute_lost|
   application_fee_adjustment|fee_discrepancy|payout`), `amount_cents` (signed,
@@ -437,6 +471,128 @@ and `?cursor=` (opaque created_at|id) and return `{ items, next_cursor }`.
 - `POST /links/:token/orders`, `GET /orders/:id/status?token=`,
   `GET /subscriptions/:cancel_token`, `POST /subscriptions/:cancel_token/cancel`,
   `GET /config` → `{ sandbox }` (for the badge before a link loads).
+
+### Patient (`/api/patient-data/billing/...`, bearer patient session)
+Identity is always the signed-in patient and their linked office; ids in paths
+are checked for ownership (`patient_id` **and** `provider_id`) before any Stripe
+call, so another patient's or office's rows are a plain 404. Every Stripe object
+lives on the office's connected account (`stripeAccount` on every call). Types
+live in `billing/types.ts` under "Patient shop" and are copied verbatim to the
+web (`src/lib/billing-types.ts`) and mobile (`lib/patient-billing-types.ts`) apps.
+
+- `GET /shop` → `PatientShop`: the office's storefront built by the shared
+  offering builder (office price or floor price per product, `office_priced`,
+  cadences, `subscribe_save_percent`), `shipping_charge_cents`, the address from the
+  patient's latest order, and the Stripe `stripe_account_id` / `publishable_key` /
+  `sandbox` the app needs for card entry. Availability rule: connected **and**
+  `charges_enabled` **and** not disconnected → `available: true`; otherwise
+  `available:false`, `unavailable_reason: not_connected|no_products`, an empty
+  product list, and null Stripe fields (nothing is shown for an unconnected office).
+- `POST /cart/quote` → `CartQuote`. Lines mix `purchase: one_time` (quantity) and
+  `purchase: subscription` (cadence_weeks + quantity); ≤ 20 lines, quantity 1..10,
+  no duplicate (product, purchase) pair. Subscription lines require the office to
+  have priced the product with `subscription_enabled` and the cadence offered;
+  a discounted unit price below the floor break-even is a 409. Prices: one-time =
+  office price or floor; subscription = office price minus subscribe-and-save.
+  Shipping is charged **once per group**: the one-time order is one group, each
+  subscription line is its own group (it ships on its own schedule). Break-even is
+  enforced on the price actually charged: the office price for one-time lines and
+  the **discounted** unit for subscription lines (409 either way). Tax is left to
+  Stripe per office at confirmation.
+- `POST /cart/checkout` (`Idempotency-Key` header or `cart_id` = one cart) →
+  `CartCheckoutResponse`. Rows first, money second: the one-time order (with items,
+  `cart_id`) and one `billing_subscriptions` (+ `subscription_initial` order) per
+  subscribed line are inserted **before** any Stripe call, then each group is
+  charged independently with the same saved card (`off_session` PaymentIntent for
+  the one-time group; `payment_behavior: default_incomplete` subscription on the
+  cadence prices for each subscription group, `application_fee_percent` derived
+  from the exact fee). Each item reports `paid|requires_action|failed` (+
+  `client_secret` for 3DS); the response status is `paid`, `requires_action`,
+  `partial` (HTTP 200, some groups failed and stay `failed` rows) or `failed`
+  (HTTP 402, nothing charged). The cart key is claimed atomically in
+  `billing_carts` first: a second request while the first is still in flight is a
+  409 (`field: idempotency_key`), another patient's key is a 409, a finished cart
+  replays the existing rows (never a second charge), and a cart that died between
+  inserts is resumed onto the same deterministic row ids (Stripe idempotency keys
+  derive from those ids). The key is bound to the first attempt's exact
+  **request**: the row stores a fingerprint of the lines as sent + shipping
+  address + card, and a retry with a different body (changed or reordered lines,
+  another address, another card) is a 409 that must start a new checkout. Prices
+  are deliberately not part of that fingerprint: the first attempt's priced plan
+  is persisted with the claim and a resume runs on the stored plan (and on the
+  cadence price ids pinned to the subscription row before its Stripe create), so
+  an office price or setting change while a cart is stranded after Stripe may
+  already hold an invoice or subscription can never lock it out or change what
+  the replayed Stripe calls create. For the same reason an existing key is
+  resolved **before** any catalog or account validation: a replay or resume still
+  works after the product is archived, the subscription switched off, the price
+  falls below break-even, or the office disconnects; only a genuinely new key is
+  priced and gated on a live account, then claimed atomically. The claim also
+  pins the office's Connect account id: Stripe idempotency keys are
+  account-scoped, so a resume or replay talks only to that pinned account and
+  never to one the office reconnected to since. While the pinned account is
+  still the office's account the resume finishes normally (an unpinned
+  subscription line is failed honestly instead of mirroring prices onto a
+  disconnected account); once the office has connected a **different** account
+  the stranded cart is terminal: whatever the first attempt left unpaid on the
+  old account is voided/canceled there, every pending row is failed (402
+  `failed`), and the patient starts a new checkout on the new account. The one
+  case that cannot be settled automatically, a first invoice that already paid
+  on the old account, is refused with a 409 and left pending for staff, never
+  marked failed and never charged again. A patient has exactly one payer row
+  per office (partial unique index `billing_payers_provider_patient_key`);
+  concurrent checkouts under different keys converge on that row and, through
+  the payer-keyed Stripe idempotency key, on one Stripe customer. A replay
+  re-reads each still-pending order's PaymentIntent and returns its live status
+  and `client_secret`, so a response lost mid-3DS can still be confirmed. Order
+  items carry ids derived from (cart id, group, line) so a resume fills in exactly
+  the missing items. A first invoice Stripe already settled (or a pay call that
+  answers "already paid") is read back and recorded as paid, never paid or failed
+  twice. Only a definite Stripe answer fails a line: a card decline, an invalid
+  request raised **before** Stripe returned any object, or the office no longer
+  selling the cadence at the quoted price. A connection / API / rate-limit error
+  (including while mirroring cadence prices), or **any** error after an invoice
+  or subscription came back from Stripe, is re-thrown (5xx) with the order left
+  `pending` and the cart left `staging`, so the retry resumes under the same
+  idempotency keys instead of marking a possibly-charged order failed. Status columns move only through the same CAS
+  transitions the webhooks use, so a charge can never exist without its order.
+  The card is attached to the patient's customer and, when `set_default` (default
+  true for a first card), becomes the customer default.
+- Cards: `GET /cards` → `PatientCardList`; `POST /cards/setup` → SetupIntent
+  `client_secret` on the connected account; `POST /cards` (`payment_method_id`,
+  `set_default?`) attaches a card the patient just entered (a method owned by a
+  different customer is 403); `POST /cards/:id/default`; `DELETE /cards/:id` (404
+  when the card is not the patient's; 409 when it is the only card while a
+  subscription still renews; before detaching, every renewing subscription that
+  names the card — subscription-level default or customer default — is re-pointed
+  at the remaining default/newest card). The patient's Stripe customer is created once
+  per office on the connected account (`billing_payers.stripe_customer_id`).
+- Orders: `GET /orders?limit&cursor` → `PatientOrderList` (own orders in the current office only — every patient read filters by patient **and** office,
+  newest first) and `GET /orders/:id` → `PatientOrderDetail` with items, money,
+  refunds, `receipt_available`, `shipping_address`, `failure_message`, and the
+  `shipment` block (`processing` until staff or the provider records carrier +
+  tracking, then `shipped|delivered` with `tracking_url`; `canceled` mirrors the
+  fulfillment cancel). `GET /orders/:id/receipt` unchanged.
+- Subscriptions: `GET /subscriptions` → `{ items: PatientSubscriptionDetail[] }` and
+  `GET /subscriptions/:id` → `PatientSubscriptionDetail` (both add the renewal `card`
+  and `offered_cadences_weeks`; the list is the same shape as the detail). Actions, all `POST /subscriptions/:id/<action>` and
+  all returning the updated subscription:
+  - `move-next` `{ next_shipment_at }` (YYYY-MM-DD or ISO, 1..365 days out) →
+    Stripe `trial_end` with no proration; `next_shipment_at` mirrors it.
+  - `skip-next` → move-next by one cadence from the current next date.
+  - `pause` / `resume` → the existing pause collection / resume paths.
+  - `cancel` → at period end (existing route; 409 once already scheduled).
+  - `address` `{ shipping_address }` → customer shipping + row.
+  - `plan` `{ cadence_weeks?, quantity? }` → items updated in place on the cadence
+    prices, `proration_behavior: none` + `billing_cycle_anchor: unchanged` (an
+    interval change would otherwise reset the anchor and bill immediately; the
+    new cadence starts at the next renewal), fee percent re-derived; 409 when nothing
+    changes, when paused, when the office no longer offers the subscription, or
+    when the discounted unit is below break-even.
+  - `card` `{ payment_method_id }` → attaches if new, 403 if another customer's,
+    404 if unknown, then sets the subscription's `default_payment_method`.
+  Schedule changes (`move-next`, `skip-next`) require an active, unpaused,
+  not-ending subscription (409 otherwise); nothing is allowed on a canceled one.
 
 ### Webhooks
 - `POST /api/billing/webhooks/platform`, `POST /api/billing/webhooks/connect` (raw body).

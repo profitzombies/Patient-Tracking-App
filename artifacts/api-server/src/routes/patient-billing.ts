@@ -3,13 +3,14 @@ import { z } from "zod";
 import { officeOffering } from "../billing/catalog";
 import { createLink, linkUrl } from "../billing/links";
 import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-client";
+import { shipmentDto, shipmentsForOrders } from "../billing/shipments";
 import {
   selectMany, selectOne, type BillingOrderItemRow, type BillingOrderRow, type BillingRefundRow,
-  type BillingSubscriptionRow,
+  type BillingShipmentRow, type BillingSubscriptionRow,
 } from "../billing/store";
 import { cancelSubscription, BillingSubscriptionError } from "../billing/subscriptions";
 import type {
-  PatientBillingOrder, PatientBillingOverview, PatientBillingSubscription, PatientReceipt,
+  PatientBillingOrder, PatientBillingOverview, PatientBillingSubscription, PatientReceipt, ShippingAddress,
 } from "../billing/types";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -17,9 +18,9 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 const uuid = z.string().uuid();
-const paidStatuses = new Set(["paid", "partially_refunded", "refunded"]);
+export const paidStatuses = new Set(["paid", "partially_refunded", "refunded"]);
 
-async function patientContext(req: Request, res: Response) {
+export async function patientContext(req: Request, res: Response) {
   const auth = await resolvePatient(req);
   if (!auth.ok) {
     res.status(auth.status).json({ error: auth.error, ...auth.details });
@@ -38,7 +39,7 @@ async function patientContext(req: Request, res: Response) {
   return { patientId: auth.patientId, providerId: row.provider_id, authUserId: auth.authUserId };
 }
 
-function subscriptionDto(row: BillingSubscriptionRow, productName: string): PatientBillingSubscription {
+export function subscriptionDto(row: BillingSubscriptionRow, productName: string): PatientBillingSubscription {
   return {
     id: row.id,
     product_name: productName,
@@ -50,10 +51,38 @@ function subscriptionDto(row: BillingSubscriptionRow, productName: string): Pati
     cancel_at_period_end: row.cancel_at_period_end,
     last_hosted_invoice_url: row.last_hosted_invoice_url,
     last_failure_message: row.last_failure_message,
+    product_id: row.product_id,
+    cadence_weeks: row.cadence_weeks ?? 4,
+    quantity: row.quantity ?? 1,
+    next_shipment_at: row.next_shipment_at ?? row.current_period_end,
+    shipping_address: row.shipping_address as unknown as ShippingAddress,
   };
 }
 
-function list(values: string[]): string {
+export function orderDto(
+  order: BillingOrderRow, items: BillingOrderItemRow[], refunds: BillingRefundRow[], shipment: BillingShipmentRow | null,
+): PatientBillingOrder {
+  return {
+    id: order.id,
+    order_number: order.order_number,
+    kind: order.kind,
+    status: order.status as PatientBillingOrder["status"],
+    fulfillment_status: order.fulfillment_status as PatientBillingOrder["fulfillment_status"],
+    total_cents: order.total_cents,
+    refunded_cents: refunds.reduce((sum, refund) => sum + refund.amount_cents, 0),
+    item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+    items_label: items.map((item) => `${item.product_name_snapshot} × ${item.quantity}`).join(", "),
+    created_at: order.created_at,
+    paid_at: order.paid_at,
+    receipt_available: paidStatuses.has(order.status) &&
+      Boolean(order.stripe_charge_id || order.stripe_payment_intent_id || order.stripe_invoice_id),
+    shipment: shipmentDto(order, shipment),
+    subscription_id: order.subscription_id,
+    cart_id: order.cart_id ?? null,
+  };
+}
+
+export function list(values: string[]): string {
   return `in.(${values.map(enc).join(",")})`;
 }
 
@@ -63,41 +92,29 @@ async function loadOverview(patientId: string, providerId: string): Promise<Pati
     selectOne("billing_connected_accounts", `provider_id=eq.${enc(providerId)}&disconnected_at=is.null`),
     selectOne("billing_settings", "id=eq.1"),
     officeOffering(providerId),
-    selectMany("billing_orders", `patient_id=eq.${enc(patientId)}&order=created_at.desc&limit=50`),
-    selectMany("billing_subscriptions", `patient_id=eq.${enc(patientId)}&order=created_at.desc`),
+    // Every patient read is scoped to the patient AND their current office: a
+    // patient moved between practices never sees the prior office's activity here.
+    selectMany("billing_orders", `patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(providerId)}&order=created_at.desc&limit=50`),
+    selectMany("billing_subscriptions", `patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(providerId)}&order=created_at.desc`),
   ]);
   if (providerResult.status >= 300 || !Array.isArray(providerResult.json)) throw new Error("Could not load office.");
   const provider = providerResult.json[0] as { provider_id: string; office_name?: string | null; provider_name?: string | null } | undefined;
   if (!settings) throw new Error("Billing settings are unavailable.");
   const orderIds = orders.map((row) => row.id);
   const productIds = [...new Set(subscriptions.map((row) => row.product_id))];
-  const [loadedItems, loadedRefunds, products] = await Promise.all([
+  const [loadedItems, loadedRefunds, products, shipments] = await Promise.all([
     orderIds.length ? selectMany("billing_order_items", `order_id=${list(orderIds)}`) : [],
     orderIds.length ? selectMany("billing_refunds", `order_id=${list(orderIds)}&status=eq.succeeded`) : [],
     productIds.length ? selectMany("billing_products", `id=${list(productIds)}`) : [],
+    shipmentsForOrders(orderIds),
   ]);
   const items = loadedItems as BillingOrderItemRow[];
   const refunds = loadedRefunds as BillingRefundRow[];
   const productsById = new Map(products.map((row) => [row.id, row.name]));
-  const orderDtos: PatientBillingOrder[] = orders.map((order) => {
-    const ownItems = items.filter((item) => item.order_id === order.id);
-    return {
-      id: order.id,
-      order_number: order.order_number,
-      kind: order.kind,
-      status: order.status as PatientBillingOrder["status"],
-      fulfillment_status: order.fulfillment_status as PatientBillingOrder["fulfillment_status"],
-      total_cents: order.total_cents,
-      refunded_cents: refunds.filter((refund) => refund.order_id === order.id)
-        .reduce((sum, refund) => sum + refund.amount_cents, 0),
-      item_count: ownItems.reduce((sum, item) => sum + item.quantity, 0),
-      items_label: ownItems.map((item) => `${item.product_name_snapshot} × ${item.quantity}`).join(", "),
-      created_at: order.created_at,
-      paid_at: order.paid_at,
-      receipt_available: paidStatuses.has(order.status) &&
-        Boolean(order.stripe_charge_id || order.stripe_payment_intent_id || order.stripe_invoice_id),
-    };
-  });
+  const orderDtos: PatientBillingOrder[] = orders.map((order) => orderDto(
+    order, items.filter((item) => item.order_id === order.id),
+    refunds.filter((refund) => refund.order_id === order.id), shipments.get(order.id) ?? null,
+  ));
   const paymentsAvailable = Boolean(provider && account?.charges_enabled && offering.length > 0);
   return {
     office: provider ? {
@@ -163,8 +180,8 @@ router.post("/patient-data/billing/checkout-link", async (req, res) => {
   } catch (error) { fail(req, res, error); }
 });
 
-async function ownedOrder(id: string, patientId: string): Promise<BillingOrderRow | null> {
-  return selectOne("billing_orders", `id=eq.${enc(id)}&patient_id=eq.${enc(patientId)}`);
+async function ownedOrder(id: string, patientId: string, providerId: string): Promise<BillingOrderRow | null> {
+  return selectOne("billing_orders", `id=eq.${enc(id)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(providerId)}`);
 }
 
 router.get("/patient-data/billing/orders/:id/receipt", async (req, res) => {
@@ -172,7 +189,7 @@ router.get("/patient-data/billing/orders/:id/receipt", async (req, res) => {
   try {
     const ctx = await patientContext(req, res);
     if (!ctx) return;
-    const order = await ownedOrder(String(req.params.id), ctx.patientId);
+    const order = await ownedOrder(String(req.params.id), ctx.patientId, ctx.providerId);
     if (!order || !paidStatuses.has(order.status)) { res.status(404).json({ error: "Receipt not found." }); return; }
     // Historical receipts still belong to the patient after an office disconnects.
     // Stripe scopes the retrieval to the stored Connect account id.
@@ -213,7 +230,7 @@ router.post("/patient-data/billing/subscriptions/:id/cancel", async (req, res) =
     const ctx = await patientContext(req, res);
     if (!ctx) return;
     const id = String(req.params.id);
-    const row = await selectOne("billing_subscriptions", `id=eq.${enc(id)}&patient_id=eq.${enc(ctx.patientId)}`);
+    const row = await selectOne("billing_subscriptions", `id=eq.${enc(id)}&patient_id=eq.${enc(ctx.patientId)}&provider_id=eq.${enc(ctx.providerId)}`);
     if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
     if (row.status === "canceled" || row.cancel_at_period_end) {
       res.status(409).json({ error: "This subscription is already canceled." }); return;

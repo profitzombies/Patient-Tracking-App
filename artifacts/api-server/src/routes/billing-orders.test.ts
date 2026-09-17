@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -28,7 +29,8 @@ vi.mock("../billing/auth", async () => {
     }),
   };
 });
-vi.mock("../billing/receipts", () => ({
+vi.mock("../billing/receipts", async (original) => ({
+  ...(await original<typeof import("../billing/receipts")>()),
   sendReceipt: vi.fn(async () => undefined),
   sendCancellationNotice: vi.fn(async () => undefined),
   sendPaymentFailed: vi.fn(async () => undefined),
@@ -135,6 +137,12 @@ beforeEach(() => {
       const selected = rows.filter((row) => matches(row, url.searchParams));
       selected.forEach((row) => Object.assign(row, body));
       return response(selected);
+    }
+    if (method === "POST") {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...body };
+      rows.push(row);
+      return response([row], 201);
     }
     return response([], 201);
   }) as typeof fetch;
@@ -328,6 +336,13 @@ describe("billing order routes", () => {
     expect(shipped.status).toBe(200);
     expect(sendShippedNotice).toHaveBeenCalledOnce();
     expect(tables.billing_orders[0].fulfillment_status).toBe("shipped");
+    // The shipment record is written first and the legacy columns mirror it.
+    expect(tables.billing_shipments).toHaveLength(1);
+    expect(tables.billing_shipments[0]).toMatchObject({
+      order_id: tables.billing_orders[0].id, status: "shipped", carrier: "UPS", tracking_number: "1Z999",
+      tracking_url: "https://www.ups.com/track?tracknum=1Z999", source: "staff",
+    });
+    expect(tables.billing_orders[0]).toMatchObject({ carrier: "UPS", tracking_number: "1Z999" });
     expect(recordAdminAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
       action: "billing_order_fulfillment_updated",
       providerId: "office-1",

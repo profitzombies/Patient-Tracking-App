@@ -26,9 +26,20 @@ function paymentIntent(invoice: any): any {
   const value = invoice.payment_intent ?? invoice.payments?.data?.[0]?.payment?.payment_intent;
   return typeof value === "string" ? { id: value } : value;
 }
-function periodEnd(value: any): string | null {
+export function periodEnd(value: any): string | null {
   const seconds = value.current_period_end ?? value.items?.data?.[0]?.current_period_end;
   return seconds ? new Date(seconds * 1000).toISOString() : null;
+}
+/**
+ * The next box ships when Stripe next bills: a pending trial_end (set by
+ * skip / move-next) wins over the period end; a canceled subscription ships
+ * nothing more. Paused rows keep their last known date for the resume view.
+ */
+export function nextShipmentAt(value: any, row?: { next_shipment_at?: string | null } | null): string | null {
+  if (value.status === "canceled") return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof value.trial_end === "number" && value.trial_end > now) return new Date(value.trial_end * 1000).toISOString();
+  return periodEnd(value) ?? row?.next_shipment_at ?? null;
 }
 function invoiceSubscriptionId(invoice: any): string | null {
   const value = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
@@ -46,7 +57,7 @@ function failureMessage(value: any): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
   return raw.replace(/\b(?:\d[ -]*?){12,19}\b/g, "[card number removed]").trim().slice(0, 200);
 }
-async function accountFor(providerId: string): Promise<BillingConnectedAccountRow> {
+export async function accountFor(providerId: string): Promise<BillingConnectedAccountRow> {
   const account = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}&disconnected_at=is.null`);
   if (!account?.charges_enabled) throw new BillingSubscriptionError("This office is not ready to accept payments.", 409);
   return account;
@@ -144,6 +155,7 @@ export async function createSubscriptionOrder(input: {
   const renews = periodEnd(stripeSubscription) ?? new Date(Date.now() + 28 * 86400_000).toISOString();
   await update("billing_subscriptions", `id=eq.${encodeURIComponent(subscriptionId)}`, {
     stripe_subscription_id: stripeSubscription.id, stripe_customer_id: customerId!, current_period_end: renews,
+    next_shipment_at: renews,
   });
   const tax = Math.max(0, Number(invoice.total ?? quote.total_cents) - quote.total_cents);
   await update("billing_orders", `id=eq.${encodeURIComponent(orderId)}`, {
@@ -172,14 +184,17 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(subscription.product_id)}`);
   if (!product) return null;
   const id = crypto.randomUUID();
-  const hard = product.hard_cost_cents;
+  // In-app plans ship N units per box; legacy link subscriptions are 1.
+  const quantity = subscription.quantity ?? 1;
+  const subtotal = subscription.unit_price_cents * quantity;
+  const hard = product.hard_cost_cents * quantity;
   const created = await insertIgnore("billing_orders", {
     id, order_number: orderNumber(), provider_id: subscription.provider_id, payer_id: subscription.payer_id,
     patient_id: subscription.patient_id, link_id: null, kind: "subscription_renewal", subscription_id: subscription.id,
-    status: "pending", currency: "usd", subtotal_cents: subscription.unit_price_cents,
+    status: "pending", currency: "usd", subtotal_cents: subtotal,
     shipping_charge_cents: subscription.shipping_charge_cents,
-    tax_cents: Math.max(0, Number(invoice.total ?? 0) - subscription.unit_price_cents - subscription.shipping_charge_cents),
-    total_cents: Number(invoice.total ?? subscription.unit_price_cents + subscription.shipping_charge_cents),
+    tax_cents: Math.max(0, Number(invoice.total ?? 0) - subtotal - subscription.shipping_charge_cents),
+    total_cents: Number(invoice.total ?? subtotal + subscription.shipping_charge_cents),
     application_fee_cents: subscription.application_fee_cents, application_fee_collected_cents: null,
     stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: hard, shipping_cost_cents: subscription.shipping_cost_cents,
     hq_profit_cents: hqProfit(subscription.application_fee_cents, hard, subscription.shipping_cost_cents),
@@ -191,7 +206,7 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
     return (await selectOne("billing_orders", `stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`))?.id ?? null;
   }
   await insert("billing_order_items", {
-    order_id: id, product_id: product.id, product_name_snapshot: product.name, quantity: 1,
+    order_id: id, product_id: product.id, product_name_snapshot: product.name, quantity,
     unit_price_cents: subscription.unit_price_cents, floor_price_cents_snapshot: product.floor_price_cents,
     thinnr_share_cents: subscription.application_fee_cents - subscription.shipping_charge_cents,
     hard_cost_cents_snapshot: product.hard_cost_cents,
@@ -324,8 +339,11 @@ export async function markSubscriptionInvoiceFailed(invoice: any, ctx: StripeEve
     hostedInvoiceUrl: invoice.hosted_invoice_url,
   });
 }
-function mappedStatus(status: string): BillingSubscriptionRow["status"] {
+export function mappedStatus(status: string): BillingSubscriptionRow["status"] {
   if (status === "active" || status === "past_due" || status === "unpaid" || status === "incomplete") return status;
+  // A paid subscription whose next shipment was moved sits in a Stripe "trial"
+  // until the new date; to the office and the patient it is still active.
+  if (status === "trialing") return "active";
   return "canceled";
 }
 async function syncSubscription(value: any, ctx: StripeEventContext): Promise<void> {
@@ -335,6 +353,7 @@ async function syncSubscription(value: any, ctx: StripeEventContext): Promise<vo
     ? `&updated_at=eq.${encodeURIComponent(ctx.expectedSubscriptionUpdatedAt)}` : "";
   await update("billing_subscriptions", `id=eq.${encodeURIComponent(row.id)}${reconcileCas}`, {
     status: mappedStatus(value.status), current_period_end: periodEnd(value),
+    next_shipment_at: nextShipmentAt(value, row),
     cancel_at_period_end: Boolean(value.cancel_at_period_end),
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : value.status === "canceled" ? nowIso() : null,
     paused_at: value.pause_collection ? row.paused_at ?? nowIso() : null,

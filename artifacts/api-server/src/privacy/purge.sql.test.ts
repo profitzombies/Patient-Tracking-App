@@ -23,6 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260928000000_patient_privacy_lifecycle.sql");
 const BILLING_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261013010000_billing_privacy_retention.sql");
 const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261014000000_staff_attention_alerts_privacy.sql");
+const BILLING_CARTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261022000200_billing_carts_privacy.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -141,6 +142,11 @@ create table public.billing_refunds (id uuid primary key, order_id uuid not null
 create table public.billing_disputes (id uuid primary key, order_id uuid not null references public.billing_orders(id));
 create table public.billing_webhook_events (
   stripe_event_id text primary key, payload jsonb not null, processed_at timestamptz);
+-- Mirrors 20261022000100_billing_carts.sql before the carts privacy migration adds the patient FK.
+create table public.billing_carts (
+  id uuid primary key, provider_id text not null references public.providers(provider_id), patient_id uuid not null,
+  status text not null default 'staging', quote jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now());
 -- Bloodwork has composite, NO ACTION relationships across four patient-owned
 -- tables; the dynamic purge must still find a children-first order.
 create table public.patient_bloodwork_reports (
@@ -188,7 +194,7 @@ function seedPatients() {
     truncate public.patient_bloodwork_corrections, public.patient_bloodwork_results, public.patient_bloodwork_files,
       public.patient_bloodwork_reports, public.billing_disputes, public.billing_refunds, public.billing_ledger,
       public.billing_order_items, public.billing_orders, public.billing_subscriptions, public.billing_payers,
-      public.billing_payment_links, public.billing_products, public.patient_medication_dose_logs, public.patient_medications,
+      public.billing_payment_links, public.billing_carts, public.billing_products, public.patient_medication_dose_logs, public.patient_medications,
       public.patient_body_measurements, public.patient_chat_notes, public.patient_chat_patient_read_markers,
       public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
@@ -238,6 +244,8 @@ function seedEverything() {
         values ('${uuid(pid === PATIENT ? 651 : 652)}', 'office-1', '${uuid(pid === PATIENT ? 631 : 632)}', '${uuid(pid === PATIENT ? 621 : 622)}');
       insert into public.billing_refunds (id, order_id) values ('${uuid(pid === PATIENT ? 661 : 662)}', '${uuid(pid === PATIENT ? 631 : 632)}');
       insert into public.billing_disputes (id, order_id) values ('${uuid(pid === PATIENT ? 671 : 672)}', '${uuid(pid === PATIENT ? 631 : 632)}');
+      insert into public.billing_carts (id, provider_id, patient_id, status, quote)
+        values ('${uuid(pid === PATIENT ? 681 : 682)}', 'office-1', '${pid}', 'ready', '{"fingerprint":"abc","lines":[{"name":"Control"}]}');
       insert into public.patient_bloodwork_reports (id, patient_id) values ('${uuid(pid === PATIENT ? 801 : 811)}', '${pid}');
       insert into public.patient_bloodwork_files (id, patient_id, report_id, staging_object_path, object_path)
         values ('${uuid(pid === PATIENT ? 802 : 812)}', '${pid}', '${uuid(pid === PATIENT ? 801 : 811)}',
@@ -289,7 +297,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION, BILLING_CARTS_PRIVACY_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -408,7 +416,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(tables).toEqual(expect.arrayContaining([
       "patient_consents", "patient_data_exports", "patient_deletion_requests", "patient_push_tokens", "patient_notifications",
       "patient_chat_conversations", "patient_media", "patient_flags", "billing_orders", "billing_subscriptions",
-      "billing_payers", "billing_payment_links", "analytics_events",
+      "billing_payers", "billing_payment_links", "billing_carts", "analytics_events",
       "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections",
     ]));
     for (const table of tables) expect(countFor(table, PATIENT), table).toBeGreaterThanOrEqual(table === "patient_deletion_requests" ? 0 : 1);
@@ -422,13 +430,17 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(summary.authUserId).toBe(AUTH_USER);
     const purgedTables = summary.tables as Record<string, number>;
     const billingAllowlist = ["billing_orders", "billing_payment_links", "billing_payers", "billing_subscriptions"];
+    // Transient billing rows with no accounting value are deleted outright, not anonymized.
+    const billingDeleted = ["billing_carts"];
     // Every billing patient_id table must be explicitly classified here.
-    expect(tables.filter((table) => table.startsWith("billing_")).sort()).toEqual(billingAllowlist.sort());
+    expect(tables.filter((table) => table.startsWith("billing_")).sort()).toEqual([...billingAllowlist, ...billingDeleted].sort());
     const deletedTables = tables.filter((t) => t !== "patient_deletion_requests" && t !== "analytics_events" && !billingAllowlist.includes(t));
     expect(Object.keys(purgedTables).filter((key) => !key.endsWith("_anonymized")).sort()).toEqual(deletedTables.sort());
     expect(purgedTables.patient_diary_entries).toBe(2);
     expect(purgedTables.billing_orders_anonymized).toBe(1);
     expect(purgedTables.billing_payers_anonymized).toBe(1);
+    expect(purgedTables.billing_carts).toBe(1);
+    expect(rows(`select id from public.billing_carts`).map((row) => row.id)).toEqual([uuid(682)]);
 
     // Nothing owned by the patient remains anywhere — including child tables reached by cascade.
     for (const table of tables) {

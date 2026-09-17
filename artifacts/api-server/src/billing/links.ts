@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { publicOrigin } from "./app-origin";
-import { insert, selectMany, selectOne, update, type BillingPaymentLinkRow, type BillingPayerRow } from "./store";
+import { insert, insertIgnore, selectMany, selectOne, update, type BillingPaymentLinkRow, type BillingPayerRow } from "./store";
 import type { PatientSearchHit, PaymentLink, PaymentLinkInput, PaymentLinkUpdate } from "./types";
 
 export class BillingLinkError extends Error {
@@ -121,6 +121,27 @@ async function allPatients(providerId: string): Promise<Patient[]> {
   if (result.status >= 300) throw new BillingLinkError("Could not resolve the payer.", 502);
   return Array.isArray(result.json) ? result.json : [];
 }
+/**
+ * Exactly one payer row per patient per office. The partial unique index
+ * (`billing_payers_provider_patient_key`) is the arbiter: a concurrent
+ * checkout that loses the insert re-reads the winner instead of creating a
+ * second payer (and a second Stripe customer) for the same person.
+ */
+async function patientPayer(
+  providerId: string, patientId: string, profile: { name: string; email: string | null; phone: string | null },
+): Promise<BillingPayerRow> {
+  const query = `provider_id=eq.${encodeURIComponent(providerId)}&patient_id=eq.${encodeURIComponent(patientId)}&order=created_at.asc`;
+  const existing = await selectOne("billing_payers", query);
+  if (existing) return existing;
+  const inserted = await insertIgnore("billing_payers", {
+    provider_id: providerId, patient_id: patientId, ...profile, stripe_customer_id: null,
+  }, "billing_payers_provider_patient_key");
+  if (inserted) return inserted;
+  const winner = await selectOne("billing_payers", query);
+  if (!winner) throw new BillingLinkError("Payer could not be created.", 503);
+  return winner;
+}
+
 export async function resolvePayer(
   providerId: string, link: BillingPaymentLinkRow,
   input?: { name: string; email: string; phone: string },
@@ -128,11 +149,8 @@ export async function resolvePayer(
   if (link.patient_id) {
     const person = await patient(providerId, link.patient_id);
     if (!person) throw new BillingLinkError("Patient not found.", 404);
-    const existing = await selectOne("billing_payers", `provider_id=eq.${encodeURIComponent(providerId)}&patient_id=eq.${encodeURIComponent(person.id)}`);
-    if (existing) return existing;
-    return insert("billing_payers", {
-      provider_id: providerId, patient_id: person.id, name: patientName(person),
-      email: person.email?.toLowerCase() ?? null, phone: person.phone ?? null, stripe_customer_id: null,
+    return patientPayer(providerId, person.id, {
+      name: patientName(person), email: person.email?.toLowerCase() ?? null, phone: person.phone ?? null,
     });
   }
   if (!input?.name.trim() || !input.email.trim()) throw new BillingLinkError("Enter payer details.", 400, "payer");
@@ -142,11 +160,8 @@ export async function resolvePayer(
   const matched = patients.find((person) => person.email?.trim().toLowerCase() === email) ??
     (phone ? patients.find((person) => normalizePhone(person.phone) === phone) : undefined);
   if (matched) {
-    const existing = await selectOne("billing_payers", `provider_id=eq.${encodeURIComponent(providerId)}&patient_id=eq.${encodeURIComponent(matched.id)}`);
-    if (existing) return existing;
-    return insert("billing_payers", {
-      provider_id: providerId, patient_id: matched.id, name: patientName(matched),
-      email: matched.email?.toLowerCase() ?? email, phone: matched.phone ?? input.phone, stripe_customer_id: null,
+    return patientPayer(providerId, matched.id, {
+      name: patientName(matched), email: matched.email?.toLowerCase() ?? email, phone: matched.phone ?? input.phone,
     });
   }
   const existing = await selectOne("billing_payers", `provider_id=eq.${encodeURIComponent(providerId)}&email=eq.${encodeURIComponent(email)}`);

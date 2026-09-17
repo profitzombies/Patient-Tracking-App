@@ -7,7 +7,8 @@ import {
   BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
   resendSubscriptionPaymentEmail, resumeSubscription, retrySubscriptionPayment, toSubscriptionRow,
 } from "../billing/subscriptions";
-import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary, update } from "../billing/store";
+import { recordShipment } from "../billing/shipments";
+import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
 import { stripeRejection } from "../billing/stripe-client";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
@@ -110,14 +111,13 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
     if (parsed.data.status === "shipped" && !["paid", "partially_refunded"].includes(bundle.order.status)) {
       res.status(409).json({ error: "Only paid orders can be shipped." }); return;
     }
-    const patch = parsed.data.status === "shipped" ? {
-      fulfillment_status: "shipped", tracking_number: parsed.data.tracking_number,
-      carrier: parsed.data.carrier, shipped_at: new Date().toISOString(), shipped_by: actor(res), canceled_reason: null,
+    // The shipment record is the source of truth; it mirrors the legacy
+    // fulfillment columns on the order so every existing reader stays intact.
+    const { order: row } = await recordShipment(bundle.order, parsed.data.status === "shipped" ? {
+      status: "shipped", tracking_number: parsed.data.tracking_number, carrier: parsed.data.carrier, updated_by: actor(res), source: "staff",
     } : parsed.data.status === "canceled" ? {
-      fulfillment_status: "canceled", canceled_reason: parsed.data.canceled_reason,
-    } : { fulfillment_status: "to_ship", tracking_number: null, carrier: null, shipped_at: null, shipped_by: null, canceled_reason: null };
-    const row = await update("billing_orders", `id=eq.${encodeURIComponent(bundle.order.id)}`, patch);
-    if (!row) throw new BillingOrderError("Order not found.", 404);
+      status: "canceled", canceled_reason: parsed.data.canceled_reason, updated_by: actor(res), source: "staff",
+    } : { status: "processing", updated_by: actor(res), source: "staff" });
     if (parsed.data.status === "shipped") await sendShippedNotice({ order: row, payer: bundle.payer, office: bundle.office });
     await audit(req, res, "billing_order_fulfillment_updated", "billing_order", row.id, {
       order_id: row.id, fulfillment_status: parsed.data.status, has_tracking: Boolean(parsed.data.tracking_number),

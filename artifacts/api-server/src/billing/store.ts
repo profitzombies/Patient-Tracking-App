@@ -6,7 +6,7 @@ export type BillingTable =
   | "billing_connected_accounts" | "billing_account_events" | "billing_office_prices"
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
-  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events";
+  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
@@ -73,6 +73,8 @@ export interface BillingOrderRow extends TimestampedRow {
   fulfillment_status: string; tracking_number: string | null; carrier: string | null;
   shipped_at: string | null; shipped_by: string | null; canceled_reason: string | null;
   metadata: Record<string, unknown>; failure_message: string | null;
+  /** In-app checkout id shared by every order the same cart created (null for link/renewal orders). */
+  cart_id?: string | null;
 }
 export interface BillingOrderItemRow extends TimestampedRow {
   id: string; order_id: string; product_id: string; product_name_snapshot: string; quantity: number;
@@ -93,6 +95,22 @@ export interface BillingSubscriptionRow extends TimestampedRow {
   pending_product_id: string | null; pending_unit_price_cents: number | null;
   pending_application_fee_cents: number | null; pending_effective_at: string | null;
   pending_shipping_charge_cents: number | null; pending_stripe_price_id: string | null;
+  /** Plan the patient chose (in-app shop); legacy link subscriptions are 4 weeks × 1. */
+  cadence_weeks?: number; quantity?: number; next_shipment_at?: string | null;
+  stripe_price_id?: string | null; stripe_shipping_price_id?: string | null;
+}
+export type BillingShipmentStatus = "processing" | "shipped" | "delivered" | "canceled";
+export interface BillingCartRow extends TimestampedRow {
+  id: string; provider_id: string; patient_id: string; status: "staging" | "ready"; quote: Record<string, unknown>;
+}
+export interface BillingShipmentRow extends TimestampedRow {
+  id: string; order_id: string; provider_id: string; status: BillingShipmentStatus;
+  carrier: string | null; tracking_number: string | null; tracking_url: string | null;
+  source: "staff" | "provider"; external_id: string | null;
+  label_created_at: string | null; shipped_at: string | null; delivered_at: string | null;
+  canceled_at: string | null; canceled_reason: string | null;
+  events: Array<{ at: string; status: string; detail?: Record<string, unknown> }>;
+  updated_by: string | null;
 }
 export interface BillingLedgerRow extends TimestampedRow {
   id: string; provider_id: string; order_id: string | null; subscription_id: string | null;
@@ -130,7 +148,7 @@ export type BillingRows = {
   billing_subscriptions: BillingSubscriptionRow; billing_ledger: BillingLedgerRow;
   billing_refunds: BillingRefundRow; billing_disputes: BillingDisputeRow;
   billing_payouts: BillingPayoutRow; billing_webhook_endpoints: BillingWebhookEndpointRow;
-  billing_webhook_events: BillingWebhookEventRow;
+  billing_webhook_events: BillingWebhookEventRow; billing_shipments: BillingShipmentRow; billing_carts: BillingCartRow;
 };
 
 export class BillingStoreError extends Error {

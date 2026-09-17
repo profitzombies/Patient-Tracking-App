@@ -1,0 +1,20 @@
+---
+name: Patient in-app shop checkout
+description: Durable money-safety rules for the patient cart/checkout, saved cards, shipments row, and subscription self-service.
+---
+# Patient shop checkout (server)
+
+- **Claim, then rows, then money.** A checkout first claims its cart key with a primary-key insert (one patient per key), inserts every order/subscription row on ids DERIVED from (cart id, group index), and only then charges each group independently with the one saved card.
+  **Why:** a read-then-insert idempotency check is racy and a crash between inserts leaves a partial cart that a replay would treat as complete; deterministic ids + Stripe idempotency keys derived from them make retries and duplicates land on the same rows and the same charges.
+  The key is bound to a fingerprint of the REQUEST (lines + address + card), never of prices: the priced plan is persisted with the claim and a resume runs on the stored plan (Stripe price ids pinned to the row before create). Fingerprinting prices locks a stranded cart out after a price change while Stripe may already hold the charge. Resolve an existing key BEFORE catalog/live-account checks (replay/resume must survive archive, disabled subscription, below-minimum price, office disconnect). Cadence change = interval change: Stripe resets the anchor and bills now unless billing_cycle_anchor:"unchanged" rides with proration_behavior:"none". Replays re-read pending PaymentIntents. Pin the Connect account id on the claim: idempotency keys are account-scoped, and every other billing path (webhooks, reconcile, refunds) ignores accounts that are not the office's CURRENT one, so a cart stranded across an account swap must be made terminal (void unpaid objects on the old account, fail rows, 409 if something already paid) rather than charged on either account.
+  **How to apply:** any new multi-row checkout path (staff orders, QR carts, Tap to Pay) must reuse the claim + derived-id pattern (child rows too, e.g. order items); never mint random row ids inside a retryable checkout.
+- **Only a definite Stripe answer fails a line.** A decline, or an invalid request raised before any Stripe object existed, marks the order failed; connection/API errors (price mirroring included) and ANY error after Stripe returned an object re-throw so the order stays pending and the cart resumable. An already-settled invoice is read back as paid.
+  **Why:** marking failed on an ambiguous error can report a charged subscription as failed; reconcile only heals rows that still say pending. Classify by "did Stripe answer", not by error type alone.
+- **Every new billing table with patient_id must be classified for purge explicitly** (the purge RPC skips billing_% by design): accounting rows anonymize, transient rows (carts) delete; join the identity write guard; never store address/card data in transient rows.
+- **One payer row per patient per office is a DB constraint, not a read-then-insert.** Resolve with insert-or-reread on the partial unique index; the Stripe customer stays single because its idempotency key is payer-keyed. Test fakes need an idempotency layer on customers.create to model this.
+- **Patient reads scope by patient AND current office**, not patient id alone (patients move between practices).
+- **Break-even is checked on the price actually charged.** Subscription lines and plan changes compare the discounted unit, not the office list price.
+- **Shipping once per group.** One-time order shares one shipping charge; each subscription line is its own subscription with its own shipping line.
+- **Shipments are a separate row** that mirrors the legacy fulfillment columns on every write; staff readers keep reading the order. "Delivered" mirrors as "shipped".
+- **Move-next = Stripe trial_end (no proration); skip = move-next by one cadence.** Stripe's "trialing" maps to "active" so staff never see a new status.
+- **Card removal re-points every subscription that names the card** (subscription-level default included) BEFORE detaching; the last card can't go while a subscription renews.

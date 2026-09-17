@@ -1387,7 +1387,7 @@ isValidation = true
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing src/routes/billing- src/routes/patient-billing.test.ts && pnpm --filter @workspace/api-server run typecheck"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing src/routes/billing- src/routes/patient-billing.test.ts src/routes/patient-shop.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [[workflows.workflow]]
 name = "office-files-api"

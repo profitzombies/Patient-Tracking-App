@@ -764,6 +764,11 @@ export interface PatientBillingOrder {
   paid_at: string | null;
   /** True when a Stripe receipt or invoice can be fetched for this order. */
   receipt_available: boolean;
+  /** Parcel state; "processing" until a carrier and tracking number are recorded. */
+  shipment: PatientShipment;
+  subscription_id: string | null;
+  /** Groups the orders one in-app checkout created together. */
+  cart_id: string | null;
 }
 
 export interface PatientBillingSubscription {
@@ -778,6 +783,12 @@ export interface PatientBillingSubscription {
   /** Stripe-hosted page to settle an open failed invoice, when one exists. */
   last_hosted_invoice_url: string | null;
   last_failure_message: string | null;
+  product_id: string;
+  cadence_weeks: number;
+  quantity: number;
+  /** When the next box ships (and is charged); moved by skip / move-next. */
+  next_shipment_at: string | null;
+  shipping_address: ShippingAddress;
 }
 
 export interface PatientBillingOverview {
@@ -808,4 +819,209 @@ export interface PatientReceipt {
   invoice_url: string | null;
   /** Direct PDF download of the invoice (subscription orders). */
   invoice_pdf_url: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Patient shop (in-app cart, saved cards, orders, subscriptions)      */
+/* ------------------------------------------------------------------ */
+
+/** Parcel state for one order. "processing" until staff or the shipping provider records a carrier and tracking number. */
+export type ShipmentStatus = 'processing' | 'shipped' | 'delivered' | 'canceled';
+
+export interface PatientShipment {
+  status: ShipmentStatus;
+  carrier: string | null;
+  tracking_number: string | null;
+  /** Carrier tracking page when the carrier is recognized (USPS, UPS, FedEx) or the provider supplied one. */
+  tracking_url: string | null;
+  shipped_at: string | null;
+  delivered_at: string | null;
+  canceled_at: string | null;
+  updated_at: string;
+}
+
+export type ShopUnavailableReason = 'not_connected' | 'no_products';
+
+/** The patient's office storefront. Empty products + a reason when the office cannot sell today. */
+export interface PatientShop {
+  office: PatientBillingOffice | null;
+  available: boolean;
+  unavailable_reason: ShopUnavailableReason | null;
+  products: PublicLinkProduct[];
+  shipping_charge_cents: number;
+  /** Program-wide subscribe-and-save percent (0 when the discount is off). */
+  subscribe_save_percent: number;
+  /** Address from the patient's most recent order, to prefill checkout. */
+  default_address: ShippingAddress | null;
+  /** Connected account the app must pass to Stripe for card entry (null when unavailable). */
+  stripe_account_id: string | null;
+  publishable_key: string | null;
+  sandbox: boolean;
+}
+
+export type CartPurchase = 'one_time' | 'subscription';
+
+export interface CartLineInput {
+  product_id: string;
+  quantity: number;
+  purchase: CartPurchase;
+  /** Required for subscription lines; must be a cadence the product offers. */
+  cadence_weeks?: number | null;
+}
+
+export interface CartQuoteRequest {
+  lines: CartLineInput[];
+}
+
+export interface CartQuoteLine {
+  product_id: string;
+  name: string;
+  purchase: CartPurchase;
+  quantity: number;
+  cadence_weeks: number | null;
+  /** Price charged per unit (already discounted for subscription lines). */
+  unit_price_cents: number;
+  /** Office (or floor) price per unit before the subscribe-and-save discount. */
+  list_price_cents: number;
+  discount_cents: number;
+  line_total_cents: number;
+}
+
+/** One charge the checkout will create: the one-time order, or one subscription per subscribed line. */
+export interface CartQuoteGroup {
+  kind: CartPurchase;
+  /** Set for subscription groups. */
+  product_id: string | null;
+  cadence_weeks: number | null;
+  quantity: number;
+  subtotal_cents: number;
+  /** Shipping is charged once per group (each subscription ships on its own schedule). */
+  shipping_charge_cents: number;
+  total_cents: number;
+}
+
+export interface CartQuote {
+  lines: CartQuoteLine[];
+  groups: CartQuoteGroup[];
+  subtotal_cents: number;
+  discount_cents: number;
+  shipping_charge_cents: number;
+  /** Charged today, before tax (tax is computed by Stripe per office at confirmation). */
+  total_cents: number;
+}
+
+export interface CartCheckoutRequest extends CartQuoteRequest {
+  shipping_address: ShippingAddress;
+  /** A Stripe PaymentMethod created on the office's connected account (new card) or one already saved to the patient. */
+  payment_method_id: string;
+  /** Make this card the default for future renewals (default true for a first card). */
+  set_default?: boolean;
+  /** Stable per-cart key; the Idempotency-Key header takes precedence. Retrying the same key replays the first attempt. */
+  cart_id?: string;
+}
+
+export type CheckoutItemStatus = 'paid' | 'requires_action' | 'failed';
+
+export interface CartCheckoutItem {
+  kind: CartPurchase;
+  order_id: string;
+  order_number: string;
+  subscription_id: string | null;
+  status: CheckoutItemStatus;
+  /** PaymentIntent secret to finish 3DS in the app when status is requires_action. */
+  client_secret: string | null;
+  error: string | null;
+  total_cents: number;
+}
+
+export type CheckoutStatus = 'paid' | 'requires_action' | 'partial' | 'failed';
+
+export interface CartCheckoutResponse {
+  cart_id: string;
+  status: CheckoutStatus;
+  items: CartCheckoutItem[];
+  stripe_account_id: string;
+  publishable_key: string;
+  sandbox: boolean;
+}
+
+export interface PatientCard {
+  id: string;
+  brand: string;
+  last4: string;
+  exp_month: number;
+  exp_year: number;
+  is_default: boolean;
+}
+
+export interface PatientCardList {
+  cards: PatientCard[];
+  default_payment_method_id: string | null;
+}
+
+/** SetupIntent for adding a card outside checkout. */
+export interface PatientCardSetup {
+  client_secret: string;
+  stripe_account_id: string;
+  publishable_key: string;
+  sandbox: boolean;
+}
+
+export interface PatientCardAddRequest {
+  payment_method_id: string;
+  set_default?: boolean;
+}
+
+export interface PatientOrderItem {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price_cents: number;
+  line_total_cents: number;
+}
+
+export interface PatientOrderRefund {
+  amount_cents: number;
+  status: string;
+  created_at: string;
+}
+
+export interface PatientOrderDetail extends PatientBillingOrder {
+  items: PatientOrderItem[];
+  subtotal_cents: number;
+  shipping_charge_cents: number;
+  tax_cents: number;
+  refunds: PatientOrderRefund[];
+  shipping_address: ShippingAddress;
+  failure_message: string | null;
+}
+
+export interface PatientOrderList {
+  items: PatientBillingOrder[];
+  next_cursor: string | null;
+}
+
+export interface PatientSubscriptionDetail extends PatientBillingSubscription {
+  /** Card charged at renewal (null when Stripe has none on the subscription yet). */
+  card: PatientCard | null;
+  /** Cadences the product offers today (for the change-plan sheet). */
+  offered_cadences_weeks: number[];
+}
+
+export interface SubscriptionMoveNextRequest {
+  /** Calendar date (YYYY-MM-DD) or ISO timestamp; must be in the future and within a year. */
+  next_shipment_at: string;
+}
+
+export interface SubscriptionAddressRequest {
+  shipping_address: ShippingAddress;
+}
+
+export interface SubscriptionPlanRequest {
+  cadence_weeks?: number;
+  quantity?: number;
+}
+
+export interface SubscriptionCardRequest {
+  payment_method_id: string;
 }

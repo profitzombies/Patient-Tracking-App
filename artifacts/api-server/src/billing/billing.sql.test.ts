@@ -12,6 +12,10 @@ const MIGRATIONS = [
   "../../../../supabase/migrations/20261013020000_billing_webhook_retry_count.sql",
   "../../../../supabase/migrations/20261013030000_billing_subscription_dunning.sql",
   "../../../../supabase/migrations/20261021000000_billing_product_pages.sql",
+  "../../../../supabase/migrations/20261022000000_billing_patient_shop.sql",
+  "../../../../supabase/migrations/20261022000100_billing_carts.sql",
+  // 20261022000200_billing_carts_privacy.sql redefines the purge RPC and is proven by src/privacy/purge.sql.test.ts.
+  "../../../../supabase/migrations/20261022000300_billing_payers_patient_unique.sql",
 ].map((migration) => path.resolve(here, migration));
 const MOBILE_CATALOG = path.resolve(here, "../../../thinnr-mobile/data/product-catalog.json");
 
@@ -90,6 +94,8 @@ const TABLES = [
   "billing_payouts",
   "billing_webhook_endpoints",
   "billing_webhook_events",
+  "billing_shipments",
+  "billing_carts",
 ];
 
 describe.skipIf(!POSTGRES_AVAILABLE)(
@@ -275,6 +281,71 @@ describe.skipIf(!POSTGRES_AVAILABLE)(
           )
         `),
       ).toContain("billing_orders_status_check");
+    });
+
+    it("creates a processing shipment for every new order and keeps one per order", () => {
+      const payerId = psql(`
+        insert into public.billing_payers (provider_id, name, email)
+        values ('provider-1', 'Shopper', 'shopper@example.com')
+        returning id
+      `).trim();
+      const orderId = psql(`
+        insert into public.billing_orders (
+          order_number, provider_id, payer_id, kind, status,
+          subtotal_cents, shipping_charge_cents, tax_cents, total_cents,
+          application_fee_cents, hard_cost_cents, shipping_cost_cents,
+          shipping_address, livemode, cart_id
+        ) values (
+          'TH-SHIP01', 'provider-1', '${payerId}', 'one_time', 'paid',
+          1000, 1000, 0, 2000, 1600, 100, 1000, '{}'::jsonb, false, gen_random_uuid()
+        ) returning id
+      `).trim();
+      const shipment = rows<{ status: string; source: string; carrier: string | null }>(
+        `select status, source, carrier from public.billing_shipments where order_id = '${orderId}'`,
+      );
+      expect(shipment).toEqual([{ status: "processing", source: "staff", carrier: null }]);
+      expect(fails(`
+        insert into public.billing_shipments (order_id, provider_id, status)
+        values ('${orderId}', 'provider-1', 'shipped')
+      `)).toContain("billing_shipments_order_id_key");
+      expect(fails(`
+        update public.billing_shipments set status = 'lost' where order_id = '${orderId}'
+      `)).toContain("billing_shipments_status_check");
+      psql(`update public.billing_shipments set status = 'shipped', carrier = 'usps' where order_id = '${orderId}'`);
+      expect(scalar<boolean>(`updated_at > created_at from public.billing_shipments where order_id = '${orderId}'`)).toBe(true);
+      psql(`delete from public.billing_orders where id = '${orderId}'`);
+      expect(scalar<number>(`count(*) from public.billing_shipments where order_id = '${orderId}'`)).toBe(0);
+    });
+
+    it("constrains subscription plans and defaults legacy rows to every four weeks", () => {
+      expect(scalar<string>("column_default from information_schema.columns where table_schema='public' and table_name='billing_subscriptions' and column_name='cadence_weeks'")).toContain("4");
+      expect(scalar<string>("column_default from information_schema.columns where table_schema='public' and table_name='billing_subscriptions' and column_name='quantity'")).toContain("1");
+      expect(scalar<number>("count(*) from information_schema.columns where table_schema='public' and table_name='billing_subscriptions' and column_name in ('next_shipment_at','stripe_price_id','stripe_shipping_price_id')")).toBe(3);
+      expect(scalar<number>("count(*) from information_schema.columns where table_schema='public' and table_name='billing_orders' and column_name='cart_id'")).toBe(1);
+      const payerId = psql(`
+        insert into public.billing_payers (provider_id, name, email)
+        values ('provider-1', 'Subscriber', 'subscriber@example.com')
+        returning id
+      `).trim();
+      const productId = scalar<string>("id from public.billing_products limit 1");
+      const base = `insert into public.billing_subscriptions (
+        provider_id, payer_id, product_id, stripe_subscription_id, stripe_customer_id, status, unit_price_cents, shipping_charge_cents,
+        application_fee_cents, shipping_address, cancel_token, livemode`;
+      expect(fails(`${base}, cadence_weeks) values ('provider-1', '${payerId}', '${productId}', 'sub_plan_1', 'cus_plan', 'active', 1000, 1000, 100, '{}'::jsonb, 'tok-1', false, 3)`))
+        .toContain("billing_subscriptions_cadence_weeks_check");
+      expect(fails(`${base}, quantity) values ('provider-1', '${payerId}', '${productId}', 'sub_plan_2', 'cus_plan', 'active', 1000, 1000, 100, '{}'::jsonb, 'tok-2', false, 11)`))
+        .toContain("billing_subscriptions_quantity_check");
+    });
+
+    it("allows one patient-backed payer per office, and any number of guest payers", () => {
+      psql("insert into public.patients (id, provider_id) values ('00000000-0000-4000-8000-00000000aa01', 'provider-1') on conflict do nothing");
+      psql(`insert into public.billing_payers (provider_id, patient_id, name, email) values ('provider-1', '00000000-0000-4000-8000-00000000aa01', 'Pat', 'pat@example.com')`);
+      expect(fails(`insert into public.billing_payers (provider_id, patient_id, name, email) values ('provider-1', '00000000-0000-4000-8000-00000000aa01', 'Pat again', 'pat2@example.com')`))
+        .toContain("billing_payers_provider_patient_key");
+      // Guest payers (no patient) are not constrained against each other.
+      psql(`insert into public.billing_payers (provider_id, name, email) values ('provider-1', 'Guest', 'guest-a@example.com')`);
+      psql(`insert into public.billing_payers (provider_id, name, email) values ('provider-1', 'Guest', 'guest-b@example.com')`);
+      psql("delete from public.billing_payers where patient_id = '00000000-0000-4000-8000-00000000aa01' or email like 'guest-%'");
     });
 
     it("enables RLS on all billing tables", () => {

@@ -22,7 +22,7 @@ class Backend {
       patients: [], patient_consents: [], providers: [], billing_connected_accounts: [],
       billing_settings: [], billing_products: [], billing_product_images: [], billing_office_prices: [],
       billing_orders: [], billing_order_items: [], billing_refunds: [], billing_subscriptions: [],
-      billing_payment_links: [], billing_payers: [],
+      billing_payment_links: [], billing_payers: [], billing_shipments: [],
     };
     this.tokens.clear();
     this.inserts = [];

@@ -133,3 +133,4 @@
 - [Staff attention alerts](staff-attention-alerts.md) — one evaluator feeds roster/bell/digest/email; staff outbox is separate from patient outbox; opt-outs applied at send; ALL mail via the templates library shell.
 - [Coach conversation titles](coach-conversation-titles.md) — model titles + patient rename decided by title_source in SQL; sensitive-text screen → fallback; mobile reconciles late reads against committed rows.
 - [Billing product pages & plans](billing-product-pages.md) — discount = discounted per-cadence Stripe prices (no coupons), legacy 4-week price untouched; no office price row = floor-price fallback, not opt-out.
+- [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; only definite Stripe answers fail a line; reads scope patient + office.

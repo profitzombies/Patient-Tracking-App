@@ -46,16 +46,16 @@ const DEMO_OVERVIEW: PatientBillingOverview = {
   office: { provider_id: 'demo', office_name: 'Jenkins Wellness', payments_available: true },
   shipping_charge_cents: 1000,
   products: [
-    { product_id: 'demo-control', name: 'Control', description: 'Daily metabolic support.', image_url: null, unit_price_cents: 6999, subscription_available: true },
-    { product_id: 'demo-hydrate', name: 'Hydrate', description: 'Electrolyte drink mix.', image_url: null, unit_price_cents: 3499, subscription_available: true },
-    { product_id: 'demo-protein', name: 'Protein', description: 'Vanilla protein blend.', image_url: null, unit_price_cents: 4499, subscription_available: false },
+    { product_id: 'demo-control', name: 'Control', description: 'Daily metabolic support.', image_url: null, unit_price_cents: 6999, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 6299 },
+    { product_id: 'demo-hydrate', name: 'Hydrate', description: 'Electrolyte drink mix.', image_url: null, unit_price_cents: 3499, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 3149 },
+    { product_id: 'demo-protein', name: 'Protein', description: 'Vanilla protein blend.', image_url: null, unit_price_cents: 4499, office_priced: true, subscription_available: false, subscription_cadences_weeks: [], default_cadence_weeks: 4, subscribe_save_percent: 0, subscription_unit_price_cents: null },
   ],
   orders: [
-    { id: 'demo-order-1', order_number: 'TH-D3MO01', kind: 'one_time', status: 'paid', fulfillment_status: 'shipped', total_cents: 5499, refunded_cents: 0, item_count: 1, items_label: 'Protein', created_at: '2026-08-18T14:00:00.000Z', paid_at: '2026-08-18T14:01:00.000Z', receipt_available: true },
-    { id: 'demo-order-2', order_number: 'TH-D3MO02', kind: 'subscription_renewal', status: 'paid', fulfillment_status: 'to_ship', total_cents: 7999, refunded_cents: 0, item_count: 1, items_label: 'Control monthly renewal', created_at: '2026-08-22T09:00:00.000Z', paid_at: '2026-08-22T09:01:00.000Z', receipt_available: true },
+    { id: 'demo-order-1', order_number: 'TH-D3MO01', kind: 'one_time', status: 'paid', fulfillment_status: 'shipped', total_cents: 5499, refunded_cents: 0, item_count: 1, items_label: 'Protein', created_at: '2026-08-18T14:00:00.000Z', paid_at: '2026-08-18T14:01:00.000Z', receipt_available: true, shipment: { status: 'shipped', carrier: 'USPS', tracking_number: '9400111899223197428490', tracking_url: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223197428490', shipped_at: '2026-08-19T16:00:00.000Z', delivered_at: null, canceled_at: null, updated_at: '2026-08-19T16:00:00.000Z' }, subscription_id: null, cart_id: null },
+    { id: 'demo-order-2', order_number: 'TH-D3MO02', kind: 'subscription_renewal', status: 'paid', fulfillment_status: 'to_ship', total_cents: 7999, refunded_cents: 0, item_count: 1, items_label: 'Control monthly renewal', created_at: '2026-08-22T09:00:00.000Z', paid_at: '2026-08-22T09:01:00.000Z', receipt_available: true, shipment: { status: 'processing', carrier: null, tracking_number: null, tracking_url: null, shipped_at: null, delivered_at: null, canceled_at: null, updated_at: '2026-08-22T09:01:00.000Z' }, subscription_id: 'demo-sub-1', cart_id: null },
   ],
   subscriptions: [
-    { id: 'demo-sub-1', product_name: 'Control', unit_price_cents: 6999, shipping_charge_cents: 1000, status: 'active', paused: false, current_period_end: demoRenewal.toISOString(), cancel_at_period_end: false, last_hosted_invoice_url: null, last_failure_message: null },
+    { id: 'demo-sub-1', product_name: 'Control', unit_price_cents: 6999, shipping_charge_cents: 1000, status: 'active', paused: false, current_period_end: demoRenewal.toISOString(), cancel_at_period_end: false, last_hosted_invoice_url: null, last_failure_message: null, product_id: 'demo-control', cadence_weeks: 4, quantity: 1, next_shipment_at: demoRenewal.toISOString(), shipping_address: { name: 'Demo Patient', line1: '100 Wellness Way', line2: null, city: 'Austin', state: 'TX', postal_code: '78701', country: 'US', phone: null } },
   ],
 };
 

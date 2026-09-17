@@ -85,6 +85,15 @@ beforeEach(() => {
         role: (index + 1) % 2 ? "user" : "staff",
         text: `message ${index + 1}`, created_at: `2026-10-02T00:${String(index % 60).padStart(2, "0")}:00Z`,
         sender_user_id: "must-not-leak", sender_label: "must-not-leak",
+        card: index + 1 === 130 ? {
+          kind: "product_suggestion",
+          payload: {
+            mode: "individual",
+            items: [{ productId: "p-1", slug: "daily", name: "Daily", imageUrl: null,
+              purchase: "one_time", cadenceWeeks: null, quantity: 1, unitPriceCents: 1200 }],
+            totalCents: 1200,
+          },
+        } : index + 1 === 131 ? { kind: "ai_coach_card", payload: { private: true } } : null,
       })).filter(row => (!after || row.seq > after) && (!before || row.seq < before));
       rows.sort((a, b) => descending ? b.seq - a.seq : a.seq - b.seq);
       return { status: 200, json: rows.slice(0, Number(params.get("limit") ?? 51)) };
@@ -136,6 +145,7 @@ describe("patient care-team HTTP contract", () => {
     expect((older.json.messages as Array<Record<string, unknown>>)[0]).toEqual({
       seq: 130, clientId: "m-130", sender: "care_team", text: "message 130",
       createdAt: "2026-10-02T00:09:00Z",
+      suggestion: expect.objectContaining({ mode: "individual", totalCents: 1200 }),
     });
     expect(older.json.nextBefore).toBe(130);
     expect(JSON.stringify(older.json)).not.toContain("must-not-leak");
@@ -155,7 +165,7 @@ describe("patient care-team HTTP contract", () => {
     expect(sent.status).toBe(200);
     expect(sent.json.message).toEqual({
       seq: 241, clientId: "device-stable-1", sender: "patient",
-      text: "Hello team", createdAt: "2026-10-02T01:00:00Z",
+      text: "Hello team", createdAt: "2026-10-02T01:00:00Z", suggestion: null,
     });
     expect(calls.find(call => call.path === "/rest/v1/rpc/care_team_send")?.body).toMatchObject({
       p_patient_id: PATIENT, p_provider_id: "office-a", p_role: "user",

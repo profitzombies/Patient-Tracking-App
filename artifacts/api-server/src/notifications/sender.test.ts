@@ -407,6 +407,24 @@ describe("outbox sender", () => {
       expect(h.push.sent[0][0].data).not.toHaveProperty("leakedText");
     });
 
+    it("uses the stored suggestion copy only when the row explicitly marks a suggestion", async () => {
+      const h = harness();
+      h.store.addToken(P1, TOKEN_A);
+      const suggestionBody = "Your care team suggested Daily Balance for you.";
+      await h.enqueue({
+        ...careTeam,
+        body: suggestionBody,
+        data: { ...careTeam.data, suggestion: true },
+        dedupeKey: "care_team_reply:suggestion",
+      });
+      await h.tick();
+
+      expect(h.push.sent[0][0]).toMatchObject({
+        title: CARE_TEAM_PUSH_TITLE,
+        body: suggestionBody,
+      });
+    });
+
     it("uses the existing care-team preference category and current quiet hours/device state", async () => {
       const optedOut = harness();
       optedOut.store.addToken(P1, TOKEN_A);

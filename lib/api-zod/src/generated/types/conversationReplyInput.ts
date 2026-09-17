@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ProductSuggestionInput } from './productSuggestionInput';
 
 /**
  * Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.
@@ -21,4 +22,6 @@ export interface ConversationReplyInput {
      * @maxLength 4000
      */
   text: string;
+  /** Optional product suggestion; every item must be offered on this office's price list */
+  suggestion?: ProductSuggestionInput | null;
 }

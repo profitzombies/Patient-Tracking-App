@@ -91,6 +91,15 @@ export function useOfficePrices() {
   });
 }
 
+export function useOfficeSaleContext(patientId: string, enabled = true) {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useQuery({
+    queryKey: [...base, 'sale-context', patientId],
+    queryFn: () => officeBilling.saleContext(patientId, office),
+    enabled: liveEnabled && enabled && patientId.length > 0,
+  });
+}
+
 export function useUpdateOfficePrice() {
   const { office, base } = useOfficeBillingScope();
   const client = useQueryClient();

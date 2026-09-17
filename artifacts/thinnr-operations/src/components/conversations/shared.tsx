@@ -1,7 +1,67 @@
 import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
 import { StickyNote, X } from 'lucide-react';
-import { type ConversationEvent } from '@workspace/api-client-react';
+import { type ConversationEvent, type ProductSuggestion, type ProductSuggestionItem } from '@workspace/api-client-react';
+
+const formatSuggestionPrice = (cents: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+
+const suggestionPurchaseLabel = (item: ProductSuggestionItem) =>
+  item.purchase === 'subscription' ? `Every ${item.cadenceWeeks} weeks` : 'One-time';
+
+function SuggestionThumbnail({ item }: { item: ProductSuggestionItem }) {
+  return item.imageUrl ? (
+    <img src={item.imageUrl} alt="" className="h-11 w-11 shrink-0 rounded-md border border-border object-cover" />
+  ) : (
+    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-border bg-accent text-sm font-bold text-primary">
+      {item.name.charAt(0)}
+    </span>
+  );
+}
+
+function ProductSuggestionCards({ suggestion }: { suggestion: ProductSuggestion }) {
+  if (suggestion.mode === 'bundle') {
+    return (
+      <div className="mt-2.5 rounded-lg border border-primary/25 bg-card p-3 shadow-soft" data-testid="product-suggestion-bundle">
+        <p className="text-[10px] font-bold uppercase tracking-[.12em] text-primary">Bundle</p>
+        <div className="mt-2 divide-y divide-border">
+          {suggestion.items.map(item => (
+            <div key={`${item.productId}-${item.purchase}-${item.cadenceWeeks}`} className="flex items-start justify-between gap-3 py-2 first:pt-0">
+              <div className="min-w-0">
+                <p className="font-serif text-xs font-bold text-navy">{item.name}</p>
+                <p className="text-[10px] text-muted-foreground">{suggestionPurchaseLabel(item)} · ×{item.quantity}</p>
+              </div>
+              <p className="shrink-0 text-xs font-semibold text-navy">{formatSuggestionPrice(item.unitPriceCents * item.quantity)}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-1 flex items-center justify-between border-t border-primary/15 pt-2">
+          <span className="font-serif text-sm font-bold text-navy">Total</span>
+          <span className="text-sm font-bold text-navy">{formatSuggestionPrice(suggestion.totalCents)}</span>
+        </div>
+        <p className="mt-2 text-[10px] text-muted-foreground">Opens checkout in the patient app</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5 space-y-2" data-testid="product-suggestion-individual">
+      {suggestion.items.map(item => (
+        <div key={`${item.productId}-${item.purchase}-${item.cadenceWeeks}`} className="rounded-lg border border-primary/20 bg-card p-2.5 shadow-soft">
+          <div className="flex items-center gap-2.5">
+            <SuggestionThumbnail item={item} />
+            <div className="min-w-0 flex-1">
+              <p className="font-serif text-xs font-bold text-navy">{item.name}</p>
+              <p className="text-[10px] text-muted-foreground">{suggestionPurchaseLabel(item)} · ×{item.quantity}</p>
+            </div>
+            <p className="shrink-0 text-xs font-semibold text-navy">{formatSuggestionPrice(item.unitPriceCents)}</p>
+          </div>
+          <p className="mt-1.5 text-[10px] text-muted-foreground">Sent as a suggestion</p>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function InitialsAvatar({ name }: { name: string | undefined }) {
   const initials = (name || '')
@@ -257,6 +317,7 @@ export function LiveMessageRow({ message }: { message: ConversationEvent }) {
             </p>
           )}
         </div>
+        {isStaff && message.suggestion ? <ProductSuggestionCards suggestion={message.suggestion} /> : null}
         <p className={`mt-1.5 text-[10px] text-muted-foreground ${isUser ? 'text-right' : ''}`}>{timeLabel}</p>
       </div>
     </div>

@@ -74,6 +74,8 @@ export interface CartContextValue {
   /** True while a pay attempt is unsettled: every edit is refused until it is confirmed. */
   locked: boolean;
   add: (line: CartLine) => AddCartResult;
+  /** Replaces all current lines, unless an unsettled payment has frozen the cart. */
+  replaceLines: (lines: CartLine[]) => { ok: true } | { ok: false; reason: 'locked' };
   setQuantity: (key: string, quantity: number) => void;
   setCadence: (key: string, cadenceWeeks: number) => void;
   remove: (key: string) => void;
@@ -309,6 +311,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setLines(result.lines);
     return result;
   }, []);
+  const replaceLines = useCallback((next: CartLine[]) => {
+    if (pendingRef.current) return { ok: false as const, reason: 'locked' as const };
+    linesRef.current = next;
+    setLines(next);
+    return { ok: true as const };
+  }, []);
 
   // Every edit is refused while an attempt is pending: the replay must
   // describe exactly the lines the patient is looking at.
@@ -395,6 +403,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     count: cartItemCount(lines),
     locked,
     add,
+    replaceLines,
     setQuantity,
     setCadence,
     remove,
@@ -409,7 +418,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     shopStatus,
     shopError,
     loadShop,
-  }), [hydrated, demo, lines, locked, add, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, shop, shopStatus, shopError, loadShop]);
+  }), [hydrated, demo, lines, locked, add, replaceLines, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, shop, shopStatus, shopError, loadShop]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

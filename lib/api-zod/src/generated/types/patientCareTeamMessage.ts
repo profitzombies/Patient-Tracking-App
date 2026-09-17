@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PatientCareTeamMessageSender } from './patientCareTeamMessageSender';
+import type { ProductSuggestion } from './productSuggestion';
 
 export interface PatientCareTeamMessage {
   seq: number;
@@ -13,4 +14,6 @@ export interface PatientCareTeamMessage {
   sender: PatientCareTeamMessageSender;
   text: string;
   createdAt: string;
+  /** Product suggestion attached by the care team, rendered as cards under the message */
+  suggestion?: ProductSuggestion | null;
 }

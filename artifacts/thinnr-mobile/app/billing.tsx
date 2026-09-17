@@ -35,6 +35,11 @@ import type {
   PublicLinkProduct,
 } from '@/lib/patient-billing-types';
 
+/** Product-page copy is not shown on this screen; the demo rows carry empty content. */
+const DEMO_PAGE: ProductPageContent = {
+  category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
+};
+
 const DEMO_OVERVIEW: PatientBillingOverview = {
   office: { provider_id: 'demo', office_name: 'Jenkins Wellness', payments_available: true },
   shipping_charge_cents: 1000,
@@ -286,7 +291,3 @@ const styles = StyleSheet.create({
   smallGap: { marginTop: 9 },
 });
 
-/** Product-page copy is not shown on this screen; the demo rows carry empty content. */
-const DEMO_PAGE: ProductPageContent = {
-  category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
-};

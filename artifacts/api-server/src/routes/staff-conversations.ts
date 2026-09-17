@@ -26,6 +26,13 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
 import { loadOrgPolicy } from "../lib/org-policy";
+import {
+  buildProductSuggestion,
+  ProductSuggestionError,
+  productSuggestionInputSchema,
+  suggestionFromCard,
+  suggestionPushBody,
+} from "../billing/product-suggestions";
 
 const enc = encodeURIComponent;
 type Row = Record<string, unknown>;
@@ -79,6 +86,7 @@ const statusBody = z.object({ status: z.enum(["open", "waiting_patient", "closed
 const replyBody = z.object({
   clientId: z.string().regex(/^[A-Za-z0-9._:-]{1,64}$/).optional(),
   text: z.string().min(1).max(4000),
+  suggestion: productSuggestionInputSchema.nullable().optional(),
 }).strict();
 const startBody = z.object({ patientId: z.string().uuid() }).strict();
 const readBody = z.object({ throughSeq: z.number().int().positive() }).strict();
@@ -409,6 +417,7 @@ function eventFromRow(row: Record<string, unknown>) {
     senderLabel: typeof row.sender_label === "string" ? row.sender_label : null,
     senderUserId: typeof row.sender_user_id === "string" ? row.sender_user_id : null,
     createdAt: String(row.created_at),
+    suggestion: suggestionFromCard(row.card),
   };
 }
 
@@ -623,7 +632,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const { conversation } = found;
       const filters = [
         `conversation_id=eq.${enc(conversation.id)}`,
-        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at",
+        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at,card",
         "order=seq.desc",
         `limit=${parsed.data.limit + 1}`,
       ];
@@ -745,7 +754,20 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
 
   router.post("/office/conversations/:conversationId/reply", async (req, res) => {
     const body = replyBody.safeParse(req.body);
-    if (!body.success || !body.data.text.trim()) {
+    if (!body.success) {
+      const suggestionIssue = body.error.issues.find(issue => issue.path[0] === "suggestion");
+      const quantityIssue = body.error.issues.find(issue => issue.path.at(-1) === "quantity");
+      res.status(400).json({
+        error: quantityIssue
+          ? "Each suggested product quantity must be between 1 and 20."
+          : suggestionIssue
+            ? "Check the product suggestion."
+            : "Write a reply first.",
+        ...(suggestionIssue ? { field: suggestionIssue.path.join(".") } : {}),
+      });
+      return;
+    }
+    if (!body.data.text.trim()) {
       res.status(400).json({ error: "Write a reply first." });
       return;
     }
@@ -777,6 +799,19 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       }
       const senderLabel = await actorLabel(scope);
       const clientId = body.data.clientId;
+      let suggestion = null;
+      if (body.data.suggestion) {
+        try {
+          suggestion = await buildProductSuggestion(scope.providerId, body.data.suggestion);
+        } catch (error) {
+          if (error instanceof ProductSuggestionError) {
+            res.status(400).json({ error: error.message, field: error.field });
+            return;
+          }
+          throw error;
+        }
+      }
+      const card = suggestion ? { kind: "product_suggestion", payload: suggestion } : null;
       const inserted = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_send", {
         p_conversation_id: conversation.id,
         p_patient_id: conversation.patientId,
@@ -787,6 +822,8 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         p_sender_user_id: scope.actorUserId,
         p_sender_label: senderLabel,
         p_enqueue_push: true,
+        p_card: card,
+        p_push_body: suggestion ? suggestionPushBody(suggestion) : null,
       });
       if (inserted.status === 409 || (inserted.status >= 300 && JSON.stringify(inserted.json).includes("payload conflict"))) {
         res.status(409).json({ error: "That message id was already used for different content." }); return;
@@ -795,7 +832,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const payload = inserted.json as Record<string, unknown>;
       const row = {
         seq: payload.seq, client_id: clientId, role: payload.role, text: payload.text, stopped: false,
-        sender_user_id: scope.actorUserId, sender_label: senderLabel, created_at: payload.createdAt,
+        sender_user_id: scope.actorUserId, sender_label: senderLabel, created_at: payload.createdAt, card,
       };
       void audit(req, scope, "conversation_replied", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
@@ -1002,7 +1039,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const found = await hqConversation(req, res); if (!found) return;
       const q = page.data;
       const filters = [`conversation_id=eq.${enc(String(found.row.id))}`,
-        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at", `limit=${q.limit + 1}`,
+        "select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at,card", `limit=${q.limit + 1}`,
         q.after ? "order=seq.asc" : "order=seq.desc"];
       if (q.before) filters.push(`seq=lt.${q.before}`);
       if (q.after) filters.push(`seq=gt.${q.after}`);

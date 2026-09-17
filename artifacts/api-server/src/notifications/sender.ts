@@ -267,6 +267,8 @@ async function processClaimed(row: NotificationRow, ctx: Ctx): Promise<void> {
   }
 
   const attempt = row.attempts + 1;
+  const isSuggestion = row.kind === "care_team_reply"
+    && (row.data.suggestion === true || typeof row.data.suggestion === "string");
   const careTeamData =
     row.kind === "care_team_reply"
       ? {
@@ -278,7 +280,7 @@ async function processClaimed(row: NotificationRow, ctx: Ctx): Promise<void> {
   const messages: PushMessage[] = tokens.map((token) => ({
     to: token.token,
     title: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_TITLE : row.title,
-    body: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_BODY : row.body,
+    body: row.kind === "care_team_reply" ? (isSuggestion ? row.body : CARE_TEAM_PUSH_BODY) : row.body,
     data: { ...careTeamData, notificationId: row.id, kind: row.kind, category: row.category },
     sound: "default",
     channelId: PUSH_CHANNEL_ID,

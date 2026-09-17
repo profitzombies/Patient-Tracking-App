@@ -7,7 +7,7 @@ import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import OfficeConversations from '../src/pages/OfficeConversations';
 import { HqConversations } from '../src/components/conversations/HqConversations';
-import { planThreadFollow } from '../src/components/conversations/shared';
+import { LiveMessageRow, planThreadFollow } from '../src/components/conversations/shared';
 import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setHqData } from './a11y-stubs/hq-data';
@@ -31,6 +31,20 @@ const event = (seq: number, text: string) => ({
   seq, clientId: null, role: 'user', text, stopped: false, senderLabel: null, senderUserId: null,
   createdAt: `2026-09-10T1${seq}:00:00Z`,
 });
+const offeredProducts = [
+  {
+    product_id: 'prod-1', slug: 'daily-balance', name: 'Daily Balance', description: '', category: 'supplement',
+    tagline: 'Daily support', image_url: null, unit_price_cents: 3200, office_priced: true,
+    subscription_available: true, subscribe_save_percent: 10, subscription_unit_price_cents: 2880,
+    subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4,
+  },
+  {
+    product_id: 'prod-2', slug: 'metabolic-drops', name: 'Metabolic Drops', description: '', category: 'drops',
+    tagline: 'Metabolic support', image_url: null, unit_price_cents: 4500, office_priced: false,
+    subscription_available: false, subscribe_save_percent: 0, subscription_unit_price_cents: null,
+    subscription_cadences_weeks: [], default_cadence_weeks: 4,
+  },
+];
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' },
 });
@@ -61,7 +75,7 @@ const settle = async () => {
   for (let index = 0; index < 12; index += 1) await act(async () => { await new Promise(resolve => setTimeout(resolve, 2)); });
 };
 
-let replyBodies: Array<{ clientId: string; text: string }> = [];
+let replyBodies: Array<{ clientId: string; text: string; suggestion?: unknown }> = [];
 let failFirstReply = true;
 let nextReplySeq = 3;
 let requestUrls: string[] = [];
@@ -77,6 +91,20 @@ globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   requestUrls.push(`${init?.method ?? 'GET'} ${url}`);
   const pathname = new URL(url, 'http://test').pathname;
+  if (pathname.endsWith('/api/billing/office/sales/context')) {
+    return json({
+      patient: { id: 'pat-1', name: 'Ada Patient', email: 'ada@example.com', phone: null },
+      default_address: null,
+      products: offeredProducts,
+      shipping_charge_cents: 0,
+      subscribe_save_percent: 10,
+      stripe_account_id: 'acct-test',
+      publishable_key: 'pk_test',
+      sandbox: true,
+      available: true,
+      unavailable_reason: null,
+    });
+  }
   if (url.includes('/api/hq/conversations')) {
     if (url.includes('/notes')) return json({ notes: hqNotes });
     if (url.includes('/read')) return json({ lastReadSeq: 2, changed: true });
@@ -177,6 +205,7 @@ assert.match(textOf(renderer!.root), /Newest message/);
 assertTopAnchoredThread(renderer!.root, 'office');
 assert.match(textOf(renderer!.root), /No internal notes yet/, 'office notes card must show an empty state when there are no notes');
 assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === 'Escalate').length, 0, 'care-team conversations must not offer AI escalation');
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Add product suggestion').length, 1, 'care-team conversations must offer product suggestions');
 const composer = renderer!.root.find(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient');
 await act(async () => { composer.props.onChange({ target: { value: 'Exact retry text' } }); });
 const send = renderer!.root.find(node => node.type === 'button' && textOf(node).includes('Send'));
@@ -339,6 +368,7 @@ await act(async () => { renderer = create(<Page path="/conversations?channel=ai&
 await settle();
 const aiEscalateButtons = renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === 'Escalate');
 assert.equal(aiEscalateButtons.length, 1, 'historic AI conversations must retain escalation');
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Add product suggestion').length, 0, 'AI threads must not offer product suggestions');
 await act(async () => { renderer!.unmount(); });
 
 readRequests.length = 0;
@@ -382,6 +412,7 @@ for (const fragment of ['office=office-1', 'patientId=pat-1', 'channel=care_team
   assert.ok(hqListRequest.includes(fragment), `HQ request missing ${fragment}`);
 }
 assert.ok(requestUrls.filter(request => request.startsWith('POST ')).every(request => request.includes('/read')), 'HQ rendered view must not expose workflow/message mutations');
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Add product suggestion').length, 0, 'HQ must not offer product suggestions');
 await act(async () => { renderer!.unmount(); });
 
 hqNotes = [{ id: 'note-1', body: 'Called the office about refills', authorLabel: 'Nurse Lee', createdAt: '2026-09-10T12:30:00Z' }];
@@ -412,6 +443,7 @@ assert.ok(readRequests.some(request => request.url.includes('office=live-abc123'
 assert.equal(renderer!.root.findAll(node => node.type === 'textarea' && node.props['aria-label'] === 'Reply to patient').length, 0, 'HQ drill-in must not offer the care-team composer');
 assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === 'Start conversation').length, 0, 'HQ drill-in must not offer Start conversation');
 assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'text-hq-read-only').length, 1);
+assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Add product suggestion').length, 0, 'HQ drill-in must not offer product suggestions');
 for (const label of ['Claim', 'Add note']) {
   assert.equal(renderer!.root.findAll(node => node.type === 'button' && textOf(node).trim() === label).length, 0, `HQ drill-in care-team thread must not offer ${label}`);
 }
@@ -438,5 +470,37 @@ await settle();
 assert.equal(startBodies.length, 0, 'HQ drill-in must not auto-start care-team conversations');
 await act(async () => { renderer!.unmount(); });
 __setScope(null);
+
+const individualSuggestion = {
+  mode: 'individual' as const,
+  items: [{
+    productId: 'prod-1', slug: 'daily-balance', name: 'Daily Balance', imageUrl: null,
+    purchase: 'subscription' as const, cadenceWeeks: 4, quantity: 2, unitPriceCents: 2880,
+  }],
+  totalCents: 5760,
+};
+await act(async () => {
+  renderer = create(<LiveMessageRow message={{ ...event(8, 'Try this'), role: 'staff', senderLabel: 'Nurse Lee', senderUserId: 'staff-1', suggestion: individualSuggestion }} />);
+});
+assert.match(textOf(renderer!.root), /Daily Balance/);
+assert.match(textOf(renderer!.root), /Every 4 weeks · ×2/);
+assert.match(textOf(renderer!.root), /Sent as a suggestion/);
+await act(async () => { renderer!.unmount(); });
+
+const bundleSuggestion = {
+  mode: 'bundle' as const,
+  items: [
+    { productId: 'prod-1', slug: 'daily-balance', name: 'Daily Balance', imageUrl: null, purchase: 'subscription' as const, cadenceWeeks: 4, quantity: 1, unitPriceCents: 2880 },
+    { productId: 'prod-2', slug: 'metabolic-drops', name: 'Metabolic Drops', imageUrl: null, purchase: 'one_time' as const, cadenceWeeks: null, quantity: 1, unitPriceCents: 4500 },
+  ],
+  totalCents: 7380,
+};
+await act(async () => {
+  renderer = create(<LiveMessageRow message={{ ...event(9, 'A bundle for you'), role: 'staff', senderLabel: 'Nurse Lee', senderUserId: 'staff-1', suggestion: bundleSuggestion }} />);
+});
+assert.match(textOf(renderer!.root), /Bundle/);
+assert.match(textOf(renderer!.root), /Total\$73\.80/);
+assert.match(textOf(renderer!.root), /Opens checkout in the patient app/);
+await act(async () => { renderer!.unmount(); });
 
 console.log('office conversations rendered verification passed');

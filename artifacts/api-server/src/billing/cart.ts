@@ -201,13 +201,6 @@ export type CheckoutInput = {
    */
   expected_total_cents?: number | null;
   resolvedPayer?: BillingPayerRow;
-  /**
-   * The pre-tax total the payer was shown. A NEW checkout is refused when
-   * today's pricing no longer produces this amount, so a catalog, discount, or
-   * shipping change between the quote and the card tap can never charge a
-   * total nobody confirmed. Replays of an already-claimed cart are unaffected.
-   */
-  expected_total_cents?: number;
 };
 
 export const TOTAL_CHANGED_MESSAGE = "Your total changed since your cart was priced. Review your cart and try again.";
@@ -557,7 +550,7 @@ export async function checkoutCart(input: CheckoutInput): Promise<CartCheckoutRe
     assertCartOwner(cart, input, fingerprint);
   } else {
     account = await liveAccount(input.providerId);
-    plan = input.expected_total_cents === undefined
+    plan = input.expected_total_cents === undefined || input.expected_total_cents === null
       ? await planCart(input.providerId, input.lines, account.tax_enabled)
       : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents, account.tax_enabled);
     await assertAuthorizedTotal(account, plan, input);

@@ -266,8 +266,10 @@ describe("transcript read", () => {
     on("GET", "/rest/v1/patient_chat_messages?", () => ({
       status: 200,
       json: [
-        { seq: 3, role: "staff", text: "Skip the pasta tonight.", stopped: false, sender_label: "Dr. Ellis", created_at: "2026-09-01T10:15:00Z" },
-        { seq: 2, role: "user", text: "Can I have pasta tonight?", stopped: false, sender_label: null, created_at: "2026-09-01T10:05:00Z" },
+        { seq: 3, role: "staff", text: "Skip the pasta tonight.", stopped: false, sender_label: "Dr. Ellis", created_at: "2026-09-01T10:15:00Z",
+          card: { kind: "product_suggestion", payload: { mode: "individual", items: [], totalCents: 0 } } },
+        { seq: 2, role: "user", text: "Can I have pasta tonight?", stopped: false, sender_label: null, created_at: "2026-09-01T10:05:00Z",
+          card: { kind: "ai_coach_card", payload: { private: true } } },
       ],
     }));
     const result = await call("GET", `/office/conversations/${CONV}/events`);
@@ -275,6 +277,8 @@ describe("transcript read", () => {
     expect(result.json.events.map((e: { role: string }) => e.role)).toEqual(["user", "staff"]);
     expect(result.json.events[1].senderLabel).toBe("Dr. Ellis");
     expect(result.json.events[0].senderLabel).toBeNull();
+    expect(result.json.events[0].suggestion).toBeNull();
+    expect(result.json.events[1].suggestion).toMatchObject({ mode: "individual", totalCents: 0 });
     expect(result.json.conversation.unread).toBe(true);
     const marker = calls.find(c => c.path.startsWith("/rest/v1/patient_chat_read_markers"));
     expect(marker).toBeUndefined();
@@ -348,6 +352,69 @@ describe("assignment and status", () => {
 });
 
 describe("care-team reply", () => {
+  it("validates and snapshots a bundle from server-side office prices", async () => {
+    routes.unshift({
+      match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",
+      reply: () => ({ status: 200, json: [inboxRow({ thread: "care_team" })] }),
+    });
+    on("GET", "/rest/v1/billing_office_prices?", () => ({
+      status: 200,
+      json: [{ provider_id: "office-a", product_id: "product-a", sell_price_cents: 3000, subscription_enabled: true }],
+    }));
+    on("GET", "/rest/v1/billing_products?", () => ({
+      status: 200,
+      json: [{
+        id: "product-a", slug: "daily-balance", name: "Daily Balance", description: "",
+        active: true, floor_price_cents: 2000, sort_order: 1,
+        offered_cadences_weeks: [2, 4], default_cadence_weeks: 4,
+      }],
+    }));
+    on("GET", "/rest/v1/billing_product_images?", () => ({
+      status: 200,
+      json: [{ id: "image-a", product_id: "product-a", sort_order: 1, is_default: true, created_at: "2026-01-01" }],
+    }));
+    on("GET", "/rest/v1/billing_settings?", () => ({
+      status: 200,
+      json: [{
+        id: 1, shipping_charge_cents: 0, shipping_cost_cents: 0, card_fee_bps: 0,
+        card_fee_fixed_cents: 0, subscribe_save_enabled: true, subscribe_save_percent: 10,
+      }],
+    }));
+    on("POST", "/rest/v1/rpc/care_team_send", c => ({
+      status: 200,
+      json: {
+        created: true, seq: 4, clientId: (c.body as Record<string, unknown>).p_client_id,
+        role: "staff", text: (c.body as Record<string, unknown>).p_text, createdAt: "2026-09-01T10:15:00Z",
+      },
+    }));
+
+    const result = await call("POST", `/office/conversations/${CONV}/reply`, {
+      clientId: "suggestion-1",
+      text: "I put these together for you.",
+      suggestion: {
+        mode: "bundle",
+        items: [{ productId: "product-a", purchase: "subscription", cadenceWeeks: null, quantity: 2 }],
+      },
+    });
+
+    expect(result.status).toBe(200);
+    const rpc = calls.find(c => c.path === "/rest/v1/rpc/care_team_send")?.body as Record<string, unknown>;
+    expect(rpc.p_card).toEqual({
+      kind: "product_suggestion",
+      payload: {
+        mode: "bundle",
+        items: [{
+          productId: "product-a", slug: "daily-balance", name: "Daily Balance",
+          imageUrl: "/api/billing/public/product-images/image-a", purchase: "subscription",
+          cadenceWeeks: 4, quantity: 2, unitPriceCents: 2700,
+        }],
+        totalCents: 5400,
+      },
+    });
+    expect(rpc.p_push_body).toBe("Your care team put together a bundle of 1 products for you.");
+    expect(result.json.event.suggestion).toEqual((rpc.p_card as { payload: unknown }).payload);
+  });
+
   it("writes care-team message and privacy-safe push atomically through the RPC", async () => {
     routes.unshift({
       match: c => c.method === "POST" && c.path === "/rest/v1/rpc/patient_chat_inbox_list_guarded",

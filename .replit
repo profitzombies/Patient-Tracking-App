@@ -136,6 +136,18 @@ args = "patient-billing-notices-api"
 task = "workflow.run"
 args = "patient-shop"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-suggestions-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-suggestions-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "care-team-suggestions-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1631,6 +1643,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:cart-math && pnpm --filter @workspace/thinnr-mobile run test:shop && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "care-team-suggestions-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/staff-conversations.test.ts src/routes/patient-care-team.test.ts src/billing/product-suggestions.test.ts src/notifications/care-team-outbox.test.ts src/notifications/sender.test.ts src/routes/billing-office-sales.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "care-team-suggestions-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:care-team-conversations && pnpm --filter @workspace/thinnr-operations run test:staff-inbox && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "care-team-suggestions-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:care-team-chat && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

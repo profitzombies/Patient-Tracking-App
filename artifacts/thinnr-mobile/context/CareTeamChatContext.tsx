@@ -23,6 +23,7 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { CareTeamUnreadContext } from '@/context/CareTeamUnreadContext';
 import { subscribeChatSync } from '@/lib/chat-sync-events';
 import { supabase } from '@/lib/supabase';
+import { TODAY } from '@/data/patient-data';
 
 export type CareTeamConversation = GeneratedCareTeamConversation;
 export type PatientCareTeamMessage = GeneratedCareTeamMessage;
@@ -86,11 +87,34 @@ function validConversation(value: unknown): value is CareTeamConversation {
 function validMessage(value: unknown): value is PatientCareTeamMessage {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<PatientCareTeamMessage>;
+  if (item.suggestion !== undefined && item.suggestion !== null && !validSuggestion(item.suggestion)) {
+    item.suggestion = null;
+  }
   return Number.isInteger(item.seq) && (item.seq ?? 0) > 0 &&
     typeof item.clientId === 'string' && CLIENT_ID.test(item.clientId) &&
     (item.sender === 'patient' || item.sender === 'care_team') &&
     typeof item.text === 'string' && item.text.length > 0 && item.text.length <= 4000 &&
     typeof item.createdAt === 'string' && !Number.isNaN(Date.parse(item.createdAt));
+}
+
+function validSuggestion(value: unknown): value is NonNullable<PatientCareTeamMessage['suggestion']> {
+  if (!value || typeof value !== 'object') return false;
+  const suggestion = value as Record<string, unknown>;
+  if (suggestion.mode !== 'individual' && suggestion.mode !== 'bundle') return false;
+  if (!Array.isArray(suggestion.items) || suggestion.items.length < 1 || suggestion.items.length > 8) return false;
+  if (!Number.isInteger(suggestion.totalCents) || (suggestion.totalCents as number) < 0) return false;
+  return suggestion.items.every(value => {
+    if (!value || typeof value !== 'object') return false;
+    const item = value as Record<string, unknown>;
+    return typeof item.productId === 'string' && item.productId.length > 0 &&
+      typeof item.slug === 'string' && item.slug.length > 0 &&
+      typeof item.name === 'string' && item.name.length > 0 &&
+      (item.imageUrl === null || typeof item.imageUrl === 'string') &&
+      (item.purchase === 'one_time' || item.purchase === 'subscription') &&
+      (item.cadenceWeeks === null || typeof item.cadenceWeeks === 'number') &&
+      Number.isInteger(item.quantity) && (item.quantity as number) >= 1 && (item.quantity as number) <= 20 &&
+      Number.isInteger(item.unitPriceCents) && (item.unitPriceCents as number) >= 0;
+  });
 }
 
 function mergeMessages(
@@ -155,10 +179,64 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
       clientId: 'demo-care-team-welcome',
       sender: 'care_team',
       text: 'Hello! I am your care coordinator. How can I help you today?',
-      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+      createdAt: new Date(TODAY.getTime() - 86_400_000).toISOString(),
+    },
+    {
+      seq: 2,
+      clientId: 'demo-care-team-product',
+      sender: 'care_team',
+      text: 'I think Boost could be a helpful addition to your routine.',
+      createdAt: new Date(TODAY.getTime() - 3_600_000).toISOString(),
+      suggestion: {
+        mode: 'individual',
+        items: [{
+          productId: 'demo-boost',
+          slug: 'boost',
+          name: 'Boost',
+          imageUrl: null,
+          purchase: 'one_time',
+          cadenceWeeks: null,
+          quantity: 1,
+          unitPriceCents: 4900,
+        }],
+        totalCents: 4900,
+      },
+    },
+    {
+      seq: 3,
+      clientId: 'demo-care-team-bundle',
+      sender: 'care_team',
+      text: 'Here is the care bundle we discussed.',
+      createdAt: TODAY.toISOString(),
+      suggestion: {
+        mode: 'bundle',
+        items: [
+          {
+            productId: 'demo-boost',
+            slug: 'boost',
+            name: 'Boost',
+            imageUrl: null,
+            purchase: 'one_time',
+            cadenceWeeks: null,
+            quantity: 1,
+            unitPriceCents: 4900,
+          },
+          {
+            productId: 'demo-control',
+            slug: 'control',
+            name: 'Control',
+            imageUrl: null,
+            purchase: 'subscription',
+            cadenceWeeks: 4,
+            quantity: 1,
+            unitPriceCents: 5310,
+          },
+        ],
+        totalCents: 10210,
+      },
     },
   ]);
-  const demoNextSeq = useRef(2);
+  const demoNextSeq = useRef(4);
 
   const isCurrent = useCallback((operation: Operation) =>
     operationRef.current.epoch === operation.epoch &&

@@ -47,7 +47,21 @@ import type { CartPurchase, PublicLinkProduct } from '@/lib/patient-billing-type
 export default function ProductDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string | string[];
+    purchase?: string | string[];
+    cadence?: string | string[];
+    quantity?: string | string[];
+    suggestedName?: string | string[];
+    suggestedImage?: string | string[];
+  }>();
+  const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+  const id = first(params.id);
+  const requestedPurchase = first(params.purchase);
+  const requestedCadence = Number(first(params.cadence));
+  const requestedQuantity = Number(first(params.quantity));
+  const suggestedName = first(params.suggestedName);
+  const suggestedImage = first(params.suggestedImage);
   const cart = useCart();
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
 
@@ -56,16 +70,30 @@ export default function ProductDetailScreen() {
   }, [cart.shopStatus, cart.loadShop, cart]);
 
   const shop = cart.shop;
-  const product = useMemo(
-    () => (shop?.available ? findShopProduct(shop.products, id) : undefined),
+  const storefrontProduct = useMemo(
+    () => findShopProduct(shop?.products ?? [], id),
     [shop, id],
   );
+  const product = shop?.available ? storefrontProduct : undefined;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-      <ShopHeader title={product?.name ?? 'Product'} testIDPrefix="pdp" backFallback={'/shop' as Href} />
+      <ShopHeader title={storefrontProduct?.name ?? suggestedName ?? 'Product'} testIDPrefix="pdp" backFallback={'/shop' as Href} />
       {product && shop ? (
-        <ProductBody product={product} savePercent={shop.subscribe_save_percent} bottomPad={insets.bottom + 32} />
+        <ProductBody
+          product={product}
+          savePercent={shop.subscribe_save_percent}
+          bottomPad={insets.bottom + 32}
+          requestedPurchase={requestedPurchase}
+          requestedCadence={requestedCadence}
+          requestedQuantity={requestedQuantity}
+        />
+      ) : shop && (shop.available || storefrontProduct) ? (
+        <UnavailableProduct
+          product={storefrontProduct}
+          suggestedName={suggestedName}
+          suggestedImage={suggestedImage}
+        />
       ) : (
         <View style={styles.stateHost}>
           <ShopUnavailable
@@ -75,19 +103,55 @@ export default function ProductDetailScreen() {
             onRetry={() => void cart.loadShop(true)}
             testIDPrefix="pdp"
           />
-          {shop?.available && !product ? (
-            <View testID="pdp-missing" style={styles.missing}>
-              <Text style={[styles.missingText, { color: colors.bodyText }]}>This product isn’t available from your office.</Text>
-              <GhostButton testID="pdp-missing-shop" label="Browse the shop" onPress={() => router.replace('/shop' as Href)} />
-            </View>
-          ) : null}
         </View>
       )}
     </View>
   );
 }
 
-function ProductBody({ product, savePercent, bottomPad }: { product: PublicLinkProduct; savePercent: number; bottomPad: number }) {
+function UnavailableProduct({
+  product,
+  suggestedName,
+  suggestedImage,
+}: {
+  product?: PublicLinkProduct;
+  suggestedName?: string;
+  suggestedImage?: string;
+}) {
+  const colors = useColors();
+  const image = product ? productImageSources(product)[0] : suggestedImage ? { uri: suggestedImage } : null;
+  return (
+    <ScrollView contentContainerStyle={styles.unavailableBody}>
+      {image ? <Image source={image} style={styles.unavailableImage} contentFit="contain" /> : null}
+      <Text testID="pdp-name" style={[styles.name, { color: colors.navy }]}>
+        {product?.name ?? suggestedName ?? 'Suggested product'}
+      </Text>
+      {product?.description ? (
+        <Text style={[styles.description, { color: colors.bodyText }]}>{product.description}</Text>
+      ) : null}
+      <Text testID="pdp-missing" style={[styles.unavailableNote, { color: colors.bodyText }]}>
+        This product isn't available right now — ask your care team about it.
+      </Text>
+      <GhostButton testID="pdp-missing-shop" label="Browse the shop" onPress={() => router.replace('/shop' as Href)} />
+    </ScrollView>
+  );
+}
+
+function ProductBody({
+  product,
+  savePercent,
+  bottomPad,
+  requestedPurchase,
+  requestedCadence,
+  requestedQuantity,
+}: {
+  product: PublicLinkProduct;
+  savePercent: number;
+  bottomPad: number;
+  requestedPurchase?: string;
+  requestedCadence: number;
+  requestedQuantity: number;
+}) {
   const colors = useColors();
   const cart = useCart();
   const canSubscribe = product.subscription_available && product.subscription_unit_price_cents !== null;
@@ -101,13 +165,22 @@ function ProductBody({ product, savePercent, bottomPad }: { product: PublicLinkP
 
   // Fresh product → fresh panel (the same screen instance can host another product).
   useEffect(() => {
-    setPurchase('one_time');
-    setCadence(product.default_cadence_weeks);
-    setQuantity(1);
+    setPurchase(requestedPurchase === 'subscription' && canSubscribe ? 'subscription' : 'one_time');
+    setCadence(cadences.includes(requestedCadence) ? requestedCadence : product.default_cadence_weeks);
+    setQuantity(Number.isFinite(requestedQuantity)
+      ? Math.min(20, Math.max(1, Math.round(requestedQuantity)))
+      : 1);
     setAdded(null);
     setFull(false);
     setLocked(false);
-  }, [product.product_id, product.default_cadence_weeks]);
+  }, [
+    canSubscribe,
+    product.product_id,
+    product.default_cadence_weeks,
+    requestedCadence,
+    requestedPurchase,
+    requestedQuantity,
+  ]);
 
   const unit = purchase === 'subscription' && canSubscribe ? product.subscription_unit_price_cents! : product.unit_price_cents;
   const total = unit * quantity;
@@ -364,6 +437,9 @@ const styles = StyleSheet.create({
   stateHost: { flex: 1 },
   missing: { alignItems: 'center', gap: 12, paddingHorizontal: 28, paddingTop: 40 },
   missingText: { fontSize: 14, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  unavailableBody: { padding: 24, gap: 14, alignItems: 'center' },
+  unavailableImage: { width: 220, height: 220 },
+  unavailableNote: { fontSize: 14, lineHeight: 20, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
   heroWrap: { borderBottomWidth: 1 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingBottom: 12 },
   dot: { width: 6, height: 6, borderRadius: 3 },

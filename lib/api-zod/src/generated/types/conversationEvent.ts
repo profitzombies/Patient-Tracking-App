@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ConversationEventRole } from './conversationEventRole';
+import type { ProductSuggestion } from './productSuggestion';
 
 export interface ConversationEvent {
   seq: number;
@@ -25,4 +26,6 @@ export interface ConversationEvent {
      */
   senderUserId: string | null;
   createdAt: string;
+  /** Care-team product suggestion attached to a staff message (validated against the office price list when sent) */
+  suggestion?: ProductSuggestion | null;
 }

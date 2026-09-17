@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useSearch } from 'wouter';
-import { ArrowLeft, MessagesSquare, Search, AlertTriangle, Send } from 'lucide-react';
+import { ArrowLeft, MessagesSquare, Search, AlertTriangle, Send, Package, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
@@ -35,6 +35,12 @@ import {
   type ConversationEvent,
 } from '@workspace/api-client-react';
 import { useLiveRoster } from '@/hooks/use-live-roster';
+import {
+  ProductSuggestionDialog,
+  type SuggestedProductSelection,
+  type SuggestionMode,
+} from '@/components/conversations/ProductSuggestionDialog';
+import type { ProductSuggestionInput } from '@workspace/api-client-react';
 
 const CHANNELS = ['all', 'care_team', 'ai'] as const;
 const THREADS = ['coach', 'support', 'care_team'] as const;
@@ -49,6 +55,7 @@ interface PendingReply {
   text: string;
   error: string | null;
   epoch: number;
+  suggestion?: ProductSuggestionInput;
 }
 
 export default function OfficeConversations() {
@@ -283,6 +290,9 @@ export default function OfficeConversations() {
   const [reason, setReason] = useState('');
   const [escalationError, setEscalationError] = useState<string | null>(null);
   const [pendingReply, setPendingReply] = useState<PendingReply | null>(null);
+  const [suggestionOpen, setSuggestionOpen] = useState(false);
+  const [suggestedProducts, setSuggestedProducts] = useState<SuggestedProductSelection[]>([]);
+  const [suggestionMode, setSuggestionMode] = useState<SuggestionMode>('individual');
   const [startOpen, setStartOpen] = useState(false);
   const [patientSearch, setPatientSearch] = useState('');
   const readThroughByThreadRef = useRef(new Map<string, number>());
@@ -290,6 +300,9 @@ export default function OfficeConversations() {
     setReplyText('');
     setNoteText('');
     setPendingReply(null);
+    setSuggestedProducts([]);
+    setSuggestionMode('individual');
+    setSuggestionOpen(false);
   }, [accountKey, openId]);
   const startPatients = (liveEnabled ? roster?.patients ?? [] : []).filter(patient =>
     `${patient.name} ${patient.email ?? ''} ${patient.phone ?? ''}`.toLowerCase().includes(patientSearch.trim().toLowerCase()),
@@ -359,17 +372,26 @@ export default function OfficeConversations() {
 
   const sendReply = async (retryPending?: PendingReply) => {
     if (!openId) return;
-    const text = retryPending?.text ?? replyText.trim();
+    const text = retryPending?.text ?? (replyText.trim() || (suggestedProducts.length > 0 ? "Here's something I'd recommend for you." : ''));
     if (!text) return;
     const epoch = epochRef.current;
+    const suggestion: ProductSuggestionInput | undefined = retryPending?.suggestion ?? (suggestedProducts.length > 0 ? {
+      mode: suggestedProducts.length === 1 ? 'individual' : suggestionMode,
+      items: suggestedProducts.map(selection => ({
+        productId: selection.product.product_id,
+        purchase: selection.purchase,
+        cadenceWeeks: selection.purchase === 'subscription' ? selection.cadenceWeeks : null,
+        quantity: selection.quantity,
+      })),
+    } : undefined);
     const attempted: PendingReply = retryPending?.conversationId === openId
       ? { ...retryPending, error: null }
-      : { conversationId: openId, clientId: crypto.randomUUID(), text, error: null, epoch };
+      : { conversationId: openId, clientId: crypto.randomUUID(), text, error: null, epoch, suggestion };
     setPendingReply(attempted);
     try {
       const result = await reply.mutateAsync({
         conversationId: attempted.conversationId,
-        data: { text: attempted.text, clientId: attempted.clientId },
+        data: { text: attempted.text, clientId: attempted.clientId, suggestion: attempted.suggestion },
         params: officeParams,
       });
       if (
@@ -380,6 +402,8 @@ export default function OfficeConversations() {
       setAllEvents(prev => [...prev.filter(e => e.seq !== result.event.seq), result.event].sort((a, b) => a.seq - b.seq));
       setPendingReply(null);
       setReplyText('');
+      setSuggestedProducts([]);
+      setSuggestionMode('individual');
       await refresh(true);
       if (
         epochRef.current !== attempted.epoch ||
@@ -770,15 +794,64 @@ export default function OfficeConversations() {
                </div>
              ) : (
                <div className="mx-auto max-w-[820px]">
+                  <ProductSuggestionDialog
+                    patientId={selectedSummary?.patientId ?? ''}
+                    open={suggestionOpen}
+                    onOpenChange={setSuggestionOpen}
+                    selections={suggestedProducts}
+                    mode={suggestionMode}
+                    onConfirm={(selections, mode) => {
+                      setSuggestedProducts(selections);
+                      setSuggestionMode(mode);
+                    }}
+                  />
                  {pendingReply?.conversationId === openId && pendingReply.error && (
                    <div role="alert" className="mb-2 flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
                      <span>Reply not sent: {pendingReply.error} Your exact message is preserved.</span>
                      <button type="button" className={BTN_SECONDARY} disabled={reply.isPending} onClick={() => void sendReply(pendingReply)}>Retry</button>
                    </div>
                  )}
-                 <div className="flex gap-2">
+                  {suggestedProducts.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      {suggestedProducts.length > 1 ? (
+                        <span className="rounded-sm border border-primary/20 bg-accent px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">
+                          {suggestionMode === 'bundle' ? 'Bundle' : 'Individual'}
+                        </span>
+                      ) : null}
+                      {suggestedProducts.map(selection => (
+                        <span
+                          key={selection.product.product_id}
+                          className="inline-flex items-center gap-1 rounded-md border border-card-border bg-paper-alt px-2 py-1 text-[11px] text-navy hover:border-primary/30"
+                        >
+                          <button type="button" onClick={() => setSuggestionOpen(true)} className="text-left">
+                            {selection.product.name} · {selection.purchase === 'subscription' ? `Every ${selection.cadenceWeeks} wks` : 'One-time'} · ×{selection.quantity}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${selection.product.name}`}
+                            onClick={() => {
+                              setSuggestedProducts(current => current.filter(item => item.product.product_id !== selection.product.product_id));
+                            }}
+                            className="grid h-4 w-4 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-navy"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="flex items-stretch gap-2">
+                    <button
+                      type="button"
+                      aria-label="Add product suggestion"
+                      title="Add product suggestion"
+                      className={`${BTN_SECONDARY} flex w-10 shrink-0 items-center justify-center px-0`}
+                      onClick={() => setSuggestionOpen(true)}
+                    >
+                      <Package size={15} />
+                    </button>
                    <textarea aria-label="Reply to patient" value={replyText} onChange={e => setReplyText(e.target.value)} maxLength={4000} rows={2} placeholder="Write a care-team reply…" className="min-w-0 flex-1 rounded-md border border-input bg-background p-2 text-xs focus:ring-2 focus:ring-ring outline-none" />
-                   <button className="rounded-md bg-primary px-4 flex items-center justify-center gap-2 text-xs font-bold text-primary-foreground disabled:opacity-50 transition-transform active:scale-[0.98]" disabled={reply.isPending || !replyText.trim()} onClick={() => void sendReply()}>
+                    <button className="rounded-md bg-primary px-4 flex items-center justify-center gap-2 text-xs font-bold text-primary-foreground disabled:opacity-50 transition-transform active:scale-[0.98]" disabled={reply.isPending || (!replyText.trim() && suggestedProducts.length === 0)} onClick={() => void sendReply()}>
                      <Send size={14} />
                      {reply.isPending ? 'Sending…' : 'Send'}
                    </button>

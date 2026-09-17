@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migration = readFileSync(
-  path.resolve(here, "../../../../supabase/migrations/20261007000000_business_care_team_messaging.sql"),
+  path.resolve(here, "../../../../supabase/migrations/20261024000000_care_team_product_suggestion_cards.sql"),
   "utf8",
 );
 const sendFunction = migration.slice(
   migration.indexOf("create or replace function public.care_team_send"),
-  migration.indexOf("create or replace function public.care_team_patient_read"),
+  migration.indexOf("revoke all on function public.care_team_send"),
 );
 const outboxInsert = sendFunction.slice(
   sendFunction.indexOf("insert into public.patient_notifications"),
@@ -18,9 +18,21 @@ const outboxInsert = sendFunction.slice(
 );
 
 describe("care-team transactional outbox contract", () => {
+  it("keeps the recreated send RPC security definer so service_role can reach the private guards", () => {
+    // The original definition was later altered to security definer; a plain
+    // create-or-replace after the drop silently loses it and every send 403s
+    // with "permission denied for schema private" on the live database.
+    const header = sendFunction.slice(0, sendFunction.indexOf("$$"));
+    expect(header).toMatch(/security definer/);
+  });
   it("queues the existing office-reminders category with generic lockscreen copy", () => {
     expect(sendFunction).toContain("'care_team_reply','office_reminders'");
-    expect(sendFunction).toContain("'A message from your care team','You have a new care team message.'");
+    expect(sendFunction).toContain("coalesce(p_push_body,'You have a new care team message.')");
+  });
+
+  it("stores the card and marks suggestion notification rows", () => {
+    expect(sendFunction).toContain("sender_user_id,sender_label,card");
+    expect(sendFunction).toContain("jsonb_build_object('suggestion',true)");
   });
 
   it("stores only deep-link fields plus the server-only office binding", () => {

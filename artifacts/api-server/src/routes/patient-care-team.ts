@@ -3,6 +3,7 @@ import { z } from "zod";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { suggestionFromCard } from "../billing/product-suggestions";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -48,6 +49,7 @@ function patientMessage(row: Row) {
     sender: row.role === "user" ? "patient" : "care_team",
     text: String(row.text ?? ""),
     createdAt: String(row.created_at),
+    suggestion: suggestionFromCard(row.card),
   };
 }
 
@@ -132,7 +134,7 @@ router.get("/patient-care-team/:conversationId/messages", async (req, res) => {
     if (!conversation) { res.status(404).json({ error: "Conversation not found." }); return; }
     const q = page.data;
     const filters = [`conversation_id=eq.${enc(id.data)}`,
-      "select=seq,client_id,role,text,created_at", `limit=${q.limit + 1}`];
+      "select=seq,client_id,role,text,created_at,card", `limit=${q.limit + 1}`];
     if (q.after) filters.push(`seq=gt.${q.after}`, "order=seq.asc");
     else filters.push(q.before ? `seq=lt.${q.before}` : "seq=gt.0", "order=seq.desc");
     const result = await supabaseAdmin("GET", `/rest/v1/patient_chat_messages?${filters.join("&")}`);
@@ -172,7 +174,8 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
     const sent = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_send", {
       p_conversation_id: id.data, p_patient_id: found.auth.patientId, p_provider_id: found.providerId,
       p_client_id: body.data.clientId, p_text: body.data.text.trim(), p_role: "user",
-      p_sender_user_id: null, p_sender_label: null, p_enqueue_push: false,
+       p_sender_user_id: null, p_sender_label: null, p_enqueue_push: false,
+       p_card: null, p_push_body: null,
     });
     if (sent.status === 409 || (sent.status >= 300 && JSON.stringify(sent.json).includes("payload conflict"))) {
       res.status(409).json({ error: "That message id was already used for different content." }); return;
@@ -181,7 +184,7 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
     const payload = sent.json as Row;
     res.json({ message: patientMessage({
       seq: payload.seq, client_id: payload.clientId, role: payload.role,
-      text: payload.text, created_at: payload.createdAt,
+      text: payload.text, created_at: payload.createdAt, card: null,
     }), created: payload.created === true });
   } catch (error) {
     req.log?.error({ err: error }, "patient care team send failed");

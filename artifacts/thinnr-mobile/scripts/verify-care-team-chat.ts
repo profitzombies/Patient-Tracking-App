@@ -12,6 +12,7 @@ import { useCareTeamUnreadCount } from '../context/CareTeamUnreadContext';
 import { apiCalls, apiScripts, resetApi } from './care-team-stubs/api-client';
 import { setStubSession } from './live-diary-stubs/supabase';
 import { emitChatSync } from '../lib/chat-sync-events';
+import { routerCalls } from './care-team-stubs/expo-router';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const h = React.createElement;
@@ -85,6 +86,13 @@ async function mount(value: PatientAccountState, child: React.ReactNode = h(Prob
 
 function host(root: ReactTestInstance, testID: string): ReactTestInstance {
   return root.findAll(node => node.props.testID === testID && typeof node.type === 'string')[0];
+}
+
+function renderedText(node: ReactTestInstance): string {
+  return node.findAll(item => typeof item.type === 'string')
+    .flatMap(item => item.children)
+    .filter((value): value is string => typeof value === 'string')
+    .join('');
 }
 
 async function main() {
@@ -312,6 +320,79 @@ async function main() {
   assert('screen explains retained selection is read only', !!host(screenRenderer.root, 'care-team-retained-notice'));
   equal('retained composer is not editable', host(screenRenderer.root, 'care-team-composer').props.editable, false);
   await act(async () => { screenRenderer.unmount(); });
+
+  resetApi();
+  routerCalls.length = 0;
+  const individual = {
+    mode: 'individual' as const,
+    items: [
+      {
+        productId: 'prod-boost', slug: 'boost', name: 'Boost', imageUrl: null,
+        purchase: 'subscription' as const, cadenceWeeks: 4, quantity: 2, unitPriceCents: 4410,
+      },
+      {
+        productId: 'prod-control', slug: 'control', name: 'Control', imageUrl: null,
+        purchase: 'one_time' as const, cadenceWeeks: null, quantity: 1, unitPriceCents: 6900,
+      },
+    ],
+    totalCents: 15720,
+  };
+  const bundle = { ...individual, mode: 'bundle' as const };
+  const malformed = { ...individual, mode: 'wrong' };
+  apiScripts.status = [{ current, retained: [] }, { current, retained: [] }];
+  const suggestionPage = {
+    conversation: current,
+    messages: [
+      { ...message(301, 'suggestion-individual', 'Try these.'), suggestion: individual },
+      { ...message(302, 'suggestion-bundle', 'Your bundle.'), sender: 'care_team' as const, suggestion: bundle },
+      { ...message(303, 'suggestion-invalid', 'This text remains.'), suggestion: malformed },
+    ],
+    nextBefore: null,
+  };
+  apiScripts.messages = [suggestionPage, suggestionPage];
+  const suggestionRenderer = await mount(
+    account('patient-b'),
+    h(React.Fragment, null, h(Probe), h(CareTeamChatScreen)),
+  );
+  await flush();
+  const boostCard = host(suggestionRenderer.root, 'care-team-product-card-prod-boost');
+  const controlCard = host(suggestionRenderer.root, 'care-team-product-card-prod-control');
+  assert('individual suggestion renders one product card per item with names and prices',
+    !!boostCard && !!controlCard &&
+    renderedText(boostCard).includes('Boost') &&
+    renderedText(boostCard).includes('$44.10'));
+  const bundleCard = host(suggestionRenderer.root, 'care-team-bundle-card');
+  assert('bundle suggestion renders one bundle card with its total',
+    !!bundleCard && renderedText(bundleCard).includes('Total $157.20'));
+  await act(async () => { boostCard.props.onPress(); });
+  const productRoute = routerCalls.at(-1) as { pathname?: string; params?: Record<string, string> };
+  equal('product card routes to the suggested product', productRoute.pathname, '/product/prod-boost');
+  equal('product card carries purchase, cadence, and quantity params',
+    `${productRoute.params?.purchase}:${productRoute.params?.cadence}:${productRoute.params?.quantity}`,
+    'subscription:4:2');
+  await act(async () => { bundleCard.props.onPress(); });
+  const bundleRoute = routerCalls.at(-1) as { pathname?: string; params?: Record<string, string> };
+  equal('bundle card routes with its message client id',
+    `${bundleRoute.pathname}:${bundleRoute.params?.clientId}`,
+    '/care-team-bundle:suggestion-bundle');
+  assert('invalid suggestion is dropped while its message text remains',
+    renderedText(suggestionRenderer.root).includes('This text remains.') &&
+    suggestionRenderer.root.findAll(node => typeof node.type === 'string' &&
+      String(node.props.testID ?? '').startsWith('care-team-product-card-')).length === 2);
+  await act(async () => { suggestionRenderer.unmount(); });
+
+  const demoAccount: PatientAccountState = {
+    resolving: false,
+    account: { kind: 'demo' },
+    accountNotice: null,
+    retryResolve: () => {},
+  };
+  const demoRenderer = await mount(demoAccount, h(CareTeamChatScreen));
+  await flush();
+  assert('demo rows expose both suggestion flows',
+    !!host(demoRenderer.root, 'care-team-product-card-demo-boost') &&
+    !!host(demoRenderer.root, 'care-team-bundle-card'));
+  await act(async () => { demoRenderer.unmount(); });
 
   finished = true;
   if (failures) {

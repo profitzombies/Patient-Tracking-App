@@ -857,6 +857,60 @@ export const ConversationEventRole = {
   staff: 'staff',
 } as const;
 
+export type ProductSuggestionMode = typeof ProductSuggestionMode[keyof typeof ProductSuggestionMode];
+
+
+export const ProductSuggestionMode = {
+  individual: 'individual',
+  bundle: 'bundle',
+} as const;
+
+export type ProductSuggestionItemPurchase = typeof ProductSuggestionItemPurchase[keyof typeof ProductSuggestionItemPurchase];
+
+
+export const ProductSuggestionItemPurchase = {
+  one_time: 'one_time',
+  subscription: 'subscription',
+} as const;
+
+/**
+ * One suggested product, snapshotted at send time from the office price list
+ */
+export interface ProductSuggestionItem {
+  productId: string;
+  slug: string;
+  name: string;
+  /** @nullable */
+  imageUrl: string | null;
+  purchase: ProductSuggestionItemPurchase;
+  /**
+     * Delivery cadence in weeks; subscription items only
+     * @nullable
+     */
+  cadenceWeeks: number | null;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  quantity: number;
+  /** Office price for the chosen purchase mode when the suggestion was sent */
+  unitPriceCents: number;
+}
+
+/**
+ * individual: one card per item; bundle: one card that opens a prebuilt cart summary
+ */
+export interface ProductSuggestion {
+  mode: ProductSuggestionMode;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
+  items: ProductSuggestionItem[];
+  /** Sum of unitPriceCents x quantity across items (before shipping and tax) */
+  totalCents: number;
+}
+
 export interface ConversationEvent {
   seq: number;
   /** @nullable */
@@ -875,6 +929,49 @@ export interface ConversationEvent {
      */
   senderUserId: string | null;
   createdAt: string;
+  /** Care-team product suggestion attached to a staff message (validated against the office price list when sent) */
+  suggestion?: ProductSuggestion | null;
+}
+
+export type ProductSuggestionItemInputPurchase = typeof ProductSuggestionItemInputPurchase[keyof typeof ProductSuggestionItemInputPurchase];
+
+
+export const ProductSuggestionItemInputPurchase = {
+  one_time: 'one_time',
+  subscription: 'subscription',
+} as const;
+
+export interface ProductSuggestionItemInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  productId: string;
+  purchase: ProductSuggestionItemInputPurchase;
+  /** @nullable */
+  cadenceWeeks?: number | null;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  quantity: number;
+}
+
+export type ProductSuggestionInputMode = typeof ProductSuggestionInputMode[keyof typeof ProductSuggestionInputMode];
+
+
+export const ProductSuggestionInputMode = {
+  individual: 'individual',
+  bundle: 'bundle',
+} as const;
+
+export interface ProductSuggestionInput {
+  mode: ProductSuggestionInputMode;
+  /**
+     * @minItems 1
+     * @maxItems 8
+     */
+  items: ProductSuggestionItemInput[];
 }
 
 export interface ConversationEventsResult {
@@ -993,6 +1090,8 @@ export interface PatientCareTeamMessage {
   sender: PatientCareTeamMessageSender;
   text: string;
   createdAt: string;
+  /** Product suggestion attached by the care team, rendered as cards under the message */
+  suggestion?: ProductSuggestion | null;
 }
 
 export interface PatientCareTeamMessagesResult {
@@ -1135,6 +1234,8 @@ export interface ConversationReplyInput {
      * @maxLength 4000
      */
   text: string;
+  /** Optional product suggestion; every item must be offered on this office's price list */
+  suggestion?: ProductSuggestionInput | null;
 }
 
 export interface ConversationReplyResult {

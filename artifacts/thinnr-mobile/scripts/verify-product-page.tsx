@@ -16,6 +16,8 @@ import {
 import React from 'react';
 import { readFileSync } from 'node:fs';
 import ProductScreen from '../app/product/[id]';
+import CareTeamBundleScreen from '../app/care-team-bundle';
+import { CareTeamChatProvider } from '../context/CareTeamChatContext';
 import { routerLog, setSearchParams } from './provider-training-stubs/expo-router';
 import { announcements } from './onboarding-gate-stubs/react-native';
 import { findCatalogProduct } from '../data/product-catalog';
@@ -102,13 +104,51 @@ async function main() {
   await unmount(tree);
   storageMap.set('thinnr_cart_v1:patient-1', JSON.stringify({ lines: priorLines }));
 
-  section('unknown product');
-  setSearchParams({ id: 'not-a-product' });
+  section('care-team param preselection');
+  setSearchParams({
+    id: control.product_id,
+    purchase: 'subscription',
+    cadence: '12',
+    quantity: '4',
+    suggestedName: control.name,
+  });
   tree = await mount(<ProductScreen />);
-  assert('unknown ref shows the explicit missing state with a way to the shop', has(tree, 'pdp-missing') && has(tree, 'pdp-missing-shop') && !has(tree, 'pdp-add-cart'));
+  assert('suggested purchase params preselect subscription, cadence, and quantity',
+    has(tree, 'pdp-cadence-12') &&
+    hosts(tree, 'pdp-subscribe')[0]?.props.accessibilityState?.checked === true &&
+    text(tree, 'pdp-qty-value') === '4' &&
+    text(tree, 'pdp-total') === money(subUnit * 4));
+  await unmount(tree);
+
+  section('unknown product');
+  setSearchParams({
+    id: 'not-a-product',
+    suggestedName: 'Care Team Formula',
+    suggestedImage: 'https://example.test/formula.jpg',
+  });
+  tree = await mount(<ProductScreen />);
+  assert('unknown ref shows the care-team fallback name and informational state',
+    has(tree, 'pdp-missing') &&
+    text(tree, 'pdp-name') === 'Care Team Formula' &&
+    text(tree, 'pdp-missing').includes("isn't available right now") &&
+    has(tree, 'pdp-missing-shop') &&
+    !has(tree, 'pdp-add-cart'));
   await press(tree, 'pdp-missing-shop');
   assert('Browse the shop replaces to /shop', routerLog.at(-1)?.target === '/shop');
   await unmount(tree);
+
+  section('known product unavailable right now');
+  const availableShop = script.shop;
+  script.shop = { ...availableShop, available: false, unavailable_reason: 'not_connected' };
+  setSearchParams({ id: control.product_id, suggestedName: 'Wrong fallback' });
+  tree = await mount(<ProductScreen />);
+  assert('known unavailable row keeps storefront copy and removes purchase controls',
+    text(tree, 'pdp-name') === control.name &&
+    allText(tree).includes(control.description) &&
+    has(tree, 'pdp-missing') &&
+    !has(tree, 'pdp-add-cart'));
+  await unmount(tree);
+  script.shop = availableShop;
 
   section('demo persona');
   await signOut();
@@ -119,6 +159,23 @@ async function main() {
   assert('demo renders Control from the bundled storefront, offline', text(tree, 'pdp-name') === 'Control' && shopCalls().length === before && has(tree, 'pdp-subscribe-price'));
   await press(tree, 'pdp-add-cart');
   assert('demo cart is separate from the real cart', has(tree, 'pdp-added') && (JSON.parse(storageMap.get('thinnr_cart_v1:demo') ?? '{"lines":[]}') as { lines: unknown[] }).lines.length === 1 && cartLines().length === 2);
+  await unmount(tree);
+
+  section('demo care-team bundle checkout');
+  setSearchParams({ clientId: 'demo-care-team-bundle' });
+  tree = await mount(<CareTeamChatProvider><CareTeamBundleScreen /></CareTeamChatProvider>);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+  assert('bundle summary is restored from the message and has a checkout action',
+    has(tree, 'care-team-bundle-summary') &&
+    has(tree, 'care-team-bundle-checkout') &&
+    text(tree, 'care-team-bundle-total').includes('$'));
+  await press(tree, 'care-team-bundle-checkout');
+  const demoBundleLines = (JSON.parse(storageMap.get('thinnr_cart_v1:demo') ?? '{"lines":[]}') as { lines: { product_id: string }[] }).lines;
+  assert('bundle checkout replaces cart with available lines and navigates to checkout',
+    demoBundleLines.length === 2 &&
+    demoBundleLines.some(line => line.product_id === 'demo-boost') &&
+    demoBundleLines.some(line => line.product_id === 'demo-control') &&
+    routerLog.at(-1)?.target === '/checkout');
   await unmount(tree);
   assert('no alerts fired', alerts.length === 0);
 

@@ -19,6 +19,10 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useCareTeamChat } from "@/context/CareTeamChatContext";
+import {
+  CareTeamBundleCard,
+  CareTeamProductCard,
+} from "@/components/care-team/ProductSuggestionCards";
 
 const BUBBLE_SHADOW = "0 5px 12px rgba(35, 61, 95, 0.07)";
 const CARD_SHADOW = "0 8px 20px rgba(40, 55, 74, 0.07)";
@@ -345,6 +349,20 @@ export default function CareTeamChatScreen() {
                   {message.text}
                 </Text>
               </View>
+              {!isUser && message.suggestion?.mode === "individual"
+                ? message.suggestion.items.map((item) => (
+                    <CareTeamProductCard
+                      key={`${item.productId}:${item.purchase}`}
+                      item={item}
+                    />
+                  ))
+                : null}
+              {!isUser && message.suggestion?.mode === "bundle" ? (
+                <CareTeamBundleCard
+                  suggestion={message.suggestion}
+                  clientId={message.clientId}
+                />
+              ) : null}
               <View style={[styles.metaRow, isUser ? styles.metaRowUser : styles.metaRowStaff]}>
                 <Text style={[styles.timeText, { color: colors.subtleText }]}>{timeString}</Text>
                 {unread ? <View style={[styles.unreadDot, { backgroundColor: colors.cobalt }]} /> : null}
@@ -541,7 +559,7 @@ const styles = StyleSheet.create({
   olderText: { fontSize: 9.5, letterSpacing: 0.8, fontFamily: "Inter_700Bold" },
   stateBox: { alignItems: "center", gap: 10, paddingVertical: 24, paddingHorizontal: 20 },
   stateText: { textAlign: "center", fontSize: 13, lineHeight: 19, fontFamily: "Inter_400Regular" },
-  bubbleWrapper: { maxWidth: "82%" },
+  bubbleWrapper: { maxWidth: "90%", width: "100%" },
   userWrapper: { alignSelf: "flex-end" },
   staffWrapper: { alignSelf: "flex-start" },
   bubble: {

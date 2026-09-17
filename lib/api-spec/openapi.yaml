@@ -3215,6 +3215,48 @@ components:
         senderLabel: { type: ["string", "null"], description: "Staff messages only: who on the care team sent it" }
         senderUserId: { type: ["string", "null"], description: "Staff messages only: server-derived sender user id" }
         createdAt: { type: string }
+        suggestion:
+          description: Care-team product suggestion attached to a staff message (validated against the office price list when sent)
+          oneOf:
+            - $ref: "#/components/schemas/ProductSuggestion"
+            - type: "null"
+    ProductSuggestionItem:
+      type: object
+      description: One suggested product, snapshotted at send time from the office price list
+      required: [productId, slug, name, imageUrl, purchase, cadenceWeeks, quantity, unitPriceCents]
+      properties:
+        productId: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        imageUrl: { type: ["string", "null"] }
+        purchase: { type: string, enum: [one_time, subscription] }
+        cadenceWeeks: { type: ["number", "null"], description: "Delivery cadence in weeks; subscription items only" }
+        quantity: { type: number, minimum: 1, maximum: 20 }
+        unitPriceCents: { type: number, description: "Office price for the chosen purchase mode when the suggestion was sent" }
+    ProductSuggestion:
+      type: object
+      description: "individual: one card per item; bundle: one card that opens a prebuilt cart summary"
+      required: [mode, items, totalCents]
+      properties:
+        mode: { type: string, enum: [individual, bundle] }
+        items: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/ProductSuggestionItem" } }
+        totalCents: { type: number, description: "Sum of unitPriceCents x quantity across items (before shipping and tax)" }
+    ProductSuggestionItemInput:
+      type: object
+      additionalProperties: false
+      required: [productId, purchase, quantity]
+      properties:
+        productId: { type: string, minLength: 1, maxLength: 120 }
+        purchase: { type: string, enum: [one_time, subscription] }
+        cadenceWeeks: { type: ["number", "null"] }
+        quantity: { type: number, minimum: 1, maximum: 20 }
+    ProductSuggestionInput:
+      type: object
+      additionalProperties: false
+      required: [mode, items]
+      properties:
+        mode: { type: string, enum: [individual, bundle] }
+        items: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/ProductSuggestionItemInput" } }
     ConversationEventsResult:
       type: object
       required: [conversation, events, nextBefore, nextAfter]
@@ -3299,6 +3341,11 @@ components:
         sender: { type: string, enum: [patient, care_team] }
         text: { type: string }
         createdAt: { type: string }
+        suggestion:
+          description: Product suggestion attached by the care team, rendered as cards under the message
+          oneOf:
+            - $ref: "#/components/schemas/ProductSuggestion"
+            - type: "null"
     PatientCareTeamMessagesResult:
       type: object
       required: [conversation, messages, nextBefore, nextAfter]
@@ -3406,6 +3453,11 @@ components:
       properties:
         clientId: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9._:-]+$" }
         text: { type: string, minLength: 1, maxLength: 4000 }
+        suggestion:
+          description: Optional product suggestion; every item must be offered on this office's price list
+          oneOf:
+            - $ref: "#/components/schemas/ProductSuggestionInput"
+            - type: "null"
     ConversationReplyResult:
       type: object
       required: [conversation, event]

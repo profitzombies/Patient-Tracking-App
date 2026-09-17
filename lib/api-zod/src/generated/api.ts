@@ -2297,6 +2297,12 @@ export const GetOfficeConversationEventsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(getOfficeConversationEventsQueryLimitMax).default(getOfficeConversationEventsQueryLimitDefault)
 })
 
+export const getOfficeConversationEventsResponseEventsItemSuggestionOneItemsItemQuantityMax = 20;
+
+export const getOfficeConversationEventsResponseEventsItemSuggestionOneItemsMax = 8;
+
+
+
 export const GetOfficeConversationEventsResponse = zod.object({
   "conversation": zod.object({
   "id": zod.string(),
@@ -2335,7 +2341,21 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "stopped": zod.boolean(),
   "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
   "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string(),
+  "slug": zod.string(),
+  "name": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullable().describe('Delivery cadence in weeks; subscription items only'),
+  "quantity": zod.number().min(1).max(getOfficeConversationEventsResponseEventsItemSuggestionOneItemsItemQuantityMax),
+  "unitPriceCents": zod.number().describe('Office price for the chosen purchase mode when the suggestion was sent')
+}).describe('One suggested product, snapshotted at send time from the office price list')).min(1).max(getOfficeConversationEventsResponseEventsItemSuggestionOneItemsMax),
+  "totalCents": zod.number().describe('Sum of unitPriceCents x quantity across items (before shipping and tax)')
+}).describe('individual: one card per item; bundle: one card that opens a prebuilt cart summary'),zod.null()]).optional().describe('Care-team product suggestion attached to a staff message (validated against the office price list when sent)')
 })),
   "nextBefore": zod.number().nullable(),
   "nextAfter": zod.number().nullable()
@@ -2483,12 +2503,33 @@ export const replyOfficeConversationBodyClientIdMax = 64;
 export const replyOfficeConversationBodyClientIdRegExp = new RegExp('^[A-Za-z0-9._:-]+$');
 export const replyOfficeConversationBodyTextMax = 4000;
 
+export const replyOfficeConversationBodySuggestionOneItemsItemProductIdMax = 120;
+
+export const replyOfficeConversationBodySuggestionOneItemsItemQuantityMax = 20;
+
+export const replyOfficeConversationBodySuggestionOneItemsMax = 8;
+
 
 
 export const ReplyOfficeConversationBody = zod.object({
   "clientId": zod.string().min(1).max(replyOfficeConversationBodyClientIdMax).regex(replyOfficeConversationBodyClientIdRegExp).optional(),
-  "text": zod.string().min(1).max(replyOfficeConversationBodyTextMax)
+  "text": zod.string().min(1).max(replyOfficeConversationBodyTextMax),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string().min(1).max(replyOfficeConversationBodySuggestionOneItemsItemProductIdMax),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullish(),
+  "quantity": zod.number().min(1).max(replyOfficeConversationBodySuggestionOneItemsItemQuantityMax)
+})).min(1).max(replyOfficeConversationBodySuggestionOneItemsMax)
+}),zod.null()]).optional().describe('Optional product suggestion; every item must be offered on this office\'s price list')
 }).describe('Human Care Team sends require a stable clientId, reused unchanged on retry. Only legacy AI-to-Care-Team redirection may omit it.')
+
+export const replyOfficeConversationResponseEventSuggestionOneItemsItemQuantityMax = 20;
+
+export const replyOfficeConversationResponseEventSuggestionOneItemsMax = 8;
+
+
 
 export const ReplyOfficeConversationResponse = zod.object({
   "conversation": zod.object({
@@ -2528,7 +2569,21 @@ export const ReplyOfficeConversationResponse = zod.object({
   "stopped": zod.boolean(),
   "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
   "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string(),
+  "slug": zod.string(),
+  "name": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullable().describe('Delivery cadence in weeks; subscription items only'),
+  "quantity": zod.number().min(1).max(replyOfficeConversationResponseEventSuggestionOneItemsItemQuantityMax),
+  "unitPriceCents": zod.number().describe('Office price for the chosen purchase mode when the suggestion was sent')
+}).describe('One suggested product, snapshotted at send time from the office price list')).min(1).max(replyOfficeConversationResponseEventSuggestionOneItemsMax),
+  "totalCents": zod.number().describe('Sum of unitPriceCents x quantity across items (before shipping and tax)')
+}).describe('individual: one card per item; bundle: one card that opens a prebuilt cart summary'),zod.null()]).optional().describe('Care-team product suggestion attached to a staff message (validated against the office price list when sent)')
 })
 })
 
@@ -2703,6 +2758,12 @@ export const GetPatientCareTeamMessagesQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(getPatientCareTeamMessagesQueryLimitMax).default(getPatientCareTeamMessagesQueryLimitDefault)
 })
 
+export const getPatientCareTeamMessagesResponseMessagesItemSuggestionOneItemsItemQuantityMax = 20;
+
+export const getPatientCareTeamMessagesResponseMessagesItemSuggestionOneItemsMax = 8;
+
+
+
 export const GetPatientCareTeamMessagesResponse = zod.object({
   "conversation": zod.object({
   "id": zod.string(),
@@ -2722,7 +2783,21 @@ export const GetPatientCareTeamMessagesResponse = zod.object({
   "clientId": zod.string(),
   "sender": zod.enum(['patient', 'care_team']),
   "text": zod.string(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string(),
+  "slug": zod.string(),
+  "name": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullable().describe('Delivery cadence in weeks; subscription items only'),
+  "quantity": zod.number().min(1).max(getPatientCareTeamMessagesResponseMessagesItemSuggestionOneItemsItemQuantityMax),
+  "unitPriceCents": zod.number().describe('Office price for the chosen purchase mode when the suggestion was sent')
+}).describe('One suggested product, snapshotted at send time from the office price list')).min(1).max(getPatientCareTeamMessagesResponseMessagesItemSuggestionOneItemsMax),
+  "totalCents": zod.number().describe('Sum of unitPriceCents x quantity across items (before shipping and tax)')
+}).describe('individual: one card per item; bundle: one card that opens a prebuilt cart summary'),zod.null()]).optional().describe('Product suggestion attached by the care team, rendered as cards under the message')
 })),
   "nextBefore": zod.number().nullable(),
   "nextAfter": zod.number().nullable()
@@ -2749,13 +2824,33 @@ export const SendPatientCareTeamMessageBody = zod.object({
   "text": zod.string().min(1).max(sendPatientCareTeamMessageBodyTextMax)
 })
 
+export const sendPatientCareTeamMessageResponseMessageSuggestionOneItemsItemQuantityMax = 20;
+
+export const sendPatientCareTeamMessageResponseMessageSuggestionOneItemsMax = 8;
+
+
+
 export const SendPatientCareTeamMessageResponse = zod.object({
   "message": zod.object({
   "seq": zod.number(),
   "clientId": zod.string(),
   "sender": zod.enum(['patient', 'care_team']),
   "text": zod.string(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string(),
+  "slug": zod.string(),
+  "name": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullable().describe('Delivery cadence in weeks; subscription items only'),
+  "quantity": zod.number().min(1).max(sendPatientCareTeamMessageResponseMessageSuggestionOneItemsItemQuantityMax),
+  "unitPriceCents": zod.number().describe('Office price for the chosen purchase mode when the suggestion was sent')
+}).describe('One suggested product, snapshotted at send time from the office price list')).min(1).max(sendPatientCareTeamMessageResponseMessageSuggestionOneItemsMax),
+  "totalCents": zod.number().describe('Sum of unitPriceCents x quantity across items (before shipping and tax)')
+}).describe('individual: one card per item; bundle: one card that opens a prebuilt cart summary'),zod.null()]).optional().describe('Product suggestion attached by the care team, rendered as cards under the message')
 }),
   "created": zod.boolean()
 })
@@ -2858,6 +2953,12 @@ export const GetHqConversationEventsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(getHqConversationEventsQueryLimitMax).default(getHqConversationEventsQueryLimitDefault)
 })
 
+export const getHqConversationEventsResponseEventsItemSuggestionOneItemsItemQuantityMax = 20;
+
+export const getHqConversationEventsResponseEventsItemSuggestionOneItemsMax = 8;
+
+
+
 export const GetHqConversationEventsResponse = zod.object({
   "events": zod.array(zod.object({
   "seq": zod.number(),
@@ -2867,7 +2968,21 @@ export const GetHqConversationEventsResponse = zod.object({
   "stopped": zod.boolean(),
   "senderLabel": zod.string().nullable().describe('Staff messages only: who on the care team sent it'),
   "senderUserId": zod.string().nullable().describe('Staff messages only: server-derived sender user id'),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "suggestion": zod.union([zod.object({
+  "mode": zod.enum(['individual', 'bundle']),
+  "items": zod.array(zod.object({
+  "productId": zod.string(),
+  "slug": zod.string(),
+  "name": zod.string(),
+  "imageUrl": zod.string().nullable(),
+  "purchase": zod.enum(['one_time', 'subscription']),
+  "cadenceWeeks": zod.number().nullable().describe('Delivery cadence in weeks; subscription items only'),
+  "quantity": zod.number().min(1).max(getHqConversationEventsResponseEventsItemSuggestionOneItemsItemQuantityMax),
+  "unitPriceCents": zod.number().describe('Office price for the chosen purchase mode when the suggestion was sent')
+}).describe('One suggested product, snapshotted at send time from the office price list')).min(1).max(getHqConversationEventsResponseEventsItemSuggestionOneItemsMax),
+  "totalCents": zod.number().describe('Sum of unitPriceCents x quantity across items (before shipping and tax)')
+}).describe('individual: one card per item; bundle: one card that opens a prebuilt cart summary'),zod.null()]).optional().describe('Care-team product suggestion attached to a staff message (validated against the office price list when sent)')
 })),
   "nextBefore": zod.number().nullable(),
   "nextAfter": zod.number().nullable()

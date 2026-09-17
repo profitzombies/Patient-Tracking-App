@@ -1,3 +1,4 @@
+import { notifyShipmentTransition } from "./customer-emails";
 import { trackingUrl } from "./receipts";
 import {
   insertIgnore, nowIso, selectMany, selectOne, update, type BillingOrderRow, type BillingShipmentRow,
@@ -91,7 +92,11 @@ export async function recordShipment(order: BillingOrderRow, write: ShipmentWrit
     fulfillment_status: "canceled", canceled_reason: shipment.canceled_reason,
   } : { fulfillment_status: "to_ship", tracking_number: null, carrier: null, shipped_at: null, shipped_by: null, canceled_reason: null };
   const updatedOrder = await update("billing_orders", `id=eq.${enc(order.id)}`, orderPatch);
-  return { order: updatedOrder ?? { ...order, ...orderPatch } as BillingOrderRow, shipment };
+  const result = { order: updatedOrder ?? { ...order, ...orderPatch } as BillingOrderRow, shipment };
+  // Shipped / delivered emails ride the status transition itself (never a
+  // re-save of the same status) and can never fail the write above.
+  await notifyShipmentTransition(result.order, shipment, current.status);
+  return result;
 }
 
 /** Patient-facing shipment block; synthesized from the order when no row exists yet. */

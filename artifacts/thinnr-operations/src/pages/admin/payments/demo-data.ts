@@ -77,6 +77,8 @@ function account(provider_id: string, state: 'active' | 'pending' | 'restricted'
     requirements: state === 'pending' ? requirements(['individual.verification.document']) : state === 'restricted' ? requirements([], 'requirements.past_due') : requirements(),
     capabilities: { card_payments: state === 'active' ? 'active' : 'pending', transfers: state === 'active' ? 'active' : 'pending' },
     default_currency: 'usd', business_name: null, email: null, tax_enabled: state === 'active',
+    stripe_customer_emails: 'off', stripe_customer_emails_checked_at: '2026-08-01T12:00:00Z',
+    stripe_customer_emails_note: 'No Stripe Dashboard: Stripe customer emails cannot be enabled on this account.',
     livemode: false, last_synced_at: '2026-09-24T12:00:00Z', disconnected_at: null, created_at: '2026-08-01T12:00:00Z',
   };
 }

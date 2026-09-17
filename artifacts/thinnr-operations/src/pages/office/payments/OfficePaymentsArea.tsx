@@ -30,6 +30,7 @@ import {
   ConnectTaxSettings,
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { StripeCustomerEmailsFlag, StripeCustomerEmailsNotice } from '@/components/billing/StripeCustomerEmails';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -199,11 +200,17 @@ function GetPaidLive({ status }: { status: OfficeBillingStatus }) {
       ) : (
         <>
           <SectionCard title="Stripe account" action={<StatusPill tone={chip.tone}>{chip.label}</StatusPill>}>
-            <div className="grid gap-4 p-5 sm:grid-cols-3">
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
               <Flag label="Charges" on={account.charges_enabled} />
               <Flag label="Payouts" on={account.payouts_enabled} />
               <Flag label="Details submitted" on={account.details_submitted} />
+              <StripeCustomerEmailsFlag account={account} />
             </div>
+            {account.stripe_customer_emails !== 'off' && (
+              <div className="px-5 pb-5">
+                <StripeCustomerEmailsNotice account={account} />
+              </div>
+            )}
           </SectionCard>
           <ConnectEmbed components={['notification_banner']} office={office}>
             <ConnectNotificationBanner />

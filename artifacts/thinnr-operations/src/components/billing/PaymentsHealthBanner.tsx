@@ -13,6 +13,14 @@ export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth })
   if (health.unprocessed_webhook_events > 0) {
     problems.push(`${health.unprocessed_webhook_events} webhook ${health.unprocessed_webhook_events === 1 ? 'event is' : 'events are'} unprocessed.`);
   }
+  if (health.stripe_customer_emails?.accounts_on.length) {
+    const n = health.stripe_customer_emails.accounts_on.length;
+    problems.push(`Stripe is emailing customers for ${n} connected ${n === 1 ? 'account' : 'accounts'}; THINNR should send every customer email.`);
+  }
+  if (health.stripe_customer_emails?.accounts_unverified.length) {
+    const n = health.stripe_customer_emails.accounts_unverified.length;
+    problems.push(`${n} connected ${n === 1 ? 'account has' : 'accounts have'} not confirmed Stripe customer emails are off; confirm on the provider page.`);
+  }
   if (!health.last_reconcile_run) problems.push('Billing reconciliation has never run.');
   else if (health.last_reconcile_run.status === 'failed') problems.push('The latest billing reconciliation failed.');
   if (health.credentials_ok && problems.length === 0) return null;
@@ -42,6 +50,14 @@ export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth })
               <div><dt className="font-semibold">Public origin</dt><dd>{health.public_origin ?? 'Not configured'}</dd></div>
               <div><dt className="font-semibold">Last webhook</dt><dd>{health.last_webhook_received_at ?? 'None received'}</dd></div>
               <div><dt className="font-semibold">Failed events, 24 hours</dt><dd>{health.failed_events_24h}</dd></div>
+              {health.stripe_customer_emails && (
+                <div>
+                  <dt className="font-semibold">Stripe customer emails</dt>
+                  <dd>
+                    Platform: none sent · {health.stripe_customer_emails.accounts_off} off · {health.stripe_customer_emails.accounts_unverified.length} unverified · {health.stripe_customer_emails.accounts_on.length} on
+                  </dd>
+                </div>
+              )}
             </dl>
           )}
         </div>

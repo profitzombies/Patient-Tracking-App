@@ -6,7 +6,7 @@ export type BillingTable =
   | "billing_connected_accounts" | "billing_account_events" | "billing_office_prices"
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
-  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts";
+  | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
@@ -39,6 +39,14 @@ export interface BillingConnectedAccountRow extends TimestampedRow {
   default_currency: string | null; business_name: string | null; email: string | null;
   tax_enabled: boolean; tax_last_checked_at: string | null; oauth_refresh_token: string | null;
   livemode: boolean; last_synced_at: string | null; disconnected_at: string | null;
+  stripe_customer_emails?: StripeCustomerEmailsState; stripe_customer_emails_checked_at?: string | null;
+  stripe_customer_emails_note?: string | null;
+}
+/** Whether Stripe itself may email this office's customers; THINNR sends every customer email, so "off" is the healthy state. */
+export type StripeCustomerEmailsState = "off" | "unverified" | "on";
+export interface BillingCustomerEmailRow extends TimestampedRow {
+  id: string; dedupe_key: string; template_id: string; provider_id: string | null; subscription_id: string | null;
+  order_id: string | null; status: "claimed" | "sent" | "skipped" | "failed"; error: string | null;
 }
 export interface BillingAccountEventRow extends TimestampedRow {
   id: string; provider_id: string; kind: string; detail: Record<string, unknown>;
@@ -149,6 +157,7 @@ export type BillingRows = {
   billing_refunds: BillingRefundRow; billing_disputes: BillingDisputeRow;
   billing_payouts: BillingPayoutRow; billing_webhook_endpoints: BillingWebhookEndpointRow;
   billing_webhook_events: BillingWebhookEventRow; billing_shipments: BillingShipmentRow; billing_carts: BillingCartRow;
+  billing_customer_emails: BillingCustomerEmailRow;
 };
 
 export class BillingStoreError extends Error {

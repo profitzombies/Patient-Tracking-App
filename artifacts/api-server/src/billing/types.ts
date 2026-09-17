@@ -54,6 +54,10 @@ export interface ConnectedAccount {
   email: string | null;
   tax_enabled: boolean;
   livemode: boolean;
+  /** Whether Stripe itself may email this office's customers; THINNR sends every customer email, so "off" is healthy. */
+  stripe_customer_emails: "off" | "unverified" | "on";
+  stripe_customer_emails_checked_at: string | null;
+  stripe_customer_emails_note: string | null;
   last_synced_at: string | null;
   disconnected_at: string | null;
   created_at: string;

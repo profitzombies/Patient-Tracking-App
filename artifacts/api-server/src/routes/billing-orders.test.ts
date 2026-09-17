@@ -44,7 +44,7 @@ vi.mock("../lib/admin-audit", async (original) => {
 import hqRouter from "./billing-hq-orders";
 import officeRouter from "./billing-office-orders";
 import publicRouter from "./billing-public";
-import { sendShippedNotice } from "../billing/receipts";
+import { __setCustomerEmailTransportForTests } from "../billing/customer-emails";
 import { __setCredentialsForTests, __setStripeForTests } from "../billing/stripe-client";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 
@@ -90,6 +90,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
+const customerEmails = vi.fn(async (_input: { to: string; subject: string; html: string; text: string }) => undefined);
 afterAll(async () => {
   global.fetch = originalFetch;
   __setCredentialsForTests(null);
@@ -99,6 +100,8 @@ afterAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   __setCredentialsForTests({ secret: "sk_test_x", publishable: "pk_test_x", account_id: "acct_platform" });
+  customerEmails.mockClear();
+  __setCustomerEmailTransportForTests(customerEmails);
   tables = {
     billing_orders: [{
       id: "0a1b2c3d-0000-4000-8000-000000000001", order_number: "TH-ABC123", provider_id: "office-1", payer_id: "payer-1",
@@ -328,13 +331,16 @@ describe("billing order routes", () => {
     const missing = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "shipped" });
     expect(missing.status).toBe(400);
     expect(missing.json.field).toBe("tracking_number");
-    expect(sendShippedNotice).not.toHaveBeenCalled();
+    expect(customerEmails).not.toHaveBeenCalled();
 
     const shipped = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", {
       status: "shipped", carrier: "UPS", tracking_number: "1Z999",
     });
     expect(shipped.status).toBe(200);
-    expect(sendShippedNotice).toHaveBeenCalledOnce();
+    // The shipped email fires from the shipment transition itself, once.
+    expect(customerEmails).toHaveBeenCalledOnce();
+    expect(customerEmails.mock.calls[0][0].subject).toContain("has shipped");
+    expect(tables.billing_customer_emails.map((row) => [row.template_id, row.status])).toEqual([["order-shipped", "sent"]]);
     expect(tables.billing_orders[0].fulfillment_status).toBe("shipped");
     // The shipment record is written first and the legacy columns mirror it.
     expect(tables.billing_shipments).toHaveLength(1);

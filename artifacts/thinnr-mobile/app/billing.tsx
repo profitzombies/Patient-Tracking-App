@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -30,6 +30,7 @@ import {
   createCheckoutLink,
   getBillingOverview,
   getOrderReceipt,
+  skipNextShipment,
 } from '@/lib/patient-billing-api';
 import type {
   PatientBillingOrder,
@@ -109,6 +110,7 @@ export default function BillingScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [receipts, setReceipts] = useState<Record<string, PatientReceipt>>({});
   const mounted = useRef(true);
+  const overviewSource = useRef<'demo' | 'real' | null>(null);
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
   const load = useCallback(async () => {
@@ -117,7 +119,7 @@ export default function BillingScreen() {
     setError(null);
     try {
       const result = await getBillingOverview();
-      if (mounted.current) setOverview(result);
+      if (mounted.current) { overviewSource.current = 'real'; setOverview(result); }
     } catch (caught) {
       if (mounted.current) setError(errorMessage(caught));
     } finally {
@@ -131,6 +133,7 @@ export default function BillingScreen() {
       setOverview(null);
       void load();
     } else if (account.kind === 'demo') {
+      overviewSource.current = 'demo';
       setOverview(DEMO_OVERVIEW);
       setLoading(false);
       setError(null);
@@ -177,6 +180,44 @@ export default function BillingScreen() {
       await openExternal(url);
     });
   };
+
+  const replaceSubscription = (updated: PatientBillingSubscription) => setOverview(current => current ? {
+    ...current,
+    subscriptions: current.subscriptions.map(row => row.id === updated.id ? updated : row),
+  } : current);
+
+  const confirmSkip = (subscription: PatientBillingSubscription) => {
+    if (demo) return demoNudge();
+    const proceed = () => void run(`skip:${subscription.id}`, async () => replaceSubscription(await skipNextShipment(subscription.id)));
+    const question = `Skip the ${subscription.product_name} shipment on ${date(subscription.next_shipment_at)}?`;
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(question)) proceed();
+    } else {
+      Alert.alert('Skip this shipment?', `${question} Your following shipment stays on schedule.`, [
+        { text: 'Keep it', style: 'cancel' },
+        { text: 'Skip shipment', onPress: proceed },
+      ]);
+    }
+  };
+
+  // Email deep links: /billing?subscription=<id> focuses that plan and
+  // ?action=skip opens the skip confirmation once the live overview is in.
+  const deepLink = useLocalSearchParams<{ subscription?: string | string[]; action?: string | string[] }>();
+  const linkedSubscriptionId = Array.isArray(deepLink.subscription) ? deepLink.subscription[0] : deepLink.subscription;
+  const linkedAction = Array.isArray(deepLink.action) ? deepLink.action[0] : deepLink.action;
+  const handledLink = useRef<string | null>(null);
+  useEffect(() => {
+    // Wait for the live overview: right after sign-in the demo dataset is still
+    // in state for one commit and would make a valid link look stale.
+    if (!overview || overviewSource.current !== 'real' || !linkedSubscriptionId || linkedAction !== 'skip' || account.kind !== 'real') return;
+    const key = `${linkedSubscriptionId}:${linkedAction}`;
+    if (handledLink.current === key) return;
+    handledLink.current = key;
+    const target = overview.subscriptions.find(row => row.id === linkedSubscriptionId);
+    if (target && canSkip(target)) confirmSkip(target);
+    else setError('That shipment can no longer be skipped from this link. Manage the plan below.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overview, linkedSubscriptionId, linkedAction, account.kind]);
 
   const confirmCancel = (subscription: PatientBillingSubscription) => {
     if (demo) return demoNudge();
@@ -240,6 +281,8 @@ export default function BillingScreen() {
                   key={subscription.id}
                   subscription={subscription}
                   busy={busy}
+                  focused={subscription.id === linkedSubscriptionId}
+                  onSkip={confirmSkip}
                   onCancel={confirmCancel}
                   onOpen={url => demo ? demoNudge() : void openExternal(url).catch(caught => setError(errorMessage(caught)))}
                 />
@@ -339,9 +382,14 @@ function OrderCard({ order, busy, pdfAvailable, onReceipt }: {
   );
 }
 
-function SubscriptionCard({ subscription, busy, onCancel, onOpen }: {
+const canSkip = (subscription: PatientBillingSubscription) =>
+  subscription.status === 'active' && !subscription.paused && !subscription.cancel_at_period_end && Boolean(subscription.next_shipment_at);
+
+function SubscriptionCard({ subscription, busy, focused, onSkip, onCancel, onOpen }: {
   subscription: PatientBillingSubscription;
   busy: string | null;
+  focused: boolean;
+  onSkip: (subscription: PatientBillingSubscription) => void;
   onCancel: (subscription: PatientBillingSubscription) => void;
   onOpen: (url: string) => void;
 }) {
@@ -360,7 +408,7 @@ function SubscriptionCard({ subscription, busy, onCancel, onOpen }: {
               ? 'Past due'
               : 'Pending';
   return (
-    <LedgerCard style={styles.listCard}>
+    <LedgerCard testID={`card-subscription-${subscription.id}`} style={[styles.listCard, focused ? { borderColor: colors.cobalt, borderWidth: 2 } : null]}>
       <View style={styles.between}>
         <Text style={[styles.itemTitle, { color: colors.navy }]}>{subscription.product_name}</Text>
         <Text style={[styles.badge, { color: colors.cobalt, backgroundColor: colors.activeBg }]}>{status}</Text>
@@ -372,6 +420,9 @@ function SubscriptionCard({ subscription, busy, onCancel, onOpen }: {
       {subscription.last_failure_message ? <Text style={[styles.body, styles.smallGap, { color: colors.riskText }]}>{subscription.last_failure_message}</Text> : null}
       {subscription.status === 'past_due' && subscription.last_hosted_invoice_url ? (
         <PrimaryButton testID={`button-update-payment-${subscription.id}`} label="Update payment" accessibilityLabel={`Update payment for ${subscription.product_name}`} disabled={busy !== null} onPress={() => onOpen(subscription.last_hosted_invoice_url!)} style={styles.smallGap} />
+      ) : null}
+      {canSkip(subscription) ? (
+        <GhostButton testID={`button-skip-subscription-${subscription.id}`} label={busy === `skip:${subscription.id}` ? 'Skipping…' : `Skip shipment on ${date(subscription.next_shipment_at)}`} accessibilityLabel={`Skip the ${subscription.product_name} shipment on ${date(subscription.next_shipment_at)}`} disabled={busy !== null} onPress={() => onSkip(subscription)} style={styles.smallGap} />
       ) : null}
       {subscription.status !== 'canceled' && !subscription.cancel_at_period_end ? (
         <GhostButton testID={`button-cancel-subscription-${subscription.id}`} label={busy === `cancel:${subscription.id}` ? 'Canceling…' : 'Cancel at renewal'} accessibilityLabel={`Cancel ${subscription.product_name} at renewal`} disabled={busy !== null} onPress={() => onCancel(subscription)} style={styles.smallGap} />

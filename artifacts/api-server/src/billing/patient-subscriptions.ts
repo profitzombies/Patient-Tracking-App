@@ -1,4 +1,5 @@
 import { cardDto } from "./cards";
+import { notifySubscriptionEvent, planLabel } from "./customer-emails";
 import { getSettings, productCadences, subscribeSavePercent, subscriptionUnitPrice } from "./catalog";
 import { applicationFeePercentFor, breakEvenMinimum, computeOrderFees } from "./fees";
 import { ensureRecurringPrices } from "./prices";
@@ -54,13 +55,17 @@ export function parseMoveDate(raw: string, now: Date = new Date()): Date {
 }
 
 /** Moves the next shipment (and charge) to a chosen date; later renewals follow from there. */
-export async function moveNextShipment(row: Row, when: Date): Promise<Row> {
+export async function moveNextShipment(row: Row, when: Date, event: "moved" | "skipped" = "moved"): Promise<Row> {
   requireSchedulable(row);
   const account = await accountFor(row.provider_id);
   const value: any = await (await getStripe()).subscriptions.update(row.stripe_subscription_id!, {
     trial_end: Math.floor(when.getTime() / 1000), proration_behavior: "none",
   }, connectedOpts(account.stripe_account_id));
-  return mirrorSchedule(row, value);
+  const updated = await mirrorSchedule(row, value);
+  await notifySubscriptionEvent(updated, event === "skipped"
+    ? { kind: "skipped", skipped: row.next_shipment_at ?? row.current_period_end }
+    : { kind: "moved", previous: row.next_shipment_at ?? row.current_period_end });
+  return updated;
 }
 
 /** Skips one box: the next shipment moves out by one cadence. */
@@ -71,7 +76,7 @@ export async function skipNextShipment(row: Row): Promise<Row> {
   const weeks = row.cadence_weeks ?? 4;
   const target = new Date(new Date(anchor).getTime() + weeks * 7 * DAY_MS);
   const floor = new Date(Date.now() + MOVE_MIN_DAYS * DAY_MS);
-  return moveNextShipment(row, target > floor ? target : new Date(floor.getTime() + weeks * 7 * DAY_MS));
+  return moveNextShipment(row, target > floor ? target : new Date(floor.getTime() + weeks * 7 * DAY_MS), "skipped");
 }
 
 export async function changeSubscriptionAddress(row: Row, address: ShippingAddress): Promise<Row> {
@@ -89,6 +94,7 @@ export async function changeSubscriptionAddress(row: Row, address: ShippingAddre
   }
   const updated = await update("billing_subscriptions", `id=eq.${enc(row.id)}`, { shipping_address: address as unknown as Record<string, unknown> });
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
+  await notifySubscriptionEvent(updated, { kind: "address-changed" });
   return updated;
 }
 
@@ -158,6 +164,9 @@ export async function changeSubscriptionPlan(row: Row, input: { cadence_weeks?: 
     status: mappedStatus(value.status), current_period_end: periodEnd(value), next_shipment_at: nextShipmentAt(value, row),
   });
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
+  await notifySubscriptionEvent(updated, {
+    kind: "plan-changed", previousPlan: planLabel(product.name, row.quantity, row.cadence_weeks), newPlan: planLabel(product.name, quantity, weeks),
+  });
   return updated;
 }
 
@@ -177,8 +186,9 @@ export async function updateSubscriptionCard(row: Row, customerId: string, payme
   if (owner && owner !== customerId) throw new BillingSubscriptionError("That card belongs to a different account.", 403, "payment_method_id");
   if (!owner) await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }, connectedOpts(acct, `card:${customerId}:attach:${paymentMethodId}`));
   await stripe.subscriptions.update(row.stripe_subscription_id!, { default_payment_method: paymentMethodId }, connectedOpts(acct));
-  const updated = await selectOne("billing_subscriptions", `id=eq.${enc(row.id)}`);
-  return updated ?? row;
+  const updated = (await selectOne("billing_subscriptions", `id=eq.${enc(row.id)}`)) ?? row;
+  await notifySubscriptionEvent(updated, { kind: "card-updated", paymentMethod: method });
+  return updated;
 }
 
 /** The card Stripe will charge at the next renewal (subscription default, else customer default). */

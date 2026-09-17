@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
-import { toConnectedAccount } from "../billing/accounts";
+import { BillingAccountError, recordStripeCustomerEmails, toConnectedAccount } from "../billing/accounts";
 import {
   BillingCatalogError, createProduct, editProduct, finalizeProductImage, getProduct, listCatalog, listCatalogChanges,
   productImageUploadUrl, removeProductImage, reorderProducts, setDefaultProductImage, setProductActive, setProductStatus,
@@ -77,14 +77,24 @@ router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_
   let origin: string | null = null;
   try { origin = publicOrigin(); } catch { /* reported as missing configuration */ }
   try {
-    const [webhooks, lastEvents, pending, unprocessed, failed, runResult] = await Promise.all([
+    const [webhooks, lastEvents, pending, unprocessed, failed, runResult, connected] = await Promise.all([
       getBillingWebhookHealth(),
       selectMany("billing_webhook_events", "order=received_at.desc&limit=1"),
       selectMany("billing_orders", `status=eq.pending&created_at=lt.${encodeURIComponent(hourAgo)}&select=id`),
       selectMany("billing_webhook_events", "processed_at=is.null&select=stripe_event_id"),
       selectMany("billing_webhook_events", `error=not.is.null&received_at=gte.${encodeURIComponent(dayAgo)}&select=stripe_event_id`),
       supabaseAdmin("GET", "/rest/v1/system_job_runs?job_name=eq.billing-reconcile&order=started_at.desc&limit=1&select=started_at,status"),
+      selectMany("billing_connected_accounts", "disconnected_at=is.null&select=provider_id,stripe_customer_emails"),
     ]);
+    const customerEmails = {
+      // No charge is ever created on the platform account (every payment is a
+      // direct charge on the office's connected account) and THINNR never
+      // sets receipt_email, so Stripe has nothing to send from the platform.
+      platform: "not_applicable" as const,
+      accounts_off: connected.filter((row) => row.stripe_customer_emails === "off").length,
+      accounts_unverified: connected.filter((row) => (row.stripe_customer_emails ?? "unverified") === "unverified").map((row) => row.provider_id),
+      accounts_on: connected.filter((row) => row.stripe_customer_emails === "on").map((row) => row.provider_id),
+    };
     if (runResult.status >= 300) throw new Error(`reconcile health lookup failed (${runResult.status})`);
     const run = Array.isArray(runResult.json) ? runResult.json[0] as any : null;
     res.json({
@@ -94,6 +104,7 @@ router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_
       pending_orders_over_1h: pending.length, unprocessed_webhook_events: unprocessed.length,
       last_reconcile_run: run ? { at: run.started_at, status: run.status } : null,
       failed_events_24h: failed.length,
+      stripe_customer_emails: customerEmails,
     });
   } catch (error) {
     _req.log?.error({ err: error }, "payments health lookup failed");
@@ -281,3 +292,18 @@ router.get("/billing/hq/providers/:provider_id", requireHqPermission("financial_
   } catch (error) { fail(req, res, error); }
 });
 export default router;
+const CustomerEmailsSchema = z.object({ state: z.enum(["off", "on"]) });
+/** HQ records what the office's Stripe Dashboard shows for Customer emails (accounts with their own Dashboard only). */
+router.put("/billing/hq/providers/:provider_id/stripe-customer-emails", requireHqPermission("provider_manage"), async (req, res) => {
+  const parsed = CustomerEmailsSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Choose off or on." }); return; }
+  try {
+    const account = await recordStripeCustomerEmails(String(req.params.provider_id), parsed.data.state, actor(res));
+    await audit(req, res, "billing_stripe_customer_emails_recorded", "billing_connected_account", account.provider_id, { state: parsed.data.state });
+    res.json({ account });
+  } catch (error) {
+    if (error instanceof BillingAccountError) { res.status(error.status).json({ error: error.message }); return; }
+    req.log?.error({ err: error }, "stripe customer emails record failed");
+    res.status(502).json({ error: "The account could not be updated." });
+  }
+});

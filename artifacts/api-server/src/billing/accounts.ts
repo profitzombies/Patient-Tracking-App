@@ -44,8 +44,38 @@ function dashboardType(account: Stripe.Account): DashboardType {
   return account.type === "standard" ? "full" : account.type === "express" ? "express" : "none";
 }
 
-function accountPatch(account: Stripe.Account) {
+/**
+ * THINNR sends every customer email itself, so Stripe's own customer emails
+ * (receipts, invoice and renewal notices) must stay off. Stripe exposes no API
+ * for those Dashboard toggles: an account without Dashboard access can never
+ * turn them on ("off" by construction), while an account with its own
+ * Dashboard stays "unverified" until HQ confirms it, or an earlier confirmation
+ * is carried forward unchanged.
+ */
+export function stripeCustomerEmailsPatch(
+  account: Pick<Stripe.Account, "type">, existing?: Pick<BillingConnectedAccountRow, "stripe_customer_emails" | "stripe_customer_emails_checked_at" | "stripe_customer_emails_note"> | null,
+): Pick<BillingConnectedAccountRow, "stripe_customer_emails" | "stripe_customer_emails_checked_at" | "stripe_customer_emails_note"> {
+  if (dashboardType(account as Stripe.Account) === "none") {
+    return {
+      stripe_customer_emails: "off", stripe_customer_emails_checked_at: nowIso(),
+      stripe_customer_emails_note: "No Stripe Dashboard: Stripe customer emails cannot be enabled on this account.",
+    };
+  }
+  if (existing?.stripe_customer_emails && existing.stripe_customer_emails !== "unverified" && existing.stripe_customer_emails_checked_at) {
+    return {
+      stripe_customer_emails: existing.stripe_customer_emails, stripe_customer_emails_checked_at: existing.stripe_customer_emails_checked_at,
+      stripe_customer_emails_note: existing.stripe_customer_emails_note ?? null,
+    };
+  }
   return {
+    stripe_customer_emails: "unverified", stripe_customer_emails_checked_at: null,
+    stripe_customer_emails_note: "This account has its own Stripe Dashboard. Turn off Settings → Emails → Customer emails (successful payments, refunds, upcoming renewals), then confirm here.",
+  };
+}
+
+function accountPatch(account: Stripe.Account, existing?: BillingConnectedAccountRow | null) {
+  return {
+    ...stripeCustomerEmailsPatch(account, existing),
     stripe_account_id: account.id,
     dashboard_type: dashboardType(account),
     charges_enabled: Boolean(account.charges_enabled),
@@ -72,6 +102,9 @@ export function toConnectedAccount(row: BillingConnectedAccountRow): ConnectedAc
     },
     capabilities: row.capabilities, default_currency: row.default_currency, business_name: row.business_name,
     email: row.email, tax_enabled: row.tax_enabled, livemode: row.livemode,
+    stripe_customer_emails: row.stripe_customer_emails ?? "unverified",
+    stripe_customer_emails_checked_at: row.stripe_customer_emails_checked_at ?? null,
+    stripe_customer_emails_note: row.stripe_customer_emails_note ?? null,
     last_synced_at: row.last_synced_at, disconnected_at: row.disconnected_at, created_at: row.created_at,
   };
 }
@@ -223,7 +256,7 @@ export async function syncAccount(providerId: string): Promise<ConnectedAccount>
   } catch {
     // Account status remains useful when Tax has not been enabled for the account.
   }
-  const patch = { ...accountPatch(account), tax_enabled: taxEnabled, tax_last_checked_at: nowIso(), last_synced_at: nowIso() };
+  const patch = { ...accountPatch(account, before), tax_enabled: taxEnabled, tax_last_checked_at: nowIso(), last_synced_at: nowIso() };
   const after = await update("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`, patch);
   if (!after) throw new BillingAccountError("Connected account could not be updated.", 502);
   if (!before.charges_enabled && after.charges_enabled) await event(providerId, "charges_enabled", {});
@@ -255,4 +288,19 @@ export function registerAccountWebhookHandlers(): void {
     await update("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`, { disconnected_at: nowIso() });
     await event(providerId, "deauthorized", {});
   });
+}
+/** HQ attests that Stripe's customer emails are off (or reports them on) for an account with its own Dashboard. */
+export async function recordStripeCustomerEmails(providerId: string, state: "off" | "on", actorUserId: string): Promise<ConnectedAccount> {
+  const row = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`);
+  if (!row) throw new BillingAccountError("This office has no connected Stripe account.", 404);
+  if (row.dashboard_type === "none") throw new BillingAccountError("Stripe cannot email this account's customers; nothing to confirm.", 409);
+  const updated = await update("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`, {
+    stripe_customer_emails: state, stripe_customer_emails_checked_at: nowIso(),
+    stripe_customer_emails_note: state === "off"
+      ? "Confirmed off in the office's Stripe Dashboard."
+      : "Stripe is emailing this office's customers. Turn off Settings → Emails → Customer emails in the office's Stripe Dashboard.",
+  });
+  if (!updated) throw new BillingAccountError("Connected account could not be updated.", 502);
+  await event(providerId, "customer_emails_recorded", { state, by: actorUserId });
+  return toConnectedAccount(updated);
 }

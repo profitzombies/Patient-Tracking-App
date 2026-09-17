@@ -134,3 +134,4 @@
 - [Coach conversation titles](coach-conversation-titles.md) — model titles + patient rename decided by title_source in SQL; sensitive-text screen → fallback; mobile reconciles late reads against committed rows.
 - [Billing product pages & plans](billing-product-pages.md) — discount = discounted per-cadence Stripe prices (no coupons), legacy 4-week price untouched; no office price row = floor-price fallback, not opt-out.
 - [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; only definite Stripe answers fail a line; reads scope patient + office.
+- [Branded shop emails](shop-customer-emails.md) — claim keyed on the changed value inside the transition owner; end-state actions need an already-there guard; email links must hit a real app route; Stripe emails off is structural, warn on unverified.

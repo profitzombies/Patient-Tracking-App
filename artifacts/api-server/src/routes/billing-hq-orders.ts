@@ -1,7 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
-import { sendShippedNotice } from "../billing/receipts";
 import { BillingReportingError, hqActivity, hqOverview, hqToday } from "../billing/reporting";
 import {
   BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
@@ -93,7 +92,7 @@ router.get("/billing/hq/fulfillment", requireHqPermission("financial_read"), asy
   try { res.json(await listOrders(req, true)); } catch (error) { fail(req, res, error); }
 });
 const FulfillmentSchema = z.object({
-  status: z.enum(["to_ship", "shipped", "canceled"]), tracking_number: z.string().trim().nullable().optional(),
+  status: z.enum(["to_ship", "shipped", "delivered", "canceled"]), tracking_number: z.string().trim().nullable().optional(),
   carrier: z.string().trim().nullable().optional(), canceled_reason: z.string().trim().nullable().optional(),
 });
 router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_manage"), async (req, res) => {
@@ -108,17 +107,20 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
   try {
     const bundle = await getOrderBundle(String(req.params.order_id));
     if (!bundle) { res.status(404).json({ error: "Order not found." }); return; }
-    if (parsed.data.status === "shipped" && !["paid", "partially_refunded"].includes(bundle.order.status)) {
+    if ((parsed.data.status === "shipped" || parsed.data.status === "delivered") && !["paid", "partially_refunded"].includes(bundle.order.status)) {
       res.status(409).json({ error: "Only paid orders can be shipped." }); return;
     }
     // The shipment record is the source of truth; it mirrors the legacy
     // fulfillment columns on the order so every existing reader stays intact.
+    // Shipped and delivered emails fire inside recordShipment, once per
+    // status transition, so a re-save with the same status sends nothing.
     const { order: row } = await recordShipment(bundle.order, parsed.data.status === "shipped" ? {
       status: "shipped", tracking_number: parsed.data.tracking_number, carrier: parsed.data.carrier, updated_by: actor(res), source: "staff",
+    } : parsed.data.status === "delivered" ? {
+      status: "delivered", tracking_number: parsed.data.tracking_number, carrier: parsed.data.carrier, updated_by: actor(res), source: "staff",
     } : parsed.data.status === "canceled" ? {
       status: "canceled", canceled_reason: parsed.data.canceled_reason, updated_by: actor(res), source: "staff",
     } : { status: "processing", updated_by: actor(res), source: "staff" });
-    if (parsed.data.status === "shipped") await sendShippedNotice({ order: row, payer: bundle.payer, office: bundle.office });
     await audit(req, res, "billing_order_fulfillment_updated", "billing_order", row.id, {
       order_id: row.id, fulfillment_status: parsed.data.status, has_tracking: Boolean(parsed.data.tracking_number),
     }, bundle.order.provider_id);

@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   orders: [] as any[],
   insertedItems: [] as any[],
   stripeUpdates: [] as any[],
+  emailClaims: [] as any[],
   webhookFirstPause: false,
   handlers: new Map<string, (event: any, ctx: any) => Promise<void>>(),
 }));
@@ -40,6 +41,10 @@ vi.mock("./store", () => {
     }),
     insertIgnore: vi.fn(async (table: string, row: any) => {
       if (table === "billing_orders") state.orders.push(row);
+      if (table === "billing_customer_emails") {
+        if (state.emailClaims.some((claim: any) => claim.dedupe_key === row.dedupe_key)) return null;
+        state.emailClaims.push({ id: `claim-${state.emailClaims.length + 1}`, ...row });
+      }
       return row;
     }),
     insert: vi.fn(async (table: string, row: any) => {
@@ -93,7 +98,7 @@ vi.mock("./store-orders", () => ({
 }));
 
 import {
-  BillingSubscriptionError, changeSubscription, markSubscriptionInvoicePaid, pauseSubscription,
+  BillingSubscriptionError, cancelSubscription, changeSubscription, markSubscriptionInvoicePaid, pauseSubscription,
   quoteSubscriptionChange, registerSubscriptionWebhookHandlers, resumeSubscription,
 } from "./subscriptions";
 
@@ -119,7 +124,7 @@ beforeEach(() => {
     { provider_id: "office-1", product_id: "product-old", sell_price_cents: 6000, subscription_enabled: true, stripe_price_id: "price_old", stripe_shipping_price_id: "ship_old" },
     { provider_id: "office-1", product_id: "product-new", sell_price_cents: 9000, subscription_enabled: true, stripe_price_id: "price_new", stripe_shipping_price_id: "ship_new" },
   ];
-  state.orders = []; state.insertedItems = []; state.stripeUpdates = []; state.handlers.clear();
+  state.orders = []; state.insertedItems = []; state.stripeUpdates = []; state.emailClaims = []; state.handlers.clear();
   state.webhookFirstPause = false;
 });
 
@@ -213,5 +218,19 @@ describe("subscription controls", () => {
     });
     expect(state.orders[0]).toMatchObject({ subtotal_cents: 9000, application_fee_cents: 5200 });
     expect(state.insertedItems[0]).toMatchObject({ product_id: "product-new", unit_price_cents: 9000 });
+  });
+
+  it("cancels at period end once: a repeat request writes nothing to Stripe and claims no second email", async () => {
+    const first = await cancelSubscription("sub-local", { at_period_end: true });
+    expect(first.cancel_at_period_end).toBe(true);
+    expect(state.stripeUpdates.filter((entry) => entry.patch.cancel_at_period_end)).toHaveLength(1);
+    const claims = () => state.emailClaims.filter((claim) => claim.template_id === "subscription-cancelled");
+    expect(claims()).toHaveLength(1);
+    expect(claims()[0].dedupe_key).toBe("cancelled:sub-local:period-end");
+
+    const again = await cancelSubscription("sub-local", { at_period_end: true });
+    expect(again.cancel_at_period_end).toBe(true);
+    expect(state.stripeUpdates.filter((entry) => entry.patch.cancel_at_period_end)).toHaveLength(1);
+    expect(claims()).toHaveLength(1);
   });
 });

@@ -1,3 +1,4 @@
+import { notifyOrderConfirmationIfCartComplete } from "./customer-emails";
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
@@ -247,6 +248,7 @@ export async function markOrderPaidFromInvoice(invoice: any, ctx: StripeEventCon
     const subscription = order.subscription_id ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(order.subscription_id)}`) : null;
     await sendReceipt({ ...bundle, order: updated, subscription });
   }
+  await notifyOrderConfirmationIfCartComplete(updated);
 }
 /**
  * A paid order whose Stripe processing fee could not be resolved at payment

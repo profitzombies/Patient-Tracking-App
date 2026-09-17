@@ -179,6 +179,11 @@ export const hqBilling = {
   activity: (filters: ListFilters) => officeRequest<Paged<HqActivityRow>>(`${HQ}/activity${qs(filters)}`, MESSAGES),
   providers: () => officeRequest<{ items: HqProviderRow[] }>(`${HQ}/providers`, MESSAGES),
   provider: (providerId: string) => officeRequest<HqProviderDetail>(`${HQ}/providers/${encodeURIComponent(providerId)}`, MESSAGES),
+  recordStripeCustomerEmails: (providerId: string, state: 'off' | 'on') =>
+    officeRequest<{ account: ConnectedAccount }>(`${HQ}/providers/${encodeURIComponent(providerId)}/stripe-customer-emails`, MESSAGES, {
+      method: 'PUT',
+      body: JSON.stringify({ state }),
+    }),
   transactions: (filters: ListFilters) => officeRequest<Paged<OrderSummary>>(`${HQ}/transactions${qs(filters)}`, MESSAGES),
   transaction: (orderId: string) => officeRequest<OrderDetail>(`${HQ}/transactions/${encodeURIComponent(orderId)}`, MESSAGES),
   refund: (orderId: string, body: { amount_cents?: number; reason: string }) =>

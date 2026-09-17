@@ -25,6 +25,7 @@ import { RefundDialog } from '@/components/billing/RefundDialog';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PaymentsHealthBanner } from '@/components/billing/PaymentsHealthBanner';
+import { StripeCustomerEmailsNotice, customerEmailsLabel } from '@/components/billing/StripeCustomerEmails';
 import {
   Dialog,
   DialogContent,
@@ -332,6 +333,16 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
   const query = useHqProvider(demo ? null : id);
   const sandbox = useBillingSandbox();
   const data = demo ? DEMO_PROVIDER_DETAILS[id] : query.data;
+  const invalidate = useInvalidateHqBilling();
+  const { toast } = useToast();
+  const recordEmails = useMutation({
+    mutationFn: (state: 'off' | 'on') => hqBilling.recordStripeCustomerEmails(id, state),
+    onSuccess: () => {
+      void invalidate();
+      toast({ variant: 'success', title: 'Stripe customer emails recorded as off' });
+    },
+    onError: (error: Error) => toast({ variant: 'destructive', title: 'Could not record the setting', description: error.message }),
+  });
   return (
     <AdminPage>
       <Header
@@ -362,9 +373,30 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
                     { label: 'Charges', value: data.account.charges_enabled ? 'Enabled' : 'Not enabled' },
                     { label: 'Payouts', value: data.account.payouts_enabled ? 'Enabled' : 'Not enabled' },
                     { label: 'Tax', value: data.account.tax_enabled ? 'Enabled' : 'Not enabled' },
+                    { label: 'Stripe customer emails', value: customerEmailsLabel(data.account.stripe_customer_emails).label },
                     { label: 'Last synced', value: formatDateTime(data.account.last_synced_at) },
                   ]}
                 />
+                {!demo && data.account.stripe_customer_emails !== 'off' && (
+                  <div className="mt-3">
+                    <StripeCustomerEmailsNotice
+                      account={data.account}
+                      action={
+                        <button
+                          type="button"
+                          className={`${BTN_SECONDARY} h-8 shrink-0 px-3 text-xs`}
+                          disabled={recordEmails.isPending}
+                          onClick={() => recordEmails.mutate('off')}
+                        >
+                          Confirm they are off
+                        </button>
+                      }
+                    />
+                  </div>
+                )}
+                {demo && data.account.stripe_customer_emails !== 'off' && (
+                  <div className="mt-3"><StripeCustomerEmailsNotice account={data.account} /></div>
+                )}
                 {[...data.account.requirements.past_due, ...data.account.requirements.currently_due].length > 0 && (
                   <ul className="mt-3 list-disc pl-5 text-xs text-destructive">
                     {[...data.account.requirements.past_due, ...data.account.requirements.currently_due].map((x) => (
@@ -848,6 +880,27 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
                     Copy address
                   </button>
                 </address>
+                {canWrite && order.fulfillment_status === 'shipped' && (
+                  <div className="flex items-start justify-end gap-2">
+                    <button
+                      data-testid={`button-delivered-${order.id}`}
+                      className={`${BTN_SECONDARY} h-8 px-3`}
+                      disabled={mutation.isPending}
+                      onClick={() => {
+                        if (demo) { toast({ title: 'Preview only', description: 'Sign in to update live fulfillment.' }); return; }
+                        mutation.mutate(
+                          { orderId: order.id, status: 'delivered' },
+                          {
+                            onSuccess: () => toast({ variant: 'success', title: 'Delivered. The patient was emailed.' }),
+                            onError: (error: Error) => toast({ variant: 'destructive', title: 'Update failed', description: error.message }),
+                          },
+                        );
+                      }}
+                    >
+                      Mark delivered
+                    </button>
+                  </div>
+                )}
                 {canWrite && order.fulfillment_status === 'to_ship' && (
                   <div className="flex items-start justify-end gap-2">
                     <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setDialog({ order, mode: 'cancel' })}>

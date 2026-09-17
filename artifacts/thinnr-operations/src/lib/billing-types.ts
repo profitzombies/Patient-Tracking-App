@@ -54,10 +54,15 @@ export interface ConnectedAccount {
   email: string | null;
   tax_enabled: boolean;
   livemode: boolean;
+  /** Whether Stripe itself may email this office's customers. THINNR sends every customer email, so "off" is healthy. */
+  stripe_customer_emails: StripeCustomerEmailsState;
+  stripe_customer_emails_checked_at: string | null;
+  stripe_customer_emails_note: string | null;
   last_synced_at: string | null;
   disconnected_at: string | null;
   created_at: string;
 }
+export type StripeCustomerEmailsState = 'off' | 'unverified' | 'on';
 
 export interface AccountEvent {
   id: string;
@@ -72,7 +77,8 @@ export interface AccountEvent {
     | 'capability_updated'
     | 'deauthorized'
     | 'tax_enabled'
-    | 'tax_disabled';
+    | 'tax_disabled'
+    | 'customer_emails_recorded';
   detail: Record<string, unknown>;
   created_at: string;
 }
@@ -635,7 +641,8 @@ export interface CatalogProductDetail extends CatalogProduct {
 }
 
 export interface FulfillmentUpdate {
-  status: FulfillmentStatus;
+  /** `delivered` is a shipment transition; the order's fulfillment_status stays `shipped`. */
+  status: FulfillmentStatus | 'delivered';
   tracking_number?: string | null;
   carrier?: string | null;
   canceled_reason?: string | null;
@@ -736,6 +743,13 @@ export interface PaymentsHealth {
   unprocessed_webhook_events: number;
   last_reconcile_run: { at: string; status: string } | null;
   failed_events_24h: number;
+  /** Stripe-originated customer email posture: the platform never charges, connected accounts are tracked per office. */
+  stripe_customer_emails?: {
+    platform: 'not_applicable';
+    accounts_off: number;
+    accounts_unverified: string[];
+    accounts_on: string[];
+  };
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,3 +1,4 @@
+import { notifySubscriptionEvent, notifySubscriptionStarted, planLabel } from "./customer-emails";
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
@@ -7,7 +8,7 @@ import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
 import { ensureRecurringPrices } from "./prices";
-import { sendCancellationNotice, sendPaymentFailed } from "./receipts";
+import { sendPaymentFailed } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
   insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
@@ -269,6 +270,10 @@ export async function markSubscriptionInvoicePaid(invoice: any, ctx: StripeEvent
     });
   }
   if (invoice.billing_reason !== "subscription_create") return;
+  if (order.subscription_id) {
+    const started = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(order.subscription_id)}`);
+    if (started) await notifySubscriptionStarted(started);
+  }
   const paid = await selectOne("billing_orders", `id=eq.${encodeURIComponent(order.id)}`);
   const collected = paid?.application_fee_collected_cents ?? paid?.application_fee_cents ?? 0;
   const adjustment = applicationFeeOverCollection(collected, order.application_fee_cents);
@@ -380,6 +385,7 @@ export async function pauseSubscription(id: string): Promise<BillingSubscription
     if (mirrored?.paused_at) return mirrored;
     throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
   }
+  await notifySubscriptionEvent(updated, { kind: "paused" });
   return updated;
 }
 export async function resumeSubscription(id: string): Promise<BillingSubscriptionRow> {
@@ -398,6 +404,7 @@ export async function resumeSubscription(id: string): Promise<BillingSubscriptio
     if (mirrored && !mirrored.paused_at) return mirrored;
     throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
   }
+  await notifySubscriptionEvent(updated, { kind: "resumed" });
   return updated;
 }
 async function changeQuoteData(row: BillingSubscriptionRow, productId: string) {
@@ -472,6 +479,11 @@ export async function changeSubscription(id: string, productId: string): Promise
     pending_stripe_price_id: mirrored.stripe_price_id,
   });
   if (!updated) throw new BillingSubscriptionError("Subscription was updated elsewhere. Refresh and try again.", 409);
+  await notifySubscriptionEvent(updated, {
+    kind: "plan-changed",
+    previousPlan: planLabel(data.current.name, row.quantity, row.cadence_weeks),
+    newPlan: planLabel(data.next.name, row.quantity, row.cadence_weeks),
+  });
   return updated;
 }
 export async function cancelSubscription(id: string, input: { at_period_end: boolean }): Promise<BillingSubscriptionRow> {
@@ -479,6 +491,8 @@ export async function cancelSubscription(id: string, input: { at_period_end: boo
   if (!row) throw new BillingSubscriptionError("Subscription not found.", 404);
   const account = await accountFor(row.provider_id);
   if (!row.stripe_subscription_id) throw new BillingSubscriptionError("Subscription setup is not complete.", 409);
+  // Already in the requested end state: no second Stripe write, no second email.
+  if (row.status === "canceled" || (input.at_period_end && row.cancel_at_period_end)) return row;
   const stripe = await getStripe();
   const value: any = input.at_period_end
     ? await stripe.subscriptions.update(row.stripe_subscription_id, { cancel_at_period_end: true }, connectedOpts(account.stripe_account_id))
@@ -489,12 +503,7 @@ export async function cancelSubscription(id: string, input: { at_period_end: boo
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : null,
   });
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
-  const payer = await selectOne("billing_payers", `id=eq.${encodeURIComponent(row.payer_id)}`);
-  const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(row.product_id)}`);
-  if (payer && product) {
-    const office = await getProvider(row.provider_id).catch(() => null);
-    await sendCancellationNotice({ subscription: updated, payer, productName: product.name, office });
-  }
+  await notifySubscriptionEvent(updated, { kind: "cancelled" });
   return updated;
 }
 export async function retrySubscriptionPayment(id: string): Promise<BillingSubscriptionRow> {

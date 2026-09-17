@@ -88,6 +88,18 @@ args = "staff-alerts-mobile"
 task = "workflow.run"
 args = "app-store-qr"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shop-emails-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shop-emails-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shop-emails-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1454,3 +1466,36 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:app-store-qr && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/api-server exec vitest run src/routes/hq-org-policy.test.ts && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "shop-emails-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/customer-emails.test.ts src/billing/stripe-customer-emails.test.ts src/billing/subscriptions-controls.test.ts src/jobs/definitions/billing-renewal-reminders.test.ts src/routes/billing-orders.test.ts src/routes/billing-permissions.test.ts src/routes/billing-hq.test.ts src/routes/billing-webhooks.test.ts src/claim/email-templates.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "shop-emails-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "shop-emails-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:patient-billing && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

@@ -14,6 +14,7 @@ import { bloodworkCleanupJob } from "./definitions/bloodwork-cleanup";
 import { coachMemoryProcessingJob } from "./definitions/coach-memory-processing";
 import { coachTitleProcessingJob } from "./definitions/coach-title-processing";
 import { billingReconcileJob } from "./definitions/billing-reconcile";
+import { billingRenewalRemindersJob } from "./definitions/billing-renewal-reminders";
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
 
 const HOUR_MS = 3_600_000;
@@ -44,6 +45,7 @@ export const patientMediaCleanupJob: JobDefinition = {
 export const ALL_JOBS: JobDefinition[] = [
   staffAttentionDigestJob,
   billingReconcileJob,
+  billingRenewalRemindersJob,
   coachTitleProcessingJob,
   coachMemoryProcessingJob,
   abandonedUploadsJob,

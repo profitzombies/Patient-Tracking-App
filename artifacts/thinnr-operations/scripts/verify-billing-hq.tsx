@@ -40,20 +40,31 @@ const healthyPayments: PaymentsHealth = {
 {
   let healthy: ReturnType<typeof create> | undefined;
   let problem: ReturnType<typeof create> | undefined;
+  let emails: ReturnType<typeof create> | undefined;
   await act(async () => {
-    healthy = create(<PaymentsHealthBannerView health={healthyPayments} />);
+    healthy = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments,
+      stripe_customer_emails: { platform: 'not_applicable', accounts_off: 4, accounts_unverified: [], accounts_on: [] },
+    }} />);
+    emails = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments,
+      stripe_customer_emails: { platform: 'not_applicable', accounts_off: 2, accounts_unverified: ['office-a'], accounts_on: ['office-b', 'office-c'] },
+    }} />);
     problem = create(<PaymentsHealthBannerView health={{
       ...healthyPayments, webhooks: { ...healthyPayments.webhooks, registered: false },
       pending_orders_over_1h: 2, unprocessed_webhook_events: 3, last_reconcile_run: null,
     }} />);
   });
   const text = JSON.stringify(problem!.toJSON());
+  const emailsText = JSON.stringify(emails!.toJSON());
   if (healthy!.toJSON() !== null || !['not registered', '2 orders are stuck pending', '3 webhook events are unprocessed', 'never run']
-    .every((value) => text.includes(value))) {
+    .every((value) => text.includes(value))
+    || !['Stripe is emailing customers for 2 connected accounts', '1 connected account has not confirmed Stripe customer emails are off']
+      .every((value) => emailsText.includes(value))) {
     failures += 1;
     console.error('FAIL payments health banner states');
   } else console.log('ok payments health banner states');
-  await act(async () => { healthy!.unmount(); problem!.unmount(); });
+  await act(async () => { healthy!.unmount(); problem!.unmount(); emails!.unmount(); });
 }
 async function check(name: string, path: string, Page: React.ComponentType, expected: string[]) {
   const location = memoryLocation({ path });

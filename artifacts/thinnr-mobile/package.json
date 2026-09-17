@@ -48,6 +48,7 @@
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
     "test:shop": "tsx --tsconfig tsconfig.shop.json scripts/verify-shop.tsx",
     "test:product-page": "tsx --tsconfig tsconfig.shop.json scripts/verify-product-page.tsx",
+    "test:coach-product-card": "tsx --tsconfig tsconfig.shop.json scripts/verify-coach-product-card.tsx",
     "test:cart-math": "tsx --tsconfig tsconfig.shop.json scripts/verify-cart-math.ts",
     "test:checkout": "tsx --tsconfig tsconfig.shop.json scripts/verify-checkout.tsx",
     "test:leaderboard": "tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",

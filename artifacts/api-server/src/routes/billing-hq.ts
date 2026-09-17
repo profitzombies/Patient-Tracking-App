@@ -9,6 +9,7 @@ import {
 import { listOfficePrices } from "../billing/prices";
 import { officeDashboard } from "../billing/reporting";
 import { selectMany, selectOne, toOrderSummary } from "../billing/store";
+import { COACH_SUGGESTION_SIGNALS } from "../billing/types";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -36,6 +37,13 @@ const ProductSchema = z.object({
   disclaimer: z.string().trim().max(1000).optional(),
   offered_cadences_weeks: z.array(Cadence).min(1).max(6).optional(),
   default_cadence_weeks: Cadence.optional(),
+  coach_suggestion: z.object({
+    signals: z.array(z.enum(COACH_SUGGESTION_SIGNALS)).max(COACH_SUGGESTION_SIGNALS.length),
+    avoid_signals: z.array(z.enum(COACH_SUGGESTION_SIGNALS)).max(COACH_SUGGESTION_SIGNALS.length),
+    phrasing: z.string().trim().max(400),
+    bloodwork_covered: z.boolean(),
+    topics: z.array(z.string().trim().min(1).max(60)).max(40),
+  }).optional(),
 });
 const StatusSchema = z.object({ status: z.enum(["draft", "active", "retired", "archived"]) });
 const OrderSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });

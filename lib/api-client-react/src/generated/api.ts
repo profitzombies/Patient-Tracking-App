@@ -30,6 +30,7 @@ import type {
   BloodworkReport,
   BloodworkReportInput,
   BloodworkReportList,
+  BloodworkReportReview,
   BloodworkReportUpdate,
   BloodworkResult,
   BloodworkResultUpdate,
@@ -188,6 +189,7 @@ import type {
   RegisterStaffNotificationDeviceBody,
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
+  ReviewBloodworkReportParams,
   RunSystemJobBody,
   SearchHqFilesParams,
   SearchOfficeFilesParams,
@@ -9912,6 +9914,83 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getCommitBloodworkReportMutationOptions(options));
+    }
+
+export const getReviewBloodworkReportUrl = (patientId: string,
+    reportId: string,
+    params?: ReviewBloodworkReportParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/bloodwork/patients/${patientId}/reports/${reportId}/review?${stringifiedParams}` : `/api/bloodwork/patients/${patientId}/reports/${reportId}/review`
+}
+
+export const reviewBloodworkReport = async (patientId: string,
+    reportId: string,
+    bloodworkReportReview: BloodworkReportReview,
+    params?: ReviewBloodworkReportParams, options?: Parameters<typeof customFetch>[1]): Promise<BloodworkReport> => {
+
+  return customFetch<BloodworkReport>(getReviewBloodworkReportUrl(patientId,reportId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bloodworkReportReview)
+  }
+);}
+
+
+
+
+
+export const getReviewBloodworkReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportReview>;params?: ReviewBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportReview>;params?: ReviewBloodworkReportParams}, TContext> => {
+
+const mutationKey = ['reviewBloodworkReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewBloodworkReport>>, {patientId: string;reportId: string;data: BodyType<BloodworkReportReview>;params?: ReviewBloodworkReportParams}> = (props) => {
+          const {patientId,reportId,data,params} = props ?? {};
+
+          return  reviewBloodworkReport(patientId,reportId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewBloodworkReportMutationResult = NonNullable<Awaited<ReturnType<typeof reviewBloodworkReport>>>
+    export type ReviewBloodworkReportMutationBody = BodyType<BloodworkReportReview>
+    export type ReviewBloodworkReportMutationError = ErrorType<void>
+
+    export const useReviewBloodworkReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewBloodworkReport>>, TError,{patientId: string;reportId: string;data: BodyType<BloodworkReportReview>;params?: ReviewBloodworkReportParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewBloodworkReport>>,
+        TError,
+        {patientId: string;reportId: string;data: BodyType<BloodworkReportReview>;params?: ReviewBloodworkReportParams},
+        TContext
+      > => {
+      return useMutation(getReviewBloodworkReportMutationOptions(options));
     }
 
 export const getRetryBloodworkExtractionUrl = (patientId: string,

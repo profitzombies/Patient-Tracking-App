@@ -35,6 +35,17 @@ export interface CatalogProduct {
   sourceNote: string;
   /** Intent keywords that make this product eligible for a chat suggestion. */
   topics: string[];
+  /**
+   * Bundled mirror of the HQ suggestion rule (which account signals may
+   * prompt the coach to offer it). The live coach pipeline reads the
+   * HQ-edited rule from the server; this copy documents the shipped defaults.
+   */
+  suggestion?: {
+    signals: string[];
+    avoid_signals: string[];
+    phrasing: string;
+    bloodwork_covered: boolean;
+  };
 }
 
 export const PRODUCT_CATALOG: CatalogProduct[] = (

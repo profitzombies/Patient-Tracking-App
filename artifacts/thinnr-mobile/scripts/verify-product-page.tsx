@@ -39,7 +39,7 @@ async function main() {
   }
   assert('legacy id prod3 really maps to the Control slug', findCatalogProduct('prod3')?.slug === 'control');
   const coachCard = readFileSync(new URL('../components/coach/ProductSuggestionCard.tsx', import.meta.url), 'utf8');
-  assert('coach product card still pushes /product/<catalog id>', /router\.push\(`\/product\/\$\{product\.id\}`\)/.test(coachCard));
+  assert('coach product card pushes /product/<slug>', /router\.push\(`\/product\/\$\{slug\}`\)/.test(coachCard) && /slug: card\.slug \?\? bundled\?\.slug \?\? card\.productId \?\? card\.id/.test(coachCard));
 
   section('content sections');
   setSearchParams({ id: 'control' });
@@ -142,10 +142,11 @@ async function main() {
   script.shop = { ...availableShop, available: false, unavailable_reason: 'not_connected' };
   setSearchParams({ id: control.product_id, suggestedName: 'Wrong fallback' });
   tree = await mount(<ProductScreen />);
-  assert('known unavailable row keeps storefront copy and removes purchase controls',
+  assert('known unavailable row opens informationally: storefront copy, office notice, no price or purchase controls',
     text(tree, 'pdp-name') === control.name &&
     allText(tree).includes(control.description) &&
-    has(tree, 'pdp-missing') &&
+    has(tree, 'pdp-informational') &&
+    !has(tree, 'pdp-price') &&
     !has(tree, 'pdp-add-cart'));
   await unmount(tree);
   script.shop = availableShop;

@@ -139,3 +139,4 @@
 - [In-office sales](in-office-sales.md) — Elements need paymentMethodCreation manual; CAS-only prebuilt cart transitions; paid = all groups; attempt bumps only on definite card failure; guest payer by verified phone.
 - [Patient purchase routes](patient-purchase-routes.md) — /subscriptions is the staff tab; patient billing uses /my-subscriptions; demo writes are aria-disabled + nudge by design.
 - [Recreating RPCs drops later ALTERs](recreated-rpc-security-definer.md) — signature-extending drop+recreate loses a later `security definer`; live sends 403 while SQL-text tests stay green; prove with one real RPC call.
+- [Coach product suggestions](coach-product-suggestions.md) — real accounts: offers AND product prose only from the live office storefront (branch on auth, not data); persist opt-out first; export new cols.

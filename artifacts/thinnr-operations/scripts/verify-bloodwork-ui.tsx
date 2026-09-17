@@ -96,6 +96,7 @@ const report = (status: 'queued' | 'processing' | 'completed' | 'failed', overri
   extractionStatus: status,
   extractionError: status === 'failed' ? 'Unreadable image' : null,
   reviewStatus: 'unreviewed',
+  reviewedAt: null,
   ...overrides,
 });
 const result = (overrides: Record<string, unknown> = {}) => ({
@@ -261,6 +262,12 @@ console.log('\nbloodwork UI: completed detail, history, permissions, and correct
         ? json(409, { error: 'changed' })
         : json(200, result({ testName: req.body.testName, valueText: req.body.valueText, version: 2 }));
     }
+    if (req.method === 'POST' && req.url.endsWith(`/reports/${REPORT}/review`)) {
+      return json(200, report('completed', {
+        reviewStatus: req.body.reviewed ? 'reviewed' : 'unreviewed',
+        reviewedAt: req.body.reviewed ? '2026-01-04T00:00:00Z' : null,
+      }));
+    }
     throw new Error(`unexpected ${req.method} ${req.url}`);
   };
   const view = await renderBloodwork();
@@ -268,6 +275,9 @@ console.log('\nbloodwork UI: completed detail, history, permissions, and correct
   await click(one(view.root, `bloodwork-report-${REPORT}`));
   const completedText = textOf(one(view.root, `bloodwork-result-${RESULT}`));
   check('completed detail renders structured result values', completedText.includes('Hemoglobin') && completedText.includes('14.5') && textOf(view.root).includes('unreviewed'), completedText);
+  check('unreviewed completed report renders review button', Boolean(maybe(view.root, `button-bloodwork-review-${REPORT}`)));
+  await click(one(view.root, `button-bloodwork-review-${REPORT}`));
+  check('reviewed report renders reviewed label', textOf(view.root).includes('Reviewed 1/4/2026') && Boolean(maybe(view.root, `button-bloodwork-unreview-${REPORT}`)));
   await click(one(view.root, 'bloodwork-load-more-reports'));
   const reportRequests = requests.filter((request) => new URL(request.url).pathname.endsWith(`/patients/${PATIENT_A}/reports`));
   check('21st saved report loads with the report cursor and bearer auth', reportRequests.length === 2 && reportRequests[1].url.includes('cursor=report-page-2') && reportRequests[1].auth === 'Bearer token-a' && Boolean(maybe(view.root, `bloodwork-report-${olderReport.id}`)));

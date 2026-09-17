@@ -2517,6 +2517,27 @@ paths:
         "503":
           description: Account or bloodwork lookup unavailable
           content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkAccessError" } } }
+  /bloodwork/patients/{patientId}/reports/{reportId}/review:
+    post:
+      operationId: reviewBloodworkReport
+      tags: [bloodwork]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: "#/components/parameters/OfficePatientId" }
+        - { $ref: "#/components/parameters/BloodworkReportId" }
+        - { $ref: "#/components/parameters/OfficeId" }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReportReview" } } }
+      responses:
+        "200":
+          description: Provider review marker updated
+          content: { application/json: { schema: { $ref: "#/components/schemas/BloodworkReport" } } }
+        "401": { description: Session required }
+        "403": { description: Only staff may update the review marker }
+        "404": { description: Completed committed report not found }
+        "422": { description: Invalid request }
+        "503": { description: Bloodwork unavailable }
   /bloodwork/patients/{patientId}/reports/{reportId}/retry-extraction:
     post:
       operationId: retryBloodworkExtraction
@@ -2667,7 +2688,7 @@ components:
         consent: { type: object, additionalProperties: true }
     BloodworkReport:
       type: object
-      required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus, processing]
+      required: [id, patientId, title, reportDate, uploadedAt, version, kind, fileCount, pageCount, extractionStatus, extractionError, reviewStatus, reviewedAt, processing]
       properties:
         id: { type: string }
         patientId: { type: string }
@@ -2680,7 +2701,8 @@ components:
         pageCount: { type: number }
         extractionStatus: { type: string, enum: [queued, processing, completed, failed] }
         extractionError: { type: ["string", "null"] }
-        reviewStatus: { type: string, enum: [unreviewed] }
+        reviewStatus: { type: string, enum: [unreviewed, reviewed] }
+        reviewedAt: { type: ["string", "null"], format: date-time }
         processing: { $ref: "#/components/schemas/BloodworkProcessing" }
     BloodworkProcessing:
       type: object
@@ -2785,6 +2807,12 @@ components:
         expectedVersion: { type: number }
         title: { type: string, minLength: 1, maxLength: 200 }
         reportDate: { type: ["string", "null"], format: date }
+    BloodworkReportReview:
+      type: object
+      additionalProperties: false
+      required: [reviewed]
+      properties:
+        reviewed: { type: boolean }
     BloodworkResultUpdate:
       allOf:
         - { $ref: "#/components/schemas/BloodworkResultFields" }

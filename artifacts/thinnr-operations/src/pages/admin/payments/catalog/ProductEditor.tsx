@@ -16,9 +16,13 @@ import { useHqCatalog, useHqCatalogMutations, useHqProduct } from '@/hooks/use-b
 import { centsToDollarsInput, formatCents, formatDateTime, parseDollarsToCents } from '@/lib/billing-format';
 import {
   CADENCE_WEEKS,
+  COACH_SIGNAL_LABELS,
+  COACH_SUGGESTION_SIGNALS,
+  EMPTY_COACH_SUGGESTION,
   type BillingSettings,
   type CadenceWeeks,
   type CatalogProductDetail,
+  type CoachSuggestionSignal,
   type ProductCategory,
   type ProductFactRow,
   type ProductFaq,
@@ -109,6 +113,13 @@ interface Draft {
   disclaimer: string;
   cadences: CadenceWeeks[];
   default_cadence: CadenceWeeks;
+  /** Coach suggestion rule: which patient signals make the coach offer this product. */
+  coach_signals: CoachSuggestionSignal[];
+  coach_avoid_signals: CoachSuggestionSignal[];
+  coach_phrasing: string;
+  coach_bloodwork_covered: boolean;
+  /** One conversation phrase per line. */
+  coach_topics: string;
 }
 
 const FACT_SEPARATOR = ' — ';
@@ -162,6 +173,11 @@ function draftOf(product: CatalogProductDetail | null): Draft {
     disclaimer: product?.disclaimer ?? '',
     cadences: product?.offered_cadences_weeks ?? [...CADENCE_WEEKS],
     default_cadence: product?.default_cadence_weeks ?? 4,
+    coach_signals: product?.coach_suggestion?.signals ?? EMPTY_COACH_SUGGESTION.signals,
+    coach_avoid_signals: product?.coach_suggestion?.avoid_signals ?? EMPTY_COACH_SUGGESTION.avoid_signals,
+    coach_phrasing: product?.coach_suggestion?.phrasing ?? '',
+    coach_bloodwork_covered: product?.coach_suggestion?.bloodwork_covered ?? false,
+    coach_topics: (product?.coach_suggestion?.topics ?? []).join('\n'),
   };
 }
 
@@ -253,6 +269,13 @@ function Editor({
       disclaimer: draft.disclaimer.trim(),
       offered_cadences_weeks: [...draft.cadences].sort((x, y) => x - y),
       default_cadence_weeks: draft.default_cadence,
+      coach_suggestion: {
+        signals: draft.coach_signals,
+        avoid_signals: draft.coach_avoid_signals,
+        phrasing: draft.coach_phrasing.trim(),
+        bloodwork_covered: draft.coach_bloodwork_covered,
+        topics: parseLines(draft.coach_topics).map((topic) => topic.toLowerCase()),
+      },
     };
     const fail = (err: Error) => setError(err.message);
     if (product) {
@@ -552,6 +575,71 @@ function Editor({
               </p>
             </fieldset>
           </SectionCard>
+          <SectionCard
+            title="Coach suggestions"
+            sub="When the patient's own account data may prompt the coach to mention this product. The coach only ever offers curated products, at most one per reply, and never claims a product treats a lab result."
+          >
+            <div className="space-y-4 p-5" data-testid="catalog-coach-suggestion">
+              <SignalPicker
+                label="Suggest when"
+                help="Any one of these signals makes the product eligible. Leave all unchecked to suggest only when the conversation brings it up."
+                testId="coach-signal"
+                selected={draft.coach_signals}
+                readOnly={readOnly}
+                onChange={(coach_signals) => setDraft((d) => ({ ...d, coach_signals }))}
+              />
+              <SignalPicker
+                label="Never suggest when"
+                help="Contraindication flags: any one of these blocks the product entirely, even when the patient asks about it."
+                testId="coach-avoid"
+                selected={draft.coach_avoid_signals}
+                readOnly={readOnly}
+                onChange={(coach_avoid_signals) => setDraft((d) => ({ ...d, coach_avoid_signals }))}
+              />
+              <label className="block">
+                <span className={FIELD_LABEL}>Conversation topics</span>
+                <textarea
+                  data-testid="input-coach-topics"
+                  className={`${INPUT_CLASS} min-h-[72px] w-full resize-y py-2 leading-relaxed`}
+                  value={draft.coach_topics}
+                  disabled={readOnly}
+                  placeholder={'One phrase per line, e.g.\nalways hungry\nportion control'}
+                  onChange={(e) => setDraft((d) => ({ ...d, coach_topics: e.target.value }))}
+                />
+                <span className="mt-1 block text-[11px] text-muted-foreground">
+                  When the patient's message contains one of these phrases, the coach may bring the product up even without an account signal. Matching is by whole words, case does not matter.
+                </span>
+              </label>
+              <label className="block">
+                <span className={FIELD_LABEL}>How the coach talks about it</span>
+                <textarea
+                  data-testid="input-coach-phrasing"
+                  className={`${INPUT_CLASS} min-h-[60px] w-full resize-y py-2 leading-relaxed`}
+                  value={draft.coach_phrasing}
+                  disabled={readOnly}
+                  maxLength={400}
+                  placeholder="One or two sentences of guidance, e.g. frame it as support for the routine they already have."
+                  onChange={(e) => setDraft((d) => ({ ...d, coach_phrasing: e.target.value }))}
+                />
+              </label>
+              <label className="flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  data-testid="checkbox-coach-bloodwork-covered"
+                  className="mt-0.5"
+                  checked={draft.coach_bloodwork_covered}
+                  disabled={readOnly}
+                  onChange={(e) => setDraft((d) => ({ ...d, coach_bloodwork_covered: e.target.checked }))}
+                />
+                <span>
+                  The product page content explicitly covers the bloodwork markers checked above.
+                  <span className="block text-[11px] text-muted-foreground">
+                    Unchecked, a bloodwork signal only lets the coach say the marker is worth asking the provider about.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </SectionCard>
           {product ? (
             <SectionCard title="Status" sub={PRODUCT_STATUS_HELP[product.status]}>
               <div className="flex flex-wrap gap-2 p-5">
@@ -827,4 +915,48 @@ function LinesField({
 
 function isEqual(a: Draft, b: Draft): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function SignalPicker({
+  label,
+  help,
+  testId,
+  selected,
+  readOnly,
+  onChange,
+}: {
+  label: string;
+  help: string;
+  testId: string;
+  selected: CoachSuggestionSignal[];
+  readOnly: boolean;
+  onChange: (next: CoachSuggestionSignal[]) => void;
+}) {
+  return (
+    <fieldset className="space-y-2" data-testid={`${testId}-picker`}>
+      <legend className={FIELD_LABEL}>{label}</legend>
+      <p className="text-[11px] text-muted-foreground">{help}</p>
+      <div className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
+        {COACH_SUGGESTION_SIGNALS.map((signal) => (
+          <label key={signal} className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              data-testid={`checkbox-${testId}-${signal}`}
+              checked={selected.includes(signal)}
+              disabled={readOnly}
+              onChange={(e) =>
+                onChange(
+                  e.target.checked
+                    ? COACH_SUGGESTION_SIGNALS.filter((id) => id === signal || selected.includes(id))
+                    : selected.filter((id) => id !== signal),
+                )
+              }
+            />
+            <span>{COACH_SIGNAL_LABELS[signal]}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
 }

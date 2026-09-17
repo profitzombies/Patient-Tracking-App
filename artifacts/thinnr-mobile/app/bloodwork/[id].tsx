@@ -321,6 +321,11 @@ export default function BloodworkDetailScreen() {
             <Text style={[styles.meta, { color: colors.subtleText }]}>
               Uploaded {new Date(detail.report.uploadedAt).toLocaleString()}
             </Text>
+            {detail.report.reviewStatus === 'reviewed' && (
+              <View style={[styles.reviewedChip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.reviewedChipText, { color: colors.cobalt }]}>Reviewed by your care team</Text>
+              </View>
+            )}
            
            <View style={styles.actions}>
               <Pressable onPress={() => { setViewerIndex(0); setViewerVisible(true); }} style={[styles.actionBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -457,6 +462,8 @@ const styles = StyleSheet.create({
   actionText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   resultsBox: { marginTop: 8 },
   sectionTitle: { fontSize: 15, fontFamily: 'Inter_700Bold', letterSpacing: 1, marginBottom: 12 },
+  reviewedChip: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, marginTop: 8 },
+  reviewedChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   list: { borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)', borderRadius: 8, overflow: 'hidden' },
   divider: { height: 1, width: '100%' },
   emptyWrap: { padding: 32, alignItems: 'center', justifyContent: 'center' },

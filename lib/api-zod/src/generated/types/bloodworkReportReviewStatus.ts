@@ -11,4 +11,5 @@ export type BloodworkReportReviewStatus = typeof BloodworkReportReviewStatus[key
 
 export const BloodworkReportReviewStatus = {
   unreviewed: 'unreviewed',
+  reviewed: 'reviewed',
 } as const;

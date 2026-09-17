@@ -10,7 +10,8 @@ export interface BloodworkReport {
   pageCount: number;
   extractionStatus: 'queued' | 'processing' | 'completed' | 'failed';
   extractionError: string | null;
-  reviewStatus: 'unreviewed';
+  reviewStatus: 'unreviewed' | 'reviewed';
+  reviewedAt: string | null;
   processing?: BloodworkProcessingMetadata | null;
 }
 

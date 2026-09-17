@@ -25,5 +25,7 @@ export interface BloodworkReport {
   /** @nullable */
   extractionError: string | null;
   reviewStatus: BloodworkReportReviewStatus;
+  /** @nullable */
+  reviewedAt: Date | null;
   processing: BloodworkProcessing;
 }

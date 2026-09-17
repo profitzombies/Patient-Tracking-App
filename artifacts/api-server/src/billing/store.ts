@@ -24,6 +24,8 @@ export interface BillingProductRow extends TimestampedRow {
   category: ProductCategory; tagline: string; format: string; benefits: string[]; how_to_take: string;
   facts_title: string; facts: ProductFactRow[]; faqs: ProductFaq[]; disclaimer: string;
   offered_cadences_weeks: CadenceWeeks[]; default_cadence_weeks: CadenceWeeks;
+  /** HQ coach suggestion rule (validated shape lives in billing/catalog.ts coachSuggestionRule). */
+  coach_suggestion: Record<string, unknown> | null;
 }
 export interface BillingProductImageRow extends TimestampedRow {
   id: string; product_id: string; object_path: string; content_type: string; size_bytes: number;

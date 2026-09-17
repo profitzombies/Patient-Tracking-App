@@ -220,7 +220,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
-      rows(`/rest/v1/patient_flags?${scope}&select=nudge_opt_out,nudge_engaged,onboarding_complete,onboarding_answers,notification_prefs,created_at,updated_at&limit=1`, "flags"),
+      rows(`/rest/v1/patient_flags?${scope}&select=nudge_opt_out,nudge_engaged,onboarding_complete,onboarding_answers,notification_prefs,coach_product_opt_out,coach_product_suggestions,created_at,updated_at&limit=1`, "flags"),
       rows(`/rest/v1/patient_diary_entries?${scope}&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments,created_at,updated_at&order=date_key.asc,created_at.asc&limit=${MAX_ROWS}`, "diary"),
       rows(`/rest/v1/patient_water_days?${scope}&select=date_key,oz&order=date_key.asc&limit=${MAX_ROWS}`, "water"),
       rows(`/rest/v1/patient_target_overrides?${scope}&select=calories,protein,carbs,fat,water_oz&limit=1`, "targets"),
@@ -326,7 +326,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
   ]);
   const [bloodworkReports, bloodworkFiles, bloodworkResults, bloodworkCorrections] = await Promise.all([
     allRows(
-      `/rest/v1/patient_bloodwork_reports?${scope}&select=id,client_request_id,title,report_date,kind,lifecycle_status,extraction_status,extraction_error,version,uploaded_at,committed_at,deleted_at,extraction_attempt&order=uploaded_at.asc,id.asc`,
+      `/rest/v1/patient_bloodwork_reports?${scope}&select=id,client_request_id,title,report_date,kind,lifecycle_status,extraction_status,extraction_error,version,uploaded_at,committed_at,deleted_at,extraction_attempt,reviewed_at,reviewed_by&order=uploaded_at.asc,id.asc`,
       "bloodwork reports",
     ),
     allRows(

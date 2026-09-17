@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/r
 import {
   useGetBloodworkReport,
   useRetryBloodworkExtraction,
+  useReviewBloodworkReport,
   useCorrectBloodworkResult,
   listBloodworkReports,
   useListBloodworkCorrections,
@@ -128,6 +129,40 @@ export function useRetryExtractionMutation(patientId: string, office: string | n
         );
       },
     }
+  });
+}
+
+export function useReviewReportMutation(patientId: string, office: string | null) {
+  const { authUser } = useSession();
+  const queryClient = useQueryClient();
+
+  return useReviewBloodworkReport({
+    mutation: {
+      onSuccess: (updatedReport) => {
+        queryClient.setQueryData<BloodworkDetail>(
+          bloodworkKeys.detail(patientId, office, updatedReport.id, authUser?.id),
+          (old) => old ? { ...old, report: updatedReport } : old,
+        );
+        queryClient.setQueryData<InfiniteData<BloodworkReportList, string | undefined>>(
+          bloodworkKeys.list(patientId, office, authUser?.id),
+          (old) => old ? {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              reports: page.reports.map((report) => report.id === updatedReport.id ? updatedReport : report),
+            })),
+          } : old,
+        );
+        queryClient.invalidateQueries({
+          queryKey: bloodworkKeys.detail(patientId, office, updatedReport.id, authUser?.id),
+          refetchType: 'none',
+        });
+        queryClient.invalidateQueries({
+          queryKey: bloodworkKeys.list(patientId, office, authUser?.id),
+          refetchType: 'none',
+        });
+      },
+    },
   });
 }
 

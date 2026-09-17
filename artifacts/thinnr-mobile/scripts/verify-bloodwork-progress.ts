@@ -20,6 +20,7 @@ const report: BloodworkReportLike = {
   extractionStatus: 'processing',
   extractionError: null,
   reviewStatus: 'unreviewed',
+  reviewedAt: null,
   processing: {
     phase: 'reading_pages',
     completedPages: 4,

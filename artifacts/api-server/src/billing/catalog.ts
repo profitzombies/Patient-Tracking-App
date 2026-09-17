@@ -7,10 +7,11 @@ import {
   type BillingProductImageRow, type BillingProductRow, type BillingProductStatus, type BillingSettingsRow,
 } from "./store";
 import type {
+  CoachSuggestionRule, CoachSuggestionSignal,
   BillingSettings, CadenceWeeks, CatalogChange, CatalogChangeKind, CatalogProduct, CatalogProductDetail, CatalogProductInput,
   HqCatalogResponse, ProductCadences, ProductImage, ProductPageContent, PublicLinkProduct,
 } from "./types";
-import { CADENCE_WEEKS } from "./types";
+import { CADENCE_WEEKS, COACH_SUGGESTION_SIGNALS } from "./types";
 
 export class BillingCatalogError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -45,6 +46,32 @@ export function pageContent(row: BillingProductRow): ProductPageContent {
     facts_title: row.facts_title ?? "", facts: Array.isArray(row.facts) ? row.facts : [],
     faqs: Array.isArray(row.faqs) ? row.faqs : [], disclaimer: row.disclaimer ?? "",
   };
+}
+/** Coach suggestion rule exactly as stored, tolerant of older rows and unknown signal ids (dropped). */
+export function coachSuggestionRule(row: Pick<BillingProductRow, "coach_suggestion">): CoachSuggestionRule {
+  const raw = (row.coach_suggestion && typeof row.coach_suggestion === "object" ? row.coach_suggestion : {}) as Record<string, unknown>;
+  const signals = (value: unknown): CoachSuggestionSignal[] =>
+    Array.isArray(value) ? value.filter((id): id is CoachSuggestionSignal => (COACH_SUGGESTION_SIGNALS as readonly string[]).includes(String(id))) : [];
+  return {
+    signals: signals(raw.signals), avoid_signals: signals(raw.avoid_signals),
+    phrasing: typeof raw.phrasing === "string" ? raw.phrasing : "",
+    bloodwork_covered: raw.bloodwork_covered === true,
+    topics: coachTopics(raw.topics),
+  };
+}
+export const COACH_TOPIC_MAX_LENGTH = 60;
+export const COACH_TOPICS_MAX = 40;
+/** Normalized conversation topics: trimmed, lowercased, de-duplicated, bounded. */
+export function coachTopics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const topic = entry.trim().toLowerCase().replace(/\s+/g, " ");
+    if (topic && topic.length <= COACH_TOPIC_MAX_LENGTH) seen.add(topic);
+    if (seen.size >= COACH_TOPICS_MAX) break;
+  }
+  return [...seen];
 }
 /** Offered cadences, normalized to the fixed set; rows predating cadences read as the 4-week plan. */
 export function productCadences(row: Pick<BillingProductRow, "offered_cadences_weeks" | "default_cadence_weeks">): ProductCadences {
@@ -158,11 +185,15 @@ const change = (productId: string | null, kind: CatalogChangeKind, before: Recor
 const snapshot = (row: BillingProductRow): Record<string, unknown> => ({
   slug: row.slug, name: row.name, description: row.description, floor_price_cents: row.floor_price_cents,
   hard_cost_cents: row.hard_cost_cents, status: row.status, sort_order: row.sort_order,
-  ...pageContent(row), ...productCadences(row),
+  ...pageContent(row), ...productCadences(row), coach_suggestion: coachSuggestionRule(row),
 });
 /** Validates the page-content and cadence half of a product write; returns only the keys present. */
 export function normalizeProductInput(input: Partial<CatalogProductInput>): Partial<CatalogProductInput> {
   const out: Partial<CatalogProductInput> = { ...input };
+  if (input.coach_suggestion !== undefined) {
+    // Re-validate through the same reader the DTO uses so unknown signal ids never land in the row.
+    out.coach_suggestion = coachSuggestionRule({ coach_suggestion: input.coach_suggestion as unknown as Record<string, unknown> });
+  }
   if (input.offered_cadences_weeks !== undefined || input.default_cadence_weeks !== undefined) {
     const offered = CADENCE_WEEKS.filter((weeks) => (input.offered_cadences_weeks ?? [4]).includes(weeks));
     if (!offered.length) throw new BillingCatalogError("Offer at least one subscription cadence.", 400, "offered_cadences_weeks");
@@ -185,7 +216,7 @@ function productDto(
   const fallback = defaultImages(images).get(product.id);
   return {
     id: product.id, slug: product.slug, name: product.name, description: product.description ?? "",
-    ...pageContent(product), ...productCadences(product),
+    ...pageContent(product), ...productCadences(product), coach_suggestion: coachSuggestionRule(product),
     floor_price_cents: product.floor_price_cents, hard_cost_cents: product.hard_cost_cents,
     active: product.active, status: product.status, retired_at: product.retired_at, archived_at: product.archived_at ?? null,
     image_url: fallback ? productImageUrl(fallback.id) : null, image_count: images.length, updated_at: product.updated_at ?? product.created_at,
@@ -219,7 +250,7 @@ export async function getProduct(id: string): Promise<CatalogProductDetail> {
 export async function createProduct(input: CatalogProductInput, actor: string): Promise<CatalogProductDetail> {
   const slug = (input.slug?.trim() || slugify(input.name));
   if (!slug) throw new BillingCatalogError("Enter a product name.", 400, "name");
-  const { status = "active", sort_order, ...values } = normalizeProductInput(input) as CatalogProductInput;
+  const { status = "active", sort_order, ...values } = normalizeProductInput(input) as CatalogProductInput & { coach_suggestion?: Record<string, unknown> };
   let order = sort_order;
   if (order === undefined) {
     const last = await selectMany("billing_products", "select=sort_order&order=sort_order.desc&limit=1");
@@ -234,7 +265,7 @@ export async function createProduct(input: CatalogProductInput, actor: string): 
 }
 export async function editProduct(id: string, input: Partial<CatalogProductInput>, actor: string): Promise<CatalogProductDetail> {
   const before = await requireProduct(id);
-  const { status: _status, ...values } = normalizeProductInput(input);
+  const { status: _status, ...values } = normalizeProductInput(input) as Partial<CatalogProductInput> & { coach_suggestion?: Record<string, unknown> };
   if (Object.keys(values).length) {
     const after = await update("billing_products", `id=eq.${enc(id)}`, values);
     if (!after) throw new BillingCatalogError("Product not found.", 404);

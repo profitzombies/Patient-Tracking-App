@@ -38,6 +38,7 @@ function report(id: string): BloodworkReport {
     extractionStatus: 'completed',
     extractionError: null,
     reviewStatus: 'unreviewed',
+    reviewedAt: null,
     processing: {
       phase: 'completed',
       completedPages: 1,

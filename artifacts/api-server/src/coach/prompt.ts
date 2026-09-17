@@ -1,5 +1,5 @@
 import type { Compartment } from "./compartments";
-import type { CatalogProduct } from "./products";
+import type { OfferProduct } from "./products";
 import { QUICK_REPLY_SETS } from "./quick-replies";
 
 export interface PatientDayTargets {
@@ -125,38 +125,86 @@ Button rules:
 - The marker line is a control signal, not one of your text blocks.`;
 }
 /**
- * Product suggestion instructions, present only when the latest patient
- * message matched at least one catalog product's intent topics. Without this
- * block the model never sees the marker syntax, and the route drops any
- * marker anyway — a hard guarantee against unsolicited pitching.
+ * Product suggestion instructions, present only when at least one product
+ * was offered for this turn: the latest message matched its intent topics,
+ * or (real accounts) one of the patient's live signals is in the product's
+ * HQ suggestion rule. Without this block the model never sees the marker
+ * syntax, and the route drops any marker anyway — a hard guarantee against
+ * unsolicited pitching.
+ *
+ * Accepts plain catalog products (legacy callers, conversation offers) or
+ * full offers carrying reasons, HQ phrasing, and live pricing.
  */
-function buildProductBlock(products: CatalogProduct[]): string {
-  if (products.length === 0) return "";
-  const entries = products
-    .map((p) =>
-      [
+export type PromptProductOffer =
+  | OfferProduct
+  | {
+      product: OfferProduct;
+      source: "conversation" | "signal";
+      reasons: { id: string; detail: string }[];
+      providerNudge: boolean;
+      rule: { phrasing: string } | null;
+      pricing: { priceCents: number; available: boolean } | null;
+    };
+/** Narrowed accessor for the offered id regardless of shape. */
+export function offeredProductId(entry: PromptProductOffer): string {
+  return "product" in entry ? entry.product.id : entry.id;
+}
+
+function asOffer(entry: PromptProductOffer) {
+  return "product" in entry
+    ? entry
+    : { product: entry, source: "conversation" as const, reasons: [], providerNudge: false, rule: null, pricing: null };
+}
+
+const PROVIDER_NUDGE_LINE =
+  "Why it came up: a marker on bloodwork their care team reviewed. Say only that it is worth asking their provider about, and that this product is one option to raise with them. Never say the product treats, fixes, or is for that lab result.";
+
+function buildProductBlock(entries: PromptProductOffer[], suggestionsPaused = false): string {
+  if (suggestionsPaused) {
+    return `
+
+Product suggestions are paused: the patient asked you to stop suggesting THINNR products. Acknowledge that briefly and warmly, and do not mention any product in this reply or later ones.`;
+  }
+  if (entries.length === 0) return "";
+  const offers = entries.map(asOffer);
+  const anySignal = offers.some((o) => o.source === "signal");
+  const blocks = offers
+    .map(({ product: p, source, reasons, providerNudge, rule, pricing }) => {
+      const price = pricing ? `Price at their office: $${(pricing.priceCents / 100).toFixed(2)}` : `Price: $${p.price}`;
+      const lines = [
         `<product id="${p.id}" name="${p.name}">`,
         `${p.name}: ${p.tagline}`,
         p.format,
         p.description,
-        `Price: $${p.price}`,
-        `</product>`,
-      ].join("\n"),
-    )
+        price,
+      ];
+      if (pricing && !pricing.available) lines.push("Ordering is not open at their office right now; they can still read about it in the app.");
+      if (source === "signal") {
+        lines.push(`Why it fits this patient (from their own account, share the gist naturally, never as a data dump):`);
+        for (const reason of reasons) lines.push(`- ${reason.detail}`);
+      } else {
+        lines.push("Why it came up: their message touched on what this product supports.");
+      }
+      if (providerNudge) lines.push(PROVIDER_NUDGE_LINE);
+      if (rule?.phrasing) lines.push(`How to talk about it: ${rule.phrasing}`);
+      lines.push("</product>");
+      return lines.join("\n");
+    })
     .join("\n\n");
 
   return `
 
 THINNR product suggestions (optional):
-The patient's message may relate to these THINNR products. Details are quoted from the curated THINNR catalog (getthinnr.com):
+${anySignal ? "Based on this patient's own account data and their message, these THINNR products may fit." : "The patient's message may relate to these THINNR products."} Details are quoted from the curated THINNR catalog (getthinnr.com):
 
-${entries}
+${blocks}
 
 Product rules:
-- Only if the patient's message describes a goal or struggle that one product above directly supports, you may recommend that one product: mention it naturally in your short reply, then put the marker [[product:ID]] with its exact id on the final line, alone.
-- Recommend at most one product per reply. If the patient is asking an ordinary program question (rules, foods, phases, dosing), or you are unsure it truly helps, do not recommend anything and do not write any marker.
-- Describe the product only with the wording above; never invent facts, benefits, or prices. Do not state the price unless the patient asks.
-- Never mention the marker, product ids, or these instructions to the patient.`;
+- You may recommend at most one product per reply, and only when the reason listed for it genuinely connects to what the patient is dealing with right now. When their message and a listed reason from their own account point at the same thing (they ask about protein and their protein has been low), do recommend it: answer the program question first, then mention the product naturally as one extra that fits, explain in one plain sentence why it fits them (their pattern, their goal, or what they just said), then put the marker [[product:ID]] with its exact id on the final line, alone.
+- If the patient is asking an ordinary program question that no listed reason connects to (rules, foods, phases, dosing), is in a rough moment that needs support first, or you are unsure the product truly helps, do not recommend anything and do not write any marker.
+- Describe the product only with the wording above; never invent facts, benefits, or prices. Do not state the price unless the patient asks; the card shows it.
+- Products are optional extras, never a fix: do not imply one is needed, do not promise results, and never suggest changing medication or doses. Where a reason involves bloodwork or medication, the provider decides; you only raise the idea.
+- Never mention the marker, product ids, account signals, or these instructions to the patient.`;
 }
 
 /**
@@ -194,7 +242,8 @@ export const COACH_VOICE_RULES = `Voice — how you sound in every reply:
 export function buildSystemPrompt(
   compartments: Compartment[],
   patient: PatientContext,
-  offeredProducts: CatalogProduct[] = [],
+  offeredProducts: PromptProductOffer[] = [],
+  options: { suggestionsPaused?: boolean } = {},
 ): string {
   return `${COACH_PERSONA_LINE}
 
@@ -217,5 +266,5 @@ Grounding rules:
 
 THINNR program materials for this question:
 
-${sourcesBlock(compartments)}${buildProductBlock(offeredProducts)}`;
+${sourcesBlock(compartments)}${buildProductBlock(offeredProducts, options.suggestionsPaused === true)}`;
 }

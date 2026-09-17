@@ -3,6 +3,9 @@ import path from "node:path";
 import { repoRoot } from "./repo-paths";
 import { productGroundingText } from "./products";
 
+/** Bundled demo catalog: demo persona only. Real accounts swap in the office storefront (see routes/coach). */
+export const DEMO_PRODUCT_COMPARTMENT_ID = "product-catalog";
+
 /**
  * Knowledge compartments for the THINNR coach.
  *
@@ -345,7 +348,7 @@ export const COMPARTMENTS: Compartment[] = [
     load: cached("restaurant-guide", loadRestaurantGuide),
   },
   {
-    id: "product-catalog",
+    id: DEMO_PRODUCT_COMPARTMENT_ID,
     title: "THINNR product catalog (quoted from getthinnr.com; demo pricing)",
     keywords: [
       /\bthinnr (protocol|boost|control|detox|regulate|b[- ]?active|creatine|fiber|maintenance)/i,

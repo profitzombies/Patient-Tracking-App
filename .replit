@@ -148,6 +148,18 @@ args = "care-team-suggestions-web"
 task = "workflow.run"
 args = "care-team-suggestions-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-product-suggestions-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-product-card-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-product-rules-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1679,3 +1691,36 @@ args = "pnpm --filter @workspace/thinnr-mobile run test:care-team-chat && pnpm -
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "coach-product-suggestions-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/coach/product-signals.test.ts src/coach/product-suggestions.test.ts src/coach/products.test.ts src/routes/coach-product-offers.test.ts src/routes/coach.test.ts src/routes/coach-real-grounding.test.ts src/routes/billing-hq.test.ts src/routes/patient-shop.test.ts src/bloodwork/admission.test.ts src/bloodwork/contract.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "coach-product-card-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:coach-product-card && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coach-product-rules-web"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:bloodwork && pnpm --filter @workspace/thinnr-operations run typecheck"

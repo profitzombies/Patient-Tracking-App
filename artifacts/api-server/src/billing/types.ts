@@ -111,6 +111,56 @@ export interface ProductFaq {
   answer: string;
 }
 
+/**
+ * Patient signals the coach may cite when suggesting a product. The
+ * vocabulary is fixed here; HQ picks which ids each product responds to
+ * (`CoachSuggestionRule`). Bloodwork ids only ever produce "worth asking
+ * your provider about" nudges unless the product content covers the marker.
+ */
+export const COACH_SUGGESTION_SIGNALS = [
+  'stall', 'weight_regain', 'off_plan_meals', 'low_logging', 'low_protein', 'low_water', 'program_complete',
+  'glp1_medication', 'diabetes_medication', 'blood_thinner_medication',
+  'bloodwork_glucose_high', 'bloodwork_lipids_high', 'bloodwork_liver_high', 'bloodwork_b12_low',
+  'bloodwork_vitamin_d_low', 'bloodwork_iron_low', 'bloodwork_kidney_flag',
+] as const;
+export type CoachSuggestionSignal = (typeof COACH_SUGGESTION_SIGNALS)[number];
+export const COACH_SIGNAL_LABELS: Record<CoachSuggestionSignal, string> = {
+  stall: 'Weight stalled: three weeks of weigh-ins with no real drop',
+  weight_regain: 'Weight climbing back: recent weigh-ins above the earlier ones',
+  off_plan_meals: 'Repeated off-plan meals in the last two weeks',
+  low_logging: 'Logging has lapsed: three or fewer diary days in the last week',
+  low_protein: 'Protein running under 70% of target this week',
+  low_water: 'Water running under 60% of target this week',
+  program_complete: 'Past day 42 of the program',
+  glp1_medication: 'Active GLP-1 medication on record',
+  diabetes_medication: 'Active diabetes medication on record (metformin, insulin, sulfonylureas)',
+  blood_thinner_medication: 'Active blood thinner on record',
+  bloodwork_glucose_high: 'Bloodwork: glucose, A1c, or insulin flagged high',
+  bloodwork_lipids_high: 'Bloodwork: cholesterol, LDL, or triglycerides flagged high',
+  bloodwork_liver_high: 'Bloodwork: liver enzymes (ALT, AST, GGT) flagged high',
+  bloodwork_b12_low: 'Bloodwork: B12 or folate flagged low',
+  bloodwork_vitamin_d_low: 'Bloodwork: vitamin D flagged low',
+  bloodwork_iron_low: 'Bloodwork: iron, ferritin, or hemoglobin flagged low',
+  bloodwork_kidney_flag: 'Bloodwork: kidney markers (creatinine, eGFR, BUN) flagged',
+};
+export function isBloodworkSignal(signal: CoachSuggestionSignal): boolean {
+  return signal.startsWith('bloodwork_');
+}
+/** HQ-edited rule for when the coach may suggest a product; lives with the catalog content. */
+export interface CoachSuggestionRule {
+  /** Any one of these signals makes the product eligible for a data-driven suggestion. */
+  signals: CoachSuggestionSignal[];
+  /** Any one of these blocks the product entirely, even for a conversation match (contraindication flags). */
+  avoid_signals: CoachSuggestionSignal[];
+  /** Guidance the coach model reads when it mentions the product. */
+  phrasing: string;
+  /** When true the product content explicitly covers the lab markers in its signals; otherwise bloodwork nudges defer to the provider. */
+  bloodwork_covered: boolean;
+  /** Conversation phrases (lowercase, matched as whole words in the patient's latest message) that make the product eligible for a conversation offer. */
+  topics: string[];
+}
+export const EMPTY_COACH_SUGGESTION: CoachSuggestionRule = { signals: [], avoid_signals: [], phrasing: '', bloodwork_covered: false, topics: [] };
+
 /** Product-page content, drafted from the program documents and edited by HQ. */
 export interface ProductPageContent {
   category: ProductCategory;
@@ -147,6 +197,8 @@ export interface ProductImage {
 }
 
 export interface CatalogProduct extends ProductPageContent, ProductCadences {
+  /** Coach suggestion rule (HQ editorial data; never sent to payers). */
+  coach_suggestion: CoachSuggestionRule;
   id: string;
   slug: string;
   name: string;
@@ -624,6 +676,7 @@ export interface HqCatalogResponse {
 }
 
 export interface CatalogProductInput extends Partial<ProductPageContent>, Partial<ProductCadences> {
+  coach_suggestion?: CoachSuggestionRule;
   name: string;
   slug?: string;
   description?: string;

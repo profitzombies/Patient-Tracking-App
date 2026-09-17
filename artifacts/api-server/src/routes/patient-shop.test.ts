@@ -468,8 +468,10 @@ describe("storefront", () => {
     backend.signedIn("pat", "office-1");
     const { status, json } = await api("GET", "/api/patient-data/billing/shop", { token: "pat" });
     expect(status).toBe(200);
-    expect(json).toMatchObject({ available: false, unavailable_reason: "not_connected", products: [], stripe_account_id: null, publishable_key: null });
+    expect(json).toMatchObject({ available: false, unavailable_reason: "not_connected", stripe_account_id: null, publishable_key: null });
     expect(json.office.payments_available).toBe(false);
+    // The offering still rides along so product pages open informationally (no buy controls client-side).
+    expect(json.products.map((p: { slug: string }) => p.slug)).toEqual(expect.arrayContaining(["control", "boost"]));
   });
 
   it("treats a connected account without charges as unavailable", async () => {

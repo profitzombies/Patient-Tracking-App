@@ -66,6 +66,18 @@ function ordered(rows: Row[], params: URLSearchParams): Row[] {
   return limit ? out.slice(offset, offset + Number(limit)) : out.slice(offset);
 }
 
+/**
+ * Plain column lists project like PostgREST does (a column the fixture never
+ * set comes back null), so an export that forgets to select a new column is
+ * caught by the tests. Embedded or aliased selects pass rows through.
+ */
+function projected(rows: Row[], params: URLSearchParams): Row[] {
+  const select = params.get("select");
+  if (!select || select === "*" || /[():!*]/.test(select)) return rows;
+  const columns = select.split(",").map((c) => c.trim()).filter(Boolean);
+  return rows.map((row) => Object.fromEntries(columns.map((c) => [c, c in row ? row[c] : null])));
+}
+
 export function createFakeSupabase(): FakeSupabase {
   const fake: FakeSupabase = {
     tables: {},
@@ -255,7 +267,7 @@ export function createFakeSupabase(): FakeSupabase {
       const table = url.pathname.replace("/rest/v1/", "");
       const rows = fake.tables[table];
       if (!rows) throw new Error(`fake supabase: unknown table ${table}`);
-      if (method === "GET") return { status: 200, json: ordered(rows.filter((r) => matches(r, params)), params) };
+      if (method === "GET") return { status: 200, json: projected(ordered(rows.filter((r) => matches(r, params)), params), params) };
       if (method === "POST") {
         const incoming = (Array.isArray(body) ? body : [body]) as Row[];
         const out: Row[] = [];

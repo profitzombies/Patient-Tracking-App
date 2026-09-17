@@ -194,10 +194,13 @@ export type CheckoutInput = {
    */
   expected_total_due_cents?: number | null;
   /**
-   * The pre-tax total a payer page showed when it cannot know the tax yet
-   * (public prebuilt carts, priced before an address exists). A fresh cart is
-   * refused (422) when today's plan no longer prices to exactly this, and the
-   * finalized invoices are checked against it before any is paid.
+   * The pre-tax total the payer was shown (public prebuilt carts and office
+   * sales, priced before the tax is known). A NEW checkout is refused (422)
+   * when today's pricing no longer produces this amount, so a catalog,
+   * discount, or shipping change between the quote and the card tap can never
+   * charge a total nobody confirmed; the finalized invoices are checked
+   * against it before any is paid. Replays of an already-claimed cart are
+   * unaffected. Null and undefined both mean "no total was shown".
    */
   expected_total_cents?: number | null;
   resolvedPayer?: BillingPayerRow;

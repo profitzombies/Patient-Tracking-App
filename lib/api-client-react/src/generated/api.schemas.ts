@@ -59,6 +59,7 @@ export type BloodworkReportReviewStatus = typeof BloodworkReportReviewStatus[key
 
 export const BloodworkReportReviewStatus = {
   unreviewed: 'unreviewed',
+  reviewed: 'reviewed',
 } as const;
 
 export type BloodworkProcessingPhase = typeof BloodworkProcessingPhase[keyof typeof BloodworkProcessingPhase];
@@ -126,6 +127,8 @@ export interface BloodworkReport {
   /** @nullable */
   extractionError: string | null;
   reviewStatus: BloodworkReportReviewStatus;
+  /** @nullable */
+  reviewedAt: string | null;
   processing: BloodworkProcessing;
 }
 
@@ -269,6 +272,10 @@ export interface BloodworkReportUpdate {
   title: string;
   /** @nullable */
   reportDate: string | null;
+}
+
+export interface BloodworkReportReview {
+  reviewed: boolean;
 }
 
 export type BloodworkResultUpdate = BloodworkResultFields & {
@@ -4397,6 +4404,13 @@ office?: OfficeIdParameter;
 
 export type DeleteBloodworkReportParams = {
 expectedVersion: number;
+};
+
+export type ReviewBloodworkReportParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
 };
 
 export type RetryBloodworkExtractionParams = {

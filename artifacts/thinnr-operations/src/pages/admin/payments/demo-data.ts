@@ -1,5 +1,6 @@
+import { EMPTY_COACH_SUGGESTION } from '@/lib/billing-types';
 import type {
-  CatalogChange, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
+  CatalogChange, CoachSuggestionRule, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
   HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, ProductPageContent, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
 import { DEMO_PRODUCT_PAGES } from './demo-product-pages';
@@ -180,6 +181,17 @@ const productBlurbs: Record<string, string> = {
   boost: 'Metabolic support for stalled progress.', 'maintenance-stack': 'The core maintenance routine after goal weight.',
   'maintenance-stack-2': 'A two-product maintenance routine.', 'maintenance-detox-stack': 'Maintenance plus a periodic detox reset.',
 };
+/** Mirrors the seeded billing_products.coach_suggestion defaults (see the coach_product_suggestions migration). */
+const DEMO_COACH_SUGGESTIONS: Record<string, CoachSuggestionRule> = {
+  boost: { signals: ['glp1_medication'], avoid_signals: [], phrasing: 'Only alongside a GLP-1 their provider prescribed; frame it as support for the plan they are already on, never a replacement.', bloodwork_covered: false, topics: ['thinnr boost', 'glp-1', 'ozempic', 'wegovy', 'semaglutide', 'tirzepatide', 'mounjaro', 'zepbound', 'prescription weight loss', 'weight loss injection', 'weight loss injections', 'weight loss shot'] },
+  control: { signals: ['off_plan_meals', 'stall'], avoid_signals: [], phrasing: 'Tie it to hunger, cravings, or snacking they actually described; a stall alone is not a reason unless appetite is part of it.', bloodwork_covered: false, topics: ['appetite', 'hungry all the time', 'always hungry', 'snacking urges', 'urge to snack', 'portion control', 'thinnr control'] },
+  detox: { signals: ['bloodwork_liver_high'], avoid_signals: [], phrasing: 'Keep it about digestion and feeling less sluggish; never promise anything about lab values.', bloodwork_covered: false, topics: ['detox', 'liver', 'bloated', 'bloating', 'water retention', 'puffy', 'sluggish digestion', 'thinnr detox'] },
+  regulate: { signals: ['bloodwork_glucose_high'], avoid_signals: ['diabetes_medication'], phrasing: 'Position it as blood sugar support worth raising with their provider, not a treatment for a lab result.', bloodwork_covered: false, topics: ['blood sugar', 'glucose', 'sugar spikes', 'sugar crash', 'insulin resistance', 'a1c', 'berberine', 'thinnr regulate'] },
+  'b-active': { signals: ['bloodwork_b12_low'], avoid_signals: [], phrasing: 'Connect it to energy and focus they mentioned; the lab flag is something for their provider to weigh in on.', bloodwork_covered: false, topics: ['fatigue', 'low energy', 'no energy', 'exhausted', 'energy levels', 'brain fog', 'b vitamins', 'vitamin b', 'b12', 'b-active', 'feeling tired', 'so tired', 'tired all the time', 'tired lately', 'sluggish'] },
+  'creatine-plus': { signals: ['low_protein'], avoid_signals: ['bloodwork_kidney_flag'], phrasing: 'Frame it as protecting lean mass while they lose, especially when protein is running low or they train.', bloodwork_covered: false, topics: ['muscle', 'muscles', 'lifting', 'lift weights', 'weight training', 'strength training', 'gym', 'workout', 'workouts', 'working out', 'work out', 'creatine', 'lean mass', 'toned', 'tone up', 'strength', 'post workout recovery', 'hmb'] },
+  fiber: { signals: [], avoid_signals: [], phrasing: '', bloodwork_covered: false, topics: ['constipation', 'constipated', 'irregular', 'regularity', 'fiber', 'psyllium', 'thinnr fiber'] },
+  'maintenance-stack': { signals: ['program_complete', 'weight_regain'], avoid_signals: [], phrasing: 'For patients past the protocol who want to hold their results; lead with keeping the weight off, not starting over.', bloodwork_covered: false, topics: ['maintenance stack', 'keep the weight off', 'keeping the weight off', 'keep my weight off', 'keep it off', 'maintain my weight', 'maintain my results', 'after the program ends', 'finished the program', 'program is over', 'regain', 'gaining it back', 'gained some back', 'stay at this weight'] },
+};
 const EMPTY_PAGE: ProductPageContent = {
   category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
 };
@@ -193,6 +205,7 @@ export const DEMO_CATALOG: HqCatalogResponse = {
   products: productSeeds.map(([slug, name, floor, hard, minimum], index) => ({
     id: `catalog-${index + 1}`, slug, name, description: productBlurbs[slug] ?? '', floor_price_cents: floor, hard_cost_cents: hard,
     ...demoPage(slug), offered_cadences_weeks: index === 6 ? [4, 8, 12] : [2, 4, 6, 8, 10, 12], default_cadence_weeks: 4,
+    coach_suggestion: DEMO_COACH_SUGGESTIONS[slug] ?? EMPTY_COACH_SUGGESTION,
     active: index !== 8, status: index === 8 ? 'retired' : 'active', retired_at: index === 8 ? '2026-09-18T12:00:00Z' : null,
     archived_at: null, image_url: null, image_count: 0, updated_at: '2026-09-21T14:00:00Z', sort_order: index + 1,
     thinnr_share_cents: Math.floor(floor * .6), break_even_minimum_cents: minimum,

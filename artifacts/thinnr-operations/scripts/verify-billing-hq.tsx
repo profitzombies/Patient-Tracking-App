@@ -293,6 +293,16 @@ await check(
   const trimmed = checked().join(',');
   const defaultAfter = byId('select-default-cadence').props.value;
   const disabledOptions = byId('select-default-cadence').findAll(node => node.type === 'option' && node.props.disabled).map(node => node.props.value);
+  // Coach suggestion rules ride the same editor: the demo seed is pre-filled and each control is editable.
+  const coachInitial = { signals: ['off_plan_meals', 'stall'].every(id => byId(`checkbox-coach-signal-${id}`).props.checked), avoidClear: !byId('checkbox-coach-avoid-bloodwork_kidney_flag').props.checked, phrasing: String(byId('input-coach-phrasing').props.value) };
+  await act(async () => { byId('checkbox-coach-signal-low_protein').props.onChange({ target: { checked: true } }); });
+  await act(async () => { byId('checkbox-coach-avoid-bloodwork_kidney_flag').props.onChange({ target: { checked: true } }); });
+  await act(async () => { byId('checkbox-coach-bloodwork-covered').props.onChange({ target: { checked: true } }); });
+  const coachAfter = { lowProtein: byId('checkbox-coach-signal-low_protein').props.checked === true, avoid: byId('checkbox-coach-avoid-bloodwork_kidney_flag').props.checked === true, covered: byId('checkbox-coach-bloodwork-covered').props.checked === true };
+  // Conversation topics (what the patient says that makes the product fair to mention) are HQ-edited too: one per line, pre-filled from the seed.
+  const topicsInitial = String(byId('input-coach-topics').props.value);
+  await act(async () => { byId('input-coach-topics').props.onChange({ target: { value: 'Appetite\nlate night snacking' } }); });
+  const topicsAfter = String(byId('input-coach-topics').props.value);
   // Dropping the default's cadence must be caught before any save.
   await act(async () => { byId('checkbox-cadence-8').props.onChange({ target: { checked: false } }); });
   const saveButton = renderer!.root.find(node => node.type === 'button' && String(node.children.join('')) === 'Save changes');
@@ -305,6 +315,10 @@ await check(
     Number(defaultAfter) !== 8 ? `default should be 8, got ${defaultAfter}` : '',
     disabledOptions.join(',') !== '2,6,10,12' ? `unoffered cadences should be disabled as defaults, got ${disabledOptions.join(',')}` : '',
     !alertText.includes('default cadence must be one of the offered cadences') ? `expected the default-cadence error, got ${alertText}` : '',
+    !coachInitial.signals || !coachInitial.avoidClear || !coachInitial.phrasing.includes('hunger, cravings') ? `coach suggestion section should pre-fill the seeded Control rule, got ${JSON.stringify(coachInitial)}` : '',
+    !coachAfter.lowProtein || !coachAfter.avoid || !coachAfter.covered ? `coach suggestion controls should toggle, got ${JSON.stringify(coachAfter)}` : '',
+    topicsInitial.split('\n')[0] !== 'appetite' || !topicsInitial.includes('portion control') ? `coach topics should pre-fill the seeded Control topics one per line, got ${JSON.stringify(topicsInitial)}` : '',
+    topicsAfter !== 'Appetite\nlate night snacking' ? `coach topics textarea should be editable, got ${JSON.stringify(topicsAfter)}` : '',
   ].filter(Boolean);
   if (problems.length) { failures += 1; console.error(`FAIL product page editor: ${problems.join('; ')}`); }
   else console.log('ok product page editor');

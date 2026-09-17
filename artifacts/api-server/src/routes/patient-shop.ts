@@ -116,7 +116,10 @@ router.get("/patient-data/billing/shop", async (req, res) => {
         payments_available: available,
       } : null,
       available, unavailable_reason: reason,
-      products: available ? offering : [],
+      // The offering rides along even when ordering is closed so a product
+      // page (e.g. from a coach card) can still open informationally; the
+      // client hides every buy control while `available` is false.
+      products: offering,
       shipping_charge_cents: settings.shipping_charge_cents,
       subscribe_save_percent: subscribeSavePercent(settings),
       default_address: address,

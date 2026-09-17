@@ -223,6 +223,32 @@ describe("billing HQ catalog routes", () => {
       after: expect.objectContaining({ tagline: "Supports Any Weight Loss", category: "drops", offered_cadences_weeks: [2, 4, 8], default_cadence_weeks: 8 }),
     })]);
   });
+  it("saves the coach suggestion rule with the product and reads it back, rejecting unknown signals", async () => {
+    const before = await call("GET", "/billing/hq/catalog", "reader");
+    expect((before.json as { products: Array<{ coach_suggestion: unknown }> }).products[0].coach_suggestion).toEqual({
+      signals: [], avoid_signals: [], phrasing: "", bloodwork_covered: false, topics: [],
+    });
+    const coach_suggestion = {
+      signals: ["low_protein", "stall"], avoid_signals: ["bloodwork_kidney_flag"],
+      phrasing: "Frame it as protecting lean mass.", bloodwork_covered: false,
+      topics: ["Lifting ", "gym", "lifting"],
+    };
+    // Topics are normalized with the rule: trimmed, lowercased, de-duplicated.
+    const stored = { ...coach_suggestion, topics: ["lifting", "gym"] };
+    const result = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { coach_suggestion });
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ product: { coach_suggestion: stored } });
+    const after = await call("GET", "/billing/hq/catalog", "reader");
+    expect((after.json as { products: Array<{ coach_suggestion: unknown }> }).products[0].coach_suggestion).toEqual(stored);
+    expect(changes).toEqual([expect.objectContaining({
+      kind: "product_updated",
+      after: expect.objectContaining({ coach_suggestion: stored }),
+    })]);
+    const rejected = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", {
+      coach_suggestion: { ...coach_suggestion, signals: ["cures_everything"] },
+    });
+    expect(rejected.status).toBe(400);
+  });
   it("rejects a default cadence that is not offered, an unknown cadence, and an empty set", async () => {
     const wrongDefault = await call("PUT", "/billing/hq/catalog/products/product-1", "manager", { offered_cadences_weeks: [2, 6], default_cadence_weeks: 4 });
     expect(wrongDefault).toMatchObject({ status: 400, json: { field: "default_cadence_weeks" } });

@@ -6,6 +6,7 @@ import {
   DeleteBloodworkReportQueryParams, GetBloodworkFilePageParams, GetBloodworkFileSourceParams,
   GetBloodworkReportParams, GetBloodworkReportQueryParams, ListBloodworkCorrectionsParams,
   ListBloodworkCorrectionsQueryParams, ListBloodworkReportsParams, ListBloodworkReportsQueryParams,
+  ReviewBloodworkReportBody, ReviewBloodworkReportParams, ReviewBloodworkReportQueryParams,
   RetryBloodworkExtractionParams, RetryBloodworkExtractionQueryParams, UpdateBloodworkReportBody,
   UpdateBloodworkReportParams,
 } from "@workspace/api-zod";
@@ -230,6 +231,46 @@ router.patch(`${BASE}/:reportId`, async (req, res): Promise<void> => {
     audit(req, actor, "bloodwork.report_updated", "bloodwork_report", rows[0].id);
     res.json(reportDto(rows[0], loaded?.files ?? []));
   } catch (error) { req.log.error({ err: error }, "bloodwork update failed"); res.status(503).json({ error: "Could not update this report." }); }
+});
+
+router.post(`${BASE}/:reportId/review`, async (req, res): Promise<void> => {
+  const params = ReviewBloodworkReportParams.safeParse(req.params);
+  const query = ReviewBloodworkReportQueryParams.safeParse(req.query);
+  const body = ReviewBloodworkReportBody.safeParse(req.body);
+  if (!params.success || !query.success || !body.success) { invalid(res); return; }
+  try {
+    const actor = await authorize(req, res, "edit"); if (!actor) return;
+    if (actor.kind !== "staff") {
+      res.status(403).json({ error: "Only your care team can mark a report reviewed." });
+      return;
+    }
+    const reportId = first(req.params.reportId);
+    const reviewedAt = body.data.reviewed ? new Date().toISOString() : null;
+    const response = await supabaseAdmin(
+      "PATCH",
+      `/rest/v1/patient_bloodwork_reports?id=eq.${enc(reportId)}&patient_id=eq.${enc(actor.patientId)}&lifecycle_status=eq.committed&extraction_status=eq.completed`,
+      {
+        reviewed_at: reviewedAt,
+        reviewed_by: body.data.reviewed ? actor.actorUserId : null,
+      },
+      "return=representation",
+    );
+    const rows = ensureRows<ReportRow>(response.status, response.json, "bloodwork report review");
+    if (!rows.length) { res.status(404).json({ error: "Report not found." }); return; }
+    const loaded = await loadReport(actor.patientId, reportId);
+    if (!loaded) { res.status(404).json({ error: "Report not found." }); return; }
+    audit(
+      req,
+      actor,
+      body.data.reviewed ? "bloodwork.report_reviewed" : "bloodwork.report_review_cleared",
+      "bloodwork_report",
+      reportId,
+    );
+    res.json(reportDto(loaded.report, loaded.files));
+  } catch (error) {
+    req.log.error({ err: error }, "bloodwork review failed");
+    res.status(503).json({ error: "Could not update this report review." });
+  }
 });
 
 router.delete(`${BASE}/:reportId`, async (req, res): Promise<void> => {

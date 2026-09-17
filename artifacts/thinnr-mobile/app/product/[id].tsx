@@ -74,7 +74,9 @@ export default function ProductDetailScreen() {
     () => findShopProduct(shop?.products ?? [], id),
     [shop, id],
   );
-  const product = shop?.available ? storefrontProduct : undefined;
+  // A storefront row resolves even when ordering is closed: the page then
+  // opens informationally (no price, no buy panel) instead of a dead end.
+  const product = storefrontProduct;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -87,8 +89,10 @@ export default function ProductDetailScreen() {
           requestedPurchase={requestedPurchase}
           requestedCadence={requestedCadence}
           requestedQuantity={requestedQuantity}
+          purchasable={shop.available}
+          officeName={shop.office?.office_name ?? 'your office'}
         />
-      ) : shop && (shop.available || storefrontProduct) ? (
+      ) : shop?.available ? (
         <UnavailableProduct
           product={storefrontProduct}
           suggestedName={suggestedName}
@@ -144,6 +148,8 @@ function ProductBody({
   requestedPurchase,
   requestedCadence,
   requestedQuantity,
+  purchasable,
+  officeName,
 }: {
   product: PublicLinkProduct;
   savePercent: number;
@@ -151,6 +157,9 @@ function ProductBody({
   requestedPurchase?: string;
   requestedCadence: number;
   requestedQuantity: number;
+  /** False when the office cannot take orders: informational page, no price or buy panel. */
+  purchasable: boolean;
+  officeName: string;
 }) {
   const colors = useColors();
   const cart = useCart();
@@ -221,6 +230,7 @@ function ProductBody({
         ) : null}
         <Text testID="pdp-name" style={[styles.name, { color: colors.navy }]}>{product.name}</Text>
         {product.tagline ? <Text style={[styles.tagline, { color: colors.cobalt }]}>{product.tagline}</Text> : null}
+        {purchasable ? (
         <View style={styles.priceRow}>
           <Text testID="pdp-price" style={[styles.price, { color: colors.navy }]}>{formatCents(product.unit_price_cents)}</Text>
           {canSubscribe && savePercent > 0 ? (
@@ -229,11 +239,20 @@ function ProductBody({
             </Text>
           ) : null}
         </View>
+        ) : null}
         {product.description ? (
           <Text style={[styles.description, { color: colors.bodyText }]}>{product.description}</Text>
         ) : null}
 
-        {/* ── Purchase panel ── */}
+        {/* ── Purchase panel (informational pages show a notice instead) ── */}
+        {!purchasable ? (
+          <LedgerCard testID="pdp-informational" style={[styles.sectionGap, { padding: 14 }]}>
+            <Text style={[styles.paragraph, { color: colors.bodyText }]}>
+              Ordering isn’t open at {officeName} yet. Ask about this product at your next visit.
+            </Text>
+          </LedgerCard>
+        ) : (
+        <>
         <SectionHeader label="Order" style={styles.sectionGap} />
         <LedgerCard testID="pdp-order" style={{ padding: 14, gap: 12 }}>
           <PurchaseToggle
@@ -309,6 +328,8 @@ function ProductBody({
             </View>
           ) : null}
         </LedgerCard>
+        </>
+        )}
 
         {product.benefits.length ? (
           <>

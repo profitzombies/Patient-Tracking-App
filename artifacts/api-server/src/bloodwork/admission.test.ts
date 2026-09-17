@@ -101,6 +101,13 @@ function configureBackend(): void {
     if (method === "GET" && path.includes("/rest/v1/patient_bloodwork_results?")) {
       return result([]);
     }
+    if (method === "PATCH" && path.includes("/rest/v1/patient_bloodwork_reports?")) {
+      if (reportState?.lifecycle_status !== "committed" || reportState.extraction_status !== "completed") {
+        return result([]);
+      }
+      Object.assign(reportState, body);
+      return result([reportState]);
+    }
     if (method === "POST" && path === "/rest/v1/rpc/bloodwork_create_report") {
       const manifest = (body?.p_manifest as Array<Row> | undefined) ?? [];
       const manifestFile = manifest[0] ?? {};
@@ -266,6 +273,54 @@ beforeEach(() => {
 });
 
 describe("bloodwork admission", () => {
+  it("allows staff to mark a completed report reviewed and clear the marker", async () => {
+    reportState = {
+      id: REPORT, patient_id: PATIENT, title: "CBC", report_date: null,
+      uploaded_at: "2026-09-01T00:00:00Z", version: 1, kind: "pdf",
+      extraction_status: "completed", extraction_error: null, lifecycle_status: "committed",
+      reviewed_at: null, reviewed_by: null,
+    };
+    mocks.fetchAuthUser.mockResolvedValue({ id: "provider-user", email: null, phone: null });
+    const path = `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}/review`;
+    const reviewed = await api("POST", path, { token: "provider-token", body: { reviewed: true } });
+    expect(reviewed.status).toBe(200);
+    expect(reviewed.json).toMatchObject({ reviewStatus: "reviewed" });
+    expect(typeof reviewed.json.reviewedAt).toBe("string");
+    expect(reportState.reviewed_by).toBe("provider-user");
+
+    const cleared = await api("POST", path, { token: "provider-token", body: { reviewed: false } });
+    expect(cleared.status).toBe(200);
+    expect(cleared.json).toMatchObject({ reviewStatus: "unreviewed", reviewedAt: null });
+    expect(reportState.reviewed_at).toBeNull();
+    expect(reportState.reviewed_by).toBeNull();
+  });
+
+  it("does not allow a patient actor to mark a report reviewed", async () => {
+    const response = await api(
+      "POST",
+      `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}/review`,
+      { token: TOKEN, body: { reviewed: true } },
+    );
+    expect(response.status).toBe(403);
+    expect(response.json).toEqual({ error: "Only your care team can mark a report reviewed." });
+  });
+
+  it("returns 404 when staff review targets a staging or incomplete report", async () => {
+    reportState = {
+      id: REPORT, patient_id: PATIENT, title: "CBC", report_date: null,
+      uploaded_at: "2026-09-01T00:00:00Z", version: 1, kind: "pdf",
+      extraction_status: "processing", extraction_error: null, lifecycle_status: "staging",
+      reviewed_at: null, reviewed_by: null,
+    };
+    mocks.fetchAuthUser.mockResolvedValue({ id: "provider-user", email: null, phone: null });
+    const response = await api(
+      "POST",
+      `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}/review`,
+      { token: "provider-token", body: { reviewed: true } },
+    );
+    expect(response.status).toBe(404);
+  });
+
   it("persists the private admission receipt and prompts only after durable commit", async () => {
     const path = `/api/bloodwork/patients/${PATIENT}/reports`;
     await api("POST", path, { token: TOKEN, body: PDF_DRAFT });

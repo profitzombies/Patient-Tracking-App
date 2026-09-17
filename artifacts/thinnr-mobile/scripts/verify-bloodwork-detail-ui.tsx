@@ -32,6 +32,7 @@ function report(
     extractionStatus,
     extractionError: extractionStatus === 'failed' ? 'Reader stopped.' : null,
     reviewStatus: 'unreviewed',
+    reviewedAt: null,
     processing: {
       phase,
       completedPages,

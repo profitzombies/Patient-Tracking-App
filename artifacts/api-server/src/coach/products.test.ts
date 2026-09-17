@@ -69,9 +69,17 @@ describe("findProduct / productCardPayload", () => {
     expect(product).toBeDefined();
     expect(productCardPayload(product!)).toEqual({
       id: "prod7",
+      slug: "creatine-plus",
       name: "Creatine+",
       line: product!.cardLine,
       price: product!.price,
+      priceCents: null,
+      productId: null,
+      available: true,
+      subscriptionAvailable: true,
+      imageUrl: null,
+      reason: "conversation",
+      cta: "Tap to open",
     });
   });
 });

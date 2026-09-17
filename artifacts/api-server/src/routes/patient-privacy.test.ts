@@ -93,7 +93,7 @@ beforeEach(() => {
     { patient_id: P2, entry_id: "e2", date_key: "2026-09-01", name: "SECRET OTHER FOOD", calories: 900 },
   );
   mocks.supabase.tables.patient_progress_photos.push({ patient_id: P1, photo_id: "ph1", date_key: "2026-09-01", object_path: `/objects/patient-media/${P1}/photo-1.jpg` });
-  mocks.supabase.tables.patient_flags.push({ patient_id: P1, onboarding_answers: { goal: "lose", password: "hunter2" }, notification_prefs: {} });
+  mocks.supabase.tables.patient_flags.push({ patient_id: P1, onboarding_answers: { goal: "lose", password: "hunter2" }, notification_prefs: {}, coach_product_opt_out: true, coach_product_suggestions: { "creatine-plus": "2026-09-01T00:00:00Z" } });
   mocks.supabase.tables.patient_medications.push(
     { id: fakeUuid(701), patient_id: P1, name: "THINNR Protocol drops", form: "drops", schedule_kind: "daily", times: ["08:00"], start_date: "2026-09-01" },
     { id: fakeUuid(702), patient_id: P2, name: "SECRET OTHER MED", form: "other", schedule_kind: "daily", times: ["08:00"], start_date: "2026-09-01" },
@@ -110,7 +110,7 @@ beforeEach(() => {
   const fileId = fakeUuid(802);
   const resultId = fakeUuid(803);
   const bloodworkPath = `/objects/patients/${P1}/bloodwork/reports/${reportId}/${fileId}`;
-  mocks.supabase.tables.patient_bloodwork_reports.push({ id: reportId, patient_id: P1, title: "Annual panel", kind: "pdf", lifecycle_status: "committed", extraction_status: "completed", version: 1, uploaded_at: "2026-09-02T00:00:00Z" });
+  mocks.supabase.tables.patient_bloodwork_reports.push({ id: reportId, patient_id: P1, title: "Annual panel", kind: "pdf", lifecycle_status: "committed", extraction_status: "completed", version: 1, uploaded_at: "2026-09-02T00:00:00Z", reviewed_at: "2026-09-03T10:00:00Z", reviewed_by: fakeUuid(77) });
   mocks.supabase.tables.patient_bloodwork_files.push({ id: fileId, patient_id: P1, report_id: reportId, position: 0, declared_mime_type: "application/pdf", declared_size_bytes: 9, object_path: bloodworkPath, mime_type: "application/pdf", size_bytes: 9, page_count: 1 });
   mocks.supabase.tables.patient_bloodwork_files.push({ id: fakeUuid(805), patient_id: P1, report_id: reportId, position: 1, declared_mime_type: "image/png", declared_size_bytes: 20, object_path: null, mime_type: null, size_bytes: null, page_count: null });
   mocks.supabase.tables.patient_bloodwork_results.push({ id: resultId, patient_id: P1, report_id: reportId, source_file_id: fileId, source_page: 1, position: 0, original_test_name: "Glucose", original_value_text: "99", test_name: "Glucose", value_text: "98", uncertain: false, version: 2, corrected: true });
@@ -317,7 +317,11 @@ describe("data export", () => {
     expect(medications.doseLogs.map((d) => d.status)).toEqual(["taken"]);
     const all = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => zip.file(n)!.async("string")));
     expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|hunter2/);
-    expect(await zip.file("preferences.json")!.async("string")).toContain('"goal": "lose"');
+    const preferences = await zip.file("preferences.json")!.async("string");
+    expect(preferences).toContain('"goal": "lose"');
+    // Coach product-suggestion state is patient-owned data and rides the export.
+    expect(preferences).toContain('"coach_product_opt_out": true');
+    expect(preferences).toContain('"creatine-plus": "2026-09-01T00:00:00Z"');
     expect(await zip.file("media/photo-1.jpg")!.async("string")).toBe("PHOTO-BYTES");
     const chat = JSON.parse(await zip.file("chat.json")!.async("string")) as Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown> & { text: string }> }>;
     expect(chat[0].messages[0].text).toBe("hello coach");
@@ -334,11 +338,13 @@ describe("data export", () => {
     expect(JSON.parse(await zip.file("profile.json")!.async("string"))).toMatchObject({ id: P1, first_name: "Pat" });
     expect(await zip.file(`bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`)!.async("string")).toBe("LAB-PDF");
     const bloodwork = JSON.parse(await zip.file("bloodwork.json")!.async("string")) as {
+      reports: Array<Record<string, unknown>>;
       files: Array<Record<string, unknown>>;
       results: Array<Record<string, unknown>>;
       corrections: Array<Record<string, unknown>>;
       incompleteTranscriptionPages: Array<Record<string, unknown>>;
     };
+    expect(bloodwork.reports[0]).toMatchObject({ title: "Annual panel", reviewed_at: "2026-09-03T10:00:00Z", reviewed_by: fakeUuid(77) });
     expect(bloodwork.files[0]).not.toHaveProperty("object_path");
     expect(bloodwork.files[0]).toMatchObject({ omittedReason: null, archiveFile: `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf` });
     expect(bloodwork.files[1]).toMatchObject({

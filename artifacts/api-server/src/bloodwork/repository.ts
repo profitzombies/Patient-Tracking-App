@@ -13,6 +13,8 @@ export interface ReportRow {
   extraction_status: "queued" | "processing" | "completed" | "failed";
   extraction_error: string | null;
   lifecycle_status: "staging" | "committed" | "deleted";
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
   extraction_phase?: "waiting" | "reading_pages" | "preparing_results" | "completed" | "failed";
   extraction_completed_pages?: number | null;
   extraction_total_pages?: number | null;
@@ -59,7 +61,7 @@ interface ResultRow {
   updated_at: string;
 }
 
-const REPORT_SELECT = "id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status,extraction_phase,extraction_completed_pages,extraction_total_pages,extraction_started_at,extraction_progress_updated_at,extraction_completed_at,extraction_finished_at,extraction_lease_until";
+const REPORT_SELECT = "id,patient_id,title,report_date,uploaded_at,version,kind,extraction_status,extraction_error,lifecycle_status,reviewed_at,reviewed_by,extraction_phase,extraction_completed_pages,extraction_total_pages,extraction_started_at,extraction_progress_updated_at,extraction_completed_at,extraction_finished_at,extraction_lease_until";
 const FILE_SELECT = "id,patient_id,report_id,client_file_id,position,declared_mime_type,declared_size_bytes,staging_object_path,object_path,mime_type,size_bytes,page_count,width,height,content_sha256";
 const RESULT_SELECT = "id,report_id,source_file_id,source_page,position,test_name,value_text,units,reference_range,lab_flag,uncertain,version,corrected,updated_at";
 
@@ -180,7 +182,8 @@ export function reportDto(row: ReportRow, files: FileRow[], observedAt = new Dat
     pageCount: files.reduce((sum, file) => sum + Number(file.page_count ?? 0), 0),
     extractionStatus: row.extraction_status,
     extractionError: row.extraction_error,
-    reviewStatus: "unreviewed" as const,
+    reviewStatus: row.reviewed_at ? "reviewed" as const : "unreviewed" as const,
+    reviewedAt: row.reviewed_at ?? null,
     processing: processingDto(row, files, observedAt),
   };
 }

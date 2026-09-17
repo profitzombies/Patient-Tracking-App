@@ -3,6 +3,8 @@ import express, { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
+import { DEMO_PRODUCT_COMPARTMENT_ID, type Compartment } from "../coach/compartments";
+import { liveStorefrontCompartment } from "../coach/products";
 import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { realPatientContext } from "../coach/real-patient";
@@ -10,7 +12,8 @@ import { bearerToken, resolvePatient } from "../lib/patient-auth";
 import { loadOrgPolicy } from "../lib/org-policy";
 import { detectBackOnTrackFollowUp, generateBackOnTrackTurn } from "../coach/back-on-track";
 import { acquireChatSlot, acquireMenuScanSlot } from "../coach/limits";
-import { findProduct, matchProducts, productCardPayload } from "../coach/products";
+import { productCardPayload } from "../coach/products";
+import { demoConversationOffers, detectSuggestionPreference, loadLiveSuggestionContext, recordProductSuggested, type ProductOffer } from "../coach/product-suggestions";
 import { detectRecipeIntent } from "../coach/intent";
 import { generateRecipeTurn } from "../coach/recipe";
 import { generateLabelChatTurn } from "../coach/label-chat";
@@ -172,10 +175,19 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       .filter((m) => m.role === "user")
       .map((m) => m.content);
     const selection = selectCompartments(latest.content, earlierUserMessages);
+    // The bundled product-catalog compartment carries demo copy and demo
+    // prices, so it is demo-only. Real accounts REPLACE it with the office's
+    // live storefront (below); until that swap succeeds it is dropped, and a
+    // dropped-only selection falls back to broad program context.
+    let compartments: Compartment[] = selection.compartments;
     // Products are offered to the model only when the LATEST message matches
     // their intent topics; ordinary program questions get no product
-    // instructions at all.
-    const offeredProducts = matchProducts(latest.content);
+    // instructions at all. This bundled-catalog match is the demo persona's
+    // whole product story; real accounts REPLACE it below with offers drawn
+    // from the office's live catalog and the patient's own data (suppression
+    // applied to both kinds).
+    let offeredProducts: ProductOffer[] = demoConversationOffers(latest.content);
+    let productSuggestionsPaused = false;
 
     // Meal-slot context for card-producing pipelines: an explicit slot pinned
     // by the client wins outright; otherwise the patient's device clock
@@ -185,8 +197,8 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     const slotContext = buildMealSlotContext(parsed.data);
     req.log.info(
       {
-        compartments: selection.ids,
-        offeredProducts: offeredProducts.map((p) => p.id),
+        compartments: compartments.map((c) => c.id),
+        offeredProducts: offeredProducts.map((offer) => offer.product.id),
         slot: slotContext,
       },
       "coach chat compartments selected",
@@ -254,6 +266,58 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           retryable: auth.code === undefined,
         });
         return;
+      }
+    }
+
+    // Data-driven product offers for real accounts: the patient's live
+    // signals (trend/stall, compliance, medications, committed bloodwork)
+    // meet HQ's per-product rules, suppression runs, and the office's own
+    // prices ride along. Any failure here offers NOTHING this turn — a real
+    // patient never sees demo prices — and the chat itself still answers.
+    if (authenticatedPatientId !== null) {
+      compartments = compartments.filter((c) => c.id !== DEMO_PRODUCT_COMPARTMENT_ID);
+      if (compartments.length === 0) compartments = selectCompartments("", []).compartments;
+      // The patient's own words decide the paused state for THIS turn before
+      // any live read runs: the loader persists the choice first, but even if
+      // a later read (or the write itself) fails, the prompt still honors and
+      // acknowledges the request instead of falling back to "not paused".
+      productSuggestionsPaused = detectSuggestionPreference(latest.content) === "stop";
+      try {
+        const live = await loadLiveSuggestionContext({
+          patientId: authenticatedPatientId,
+          patient: patientContext,
+          latestMessage: latest.content,
+        });
+        offeredProducts = live.offers;
+        // The message asked about products: ground the answer in the office's
+        // own storefront (HQ copy, office price). No offering → no product
+        // source at all this turn.
+        let storefrontGrounded = false;
+        if (selection.ids.includes(DEMO_PRODUCT_COMPARTMENT_ID)) {
+          const storefront = liveStorefrontCompartment(live.storefront.offering, live.storefront.available);
+          if (storefront) {
+            compartments = [storefront, ...compartments.filter((c) => c.id !== storefront.id)].slice(0, 3);
+            storefrontGrounded = true;
+          }
+        }
+        // Counts and product ids only: the signal ids themselves name
+        // medication classes and lab findings, which are health data and
+        // stay out of request logs.
+        req.log.info(
+          {
+            signalCount: live.signals.length,
+            offers: live.offers.map((o) => ({ id: o.product.id, source: o.source, providerNudge: o.providerNudge })),
+            suppressed: live.suppressed.map((s) => ({ id: s.id, reason: s.reason === "contraindicated" ? "rule" : s.reason })),
+            optOut: live.optOut,
+            preferenceChange: live.preferenceChange,
+            storefrontGrounded,
+            compartments: compartments.map((c) => c.id),
+          },
+          "coach chat product offers selected",
+        );
+      } catch (error) {
+        offeredProducts = [];
+        req.log.error({ err: error }, "coach chat product suggestion context failed; offering nothing this turn");
       }
     }
 
@@ -637,7 +701,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           mode: "recipe",
           inspiration: "menu",
           history: modelHistory,
-          compartments: selection.compartments,
+          compartments,
           patient: patientContext,
           coachingContext: recalledContext || undefined,
           slot: slotContext,
@@ -678,7 +742,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           mode: "recipe",
           inspiration: "meal-makeover",
           history: modelHistory,
-          compartments: selection.compartments,
+          compartments,
           patient: patientContext,
           coachingContext: recalledContext || undefined,
           slot: slotContext,
@@ -723,7 +787,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         req.log.info({}, "coach meal makeover turn");
         const makeover = await generateMealMakeoverTurn({
           history: modelHistory,
-          compartments: selection.compartments,
+          compartments,
           patient: patientContext,
           coachingContext: recalledContext || undefined,
           signal: abort.signal,
@@ -764,7 +828,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         req.log.info({}, "coach back-on-track turn");
         const turn = await generateBackOnTrackTurn({
           history: modelHistory,
-          compartments: selection.compartments,
+          compartments,
           patient: patientContext,
           coachingContext: recalledContext || undefined,
           signal: abort.signal,
@@ -792,7 +856,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         const result = await generateRecipeTurn({
           mode: intent,
           history: modelHistory,
-          compartments: selection.compartments,
+          compartments,
           patient: patientContext,
           coachingContext: recalledContext || undefined,
           slot: slotContext,
@@ -853,7 +917,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
               {
                 role: "system",
                 content: [
-                  buildSystemPrompt(selection.compartments, patientContext, offeredProducts),
+                  buildSystemPrompt(compartments, patientContext, offeredProducts, { suggestionsPaused: productSuggestionsPaused }),
                   recalledContext || null,
                 ].filter((part): part is string => Boolean(part)).join("\n\n"),
               },
@@ -906,14 +970,22 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // that was actually offered for this message (unknown or unsolicited
       // ids are dropped), and never more than one. The payload is built from
       // the catalog, not from model output.
-      const offeredIds = new Set(offeredProducts.map((p) => p.id));
-      const chosenId = markerFilter.idsFor("product").find((id) => offeredIds.has(id));
-      const chosen = chosenId ? findProduct(chosenId) : undefined;
+      const offeredById = new Map<string, ProductOffer>(offeredProducts.map((offer) => [offer.product.id, offer]));
+      const chosenId = markerFilter.idsFor("product").find((id) => offeredById.has(id));
+      const chosen = chosenId ? offeredById.get(chosenId) : undefined;
       if (chosen) {
-        res.write(
-          `data: ${JSON.stringify({ card: { kind: "product", payload: productCardPayload(chosen) } })}\n\n`,
-        );
-        req.log.info({ product: chosen.id }, "coach chat product card attached");
+        const reason = chosen.source === "signal" ? (chosen.reasons[0]?.id ?? "signal") : "conversation";
+        const payload = productCardPayload(chosen.product, chosen.pricing, reason);
+        res.write(`data: ${JSON.stringify({ card: { kind: "product", payload } })}\n\n`);
+        // The card's reason (a signal id) is health data; log the source kind only.
+        req.log.info({ product: chosen.product.id, source: chosen.source, live: chosen.pricing !== null }, "coach chat product card attached");
+        // Start the repeat window for real accounts; a failed stamp only
+        // risks an earlier repeat, so it never fails the reply.
+        if (authenticatedPatientId !== null) {
+          recordProductSuggested(authenticatedPatientId, chosen.product.slug).catch((error) => {
+            req.log.error({ err: error, product: chosen.product.id }, "coach chat product suggestion stamp failed");
+          });
+        }
       }
 
       // One-tap answer suggestion: the marker id only selects which curated

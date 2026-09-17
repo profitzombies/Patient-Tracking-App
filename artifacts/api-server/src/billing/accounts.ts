@@ -141,6 +141,7 @@ export async function createInAppAccount(providerId: string, actorUserId: string
   const row = await upsert("billing_connected_accounts", {
     provider_id: providerId, origin: "created", oauth_refresh_token: null, disconnected_at: null,
     tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(), livemode: !(await isSandbox()),
+    terminal_location_id: null, terminal_location_checked_at: null,
     ...accountPatch(account),
   }, "provider_id");
   await insert("billing_account_events", {
@@ -197,7 +198,7 @@ export async function completeOauth(code: string, state: string): Promise<Connec
   await upsert("billing_connected_accounts", {
     provider_id: payload.provider_id, origin: "oauth", oauth_refresh_token: token.refresh_token ?? null,
     disconnected_at: null, tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(),
-    livemode: !(await isSandbox()),
+    livemode: !(await isSandbox()), terminal_location_id: null, terminal_location_checked_at: null,
     ...accountPatch(account),
   }, "provider_id");
   await insert("billing_account_events", {

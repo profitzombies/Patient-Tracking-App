@@ -290,4 +290,3 @@ const styles = StyleSheet.create({
   gap: { marginTop: 14 },
   smallGap: { marginTop: 9 },
 });
-

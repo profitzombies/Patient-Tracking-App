@@ -37,6 +37,10 @@ import type {
   ShippingAddress,
   StaffSaleContext,
   SubscriptionChangeInput,
+  TapCancelResponse,
+  TapCaptureResponse,
+  TapSaleResponse,
+  TerminalConnectionToken,
   SubscriptionChangeQuote,
   SubscriptionRow,
 } from '@/lib/office-billing-types';
@@ -139,6 +143,20 @@ export const officeBilling = {
   listCarts: (params: { patient_id?: string; status?: string }, scope: BillingScope) =>
     request<{ items: PrebuiltCart[] }>('GET', `${OFFICE}/carts${qs(params)}`, scope),
   revokeCart: (id: string, scope: BillingScope) => request<PrebuiltCart>('POST', `${OFFICE}/carts/${enc(id)}/revoke`, scope, {}),
+  // Tap to Pay: the phone is the card reader. Tokens are short-lived and minted
+  // per connected account; the sale itself keys on the same cart id as a card sale.
+  terminalConnectionToken: (scope: BillingScope) => request<TerminalConnectionToken>('POST', `${OFFICE}/terminal/connection-token`, scope, {}),
+  tapSale: (
+    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; cart_id: string; expected_total_cents?: number },
+    scope: BillingScope,
+    idempotencyKey?: string,
+  ) => request<TapSaleResponse>('POST', `${OFFICE}/sales/tap`, scope, body, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
+  tapCapture: (cartId: string, orderId: string, scope: BillingScope) =>
+    request<TapCaptureResponse>('POST', `${OFFICE}/sales/tap/${enc(cartId)}/capture`, scope, { order_id: orderId }),
+  tapCancel: (cartId: string, body: { reason: 'declined' | 'canceled' | 'fallback'; message?: string | null }, scope: BillingScope) =>
+    request<TapCancelResponse>('POST', `${OFFICE}/sales/tap/${enc(cartId)}/cancel`, scope, body),
+  tapCardOnFile: (cartId: string, body: { subscription_id: string; payment_method_id: string }, scope: BillingScope) =>
+    request<{ saved: true }>('POST', `${OFFICE}/sales/tap/${enc(cartId)}/card-on-file`, scope, body),
 };
 
 export type OfficeBillingClient = typeof officeBilling;

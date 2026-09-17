@@ -20,6 +20,7 @@
       "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
       "expo-router": ["./scripts/payments-stubs/expo-router.ts"],
       "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
+      "expo-constants": ["./scripts/privacy-controls-stubs/expo-constants.ts"],
       "react-native-safe-area-context": ["./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"],
       "react-native-keyboard-controller": ["./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"],
       "@react-native-async-storage/async-storage": ["./scripts/onboarding-gate-stubs/async-storage.ts"]

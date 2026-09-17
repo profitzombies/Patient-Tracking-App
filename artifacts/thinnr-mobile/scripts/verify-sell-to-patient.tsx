@@ -85,6 +85,7 @@ const CONTEXT: StaffSaleContext = {
   sandbox: true,
   available: true,
   unavailable_reason: null,
+  tap_to_pay: { available: false, reason: "not_connected" },
 };
 const LINES = [
   { product_id: "prod_1", quantity: 1, purchase: "one_time" as const },

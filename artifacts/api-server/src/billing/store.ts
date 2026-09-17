@@ -44,6 +44,8 @@ export interface BillingConnectedAccountRow extends TimestampedRow {
   livemode: boolean; last_synced_at: string | null; disconnected_at: string | null;
   stripe_customer_emails?: StripeCustomerEmailsState; stripe_customer_emails_checked_at?: string | null;
   stripe_customer_emails_note?: string | null;
+  /** Stripe Terminal location on this account (Tap to Pay); minted on first use. */
+  terminal_location_id?: string | null; terminal_location_checked_at?: string | null;
 }
 /** Whether Stripe itself may email this office's customers; THINNR sends every customer email, so "off" is the healthy state. */
 export type StripeCustomerEmailsState = "off" | "unverified" | "on";

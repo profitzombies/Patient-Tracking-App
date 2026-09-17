@@ -138,5 +138,6 @@
 - [Provider mobile Payments area](mobile-payments-area.md) — one shell decides demo/live from auth; byte-identical demo copy + parity suite; relative `/billing/office` paths; sweep subagent output for golfed code.
 - [In-office sales](in-office-sales.md) — Elements need paymentMethodCreation manual; CAS-only prebuilt cart transitions; paid = all groups; attempt bumps only on definite card failure; guest payer by verified phone.
 - [Patient purchase routes](patient-purchase-routes.md) — /subscriptions is the staff tab; patient billing uses /my-subscriptions; demo writes are aria-disabled + nudge by design.
+- [Tap to Pay on the provider phone](tap-to-pay.md) — one tap per order group; never retry a declined intent; only an explicit not_charged unlocks; settle fails closed (cancel-first); persist the unsettled key.
 - [Recreating RPCs drops later ALTERs](recreated-rpc-security-definer.md) — signature-extending drop+recreate loses a later `security definer`; live sends 403 while SQL-text tests stay green; prove with one real RPC call.
 - [Coach product suggestions](coach-product-suggestions.md) — real accounts: offers AND product prose only from the live office storefront (branch on auth, not data); persist opt-out first; export new cols.

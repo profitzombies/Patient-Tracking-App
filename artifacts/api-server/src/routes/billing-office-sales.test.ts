@@ -6,6 +6,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const mocks = vi.hoisted(() => ({
   guard: vi.fn(), planCart: vi.fn(), checkoutCart: vi.fn(), cartPatient: vi.fn(),
   createCart: vi.fn(), getCart: vi.fn(), listCarts: vi.fn(), revokeCart: vi.fn(), audit: vi.fn(),
+  connectionToken: vi.fn(), availability: vi.fn(), startTap: vi.fn(), captureTap: vi.fn(), cancelTap: vi.fn(), saveTapCard: vi.fn(),
+  selectOne: vi.fn(),
 }));
 vi.mock("../billing/auth", () => ({
   requireOfficeBillingScope: mocks.guard,
@@ -21,7 +23,14 @@ vi.mock("../billing/prebuilt-carts", () => ({
 }));
 vi.mock("../billing/catalog", () => ({ officeOffering: vi.fn(async () => []), subscribeSavePercent: vi.fn(() => 0) }));
 vi.mock("../billing/stripe-client", () => ({ getPublishableKey: vi.fn(async () => "pk_test"), isSandbox: vi.fn(async () => true) }));
-vi.mock("../billing/store", () => ({ selectOne: vi.fn(async () => null) }));
+vi.mock("../billing/store", () => ({ selectOne: mocks.selectOne }));
+vi.mock("../billing/terminal", () => ({
+  BillingTerminalError: class BillingTerminalError extends Error { constructor(message: string, readonly status = 400, readonly reason: string | null = null) { super(message); } },
+  createConnectionToken: mocks.connectionToken, tapToPayAvailability: mocks.availability,
+}));
+vi.mock("../billing/terminal-sales", () => ({
+  startTapSale: mocks.startTap, captureTapSale: mocks.captureTap, cancelTapSale: mocks.cancelTap, saveTapCardOnFile: mocks.saveTapCard,
+}));
 vi.mock("../lib/admin-audit", () => ({
   recordAdminAuditEvent: mocks.audit, requestIdOf: vi.fn(() => "request-1"),
 }));
@@ -41,6 +50,13 @@ const cart = {
   status: "open", patient: null, lines, quote, label: null, expires_at: "2099-01-01T00:00:00Z",
   created_at: "2026-01-01T00:00:00Z", paid_at: null, orders: [],
 };
+const orderId = "55555555-5555-4555-8555-555555555555";
+const subscriptionId = "66666666-6666-4666-8666-666666666666";
+const tapItem = {
+  kind: "one_time", order_id: orderId, order_number: "THR-1", subscription_id: null, payment_intent_id: "pi_tap_1",
+  client_secret: "pi_tap_1_secret", status: "ready", error: null, total_cents: 1000,
+};
+const tapSale = { cart_id: headerCartId, items: [tapItem], stripe_account_id: "acct_1", location_id: "tml_1", sandbox: true };
 let server: http.Server;
 let base = "";
 async function call(method: string, path: string, token?: string, body?: unknown, headers?: Record<string, string>) {
@@ -74,6 +90,13 @@ beforeEach(() => {
   mocks.listCarts.mockResolvedValue([cart]);
   mocks.revokeCart.mockResolvedValue({ ...cart, status: "paid", paid_at: "2026-01-02T00:00:00Z" });
   mocks.audit.mockResolvedValue(undefined);
+  mocks.selectOne.mockResolvedValue(null);
+  mocks.availability.mockResolvedValue({ available: true, reason: null });
+  mocks.connectionToken.mockResolvedValue({ secret: "pst_test_1", location_id: "tml_1", stripe_account_id: "acct_1" });
+  mocks.startTap.mockResolvedValue(tapSale);
+  mocks.captureTap.mockResolvedValue({ item: { ...tapItem, status: "paid", client_secret: null }, card_on_file: "needed", checkout });
+  mocks.cancelTap.mockResolvedValue({ ...checkout, status: "failed" });
+  mocks.saveTapCard.mockResolvedValue({ saved: true });
 });
 
 describe("office sales routes", () => {
@@ -114,5 +137,68 @@ describe("office sales routes", () => {
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_prebuilt_cart_created" }));
     const revoked = await call("POST", `/billing/office/carts/${bodyCartId}/revoke`, "staff");
     expect(revoked.json).toMatchObject({ status: "paid" });
+  });
+
+  it("only offers Tap to Pay in the sale context when the office can take card payments at all", async () => {
+    const offline = await call("GET", `/billing/office/sales/context?patient_id=${patientId}`, "staff");
+    expect(offline.json.tap_to_pay).toEqual({ available: false, reason: "not_connected" });
+    expect(mocks.availability).not.toHaveBeenCalled();
+    mocks.selectOne.mockImplementation(async (table: string) => table === "billing_connected_accounts" ? { stripe_account_id: "acct_1", charges_enabled: true } : null);
+    const { officeOffering } = await import("../billing/catalog");
+    vi.mocked(officeOffering).mockResolvedValueOnce([{ id: productId } as any]);
+    mocks.availability.mockResolvedValueOnce({ available: false, reason: "no_office_address" });
+    const online = await call("GET", `/billing/office/sales/context?patient_id=${patientId}`, "staff");
+    expect(online.json).toMatchObject({ available: true, tap_to_pay: { available: false, reason: "no_office_address" } });
+    expect(mocks.availability).toHaveBeenCalledWith("office-1", expect.objectContaining({ stripe_account_id: "acct_1" }));
+  });
+
+  it("mints connection tokens for the scoped office and relays Terminal refusals with their reason", async () => {
+    expect((await call("POST", "/billing/office/terminal/connection-token", undefined)).status).toBe(401);
+    const token = await call("POST", "/billing/office/terminal/connection-token", "staff");
+    expect(token).toMatchObject({ status: 200, json: { secret: "pst_test_1", location_id: "tml_1" } });
+    expect(mocks.connectionToken).toHaveBeenCalledWith("office-1");
+    const { BillingTerminalError } = await import("../billing/terminal");
+    mocks.connectionToken.mockRejectedValueOnce(new BillingTerminalError("Tap to Pay is not enabled on your office's Stripe account yet.", 409, "terminal_unavailable"));
+    const refused = await call("POST", "/billing/office/terminal/connection-token?office=office-1", "hq");
+    expect(refused).toMatchObject({ status: 409, json: { reason: "terminal_unavailable" } });
+    expect(mocks.connectionToken).toHaveBeenLastCalledWith("office-1");
+  });
+
+  it("stages a tap sale without a card id under the header cart key, then audits", async () => {
+    const result = await call("POST", "/billing/office/sales/tap", "staff", {
+      patient_id: patientId, lines, shipping_address: address, cart_id: bodyCartId, expected_total_cents: 7998,
+    }, { "Idempotency-Key": headerCartId });
+    expect(result).toMatchObject({ status: 200, json: { cart_id: headerCartId, items: [{ status: "ready", client_secret: "pi_tap_1_secret" }] } });
+    // The quoted total the staff member confirmed rides through so a price change is refused, exactly like a card sale.
+    expect(mocks.startTap).toHaveBeenCalledWith({ providerId: "office-1", patientId, cartId: headerCartId, lines, shipping_address: address, expected_total_cents: 7998 });
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_office_tap_sale_started", targetId: headerCartId, metadata: { patient_id: patientId, ready: 1 } }));
+    mocks.startTap.mockResolvedValueOnce({ ...tapSale, items: [{ ...tapItem, status: "failed", error: "Payment could not be started." }] });
+    expect((await call("POST", "/billing/office/sales/tap", "staff", { patient_id: patientId, lines, shipping_address: address, cart_id: bodyCartId })).status).toBe(402);
+    expect((await call("POST", "/billing/office/sales/tap", "staff", { patient_id: patientId, lines, shipping_address: address, cart_id: "not-a-uuid" })).status).toBe(400);
+    mocks.cartPatient.mockResolvedValueOnce(null);
+    expect((await call("POST", "/billing/office/sales/tap", "staff", { patient_id: patientId, lines, shipping_address: address, cart_id: bodyCartId })).status).toBe(404);
+  });
+
+  it("captures, cancels, and saves a card on file for a tap cart with validated bodies and audits", async () => {
+    const captured = await call("POST", `/billing/office/sales/tap/${headerCartId}/capture`, "staff", { order_id: orderId });
+    expect(captured).toMatchObject({ status: 200, json: { item: { status: "paid" }, card_on_file: "needed" } });
+    expect(mocks.captureTap).toHaveBeenCalledWith("office-1", headerCartId, orderId);
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_office_tap_sale_captured", metadata: { order_id: orderId, card_on_file: "needed" } }));
+    expect((await call("POST", `/billing/office/sales/tap/${headerCartId}/capture`, "staff", {})).status).toBe(400);
+    const { BillingTerminalError } = await import("../billing/terminal");
+    mocks.captureTap.mockRejectedValueOnce(new BillingTerminalError("The patient has not tapped yet. Finish the tap on the phone first.", 409));
+    expect(await call("POST", `/billing/office/sales/tap/${headerCartId}/capture`, "staff", { order_id: orderId })).toMatchObject({ status: 409, json: { error: expect.stringMatching(/not tapped yet/) } });
+
+    const canceled = await call("POST", `/billing/office/sales/tap/${headerCartId}/cancel`, "staff", { reason: "declined", message: "Card declined." });
+    expect(canceled).toMatchObject({ status: 200, json: { status: "failed" } });
+    expect(mocks.cancelTap).toHaveBeenCalledWith("office-1", headerCartId, "declined", "Card declined.");
+    expect((await call("POST", `/billing/office/sales/tap/${headerCartId}/cancel`, "staff", { reason: "shrug" })).status).toBe(400);
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_office_tap_sale_canceled", metadata: { reason: "declined", status: "failed" } }));
+
+    const saved = await call("POST", `/billing/office/sales/tap/${headerCartId}/card-on-file`, "staff", { subscription_id: subscriptionId, payment_method_id: "pm_typed" });
+    expect(saved).toMatchObject({ status: 200, json: { saved: true } });
+    expect(mocks.saveTapCard).toHaveBeenCalledWith("office-1", headerCartId, subscriptionId, "pm_typed");
+    expect((await call("POST", `/billing/office/sales/tap/${headerCartId}/card-on-file`, "staff", { subscription_id: subscriptionId })).status).toBe(400);
+    expect((await call("POST", `/billing/office/sales/tap/${headerCartId}/card-on-file`, "other", { subscription_id: subscriptionId, payment_method_id: "pm_typed" })).status).toBe(403);
   });
 });

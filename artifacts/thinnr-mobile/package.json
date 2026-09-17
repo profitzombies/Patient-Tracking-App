@@ -77,7 +77,8 @@
     "test:payments-status": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-status.tsx",
     "test:sell-to-patient": "tsx --tsconfig tsconfig.payments.json scripts/verify-sell-to-patient.tsx",
     "test:patient-orders": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-orders.tsx",
-    "test:patient-subscriptions": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-subscriptions.tsx"
+    "test:patient-subscriptions": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-subscriptions.tsx",
+    "test:tap-to-pay": "tsx --tsconfig tsconfig.payments.json scripts/verify-tap-to-pay.tsx"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
@@ -136,10 +137,12 @@
     "@stripe/react-stripe-js": "^6.10.0",
     "@stripe/stripe-js": "^9.16.0",
     "@stripe/stripe-react-native": "0.64.0",
+    "@stripe/stripe-terminal-react-native": "0.0.1-beta.33",
     "@supabase/supabase-js": "^2.112.3",
     "expo-asset": "~57.0.16",
     "expo-audio": "~57.0.4",
     "expo-camera": "~57.0.4",
+    "expo-dev-client": "^57.0.19",
     "expo-document-picker": "~57.0.1",
     "expo-file-system": "~57.0.6",
     "expo-image-manipulator": "~57.0.15",

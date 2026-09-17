@@ -12,17 +12,22 @@
       "infoPlist": {
         "NSFaceIDUsageDescription": "THINNR uses Face ID only to unlock the signed-in app on this device.",
         "NSHealthShareUsageDescription": "THINNR reads only the weight and step measurements you approve for your patient account.",
-        "NSHealthUpdateUsageDescription": "THINNR does not write health data."
+        "NSHealthUpdateUsageDescription": "THINNR does not write health data.",
+        "NSLocationWhenInUseUsageDescription": "THINNR needs your location while taking a Tap to Pay payment; Stripe requires it to accept in-person cards."
       },
       "entitlements": {
-        "com.apple.developer.healthkit": true
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.proximity-reader.payment.acceptance": true
       }
     },
     "android": {
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.health.READ_WEIGHT",
-        "android.permission.health.READ_STEPS"
+        "android.permission.health.READ_STEPS",
+        "android.permission.NFC",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -90,6 +95,16 @@
         {
           "merchantIdentifier": "merchant.com.thinnr.mobile",
           "enableGooglePay": false
+        }
+      ],
+      "expo-dev-client",
+      [
+        "@stripe/stripe-terminal-react-native",
+        {
+          "locationWhenInUsePermission": "THINNR needs your location while taking a Tap to Pay payment; Stripe requires it to accept in-person cards.",
+          "bluetoothPeripheralPermission": "THINNR does not use Bluetooth card readers.",
+          "bluetoothAlwaysUsagePermission": "THINNR does not use Bluetooth card readers.",
+          "localNetworkUsagePermission": "THINNR does not use networked card readers."
         }
       ]
     ],

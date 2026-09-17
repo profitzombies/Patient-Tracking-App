@@ -97,7 +97,10 @@ async function eventBelongsToProvider(providerId: string, ctx: StripeEventContex
 function paymentIntent(invoice: any): any {
   const direct = invoice.payment_intent;
   if (direct) return typeof direct === "string" ? { id: direct } : direct;
-  const payment = invoice.payments?.data?.[0]?.payment?.payment_intent;
+  // Prefer the payment that actually settled the invoice: an invoice paid out
+  // of band (Tap to Pay) still lists its never-used automatic intent.
+  const payments: any[] = Array.isArray(invoice.payments?.data) ? invoice.payments.data : [];
+  const payment = (payments.find((row) => row?.status === "paid") ?? payments[0])?.payment?.payment_intent;
   return typeof payment === "string" ? { id: payment } : payment;
 }
 export async function createOneTimeOrder(input: {
@@ -191,8 +194,15 @@ async function invoiceCharge(invoice: any, accountId: string, fallbackIntentId: 
     intentId = typeof loadedIntent === "string" ? loadedIntent : loadedIntent?.id;
   }
   if (!intentId) return null;
-  const pi: any = await stripe.paymentIntents.retrieve(intentId, { expand: ["latest_charge.balance_transaction", "latest_charge.application_fee"] } as any, connectedOpts(accountId));
-  return typeof pi.latest_charge === "string" ? await stripe.charges.retrieve(pi.latest_charge, { expand: ["balance_transaction", "application_fee"] } as any, connectedOpts(accountId)) : pi.latest_charge;
+  const chargeOf = async (id: string) => {
+    const pi: any = await stripe.paymentIntents.retrieve(id, { expand: ["latest_charge.balance_transaction", "latest_charge.application_fee"] } as any, connectedOpts(accountId));
+    return typeof pi.latest_charge === "string" ? await stripe.charges.retrieve(pi.latest_charge, { expand: ["balance_transaction", "application_fee"] } as any, connectedOpts(accountId)) : pi.latest_charge ?? null;
+  };
+  const charge = await chargeOf(intentId);
+  // An invoice settled out of band (Tap to Pay) keeps its automatic intent
+  // uncharged; the money is on the card-present intent stored on the order.
+  if (!charge && fallbackIntentId && fallbackIntentId !== intentId) return chargeOf(fallbackIntentId);
+  return charge;
 }
 /**
  * Stripe's processing fee on a direct charge. On the connected account's

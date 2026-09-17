@@ -160,6 +160,14 @@ args = "coach-product-card-mobile"
 task = "workflow.run"
 args = "coach-product-rules-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "tap-to-pay-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "tap-to-pay-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1724,3 +1732,25 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:bloodwork && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[[workflows.workflow]]
+name = "tap-to-pay-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/terminal-sales.test.ts src/routes/billing-office-sales.test.ts src/routes/billing-webhooks.test.ts src/routes/patient-shop.test.ts src/billing/prebuilt-carts.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "tap-to-pay-mobile"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:tap-to-pay && pnpm --filter @workspace/thinnr-mobile run test:sell-to-patient && pnpm --filter @workspace/thinnr-mobile run typecheck && pnpm --filter @workspace/thinnr-operations run typecheck"

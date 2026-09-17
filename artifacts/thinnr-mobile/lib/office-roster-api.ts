@@ -21,6 +21,8 @@ export class OfficeRosterError extends Error {
     message: string,
     readonly status: number,
     readonly field: string | null = null,
+    /** Machine-readable cause from the server (`reason` on the error body) when it sent one. */
+    readonly reason: string | null = null,
   ) {
     super(message);
     this.name = 'OfficeRosterError';
@@ -123,7 +125,7 @@ export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: 
     if (scope?.signal?.aborted) throw new OfficeRosterError(SESSION_CHANGED, 401);
     throw new OfficeRosterError(NETWORK_ERROR, 0);
   }
-  let json: { error?: unknown; field?: unknown } & Partial<T> = {};
+  let json: { error?: unknown; field?: unknown; reason?: unknown } & Partial<T> = {};
   try {
     json = (await response.json()) as typeof json;
   } catch {
@@ -134,6 +136,7 @@ export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: 
       typeof json.error === 'string' ? json.error : `${scope?.failedMessage ?? 'The roster request failed'} (${response.status}).`,
       response.status,
       typeof json.field === 'string' ? json.field : null,
+      typeof json.reason === 'string' ? json.reason : null,
     );
   }
   return json as T;

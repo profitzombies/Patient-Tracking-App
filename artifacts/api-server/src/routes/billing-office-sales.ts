@@ -9,6 +9,8 @@ import {
 } from "../billing/prebuilt-carts";
 import { getPublishableKey, isSandbox } from "../billing/stripe-client";
 import { selectOne } from "../billing/store";
+import { BillingTerminalError, createConnectionToken, tapToPayAvailability } from "../billing/terminal";
+import { cancelTapSale, captureTapSale, saveTapCardOnFile, startTapSale } from "../billing/terminal-sales";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 
 const router: IRouter = Router();
@@ -27,6 +29,10 @@ const Sale = z.object({
   /** The quoted pre-tax total the staff member confirmed; a changed price is refused with 409. */
   expected_total_cents: z.number().int().nonnegative().optional(),
 });
+const TapSale = Sale.omit({ payment_method_id: true });
+const TapCapture = z.object({ order_id: z.string().uuid() });
+const TapCancel = z.object({ reason: z.enum(["declined", "canceled", "fallback"]), message: z.string().trim().max(200).nullish() });
+const TapCard = z.object({ subscription_id: z.string().uuid(), payment_method_id: z.string().trim().min(1).max(200) });
 const Cart = z.object({
   patient_id: z.string().uuid().nullish(), lines: z.array(Line).min(1).max(20),
   label: z.string().trim().max(120).nullish(), expires_in_minutes: z.number().int().min(5).max(1440).optional(),
@@ -40,6 +46,9 @@ function audit(req: Request, scope: BillingOfficeScope, action: string, targetId
 function fail(req: Request, res: Response, error: unknown) {
   if (error instanceof BillingCartError || error instanceof PrebuiltCartError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
+  }
+  if (error instanceof BillingTerminalError) {
+    res.status(error.status).json({ error: error.message, ...(error.reason ? { reason: error.reason } : {}) }); return;
   }
   req.log?.error({ err: error }, "office sale request failed");
   res.status(503).json({ error: "Payments are temporarily unavailable." });
@@ -67,12 +76,14 @@ router.get("/billing/office/sales/context", async (req, res) => {
       isSandbox(), getPublishableKey(),
     ]);
     const available = Boolean(account?.charges_enabled && products.length);
+    const tapToPay = available ? await tapToPayAvailability(scoped.providerId, account) : { available: false, reason: "not_connected" as const };
     res.json({
       patient: { id: person.id, name: name(person), email: person.email ?? null, phone: person.phone ?? null },
       default_address: order?.shipping_address ?? null, products,
       shipping_charge_cents: settings?.shipping_charge_cents ?? 0, subscribe_save_percent: settings ? subscribeSavePercent(settings) : 0,
       stripe_account_id: account?.stripe_account_id ?? null, publishable_key: publishableKey, sandbox, available,
       unavailable_reason: available ? null : !account?.charges_enabled ? "not_connected" : "no_products",
+      tap_to_pay: tapToPay,
     });
   } catch (error) { fail(req, res, error); }
 });
@@ -100,6 +111,63 @@ router.post("/billing/office/sales", async (req, res) => {
     });
     await audit(req, scoped, "billing_office_sale_created", result.cart_id, { patient_id: parsed.data.patient_id, status: result.status });
     res.status(result.status === "failed" ? 402 : 200).json(result);
+  } catch (error) { fail(req, res, error); }
+});
+/** Tap to Pay: the phone's Terminal SDK needs a connection token scoped to the office's account and location. */
+router.post("/billing/office/terminal/connection-token", async (req, res) => {
+  try {
+    const scoped = await scope(req, res); if (!scoped) return;
+    res.json(await createConnectionToken(scoped.providerId));
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/sales/tap", async (req, res) => {
+  try {
+    const scoped = await scope(req, res); if (!scoped) return;
+    const parsed = TapSale.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the sale." }); return; }
+    await patient(scoped, parsed.data.patient_id);
+    const cartId = String(req.headers["idempotency-key"] ?? parsed.data.cart_id);
+    if (!z.string().uuid().safeParse(cartId).success) { res.status(400).json({ error: "Use a valid checkout key.", field: "cart_id" }); return; }
+    const result = await startTapSale({
+      patientId: parsed.data.patient_id, providerId: scoped.providerId, cartId, lines: parsed.data.lines,
+      shipping_address: parsed.data.shipping_address, expected_total_cents: parsed.data.expected_total_cents,
+    });
+    await audit(req, scoped, "billing_office_tap_sale_started", result.cart_id, {
+      patient_id: parsed.data.patient_id, ready: result.items.filter((item) => item.status === "ready").length,
+    });
+    res.status(result.items.every((item) => item.status === "failed") ? 402 : 200).json(result);
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/sales/tap/:cartId/capture", async (req, res) => {
+  try {
+    const scoped = await scope(req, res); if (!scoped) return;
+    const parsed = TapCapture.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "Choose an order to capture.", field: "order_id" }); return; }
+    const result = await captureTapSale(scoped.providerId, String(req.params.cartId), parsed.data.order_id);
+    await audit(req, scoped, "billing_office_tap_sale_captured", String(req.params.cartId), {
+      order_id: parsed.data.order_id, card_on_file: result.card_on_file,
+    });
+    res.json(result);
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/sales/tap/:cartId/cancel", async (req, res) => {
+  try {
+    const scoped = await scope(req, res); if (!scoped) return;
+    const parsed = TapCancel.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "Say why the tap ended.", field: "reason" }); return; }
+    const result = await cancelTapSale(scoped.providerId, String(req.params.cartId), parsed.data.reason, parsed.data.message ?? null);
+    await audit(req, scoped, "billing_office_tap_sale_canceled", String(req.params.cartId), { reason: parsed.data.reason, status: result.status });
+    res.json(result);
+  } catch (error) { fail(req, res, error); }
+});
+router.post("/billing/office/sales/tap/:cartId/card-on-file", async (req, res) => {
+  try {
+    const scoped = await scope(req, res); if (!scoped) return;
+    const parsed = TapCard.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: "Enter the card to keep on file.", field: "payment_method_id" }); return; }
+    const result = await saveTapCardOnFile(scoped.providerId, String(req.params.cartId), parsed.data.subscription_id, parsed.data.payment_method_id);
+    await audit(req, scoped, "billing_office_tap_card_saved", String(req.params.cartId), { subscription_id: parsed.data.subscription_id });
+    res.json(result);
   } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/office/carts", async (req, res) => {

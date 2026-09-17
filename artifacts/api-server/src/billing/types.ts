@@ -1219,4 +1219,74 @@ export interface StaffSaleContext {
   sandbox: boolean;
   available: boolean;
   unavailable_reason: ShopUnavailableReason | null;
+  /** Tap to Pay (Stripe Terminal on the provider's phone) for this office; the device decides the rest. */
+  tap_to_pay: TapToPayAvailability;
 }
+
+/** Why an office cannot take Tap to Pay sales yet; `null` reason = the server side is ready. */
+export type TapToPayUnavailableReason = 'not_connected' | 'no_office_address' | 'terminal_unavailable';
+
+export interface TapCaptureResponse {
+  item: CartCheckoutItem;
+  card_on_file: TapCardOnFile;
+  checkout: CartCheckoutResponse;
+}
+
+/**
+ * What the server can PROVE about the money after settling a Tap to Pay cart.
+ * Only 'not_charged' frees the phone to retry or fall back; 'paid' and
+ * 'partial' mean the original sale (or part of it) went through and is
+ * recorded, so the phone shows it instead of charging again.
+ */
+export type TapSettlement = 'not_charged' | 'paid' | 'partial';
+
+export type TapSaleItemStatus = 'ready' | 'paid' | 'failed';
+
+export interface TapToPayAvailability {
+  available: boolean;
+  reason: TapToPayUnavailableReason | null;
+}
+
+export interface TerminalConnectionToken {
+  secret: string;
+  /** The office's Terminal location; the phone registers itself as a reader here. */
+  location_id: string;
+  stripe_account_id: string;
+}
+
+export interface TapSaleItem {
+  kind: CartPurchase;
+  order_id: string;
+  order_number: string;
+  subscription_id: string | null;
+  /** Card-present PaymentIntent on the office's account; `null` once the line is paid or failed. */
+  payment_intent_id: string | null;
+  client_secret: string | null;
+  status: TapSaleItemStatus;
+  error: string | null;
+  total_cents: number;
+}
+
+export interface TapSaleResponse {
+  cart_id: string;
+  items: TapSaleItem[];
+  stripe_account_id: string;
+  location_id: string;
+  sandbox: boolean;
+}
+
+/** Whether the tapped card is now saved for renewals: `null` for one-time lines. */
+export type TapCardOnFile = 'saved' | 'needed' | null;
+
+/** The answer to a settle (cancel) request: the cart's checkout state plus the proven money outcome. */
+export interface TapCancelResponse extends CartCheckoutResponse {
+  settlement: TapSettlement;
+}
+
+/**
+ * Why a settle request could NOT give a definite answer, on the error body as
+ * `reason`. The phone must stay locked on either: 'settlement_unknown' is
+ * transient (Stripe could not be read; ask again), 'manual_resolution' means a
+ * tap already charged behind an unrecorded order and staff must finish it.
+ */
+export type TapSettlementBlock = 'settlement_unknown' | 'manual_resolution';

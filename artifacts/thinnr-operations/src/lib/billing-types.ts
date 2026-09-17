@@ -1199,8 +1199,11 @@ export interface StaffSaleContext {
   sandbox: boolean;
   available: boolean;
   unavailable_reason: ShopUnavailableReason | null;
+  tap_to_pay: TapToPayAvailability;
 }
 
+/** Why an office cannot take Tap to Pay sales yet; `null` reason = the server side is ready. */
+export type TapToPayUnavailableReason = 'not_connected' | 'no_office_address' | 'terminal_unavailable';
 export interface PublicCartStatus {
   /** Real cart state (the caller already verified the phone), including paid/failed. */
   status: PrebuiltCartStatus;
@@ -1231,4 +1234,48 @@ export interface PrebuiltCart {
   created_at: string;
   paid_at: string | null;
   orders: PrebuiltCartOrder[];
+}
+
+export interface TapToPayAvailability {
+  available: boolean;
+  reason: TapToPayUnavailableReason | null;
+}
+
+export interface TapSaleResponse {
+  cart_id: string;
+  items: TapSaleItem[];
+  stripe_account_id: string;
+  location_id: string;
+  sandbox: boolean;
+}
+
+export interface TapSaleItem {
+  kind: CartPurchase;
+  order_id: string;
+  order_number: string;
+  subscription_id: string | null;
+  /** Card-present PaymentIntent on the office's account; `null` once the line is paid or failed. */
+  payment_intent_id: string | null;
+  client_secret: string | null;
+  status: TapSaleItemStatus;
+  error: string | null;
+  total_cents: number;
+}
+
+export type TapSaleItemStatus = 'ready' | 'paid' | 'failed';
+
+/** Whether the tapped card is now saved for renewals: `null` for one-time lines. */
+export type TapCardOnFile = 'saved' | 'needed' | null;
+
+export interface TerminalConnectionToken {
+  secret: string;
+  /** The office's Terminal location; the phone registers itself as a reader here. */
+  location_id: string;
+  stripe_account_id: string;
+}
+
+export interface TapCaptureResponse {
+  item: CartCheckoutItem;
+  card_on_file: TapCardOnFile;
+  checkout: CartCheckoutResponse;
 }

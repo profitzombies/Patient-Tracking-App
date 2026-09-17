@@ -18,13 +18,29 @@ import { useSupabaseSession } from "@/lib/supabase";
 import { newUuid } from "@/lib/uuid";
 import { officeBilling, OfficeBillingError } from "@/lib/office-billing-api";
 import type {
+  CartCheckoutItem,
   CartCheckoutResponse,
   CartLineInput,
   CartQuote,
   PrebuiltCart,
   PublicLinkProduct,
   ShippingAddress,
+  TapSaleResponse,
+  TapToPayUnavailableReason,
 } from "@/lib/office-billing-types";
+import {
+  isTapFailure,
+  type TapFailure,
+  type TapToPayClient,
+} from "@/lib/tap-to-pay-bridge";
+import { tapToPayDeviceSupported } from "@/lib/tap-to-pay-device";
+import {
+  forgetUnsettledTapSale,
+  noteUnsettledTapFailure,
+  readUnsettledTapSale,
+  rememberUnsettledTapSale,
+  type UnsettledTapSale,
+} from "@/lib/tap-sale-ledger";
 import {
   useOfficeBillingMutation,
   useOfficeSaleContext,
@@ -41,6 +57,7 @@ import {
 } from "@/components/payments/primitives";
 import { Field, RadioGroup, Toggle } from "@/components/payments/dialogs";
 import StaffCardForm from "@/components/payments/StaffCardForm";
+import TapToPay from "@/components/payments/TapToPay";
 import { QrCode } from "@/components/payments/QrCode";
 
 const EMPTY_ADDRESS: ShippingAddress = {
@@ -53,7 +70,67 @@ const EMPTY_ADDRESS: ShippingAddress = {
   country: "US",
   phone: null,
 };
-type Step = "products" | "method" | "card" | "qr" | "done";
+type Step =
+  | "products"
+  | "method"
+  | "card"
+  | "tap"
+  | "card_on_file"
+  | "qr"
+  | "done";
+type TapPhase =
+  | "address"
+  | "preparing"
+  | "connecting"
+  | "collecting"
+  | "capturing"
+  | "failed";
+interface TapState {
+  phase: TapPhase;
+  index: number;
+  count: number;
+  amountCents: number;
+  failure: TapFailure | null;
+  /**
+   * False while a staged sale's outcome is unknown: the server has not yet
+   * confirmed what happened to the taps under this key (a lost capture reply
+   * followed by a lost cancel). Until it is true, no retry or fallback may
+   * start collecting again under a new key, or a patient could pay twice.
+   */
+  settled: boolean;
+  /**
+   * Why the last settle attempt gave no definite answer. "unknown" is
+   * transient (ask again); "manual" means a tap already charged behind an
+   * order THINNR could not record, so staff must finish it and this phone
+   * must not charge again under any key.
+   */
+  block: { kind: "unknown" | "manual"; message: string } | null;
+}
+const TAP_IDLE: TapState = {
+  phase: "address",
+  index: 0,
+  count: 0,
+  amountCents: 0,
+  failure: null,
+  settled: true,
+  block: null,
+};
+/** Shown for a staged sale the screen was closed on before any outcome was seen. */
+const INTERRUPTED_FAILURE: TapFailure = {
+  kind: "error",
+  code: null,
+  message:
+    "This sale was interrupted before THINNR confirmed what happened to the tap.",
+};
+
+/** Why the server cannot offer Tap to Pay for this office, in staff words. */
+function tapUnavailableCopy(reason: TapToPayUnavailableReason | null) {
+  if (reason === "no_office_address")
+    return "Tap to Pay needs the office’s street address on its Stripe account.";
+  if (reason === "terminal_unavailable")
+    return "Tap to Pay is not enabled on this office’s Stripe account yet.";
+  return "Tap to Pay becomes available once this office finishes connecting Stripe.";
+}
 
 export let CART_POLL_MS = 3000;
 export function setCartPollMsForTests(ms: number) {
@@ -139,6 +216,24 @@ function SaleFlow({
   >(null);
   const key = useRef(newUuid());
   const definitiveFailure = useRef(false);
+  const [tap, setTap] = useState<TapState>(TAP_IDLE);
+  const [tapSale, setTapSale] = useState<TapSaleResponse | null>(null);
+  const [cardOnFile, setCardOnFile] = useState<CartCheckoutItem[]>([]);
+  const tapClient = useRef<TapToPayClient | null>(null);
+  const tapUnavailable = useRef<TapFailure | null>(null);
+  const tapWaiter = useRef<{
+    resolve: (client: TapToPayClient) => void;
+    reject: (failure: TapFailure) => void;
+  } | null>(null);
+  /**
+   * A staged Tap to Pay sale this phone never saw settled: undefined while the
+   * ledger is still being read, null when there is none (or it belongs to
+   * this patient and was restored into the tap step), else the other
+   * patient's sale that must be confirmed before anything is sold here.
+   */
+  const [held, setHeld] = useState<UnsettledTapSale | null | undefined>(
+    undefined,
+  );
 
   const quoteMutation = useOfficeBillingMutation(
     userId,
@@ -163,6 +258,38 @@ function SaleFlow({
   );
   const revokeMutation = useOfficeBillingMutation(userId, (id: string, scope) =>
     officeBilling.revokeCart(id, scope),
+  );
+  const tapSaleMutation = useOfficeBillingMutation(
+    userId,
+    (
+      vars: { body: Parameters<typeof officeBilling.tapSale>[0]; key: string },
+      scope,
+    ) => officeBilling.tapSale(vars.body, scope, vars.key),
+  );
+  const tapCaptureMutation = useOfficeBillingMutation(
+    userId,
+    (vars: { cartId: string; orderId: string }, scope) =>
+      officeBilling.tapCapture(vars.cartId, vars.orderId, scope),
+  );
+  const tapCancelMutation = useOfficeBillingMutation(
+    userId,
+    (
+      vars: {
+        cartId: string;
+        body: Parameters<typeof officeBilling.tapCancel>[1];
+      },
+      scope,
+    ) => officeBilling.tapCancel(vars.cartId, vars.body, scope),
+  );
+  const cardOnFileMutation = useOfficeBillingMutation(
+    userId,
+    (
+      vars: {
+        cartId: string;
+        body: Parameters<typeof officeBilling.tapCardOnFile>[1];
+      },
+      scope,
+    ) => officeBilling.tapCardOnFile(vars.cartId, vars.body, scope),
   );
 
   useEffect(() => {
@@ -233,9 +360,75 @@ function SaleFlow({
     return () => clearInterval(timer);
   }, [step]);
 
+  useEffect(() => {
+    // Leaving the tap step unmounts the SDK provider; forget its client so a
+    // later attempt waits for a fresh one instead of calling into a dead tree.
+    if (step !== "tap") {
+      tapClient.current = null;
+      tapUnavailable.current = null;
+      tapWaiter.current = null;
+    }
+  }, [step]);
+  const onTapReady = useCallback((client: TapToPayClient) => {
+    tapClient.current = client;
+    tapWaiter.current?.resolve(client);
+    tapWaiter.current = null;
+  }, []);
+  const onTapUnavailable = useCallback((failure: TapFailure) => {
+    tapUnavailable.current = failure;
+    tapWaiter.current?.reject(failure);
+    tapWaiter.current = null;
+    setTap((current) =>
+      current.phase === "address" || current.phase === "preparing"
+        ? { ...current, phase: "failed", failure }
+        : current,
+    );
+  }, []);
+  // Restore a sale this phone staged and never saw settled. For this patient
+  // it comes back into the tap step under its own cart key and is checked
+  // with the server at once; for another patient it blocks this screen.
+  useEffect(() => {
+    let live = true;
+    void readUnsettledTapSale().then((record) => {
+      if (!live) return;
+      if (!record || record.patientId !== patientId) {
+        setHeld(record);
+        return;
+      }
+      const failure = record.failure ?? INTERRUPTED_FAILURE;
+      key.current = record.cartId;
+      setTapSale(record.sale);
+      setStep("tap");
+      setTap({ ...TAP_IDLE, phase: "failed", failure, settled: false });
+      setHeld(null);
+      void settleTap(record.cartId, failure);
+    });
+    return () => {
+      live = false;
+    };
+    // Runs once per SaleFlow mount (keyed by user + patient).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId]);
+  const tapping =
+    step === "tap" &&
+    ["preparing", "connecting", "collecting", "capturing"].includes(tap.phase);
+
+  const unsettledTap = step === "tap" && !tap.settled;
+
   const close = () => {
     const leave = () => router.back();
-    if (!checkoutMutation.isPending && !cartMutation.isPending) return leave();
+    if (unsettledTap) {
+      // The cart key is also persisted, so killing the app or a hardware back
+      // cannot lose it either: the screen restores and asks the server first.
+      const text =
+        "THINNR has not confirmed what happened to the tap. Use Check the payment before leaving so the patient cannot be charged twice.";
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") window.alert(text);
+      } else Alert.alert("Payment not confirmed", text, [{ text: "OK" }]);
+      return;
+    }
+    if (!checkoutMutation.isPending && !cartMutation.isPending && !tapping)
+      return leave();
     const message = "A payment is still processing. Close this screen?";
     if (Platform.OS === "web") {
       if (typeof window !== "undefined" && window.confirm(message)) leave();
@@ -351,6 +544,182 @@ function SaleFlow({
     ],
   );
 
+  const startTap = async () => {
+    if (!quote || !validAddress()) return;
+    setNotice(null);
+    setResult(null);
+    key.current = newUuid();
+    setTap({ ...TAP_IDLE, phase: "preparing" });
+    let sale: TapSaleResponse | null = null;
+    try {
+      sale = await tapSaleMutation.mutateAsync({
+        body: {
+          patient_id: patientId,
+          lines,
+          shipping_address: {
+            ...address,
+            name: contact.name,
+            phone: contact.phone || null,
+          },
+          cart_id: key.current,
+          expected_total_cents: quote.total_cents,
+        },
+        key: key.current,
+      });
+      setTapSale(sale);
+      // From here on a patient may tap: remember the key until the server
+      // has said what became of it, even across app restarts.
+      await rememberUnsettledTapSale({
+        cartId: sale.cart_id,
+        patientId,
+        patientName,
+        sale,
+        failure: null,
+        stagedAt: new Date().toISOString(),
+      });
+      const client =
+        tapClient.current ??
+        (await new Promise<TapToPayClient>((resolve, reject) => {
+          if (tapUnavailable.current) reject(tapUnavailable.current);
+          else tapWaiter.current = { resolve, reject };
+        }));
+      setTap((current) => ({ ...current, phase: "connecting" }));
+      const connected = await client.connect({
+        locationId: sale.location_id,
+        simulated: sale.sandbox,
+      });
+      if (!connected.ok) throw connected.failure;
+      const ready = sale.items.filter(
+        (item) => item.status === "ready" && item.client_secret,
+      );
+      const needsCard: CartCheckoutItem[] = [];
+      let checkout: CartCheckoutResponse | null = null;
+      for (const [index, item] of ready.entries()) {
+        const progress = {
+          index,
+          count: ready.length,
+          amountCents: item.total_cents,
+          failure: null,
+          settled: true,
+          block: null,
+        };
+        setTap({ ...progress, phase: "collecting" });
+        const tapped = await client.collect(item.client_secret!);
+        if (!tapped.ok) throw tapped.failure;
+        setTap({ ...progress, phase: "capturing" });
+        const captured = await tapCaptureMutation.mutateAsync({
+          cartId: sale.cart_id,
+          orderId: item.order_id,
+        });
+        checkout = captured.checkout;
+        if (captured.card_on_file === "needed") needsCard.push(captured.item);
+      }
+      // Every tap is captured and recorded: nothing is left to settle.
+      await forgetUnsettledTapSale(sale.cart_id);
+      setResult(checkout);
+      setCardOnFile(needsCard);
+      setStep(needsCard.length ? "card_on_file" : "done");
+    } catch (caught) {
+      const failure: TapFailure = isTapFailure(caught)
+        ? caught
+        : {
+            kind:
+              caught instanceof OfficeBillingError && caught.status === 402
+                ? "declined"
+                : "error",
+            code: null,
+            message:
+              caught instanceof Error
+                ? caught.message
+                : "Tap to Pay could not complete the sale.",
+          };
+      // Nothing was staged: nothing can have been charged, so the screen is
+      // free to retry or fall back at once.
+      setTap((current) => ({
+        ...current,
+        phase: "failed",
+        failure,
+        settled: !sale,
+        block: null,
+      }));
+      if (sale) {
+        await noteUnsettledTapFailure(sale.cart_id, failure);
+        await settleTap(sale.cart_id, failure);
+      }
+    }
+  };
+  /**
+   * Asks the server to settle every tap under this key: an authorization it
+   * finds is captured and recorded, everything else is voided. The ONLY
+   * answer that unlocks retry and fallback is the server's explicit
+   * `not_charged`; a paid or partial answer completes the original sale
+   * instead; every error, whatever its status, keeps the screen locked and
+   * offering to ask again, because none of them proves the patient was not
+   * charged.
+   */
+  const settleTap = async (cartId: string, failure: TapFailure) => {
+    try {
+      const settled = await tapCancelMutation.mutateAsync({
+        cartId,
+        body: {
+          reason:
+            failure.kind === "declined" || failure.kind === "canceled"
+              ? failure.kind
+              : "fallback",
+          message: failure.message.slice(0, 200),
+        },
+      });
+      await forgetUnsettledTapSale(cartId);
+      setResult(settled);
+      setTap((current) => ({ ...current, settled: true, block: null }));
+      if (settled.settlement !== "not_charged") {
+        setNotice({ text: failure.message, tone: "bad" });
+        setStep("done");
+      }
+    } catch (caught) {
+      const reason =
+        caught instanceof OfficeBillingError ? caught.reason : null;
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "THINNR could not be reached.";
+      setTap((current) => ({
+        ...current,
+        settled: false,
+        block: {
+          kind: reason === "manual_resolution" ? "manual" : "unknown",
+          message,
+        },
+      }));
+    }
+  };
+  const leaveTap = (next: "card" | "qr") => {
+    void tapClient.current?.cancelCollect();
+    key.current = newUuid();
+    definitiveFailure.current = false;
+    setResult(null);
+    setNotice(null);
+    if (next === "card") setStep("card");
+    else void createQr();
+  };
+  const saveCardOnFile = async (paymentMethodId: string) => {
+    const item = cardOnFile[0];
+    if (!item?.subscription_id || !tapSale) return;
+    await cardOnFileMutation.mutateAsync({
+      cartId: tapSale.cart_id,
+      body: {
+        subscription_id: item.subscription_id,
+        payment_method_id: paymentMethodId,
+      },
+    });
+    const rest = cardOnFile.slice(1);
+    setCardOnFile(rest);
+    if (!rest.length) {
+      setNotice({ text: "Card saved for renewals.", tone: "good" });
+      setStep("done");
+    }
+  };
+
   const createQr = async () => {
     setNotice(null);
     try {
@@ -400,6 +769,8 @@ function SaleFlow({
     checkoutMutation.isPending ||
     cartMutation.isPending ||
     revokeMutation.isPending;
+  const deviceTaps = tapToPayDeviceSupported();
+  const tapOffered = !!context.data?.tap_to_pay.available && deviceTaps;
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <View
@@ -423,8 +794,8 @@ function SaleFlow({
             Sell to {patientName}
           </Text>
           <Body>
-            Build an order and charge a card here or let the patient scan a QR
-            code.
+            Build an order, then take a tap or card on this phone or let the
+            patient scan a QR code.
           </Body>
         </View>
         <Pressable
@@ -459,123 +830,311 @@ function SaleFlow({
             {notice.text}
           </InlineNotice>
         ) : null}
-        {context.data && !context.data.available ? (
-          <Body>
-            Sales are unavailable until this office connects Stripe and offers
-            products.
-          </Body>
+        {held === undefined ? (
+          <LoadingBox
+            label="Checking for unfinished sales…"
+            testID="sale-ledger-loading"
+          />
         ) : null}
-        {context.data?.available && step === "products" ? (
-          <>
-            {context.data.products.map((product) => (
-              <ProductCard
-                key={product.product_id}
-                product={product}
-                line={lines.find(
-                  (line) => line.product_id === product.product_id,
-                )}
-                setProduct={setProduct}
-              />
-            ))}
-            {quoteMutation.isPending ? (
-              <LoadingBox label="Updating quote…" testID="sale-quote-loading" />
-            ) : null}
-            {quote ? <QuoteCard quote={quote} /> : null}
+        {held ? (
+          <Panel
+            title="Finish the last Tap to Pay sale first"
+            testID="sale-tap-held"
+          >
+            <Body testID="sale-tap-held-copy">
+              This phone started a Tap to Pay sale for {held.patientName} that
+              THINNR has not confirmed yet. Confirm it before selling to{" "}
+              {patientName}, so nobody is charged twice.
+            </Body>
             <Button
-              label="Continue"
-              disabled={!quote}
-              onPress={() => setStep("method")}
+              label={`Open the sale for ${held.patientName}`}
               variant="primary"
-              testID="sale-continue"
-            />
-          </>
-        ) : null}
-        {step === "method" ? (
-          <Panel>
-            <Button
-              label="Card on this phone"
-              onPress={() => {
-                key.current = newUuid();
-                definitiveFailure.current = false;
-                setStep("card");
-              }}
-              variant="primary"
-              testID="sale-method-card"
-            />
-            <Button
-              label="Patient scans a QR code"
-              onPress={() => void createQr()}
-              busy={cartMutation.isPending}
-              testID="sale-method-qr"
+              testID="sale-tap-held-open"
+              onPress={() =>
+                router.replace({
+                  pathname: "/sell-to-patient",
+                  params: { patientId: held.patientId, name: held.patientName },
+                })
+              }
             />
           </Panel>
         ) : null}
-        {step === "card" && context.data ? (
+        {held === null ? (
           <>
-            <AddressFields
-              contact={contact}
-              setContact={setContact}
-              address={address}
-              setAddress={setAddress}
-            />
-            {result?.status === "failed" ? (
-              <Panel title="Sale not completed" testID="sale-failed">
-                {result.items.map((item) => (
-                  <Body key={item.order_id}>
-                    {item.order_number}: {outcome(item.status)}
-                    {item.error ? ` — ${item.error}` : ""}
-                  </Body>
+            {context.data && !context.data.available ? (
+              <Body>
+                Sales are unavailable until this office connects Stripe and offers
+                products.
+              </Body>
+            ) : null}
+            {context.data?.available && step === "products" ? (
+              <>
+                {context.data.products.map((product) => (
+                  <ProductCard
+                    key={product.product_id}
+                    product={product}
+                    line={lines.find(
+                      (line) => line.product_id === product.product_id,
+                    )}
+                    setProduct={setProduct}
+                  />
                 ))}
+                {quoteMutation.isPending ? (
+                  <LoadingBox label="Updating quote…" testID="sale-quote-loading" />
+                ) : null}
+                {quote ? <QuoteCard quote={quote} /> : null}
                 <Button
-                  label="Try another card"
-                  testID="sale-try-another-card"
+                  label="Continue"
+                  disabled={!quote}
+                  onPress={() => setStep("method")}
+                  variant="primary"
+                  testID="sale-continue"
+                />
+              </>
+            ) : null}
+            {step === "method" ? (
+              <Panel>
+                <Button
+                  label="Card on this phone"
                   onPress={() => {
-                    paymentMethod.current = null;
                     key.current = newUuid();
                     definitiveFailure.current = false;
-                    setResult(null);
+                    setStep("card");
                   }}
+                  variant="primary"
+                  testID="sale-method-card"
+                />
+                {tapOffered ? (
+                  <Button
+                    label="Tap to Pay on this phone"
+                    onPress={() => {
+                      setTap(TAP_IDLE);
+                      setTapSale(null);
+                      setResult(null);
+                      setStep("tap");
+                    }}
+                    variant="primary"
+                    testID="sale-method-tap"
+                  />
+                ) : null}
+                <Button
+                  label="Patient scans a QR code"
+                  onPress={() => void createQr()}
+                  busy={cartMutation.isPending}
+                  testID="sale-method-qr"
+                />
+                {deviceTaps && context.data && !context.data.tap_to_pay.available ? (
+                  <Body testID="sale-tap-unavailable">
+                    {tapUnavailableCopy(context.data.tap_to_pay.reason)}
+                  </Body>
+                ) : null}
+              </Panel>
+            ) : null}
+            {step === "tap" && context.data ? (
+              <>
+                <TapToPay
+                  userId={userId}
+                  onReady={onTapReady}
+                  onUnavailable={onTapUnavailable}
+                />
+                {tap.phase === "address" ? (
+                  <>
+                    <AddressFields
+                      contact={contact}
+                      setContact={setContact}
+                      address={address}
+                      setAddress={setAddress}
+                    />
+                    <Button
+                      label={`Tap to Pay ${quote ? `$${(quote.total_cents / 100).toFixed(2)}` : "$0.00"}`}
+                      onPress={() => void startTap()}
+                      variant="primary"
+                      testID="sale-tap-start"
+                    />
+                    {quote && quote.groups.length > 1 ? (
+                      <Body>
+                        This sale takes {quote.groups.length} taps, one per order.
+                      </Body>
+                    ) : null}
+                  </>
+                ) : null}
+                {tap.phase === "preparing" || tap.phase === "connecting" ? (
+                  <LoadingBox
+                    label="Getting this phone ready to take a tap…"
+                    testID="sale-tap-connecting"
+                  />
+                ) : null}
+                {tap.phase === "collecting" ? (
+                  <Panel
+                    title={`Tap ${tap.index + 1} of ${tap.count}`}
+                    testID="sale-tap-collecting"
+                  >
+                    <Body>
+                      Have the patient hold their card or phone to the back of this
+                      phone to pay ${(tap.amountCents / 100).toFixed(2)}.
+                    </Body>
+                    <Button
+                      label="Cancel this tap"
+                      testID="sale-tap-cancel"
+                      onPress={() => void tapClient.current?.cancelCollect()}
+                    />
+                  </Panel>
+                ) : null}
+                {tap.phase === "capturing" ? (
+                  <LoadingBox
+                    label="Card tapped. Finishing the order…"
+                    testID="sale-tap-capturing"
+                  />
+                ) : null}
+                {tap.phase === "failed" && tap.failure ? (
+                  <Panel title="Tap to Pay not completed" testID="sale-tap-failed">
+                    <InlineNotice tone="bad" testID="sale-tap-failure">
+                      {tap.failure.message}
+                    </InlineNotice>
+                    {!tap.settled ? (
+                      <>
+                        {tap.block?.kind === "manual" ? (
+                          <Body testID="sale-tap-manual">
+                            {tap.block.message} Do not take another payment for
+                            this sale on any device; the office needs to finish
+                            it in THINNR, then check the payment again here.
+                          </Body>
+                        ) : (
+                          <Body testID="sale-tap-unsettled">
+                            This phone could not confirm with THINNR whether the
+                            tap went through. Do not take another payment until
+                            it does.
+                            {tap.block ? ` ${tap.block.message}` : ""}
+                          </Body>
+                        )}
+                        <Button
+                          label="Check the payment"
+                          variant="primary"
+                          testID="sale-tap-settle"
+                          busy={tapCancelMutation.isPending}
+                          onPress={() => {
+                            if (tapSale && tap.failure)
+                              void settleTap(tapSale.cart_id, tap.failure);
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <>
+                        {tap.failure.kind !== "unsupported" ? (
+                          <Button
+                            label="Try the tap again"
+                            variant="primary"
+                            testID="sale-tap-retry"
+                            onPress={() => void startTap()}
+                          />
+                        ) : null}
+                        <Button
+                          label="Use the card form instead"
+                          testID="sale-tap-fallback-card"
+                          onPress={() => leaveTap("card")}
+                        />
+                        <Button
+                          label="Patient scans a QR code"
+                          testID="sale-tap-fallback-qr"
+                          busy={cartMutation.isPending}
+                          onPress={() => leaveTap("qr")}
+                        />
+                      </>
+                    )}
+                  </Panel>
+                ) : null}
+              </>
+            ) : null}
+            {step === "card_on_file" && context.data && cardOnFile[0] ? (
+              <Panel title="Keep a card on file" testID="sale-card-on-file">
+                <Body>
+                  Subscription {cardOnFile[0].order_number} is paid, but the tapped
+                  card could not be kept for renewals. Enter a card to keep on
+                  file, or skip for now; the patient will need one before the next
+                  renewal.
+                </Body>
+                <StaffCardForm
+                  publishableKey={context.data.publishable_key}
+                  stripeAccount={context.data.stripe_account_id!}
+                  amount={0}
+                  onPaymentMethod={saveCardOnFile}
+                  submitLabel="Save card for renewals"
+                />
+                <Button
+                  label="Skip for now"
+                  testID="sale-card-on-file-skip"
+                  onPress={() => setStep("done")}
                 />
               </Panel>
-            ) : (
-              <StaffCardForm
-                publishableKey={context.data.publishable_key}
-                stripeAccount={context.data.stripe_account_id!}
-                amount={quote?.total_cents ?? 0}
-                onReady={(handler) => {
-                  nextAction.current = handler;
-                }}
-                onPaymentMethod={checkout}
-                submitLabel={`Charge ${quote ? `$${(quote.total_cents / 100).toFixed(2)}` : "$0.00"}`}
+            ) : null}
+            {step === "card" && context.data ? (
+              <>
+                <AddressFields
+                  contact={contact}
+                  setContact={setContact}
+                  address={address}
+                  setAddress={setAddress}
+                />
+                {result?.status === "failed" ? (
+                  <Panel title="Sale not completed" testID="sale-failed">
+                    {result.items.map((item) => (
+                      <Body key={item.order_id}>
+                        {item.order_number}: {outcome(item.status)}
+                        {item.error ? ` — ${item.error}` : ""}
+                      </Body>
+                    ))}
+                    <Button
+                      label="Try another card"
+                      testID="sale-try-another-card"
+                      onPress={() => {
+                        paymentMethod.current = null;
+                        key.current = newUuid();
+                        definitiveFailure.current = false;
+                        setResult(null);
+                      }}
+                    />
+                  </Panel>
+                ) : (
+                  <StaffCardForm
+                    publishableKey={context.data.publishable_key}
+                    stripeAccount={context.data.stripe_account_id!}
+                    amount={quote?.total_cents ?? 0}
+                    onReady={(handler) => {
+                      nextAction.current = handler;
+                    }}
+                    onPaymentMethod={checkout}
+                    submitLabel={`Charge ${quote ? `$${(quote.total_cents / 100).toFixed(2)}` : "$0.00"}`}
+                  />
+                )}
+              </>
+            ) : null}
+            {step === "done" && result ? (
+              <Completion
+                result={result}
+                go={(id) =>
+                  router.push({
+                    pathname: "/payments/transactions/[orderId]",
+                    params: { orderId: id },
+                  })
+                }
               />
-            )}
+            ) : null}
+            {step === "qr" && cart ? (
+              <QrState
+                cart={cart}
+                now={now}
+                busy={busy}
+                share={share}
+                revoke={revoke}
+                go={(id) =>
+                  router.push({
+                    pathname: "/payments/transactions/[orderId]",
+                    params: { orderId: id },
+                  })
+                }
+              />
+            ) : null}
           </>
-        ) : null}
-        {step === "done" && result ? (
-          <Completion
-            result={result}
-            go={(id) =>
-              router.push({
-                pathname: "/payments/transactions/[orderId]",
-                params: { orderId: id },
-              })
-            }
-          />
-        ) : null}
-        {step === "qr" && cart ? (
-          <QrState
-            cart={cart}
-            now={now}
-            busy={busy}
-            share={share}
-            revoke={revoke}
-            go={(id) =>
-              router.push({
-                pathname: "/payments/transactions/[orderId]",
-                params: { orderId: id },
-              })
-            }
-          />
         ) : null}
       </PageScrollView>
     </View>

@@ -19,6 +19,7 @@ import type {
   PublicOrderResponse, PublicSubscription, ShippingAddress, SubscriptionChangeQuote, SubscriptionRow,
 } from "./types";
 import { onStripeEvent, type StripeEventContext } from "./webhooks";
+import { notifySubscriptionPaymentFailed } from "./patient-notices";
 
 export class BillingSubscriptionError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -326,7 +327,12 @@ export async function markSubscriptionInvoiceFailed(invoice: any, ctx: StripeEve
     last_hosted_invoice_url: invoice.hosted_invoice_url ?? subscription.last_hosted_invoice_url,
     last_failure_message: message,
   });
-  if (!updated || !invoice.hosted_invoice_url) return;
+  if (!updated) return;
+  if (updated.patient_id) {
+    const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(updated.product_id)}`);
+    await notifySubscriptionPaymentFailed({ subscription: updated, productName: product?.name ?? "Subscription", invoiceId: invoice.id, message: message ?? "The renewal payment did not go through." });
+  }
+  if (!invoice.hosted_invoice_url) return;
   const claimed = await update("billing_subscriptions",
     `id=eq.${encodeURIComponent(subscription.id)}&last_failed_invoice_id=eq.${invoiceFilter}&or=(payment_failure_email_sent_invoice_id.neq.${invoiceFilter},payment_failure_email_sent_invoice_id.is.null)`, {
     payment_failure_email_sent_invoice_id: invoice.id,

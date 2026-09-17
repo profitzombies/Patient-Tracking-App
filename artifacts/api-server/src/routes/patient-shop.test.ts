@@ -78,13 +78,32 @@ class Backend {
     return [raw.slice(0, dot), raw.slice(dot + 1)];
   }
 
+  /** Splits "a,b(c,d),e" on top-level commas only, so nested and()/or() groups survive. */
+  private clauses(raw: string): string[] {
+    const out: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < raw.length; index += 1) {
+      const char = raw[index];
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      else if (char === "," && depth === 0) { out.push(raw.slice(start, index)); start = index + 1; }
+    }
+    out.push(raw.slice(start));
+    return out.filter(Boolean);
+  }
+
   private matches(row: Row, column: string, operation: string, raw: string): boolean {
-    if (column === "or") {
-      return raw.replace(/^\(|\)$/g, "").split(",").some((clause) => {
+    if (column === "or" || column === "and") {
+      const test = (clause: string) => {
+        const group = clause.match(/^(and|or)\((.*)\)$/);
+        if (group) return this.matches(row, group[1], "", group[2]);
         const [col, rest] = [clause.slice(0, clause.indexOf(".")), clause.slice(clause.indexOf(".") + 1)];
         const [op, value] = this.parse(rest);
         return this.matches(row, col, op, value);
-      });
+      };
+      const parts = this.clauses(raw.replace(/^\(|\)$/g, ""));
+      return column === "or" ? parts.some(test) : parts.every(test);
     }
     const value = row[column];
     if (operation === "eq") return String(value ?? "") === raw;
@@ -461,6 +480,24 @@ describe("cart quote", () => {
       expect.objectContaining({ kind: "subscription", product_id: PRODUCT, cadence_weeks: 8, subtotal_cents: 6299, shipping_charge_cents: 1000 }),
     ]);
     expect(json).toMatchObject({ subtotal_cents: 16997 + 6299, discount_cents: 700, shipping_charge_cents: 2000, total_cents: 16997 + 6299 + 2000 });
+  });
+
+  it("binds a fresh checkout to the total the payer was shown", async () => {
+    // Office QR carts and staff card sales quote first and charge later; a
+    // price change in between must refuse the charge rather than bill a
+    // total nobody confirmed. Only a fresh checkout is priced today.
+    const { checkoutCart, assertQuoteCurrent } = await import("../billing/cart");
+    const quoted = 16997 + 6299 + 2000;
+    await expect(assertQuoteCurrent("office-1", CART.lines as never, quoted)).resolves.toMatchObject({ quote: { total_cents: quoted } });
+    await expect(assertQuoteCurrent("office-1", CART.lines as never, quoted + 1)).rejects.toMatchObject({ status: 409, field: "expected_total_cents" });
+    const { patientId } = backend.signedIn("pat", "office-1");
+    const before = backend.tables.billing_orders.length;
+    await expect(checkoutCart({
+      patientId, providerId: "office-1", cartId: crypto.randomUUID(), lines: CART.lines as never,
+      shipping_address: ADDRESS, payment_method_id: "pm_visa", expected_total_cents: quoted - 500,
+    })).rejects.toMatchObject({ status: 409 });
+    expect(backend.tables.billing_orders.length).toBe(before);
+    expect(stripe.invoices.create).not.toHaveBeenCalled();
   });
 
   it("rejects bad quantities, unoffered cadences, duplicate lines, and subscriptions the office does not price", async () => {
@@ -1135,6 +1172,30 @@ describe("orders and shipments", () => {
     expect(second.json.next_cursor).toBeNull();
   });
 
+  it("pages through orders that share a timestamp without skipping or repeating any", async () => {
+    seedOffice("office-1");
+    const { patientId } = backend.signedIn("pat", "office-1");
+    // Seven orders, five of them stamped at the same instant (a bulk import
+    // or a multi-line checkout split into orders), paged two at a time.
+    const stamps = ["2026-09-12T00:00:00.000Z", ...Array(5).fill("2026-09-11T00:00:00.000Z"), "2026-09-10T00:00:00.000Z"];
+    stamps.forEach((created_at, index) => {
+      backend.tables.billing_orders.push({ id: crypto.randomUUID(), order_number: `TH-${index}`, provider_id: "office-1", payer_id: "p", patient_id: patientId, kind: "one_time", status: "paid", subtotal_cents: 100, shipping_charge_cents: 10, tax_cents: 0, total_cents: 110, shipping_address: ADDRESS, fulfillment_status: "to_ship", stripe_charge_id: "ch_1", created_at, paid_at: created_at, subscription_id: null, cart_id: null });
+    });
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const page = await api("GET", `/api/patient-data/billing/orders?limit=2${cursor ? `&cursor=${cursor}` : ""}`, { token: "pat" });
+      expect(page.status).toBe(200);
+      seen.push(...page.json.items.map((row: Row) => row.id));
+      cursor = page.json.next_cursor;
+      pages += 1;
+    } while (cursor && pages < 10);
+    expect(pages).toBe(4);
+    expect(new Set(seen).size).toBe(7);
+    expect(seen.sort()).toEqual(backend.tables.billing_orders.map((row) => String(row.id)).sort());
+  });
+
   it("returns order detail with items, money, refunds, and a shipment fed by staff fulfillment", async () => {
     seedOffice("office-1");
     const { patientId } = backend.signedIn("pat", "office-1");
@@ -1275,5 +1336,28 @@ describe("subscription self-service", () => {
     expect(updated.status).toBe(200);
     expect(stripe.methods.get("pm_amex").customer).toBe("cus_pat");
     expect(stripe.subscriptions.update).toHaveBeenCalledWith(row.stripe_subscription_id, { default_payment_method: "pm_amex" }, expect.anything());
+  });
+
+  it("retries a failed renewal with a chosen saved card, and reports a decline honestly", async () => {
+    const none = await api("POST", `/api/patient-data/billing/subscriptions/${row.id}/retry-payment`, { token: "pat", body: {} });
+    expect(none.status).toBe(409);
+    expect(stripe.invoices.pay).not.toHaveBeenCalled();
+    Object.assign(row, { status: "past_due", last_failed_invoice_id: "in_failed", last_failure_message: "Your card was declined.", payment_failure_count: 1 });
+    const bad = await api("POST", `/api/patient-data/billing/subscriptions/${row.id}/retry-payment`, { token: "pat", body: { payment_method_id: "" } });
+    expect(bad.status).toBe(400);
+    const retried = await api("POST", `/api/patient-data/billing/subscriptions/${row.id}/retry-payment`, { token: "pat", body: { payment_method_id: "pm_amex" } });
+    expect(retried.status).toBe(200);
+    expect(stripe.methods.get("pm_amex").customer).toBe("cus_pat");
+    expect(stripe.subscriptions.update).toHaveBeenCalledWith(row.stripe_subscription_id, { default_payment_method: "pm_amex" }, expect.anything());
+    expect(stripe.invoices.pay).toHaveBeenCalledWith("in_failed", {}, expect.objectContaining({ stripeAccount: "acct_office-1" }));
+    // The card swap lands before the charge is attempted.
+    expect(stripe.subscriptions.update.mock.invocationCallOrder[0]).toBeLessThan(stripe.invoices.pay.mock.invocationCallOrder[0]);
+    stripe.declineNext = { message: "Insufficient funds." };
+    const declinedRetry = await api("POST", `/api/patient-data/billing/subscriptions/${row.id}/retry-payment`, { token: "pat", body: {} });
+    expect(declinedRetry.status).toBe(402);
+    expect(declinedRetry.json.error).toBe("Insufficient funds.");
+    // Another patient's subscription is invisible, not merely refused.
+    backend.signedIn("other", "office-1");
+    expect((await api("POST", `/api/patient-data/billing/subscriptions/${row.id}/retry-payment`, { token: "other", body: {} })).status).toBe(404);
   });
 });

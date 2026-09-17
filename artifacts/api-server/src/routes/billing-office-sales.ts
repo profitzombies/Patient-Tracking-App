@@ -24,6 +24,8 @@ const Address = z.object({
 const Sale = z.object({
   patient_id: z.string().uuid(), lines: z.array(Line).min(1).max(20), shipping_address: Address,
   payment_method_id: z.string().trim().min(1).max(200), cart_id: z.string().uuid(),
+  /** The quoted pre-tax total the staff member confirmed; a changed price is refused with 409. */
+  expected_total_cents: z.number().int().nonnegative().optional(),
 });
 const Cart = z.object({
   patient_id: z.string().uuid().nullish(), lines: z.array(Line).min(1).max(20),
@@ -94,6 +96,7 @@ router.post("/billing/office/sales", async (req, res) => {
     const result = await checkoutCart({
       patientId: parsed.data.patient_id, providerId: scoped.providerId, cartId, lines: parsed.data.lines,
       shipping_address: parsed.data.shipping_address, payment_method_id: parsed.data.payment_method_id,
+      expected_total_cents: parsed.data.expected_total_cents,
     });
     await audit(req, scoped, "billing_office_sale_created", result.cart_id, { patient_id: parsed.data.patient_id, status: result.status });
     res.status(result.status === "failed" ? 402 : 200).json(result);

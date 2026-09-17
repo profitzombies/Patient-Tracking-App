@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { BillingOrderError, refundOrder, toOrderDetail } from "../billing/orders";
+import { notifyOrderShipped } from "../billing/patient-notices";
 import { BillingReportingError, hqActivity, hqOverview, hqToday } from "../billing/reporting";
 import {
   BillingSubscriptionError, cancelSubscription, changeSubscription, pauseSubscription, quoteSubscriptionChange,
@@ -114,13 +115,15 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
     // fulfillment columns on the order so every existing reader stays intact.
     // Shipped and delivered emails fire inside recordShipment, once per
     // status transition, so a re-save with the same status sends nothing.
-    const { order: row } = await recordShipment(bundle.order, parsed.data.status === "shipped" ? {
+    // The patient push notice below dedupes per order the same way.
+    const { order: row, shipment } = await recordShipment(bundle.order, parsed.data.status === "shipped" ? {
       status: "shipped", tracking_number: parsed.data.tracking_number, carrier: parsed.data.carrier, updated_by: actor(res), source: "staff",
     } : parsed.data.status === "delivered" ? {
       status: "delivered", tracking_number: parsed.data.tracking_number, carrier: parsed.data.carrier, updated_by: actor(res), source: "staff",
     } : parsed.data.status === "canceled" ? {
       status: "canceled", canceled_reason: parsed.data.canceled_reason, updated_by: actor(res), source: "staff",
     } : { status: "processing", updated_by: actor(res), source: "staff" });
+    if (parsed.data.status === "shipped") await notifyOrderShipped({ order: row, shipment });
     await audit(req, res, "billing_order_fulfillment_updated", "billing_order", row.id, {
       order_id: row.id, fulfillment_status: parsed.data.status, has_tracking: Boolean(parsed.data.tracking_number),
     }, bundle.order.provider_id);

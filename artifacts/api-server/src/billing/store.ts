@@ -248,6 +248,16 @@ export function encodeCursor(row: { created_at: string; id: string } | null): st
   return row ? Buffer.from(JSON.stringify(row)).toString("base64url") : null;
 }
 
+/**
+ * Keyset continuation for pages ordered (created_at DESC, id DESC): rows
+ * strictly older than the cursor, plus rows at the same instant with a
+ * smaller id. Timestamps are not unique, so a created_at-only predicate
+ * would drop every tied row that did not fit on the previous page.
+ */
+export function cursorFilter(cursor: { created_at: string; id: string }): string {
+  const at = encodeURIComponent(cursor.created_at);
+  return `or=(created_at.lt.${at},and(created_at.eq.${at},id.lt.${encodeURIComponent(cursor.id)}))`;
+}
 export function toOrderSummary(
   row: BillingOrderRow,
   items: BillingOrderItemRow[],

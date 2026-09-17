@@ -26,7 +26,7 @@ rows, same reports, activity, and fulfillment queues).
 - Prebuilt carts are the mechanism the care-team chat will reuse later to send
   a bundle to checkout (same record, same public flow).
 
-## Table `billing_prebuilt_carts` (migration `supabase/migrations/20261023000000_billing_prebuilt_carts.sql`)
+## Table `billing_prebuilt_carts` (migration `supabase/migrations/20261023000100_billing_prebuilt_carts.sql`)
 
 | column | type | notes |
 | --- | --- | --- |

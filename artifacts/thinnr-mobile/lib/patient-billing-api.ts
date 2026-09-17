@@ -20,6 +20,7 @@ import type {
   SubscriptionCardRequest,
   SubscriptionMoveNextRequest,
   SubscriptionPlanRequest,
+  SubscriptionRetryPaymentRequest,
 } from '@/lib/patient-billing-types';
 
 function mutationKey(kind: string, id = ''): string {
@@ -118,7 +119,7 @@ export function getSubscription(id: string): Promise<PatientSubscriptionDetail> 
   return authedRequest('GET', `/patient-data/billing/subscriptions/${enc(id)}`) as Promise<PatientSubscriptionDetail>;
 }
 
-type SubscriptionAction = 'move-next' | 'skip-next' | 'pause' | 'resume' | 'address' | 'plan' | 'card';
+type SubscriptionAction = 'move-next' | 'skip-next' | 'pause' | 'resume' | 'address' | 'plan' | 'card' | 'retry-payment';
 function subscriptionAction(id: string, name: SubscriptionAction, body: unknown = {}): Promise<PatientBillingSubscription> {
   return authedRequest('POST', `/patient-data/billing/subscriptions/${enc(id)}/${name}`, body, {
     idempotencyKey: mutationKey(name, id),
@@ -132,3 +133,8 @@ export const resumeSubscription = (id: string) => subscriptionAction(id, 'resume
 export const changeSubscriptionAddress = (id: string, input: SubscriptionAddressRequest) => subscriptionAction(id, 'address', input);
 export const changeSubscriptionPlan = (id: string, input: SubscriptionPlanRequest) => subscriptionAction(id, 'plan', input);
 export const updateSubscriptionCard = (id: string, input: SubscriptionCardRequest) => subscriptionAction(id, 'card', input);
+/**
+ * Failed renewal: optionally switch the renewal card first, then pay the
+ * open invoice. A decline surfaces as the server's 402 message.
+ */
+export const retrySubscriptionPayment = (id: string, input: SubscriptionRetryPaymentRequest = {}) => subscriptionAction(id, 'retry-payment', input);

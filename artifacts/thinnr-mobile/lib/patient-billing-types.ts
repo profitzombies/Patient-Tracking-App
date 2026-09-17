@@ -322,6 +322,10 @@ export interface SubscriptionPlanRequest {
   quantity?: number;
 }
 
+export interface SubscriptionRetryPaymentRequest {
+  payment_method_id?: string;
+}
+
 export interface SubscriptionCardRequest {
   payment_method_id: string;
 }

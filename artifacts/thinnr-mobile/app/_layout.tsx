@@ -275,7 +275,11 @@ function RootLayoutNav() {
       <Stack.Screen name="claim-test" options={{ headerShown: false }} />
       <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
-      <Stack.Screen name="billing" options={{ headerShown: false, title: 'Payments & orders' }} />
+      <Stack.Screen name="billing" options={{ headerShown: false, title: 'Shop' }} />
+      <Stack.Screen name="orders/index" options={{ headerShown: false, title: 'Orders' }} />
+      <Stack.Screen name="orders/[id]" options={{ headerShown: false, title: 'Order' }} />
+      <Stack.Screen name="my-subscriptions/index" options={{ headerShown: false, title: 'Subscriptions' }} />
+      <Stack.Screen name="my-subscriptions/[id]" options={{ headerShown: false, title: 'Subscription' }} />
       <Stack.Screen name="security" options={{ headerShown: false }} />
       <Stack.Screen name="security-report" options={{ headerShown: false }} />
       <Stack.Screen name="consent" options={{ headerShown: false, gestureEnabled: false }} />

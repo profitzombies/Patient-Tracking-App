@@ -95,15 +95,20 @@ export function PrimaryButton({
   );
 }
 
-export function GhostButton({ label, onPress, disabled = false, testID, accessibilityLabel, style }: ButtonProps) {
+export function GhostButton({ label, onPress, disabled = false, onDisabledPress, testID, accessibilityLabel, style }: PrimaryButtonProps) {
   const colors = useColors();
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      disabled={disabled}
+      accessibilityState={{ disabled }}
+      disabled={disabled && !onDisabledPress}
       onPress={() => {
+        if (disabled) {
+          onDisabledPress?.();
+          return;
+        }
         Haptics.selectionAsync();
         onPress();
       }}

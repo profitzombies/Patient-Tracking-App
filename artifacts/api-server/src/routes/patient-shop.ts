@@ -13,10 +13,10 @@ import { BillingPriceError } from "../billing/prices";
 import { shipmentsForOrders } from "../billing/shipments";
 import { getPublishableKey, isSandbox } from "../billing/stripe-client";
 import {
-  BillingStoreError, encodeCursor, pagination, selectMany, selectOne, type BillingConnectedAccountRow,
+  BillingStoreError, cursorFilter, encodeCursor, pagination, selectMany, selectOne, type BillingConnectedAccountRow,
   type BillingOrderItemRow, type BillingRefundRow, type BillingSubscriptionRow,
 } from "../billing/store";
-import { BillingSubscriptionError, pauseSubscription, resumeSubscription } from "../billing/subscriptions";
+import { BillingSubscriptionError, pauseSubscription, resumeSubscription, retrySubscriptionPayment } from "../billing/subscriptions";
 import type {
   PatientOrderDetail, PatientOrderList, PatientShop, PatientSubscriptionDetail, ShippingAddress,
 } from "../billing/types";
@@ -54,6 +54,7 @@ const PlanSchema = z.object({
   cadence_weeks: z.number().int().optional(), quantity: z.number().int().min(1).max(MAX_LINE_QUANTITY).optional(),
 }).refine((value) => value.cadence_weeks !== undefined || value.quantity !== undefined, { message: "Choose a cadence or quantity." });
 const CardBodySchema = z.object({ payment_method_id: z.string().trim().min(1).max(200) });
+const RetryBodySchema = z.object({ payment_method_id: z.string().trim().min(1).max(200).optional() });
 
 function fail(req: Request, res: Response, error: unknown): void {
   if (error instanceof BillingCartError || error instanceof BillingCardError || error instanceof BillingSubscriptionError
@@ -240,7 +241,7 @@ router.get("/patient-data/billing/orders", async (req, res) => {
     if (!ctx) return;
     const page = pagination(req.query);
     const filters = [`patient_id=eq.${enc(ctx.patientId)}`, `provider_id=eq.${enc(ctx.providerId)}`];
-    if (page.cursor) filters.push(`created_at=lt.${enc(page.cursor.created_at)}`);
+    if (page.cursor) filters.push(cursorFilter(page.cursor));
     const rows = await selectMany("billing_orders", `${filters.join("&")}&order=created_at.desc,id.desc&limit=${page.limit + 1}`);
     const visible = rows.slice(0, page.limit);
     const ids = visible.map((row) => row.id);
@@ -354,16 +355,31 @@ action("plan", async (_ctx, row, body) => {
   if (!parsed.success) throw new BillingSubscriptionError("Choose a cadence or quantity.", 400, "cadence_weeks");
   return changeSubscriptionPlan(row, parsed.data);
 });
-action("card", async (ctx, row, body) => {
-  const parsed = CardBodySchema.safeParse(body);
-  if (!parsed.success) throw new BillingSubscriptionError("A card is required.", 400, "payment_method_id");
+async function setRenewalCard(ctx: Ctx, row: BillingSubscriptionRow, paymentMethodId: string): Promise<BillingSubscriptionRow> {
   const account = await liveAccount(ctx.providerId);
   if (!account) throw new BillingSubscriptionError("Your office is not set up to take payments in the app yet.", 409);
   const { customerId } = await patientCustomer(ctx.patientId, ctx.providerId, account);
   if (row.stripe_customer_id && row.stripe_customer_id !== customerId) {
     throw new BillingSubscriptionError("This subscription is billed to a different account.", 409);
   }
-  return updateSubscriptionCard(row, customerId, parsed.data.payment_method_id);
+  return updateSubscriptionCard(row, customerId, paymentMethodId);
+}
+action("card", async (ctx, row, body) => {
+  const parsed = CardBodySchema.safeParse(body);
+  if (!parsed.success) throw new BillingSubscriptionError("A card is required.", 400, "payment_method_id");
+  return setRenewalCard(ctx, row, parsed.data.payment_method_id);
+});
+/**
+ * Failed renewal, retried by the patient: optionally point the subscription at
+ * one of their saved cards first, then pay the open failed invoice. A decline
+ * comes back as 402 with Stripe's reason; a missing failed invoice is 409.
+ */
+action("retry-payment", async (ctx, row, body) => {
+  const parsed = RetryBodySchema.safeParse(body ?? {});
+  if (!parsed.success) throw new BillingSubscriptionError("Choose a card.", 400, "payment_method_id");
+  if (!row.last_failed_invoice_id) throw new BillingSubscriptionError("There is no failed payment to retry.", 409);
+  const current = parsed.data.payment_method_id ? await setRenewalCard(ctx, row, parsed.data.payment_method_id) : row;
+  return retrySubscriptionPayment(current.id);
 });
 
 export default router;

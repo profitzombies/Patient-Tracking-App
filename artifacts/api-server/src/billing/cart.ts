@@ -133,7 +133,22 @@ export type CheckoutInput = {
   patientId: string | null; providerId: string; cartId: string; lines: CartLineInput[];
   shipping_address: ShippingAddress; payment_method_id: string; set_default?: boolean;
   resolvedPayer?: BillingPayerRow;
+  /**
+   * The pre-tax total the payer was shown. A NEW checkout is refused when
+   * today's pricing no longer produces this amount, so a catalog, discount, or
+   * shipping change between the quote and the card tap can never charge a
+   * total nobody confirmed. Replays of an already-claimed cart are unaffected.
+   */
+  expected_total_cents?: number;
 };
+
+export const QUOTE_CHANGED_MESSAGE = "The total changed since this order was quoted. Review the new total before paying.";
+/** Re-prices the lines today and throws 409 when the total the payer saw no longer holds. */
+export async function assertQuoteCurrent(providerId: string, lines: CartLineInput[], expectedTotalCents: number): Promise<CartPlan> {
+  const plan = await planCart(providerId, lines);
+  if (plan.quote.total_cents !== expectedTotalCents) throw new BillingCartError(QUOTE_CHANGED_MESSAGE, 409, "expected_total_cents");
+  return plan;
+}
 
 function checkoutStatus(items: CartCheckoutItem[]): CheckoutStatus {
   if (items.every((item) => item.status === "paid")) return "paid";
@@ -385,7 +400,9 @@ export async function checkoutCart(input: CheckoutInput): Promise<CartCheckoutRe
     assertCartOwner(cart, input, fingerprint);
   } else {
     account = await liveAccount(input.providerId);
-    plan = await planCart(input.providerId, input.lines);
+    plan = input.expected_total_cents === undefined
+      ? await planCart(input.providerId, input.lines)
+      : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents);
     const claimed = await claimCart(input, plan, fingerprint, account);
     cart = claimed.cart; fresh = claimed.fresh;
   }

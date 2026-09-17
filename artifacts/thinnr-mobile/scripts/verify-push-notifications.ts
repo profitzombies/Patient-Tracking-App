@@ -86,6 +86,20 @@ async function main() {
   assert.equal(resolveNotificationRoute({ route: '/(patient)/progress' }), '/(patient)/progress');
   assert.equal(resolveNotificationRoute({ route: 'https://evil.example' }), null);
   assert.equal(resolveNotificationRoute({ route: '/account' }), null);
+  assert.equal(resolveNotificationRoute({ route: '/orders' }), '/orders');
+  assert.equal(resolveNotificationRoute({ route: '/my-subscriptions' }), '/my-subscriptions');
+  // Billing notices resolve by kind + uuid, never by the route string alone.
+  const shippedTap = { kind: 'order_shipped', patientId: 'patient-a', orderId: '22222222-2222-4222-8222-222222222222', route: '/orders/22222222-2222-4222-8222-222222222222' };
+  assert.equal(resolveNotificationRoute(shippedTap), '/orders/22222222-2222-4222-8222-222222222222');
+  assert.equal(resolveNotificationRoute({ ...shippedTap, orderId: '../admin' }), null);
+  assert.equal(resolveNotificationRoute({ ...shippedTap, patientId: undefined }), null);
+  const renewalTap = { kind: 'subscription_renewal_upcoming', patientId: 'patient-a', subscriptionId: '33333333-3333-4333-8333-333333333333' };
+  assert.equal(resolveNotificationRoute(renewalTap), '/my-subscriptions/33333333-3333-4333-8333-333333333333');
+  assert.equal(resolveNotificationRoute({ ...renewalTap, kind: 'subscription_payment_failed' }), '/my-subscriptions/33333333-3333-4333-8333-333333333333');
+  assert.equal(resolveNotificationRoute({ ...renewalTap, kind: 'something_else' }), null);
+  assert.equal(notificationAdmittedForPatient(shippedTap, 'patient-a'), true);
+  assert.equal(notificationAdmittedForPatient(shippedTap, 'patient-b'), false);
+  assert.equal(notificationAdmittedForPatient(renewalTap, null), false);
   const careTeamTap = {
     kind: 'care_team_reply',
     thread: 'care_team',

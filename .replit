@@ -124,6 +124,14 @@ args = "payments-mobile-operations"
 task = "workflow.run"
 args = "payments-mobile-sell"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-orders"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-billing-notices-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1586,6 +1594,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:sell-to-patient && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-orders"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:patient-billing && pnpm --filter @workspace/thinnr-mobile run test:push-notifications && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-billing-notices-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/billing/patient-notices.test.ts src/routes/patient-notifications.test.ts src/routes/patient-shop.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

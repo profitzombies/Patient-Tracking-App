@@ -34,7 +34,32 @@ const NOTIFICATION_ROUTES = new Set([
   '/security',
   '/check-in',
   '/(tabs)/patients',
+  '/orders',
+  '/my-subscriptions',
 ]);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Billing notices deep-link by kind + record id, never by the free-form
+ * `route` string: a shipped order opens that order, a renewal reminder or a
+ * failed renewal opens that subscription. Malformed ids fall through to the
+ * static allow-list (which has no per-record routes), so a bad payload can
+ * never steer the app to an arbitrary path.
+ */
+function billingRoute(value: Record<string, unknown>): string | null {
+  if (!notificationPatientId(value)) return null;
+  if (value.kind === 'order_shipped' && typeof value.orderId === 'string' && UUID.test(value.orderId)) {
+    return `/orders/${value.orderId.toLowerCase()}`;
+  }
+  if (
+    (value.kind === 'subscription_renewal_upcoming' || value.kind === 'subscription_payment_failed') &&
+    typeof value.subscriptionId === 'string' && UUID.test(value.subscriptionId)
+  ) {
+    return `/my-subscriptions/${value.subscriptionId.toLowerCase()}`;
+  }
+  return null;
+}
 
 export function resolveNotificationRoute(data: unknown): string | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
@@ -47,6 +72,8 @@ export function resolveNotificationRoute(data: unknown): string | null {
     typeof value.conversationId === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value.conversationId)
   ) return `/care-team-chat?conversationId=${encodeURIComponent(value.conversationId)}`;
+  const billing = billingRoute(value);
+  if (billing) return billing;
   const route = value.route;
   return typeof route === 'string' && NOTIFICATION_ROUTES.has(route) ? route : null;
 }
@@ -68,15 +95,18 @@ export function notificationPatientId(data: unknown): string | null {
   return typeof patientId === 'string' && patientId.length > 0 ? patientId : null;
 }
 
+const PATIENT_OWNED_KINDS = new Set(['order_shipped', 'subscription_renewal_upcoming', 'subscription_payment_failed']);
+
 /**
- * Care-team notification actions fail closed unless the outbox-bound patient
- * is still the selected patient. Other historic notification kinds retain
- * their existing routing behavior.
+ * Care-team and billing notification actions fail closed unless the
+ * outbox-bound patient is still the selected patient. Other historic
+ * notification kinds retain their existing routing behavior.
  */
 export function notificationAdmittedForPatient(data: unknown, activePatientId: string | null): boolean {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return true;
   const value = data as Record<string, unknown>;
-  if (value.kind !== 'care_team_reply' || value.thread !== 'care_team') return true;
+  const careTeam = value.kind === 'care_team_reply' && value.thread === 'care_team';
+  if (!careTeam && !(typeof value.kind === 'string' && PATIENT_OWNED_KINDS.has(value.kind))) return true;
   const owner = notificationPatientId(data);
   return owner !== null && activePatientId !== null && owner === activePatientId;
 }

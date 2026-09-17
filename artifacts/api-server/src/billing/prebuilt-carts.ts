@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { normalizeIdentifier } from "../claim/normalize";
 import { deliverSmsRegistered, registerSend, checkCode } from "../routes/auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { BillingCartError, checkoutCart } from "./cart";
+import { assertQuoteCurrent, BillingCartError, checkoutCart } from "./cart";
 import { officeOffering } from "./catalog";
 import { getPublishableKey, isSandbox } from "./stripe-client";
 import { insert, selectMany, selectOne, update, type BillingOrderRow, type BillingPayerRow, type BillingPrebuiltCartRow } from "./store";
@@ -198,6 +198,10 @@ export async function verifyCartCode(token: string, requestId: unknown, code: un
 export async function requireCartSession(token: string, session: unknown): Promise<BillingPrebuiltCartRow> {
   const row = await byToken(token);
   requireUsable(await effectiveStatus(row));
+  // effectiveStatus only flips open/verified rows to expired; a cart parked in
+  // checkout past expires_at must stop answering too, or a stalled attempt
+  // keeps the patient's contact and address details readable indefinitely.
+  if (Date.parse(row.expires_at) <= Date.now()) throw new PrebuiltCartError("This cart is no longer available.", 410);
   if (typeof session !== "string" || !row.session_hash || sha256(session) !== row.session_hash) throw new PrebuiltCartError("Verify your phone to continue.", 401);
   return row;
 }
@@ -273,6 +277,10 @@ export async function checkoutPrebuiltCart(token: string, session: unknown, inpu
     throw new PrebuiltCartError("Verify your phone to continue.", 401);
   }
   const resolvedPayer = row.patient_id ? undefined : await resolveGuestPayer(row.provider_id, verification!.identifier, input.payer);
+  // The page shows the quote stored at creation; refuse (before any state
+  // moves) if today's pricing would charge a different total.
+  const quotedTotal = (row.quote as unknown as CartQuote).total_cents;
+  if (!row.cart_id) await assertQuoteCurrent(row.provider_id, row.lines as CartLineInput[], quotedTotal);
   const cartId = row.cart_id ?? derivedCartId(row.id, row.checkout_attempt);
   const active = await update("billing_prebuilt_carts",
     `id=eq.${enc(row.id)}&status=in.(verified,checkout)&session_hash=eq.${enc(sessionHash)}&expires_at=gt.${enc(new Date().toISOString())}`,
@@ -282,6 +290,7 @@ export async function checkoutPrebuiltCart(token: string, session: unknown, inpu
     const result = await checkoutCart({
       patientId: row.patient_id, providerId: row.provider_id, cartId, lines: row.lines as CartLineInput[],
       shipping_address: input.shipping_address, payment_method_id: input.payment_method_id, resolvedPayer,
+      expected_total_cents: quotedTotal,
     });
     if (result.status === "paid") await markPaidIfComplete(active, sessionHash);
     else if (result.status === "failed") await bumpFailedAttempt(active, sessionHash, cartId);

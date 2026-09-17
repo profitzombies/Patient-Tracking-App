@@ -81,12 +81,12 @@ export default function AccountScreen() {
   const [quietStart, setQuietStart] = useState(initialPushPrefs.quietHours?.start ?? '22:00');
   const [quietEnd, setQuietEnd] = useState(initialPushPrefs.quietHours?.end ?? '07:00');
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
-  const billingRow = (
+  const accountLink = (testID: string, label: string, title: string, target: string, accessibilityLabel: string) => (
     <Pressable
-      testID="button-open-billing"
+      testID={testID}
       accessibilityRole="button"
-      accessibilityLabel="Open payments and orders"
-      onPress={() => router.push('/billing')}
+      accessibilityLabel={accessibilityLabel}
+      onPress={() => router.push(target as never)}
       style={({ pressed }) => [
         styles.billingRow,
         { borderColor: colors.border, backgroundColor: colors.card },
@@ -94,11 +94,18 @@ export default function AccountScreen() {
       ]}
     >
       <View>
-        <FieldLabel text="Payments" />
-        <Text style={[styles.billingTitle, { color: colors.navy }]}>Payments & orders</Text>
+        <FieldLabel text={label} />
+        <Text style={[styles.billingTitle, { color: colors.navy }]}>{title}</Text>
       </View>
       <Feather name="chevron-right" size={20} color={colors.cobalt} />
     </Pressable>
+  );
+  const billingRow = (
+    <View testID="account-billing-links">
+      {accountLink('button-open-orders', 'Purchases', 'Orders', '/orders', 'Open your order history')}
+      {accountLink('button-open-subscriptions', 'Purchases', 'Subscriptions', '/my-subscriptions', 'Manage your subscriptions')}
+      {accountLink('button-open-billing', 'Payments', 'Shop & payments', '/billing', 'Open shop and payments')}
+    </View>
   );
 
   if (account.kind !== 'real' || !profile) {

@@ -5,7 +5,8 @@
  *     callback ticks every NOTIFICATIONS_TICK_MS (default 30 s) and evaluates
  *     coach outreach every NOTIFICATIONS_OUTREACH_EVERY_MS (default 15 min)
  *     and missed-dose backups every NOTIFICATIONS_MISSED_DOSE_EVERY_MS
- *     (default 10 min);
+ *     (default 10 min) and upcoming-renewal reminders every
+ *     NOTIFICATIONS_RENEWAL_EVERY_MS (default 60 min);
  *   * externally: POST /api/internal/notifications/tick with the
  *     NOTIFICATIONS_INTERNAL_TOKEN bearer runs one tick synchronously, so a
  *     scheduled deployment can drive the outbox without a long-lived process.
@@ -21,6 +22,7 @@ import { logger } from "../lib/logger";
 import { createExpoPushClient, type ExpoPushClient } from "./expo-push";
 import { runOutreachEvaluation, type OutreachRunSummary } from "./stall-outreach";
 import { runMissedDoseEvaluation, type MissedDoseRunSummary } from "./missed-dose";
+import { runRenewalReminderEvaluation, type RenewalReminderSummary } from "../billing/patient-notices";
 import { runNotificationTick, type TickSummary } from "./sender";
 import { loadTickPolicy, type TickPolicy } from "./tick-policy";
 import { supabaseNotificationStore, type NotificationStore } from "./store";
@@ -56,19 +58,21 @@ export interface ScheduledTickResult {
   outbox: TickSummary;
   outreach: OutreachRunSummary | null;
   missedDoses: MissedDoseRunSummary | null;
+  renewals: RenewalReminderSummary | null;
   staffOutbox: StaffSenderSummary;
 }
 
 let inFlight: Promise<ScheduledTickResult> | null = null;
 let lastOutreachAt = 0;
 let lastMissedDoseAt = 0;
+let lastRenewalAt = 0;
 
 /**
  * One scheduler pass. `outreach: true` forces the coach evaluation; otherwise
  * it runs when its interval has elapsed since the last pass in this process.
  */
 export function runScheduledTick(
-  options: { outreach?: boolean; missedDoses?: boolean; store?: NotificationStore; pushClient?: ExpoPushClient; now?: () => Date } = {},
+  options: { outreach?: boolean; missedDoses?: boolean; renewals?: boolean; store?: NotificationStore; pushClient?: ExpoPushClient; now?: () => Date } = {},
 ): Promise<ScheduledTickResult> {
   if (inFlight) return inFlight;
   const store = options.store ?? supabaseNotificationStore;
@@ -82,8 +86,12 @@ export function runScheduledTick(
     const missedDue =
       options.missedDoses === true ||
       (options.missedDoses !== false && nowMs - lastMissedDoseAt >= envMs("NOTIFICATIONS_MISSED_DOSE_EVERY_MS", 10 * 60_000));
+    const renewalsDue =
+      options.renewals === true ||
+      (options.renewals !== false && nowMs - lastRenewalAt >= envMs("NOTIFICATIONS_RENEWAL_EVERY_MS", 60 * 60_000));
     let outreach: OutreachRunSummary | null = null;
     let missedDoses: MissedDoseRunSummary | null = null;
+    let renewals: RenewalReminderSummary | null = null;
     // One policy read per tick: HQ settings + office overrides, shared by the
     // outreach evaluation (cooldown, cap) and the sender (defaults, quiet hours).
     const policyLog = (event: string, detail: Record<string, unknown>) => logger.warn(detail, event);
@@ -115,6 +123,14 @@ export function runScheduledTick(
         logger.error({ err: error }, "missed-dose evaluation failed");
       }
     }
+    if (renewalsDue) {
+      lastRenewalAt = nowMs;
+      try {
+        renewals = await runRenewalReminderEvaluation({ store, now });
+      } catch (error) {
+        logger.error({ err: error }, "renewal reminder evaluation failed");
+      }
+    }
     const outbox = await runNotificationTick({
       store,
       push: client,
@@ -129,10 +145,10 @@ export function runScheduledTick(
       now,
       owner: `${OWNER}:staff`,
     });
-    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0)) {
-      logger.info({ outbox, staffOutbox, outreach, missedDoses }, "notification tick");
+    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0) || (renewals && renewals.queued > 0)) {
+      logger.info({ outbox, staffOutbox, outreach, missedDoses, renewals }, "notification tick");
     }
-    return { owner: OWNER, outbox, staffOutbox, outreach, missedDoses };
+    return { owner: OWNER, outbox, staffOutbox, outreach, missedDoses, renewals };
   })();
   inFlight = run.finally(() => {
     inFlight = null;

@@ -4,6 +4,7 @@ const db = vi.hoisted(() => ({
   selectOne: vi.fn(), selectMany: vi.fn(), update: vi.fn(), insert: vi.fn(),
 }));
 const checkoutCart = vi.hoisted(() => vi.fn());
+const assertQuoteCurrent = vi.hoisted(() => vi.fn(async () => ({ quote: {}, groups: [], settings: {} })));
 const auth = vi.hoisted(() => ({ checkCode: vi.fn(), registerSend: vi.fn(), deliverSmsRegistered: vi.fn() }));
 const admin = vi.hoisted(() => vi.fn());
 vi.mock("./store", () => db);
@@ -14,13 +15,13 @@ vi.mock("./app-origin", () => ({ publicOrigin: vi.fn(() => "https://pay.example"
 vi.mock("../routes/auth", () => auth);
 vi.mock("./cart", () => ({
   BillingCartError: class BillingCartError extends Error { constructor(message: string, readonly status = 400, readonly field?: string) { super(message); } },
-  checkoutCart,
+  checkoutCart, assertQuoteCurrent,
 }));
 vi.mock("./links", () => ({ resolvePayer: vi.fn() }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: admin }));
 
 import {
-  checkoutPrebuiltCart, effectiveStatus, publicCartCheckoutStatus, requireCartSession, revokePrebuiltCart, toPrebuiltCart, verifyCartCode,
+  checkoutPrebuiltCart, effectiveStatus, publicCartCheckoutStatus, publicCartDetails, requireCartSession, revokePrebuiltCart, toPrebuiltCart, verifyCartCode,
 } from "./prebuilt-carts";
 import { BillingCartError } from "./cart";
 import { sha256 } from "../auth/ledger";
@@ -42,6 +43,8 @@ beforeEach(() => {
   admin.mockReset();
   auth.checkCode.mockReset();
   checkoutCart.mockReset();
+  assertQuoteCurrent.mockReset();
+  assertQuoteCurrent.mockResolvedValue({ quote: {}, groups: [], settings: {} } as never);
 });
 
 describe("prebuilt cart lifecycle", () => {
@@ -65,6 +68,35 @@ describe("prebuilt cart lifecycle", () => {
     await expect(requireCartSession(row.token, "session")).resolves.toMatchObject({ id: row.id });
     db.selectOne.mockResolvedValue({ ...row, status: "revoked", session_hash: null });
     await expect(requireCartSession(row.token, "session")).rejects.toMatchObject({ status: 410 });
+  });
+
+  it("stops serving a cart parked in checkout once it has expired", async () => {
+    // A stalled checkout is never flipped to expired by effectiveStatus, so the
+    // session gate must apply expires_at itself or contact details leak on.
+    db.selectOne.mockResolvedValue({ ...row, status: "checkout", cart_id: "22222222-2222-4222-8222-222222222222", expires_at: "2020-01-01T00:00:00Z", session_hash: sha256("session") });
+    await expect(requireCartSession(row.token, "session")).rejects.toMatchObject({ status: 410 });
+    await expect(publicCartDetails(row.token, "session")).rejects.toMatchObject({ status: 410 });
+    expect(checkoutCart).not.toHaveBeenCalled();
+  });
+
+  it("refuses checkout when today's price no longer matches the quoted total", async () => {
+    const verified = { ...row, patient_id: "patient-1", status: "verified" as const, session_hash: sha256("session"), quote: { total_cents: 5000, groups: [{}] } };
+    db.selectOne.mockImplementation(async (table: string) => table === "billing_prebuilt_carts" ? verified : null);
+    assertQuoteCurrent.mockRejectedValueOnce(new BillingCartError("The total changed.", 409, "expected_total_cents"));
+    await expect(checkoutPrebuiltCart(verified.token, "session", { shipping_address: {} as any, payment_method_id: "pm_1" }))
+      .rejects.toMatchObject({ status: 409, field: "expected_total_cents" });
+    expect(assertQuoteCurrent).toHaveBeenCalledWith(verified.provider_id, verified.lines, 5000);
+    // Nothing moved: the cart was not marked checkout and no charge was attempted.
+    expect(db.update).not.toHaveBeenCalledWith("billing_prebuilt_carts", expect.anything(), expect.objectContaining({ status: "checkout" }));
+    expect(checkoutCart).not.toHaveBeenCalled();
+  });
+
+  it("binds the charge to the quoted total on a fresh checkout", async () => {
+    const verified = { ...row, patient_id: "patient-1", status: "verified" as const, session_hash: sha256("session"), quote: { total_cents: 5000, groups: [{}] } };
+    db.selectOne.mockImplementation(async (table: string) => table === "billing_prebuilt_carts" ? verified : null);
+    checkoutCart.mockResolvedValue({ status: "paid", cart_id: "c", items: [] });
+    await checkoutPrebuiltCart(verified.token, "session", { shipping_address: {} as any, payment_method_id: "pm_1" });
+    expect(checkoutCart).toHaveBeenCalledWith(expect.objectContaining({ expected_total_cents: 5000 }));
   });
 
   it("keeps a valid session for paid status polling but expires it at expires_at", async () => {

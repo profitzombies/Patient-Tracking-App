@@ -17,7 +17,7 @@ import BillingScreen from '../app/billing';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { PatientProvider } from '../context/PatientContext';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
-import { setSearchParams } from './onboarding-gate-stubs/expo-router';
+import { routerCalls, clearRouterCalls, setSearchParams } from './onboarding-gate-stubs/expo-router';
 
 const opened: string[] = [];
 let confirms = 0;
@@ -43,8 +43,7 @@ let canceled = false;
 
 const product = { product_id: 'prod-1', name: 'Control', description: 'Daily support.', image_url: null, unit_price_cents: 6999, subscription_available: true };
 const order = { id: 'order-1', order_number: 'TH-1001', kind: 'one_time', status: 'paid', fulfillment_status: 'shipped', total_cents: 7999, refunded_cents: 0, item_count: 1, items_label: 'Control', created_at: '2026-09-01T12:00:00Z', paid_at: '2026-09-01T12:01:00Z', receipt_available: true };
-let skipped = 0;
-const subscription = () => ({ id: 'sub-1', product_name: 'Control', unit_price_cents: 6999, shipping_charge_cents: 1000, status: 'active', paused: false, current_period_end: '2026-10-01T12:00:00Z', next_shipment_at: skipped ? '2026-10-29T12:00:00Z' : '2026-10-01T12:00:00Z', cancel_at_period_end: canceled, last_hosted_invoice_url: null, last_failure_message: null });
+const subscription = () => ({ id: 'sub-1', product_name: 'Control', unit_price_cents: 6999, shipping_charge_cents: 1000, status: 'active', paused: false, current_period_end: '2026-10-01T12:00:00Z', cancel_at_period_end: canceled, last_hosted_invoice_url: null, last_failure_message: null });
 const overview = () => ({
   office: { provider_id: 'office-1', office_name: 'Harbor Health', payments_available: paymentsAvailable },
   products: paymentsAvailable ? [product] : [],
@@ -77,7 +76,6 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   } else if (path === 'patient-data/billing/checkout-link') body = { url: 'https://pay.test/link', token: 'link', expires_at: null };
   else if (path === 'patient-data/billing/orders/order-1/receipt') body = { order_number: 'TH-1001', receipt_url: 'https://stripe.test/receipt', invoice_url: null, invoice_pdf_url: null };
   else if (path === 'patient-data/billing/subscriptions/sub-1/cancel') { canceled = true; body = subscription(); }
-  else if (path === 'patient-data/billing/subscriptions/sub-1/skip-next') { skipped += 1; body = subscription(); }
   else throw new Error(`Unscripted request: ${call.method} ${path}`);
   return { ok: status < 300, status, json: async () => body } as Response;
 }) as typeof fetch;
@@ -121,7 +119,7 @@ async function main() {
   section('demo is fixed and offline');
   setStubSession(null);
   let tree = await mount();
-  assert('demo dataset renders office, three products, two orders, one subscription', text(tree, 'card-office').includes('Jenkins Wellness') && hosts(tree, 'button-order-demo-control').length > 0 && text(tree, 'list-orders').includes('TH-D3MO02') && text(tree, 'list-subscriptions').includes('Sep 22, 2026'));
+  assert('demo dataset renders office, three products, and the purchase links', text(tree, 'card-office').includes('Jenkins Wellness') && hosts(tree, 'button-order-demo-control').length > 0 && has(tree, 'button-open-orders') && has(tree, 'button-open-subscriptions'));
   const beforeDemo = calls.length;
   await press(tree, 'button-order-demo-control');
   assert('demo Order performs no navigation or network', calls.length === beforeDemo && opened.length === 0);
@@ -131,33 +129,29 @@ async function main() {
   await act(async () => setStubSession(session));
   tree = await mount();
   const firstOverview = billingCalls().find(call => call.path.endsWith('/overview'));
-  assert('overview uses bearer and renders every section', firstOverview?.auth === 'Bearer patient-token' && has(tree, 'button-order-prod-1') && text(tree, 'list-orders').includes('TH-1001') && text(tree, 'list-subscriptions').includes('Control'));
+  assert('overview uses bearer and renders products plus purchase links', firstOverview?.auth === 'Bearer patient-token' && has(tree, 'button-order-prod-1') && has(tree, 'button-open-orders') && has(tree, 'button-open-subscriptions'));
+  clearRouterCalls();
+  await press(tree, 'button-open-orders');
+  await press(tree, 'button-open-subscriptions');
+  assert('purchase links route to the Orders and Subscriptions screens', routerCalls.some(call => call.target === '/orders') && routerCalls.some(call => call.target === '/my-subscriptions'));
   await press(tree, 'button-order-prod-1');
   const checkout = billingCalls().find(call => call.path.endsWith('/checkout-link'));
   assert('Order posts product id and opens returned URL', checkout?.method === 'POST' && checkout.body?.product_id === 'prod-1' && opened.includes('https://pay.test/link'));
-  await press(tree, 'button-receipt-order-1');
-  assert('Receipt is fetched and opened', billingCalls().some(call => call.path.endsWith('/orders/order-1/receipt')) && opened.includes('https://stripe.test/receipt'));
-  assert('active subscription offers a skip control naming the next shipment', text(tree, 'button-skip-subscription-sub-1').includes('Oct 1, 2026'));
-  await press(tree, 'button-skip-subscription-sub-1');
-  assert('confirmed skip posts skip-next once and moves the shipment date', confirms === 1 && skipped === 1 && text(tree, 'button-skip-subscription-sub-1').includes('Oct 29, 2026'));
-  confirms = 0;
-  await press(tree, 'button-cancel-subscription-sub-1');
-  assert('confirmed cancel posts and replaces row', confirms === 1 && billingCalls().some(call => call.method === 'POST' && call.path.endsWith('/subscriptions/sub-1/cancel')) && text(tree, 'list-subscriptions').includes('Ends on Oct 1, 2026') && !has(tree, 'button-cancel-subscription-sub-1'));
   await unmount(tree);
 
   section('email deep link: /billing?subscription=sub-1&action=skip');
   setSearchParams({ subscription: 'sub-1', action: 'skip' });
-  confirms = 0;
-  canceled = false;
+  clearRouterCalls();
   tree = await mount();
-  assert('skip link confirms once and posts skip-next once after the live overview loads', confirms === 1 && skipped === 2 && billingCalls().filter(call => call.path.endsWith('/skip-next')).length === 2);
+  assert('a subscription link hands off to that subscription screen with the action intact', routerCalls.some(call => call.method === 'replace' && call.target === '/my-subscriptions/sub-1?action=skip'));
   await unmount(tree);
-  canceled = true;
+  setSearchParams({ subscription: 'sub-1' });
+  clearRouterCalls();
   tree = await mount();
-  assert('a skip link that no longer applies explains itself instead of failing silently', text(tree, 'text-billing-error').includes('can no longer be skipped') && skipped === 2);
+  assert('a plain manage link opens the subscription without an action', routerCalls.some(call => call.method === 'replace' && call.target === '/my-subscriptions/sub-1'));
   await unmount(tree);
   setSearchParams({});
-  canceled = false;
+  clearRouterCalls();
 
   section('failure, retry, and unavailable office');
   overviewFailure = true;

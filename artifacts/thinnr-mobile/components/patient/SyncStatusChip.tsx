@@ -1,12 +1,14 @@
 /**
  * SyncStatusChip — the patient shell's offline-queue indicator.
  *
- * A small capsule floats just above the pill bar whenever a real account
- * has something to say about its writes: the device is offline (writes
- * are queuing), the queue is syncing, or an item needs attention. Once a
- * drain finishes it flashes "Up to date" briefly and then leaves, so the
- * chip takes no permanent room from the content shelf. Demo and
- * unresolved accounts never render it (the queue is disabled for them).
+ * A small capsule floats just above the pill bar only when a real account
+ * has something worth saying about its writes: the device is offline
+ * (writes are queuing), a save has been pending for longer than the grace
+ * period, or an item needs attention. A normal online save acks well
+ * inside the grace period and shows nothing at all. Once a drain the
+ * patient could see finishes, the chip flashes "Up to date" briefly and
+ * then leaves, so it takes no permanent room from the content shelf. Demo
+ * and unresolved accounts never render it (the queue is disabled for them).
  *
  * Tapping the chip opens the detail sheet: every queued write in order,
  * oldest first, with its plain-words summary, a pending/failed state, and
@@ -31,9 +33,22 @@ import type { QueuedWrite } from '@/lib/patient-write-queue';
 
 const CHIP_SHADOW = '0 6px 16px rgba(23, 32, 46, 0.14)';
 
-/** Whether the chip is on screen for this sync state (shared with the snackbar shelf). */
+/**
+ * Whether the chip is on screen for this sync state (shared with the
+ * snackbar shelf). Offline and attention show at once; "syncing" waits for
+ * the slow-sync grace period so a routine save never flashes the chip.
+ */
 export function syncChipVisible(sync: PatientSyncValue): boolean {
-  return sync.enabled && (sync.status !== 'idle' || sync.justSynced);
+  if (!sync.enabled) return false;
+  switch (sync.status) {
+    case 'offline':
+    case 'attention':
+      return true;
+    case 'syncing':
+      return sync.slowSync;
+    case 'idle':
+      return sync.justSynced;
+  }
 }
 
 function plural(count: number, singular: string, pluralWord = `${singular}s`): string {

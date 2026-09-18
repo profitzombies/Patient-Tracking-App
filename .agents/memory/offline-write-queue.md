@@ -37,3 +37,13 @@ file (separate blob key); the item records `uploadedPath` before the grid write.
 **Account boundaries.** Queue + snapshot stay on disk under the account's own keys across
 sign-out; memory drops on epoch change; only that account's next sign-in loads them. Account
 deletion wipes them. The demo persona has no queue and no connectivity/AppState triggers.
+
+**Sync chip is quiet by default (owner decision).** The chip shows only when something is
+wrong: offline and needs-attention at once, "syncing" only after the queue has been
+continuously non-empty past a short grace period, and the "Up to date" flash only follows a
+drain the chip was already visible for; a new queue cycle ends any flash still up. `status`
+stays truthful ("syncing" from the first queued item); visibility is a separate concern.
+**Why:** every routine online save used to flash "Syncing 1 change" then "Up to date", which
+the owner rejected. **How to apply:** never make the chip (or anything sharing its visibility
+helper, e.g. the snackbar shelf) key off `status !== 'idle'` alone, and keep confirmation
+state from crossing queue cycles.

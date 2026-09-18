@@ -108,7 +108,7 @@
 - [Patient purge lifecycle](patient-purge-lifecycle.md) — tombstone-first FK-ordered purge; revoke processors at purge start, before deleting storage; preserve cancellable grace.
 - [Shared conversation inbox](staff-inbox-workflow.md) — human chats stay outside AI; ownership includes metrics; first-read races and service-role RPCs need real-PG proof.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
-- [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, cached launches refresh truth first; receipts claimed BEFORE the write; photo uploads pinned by client id.
+- [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, receipts claimed BEFORE the write, pinned photo uploads; sync chip quiet by default (grace + seen-flash).
 - [Scoped style font reset trap](scoped-style-font-reset.md) — `.root button{font:inherit}` (0,1,1) beats class font-size rules; use font-family:inherit in mockup <style> blocks; verify subagent captures yourself.
 - [Account security & session ledger](account-security-sessions.md) — client attaches signInId after token redeem; report links fire only on explicit tap; send cap 429 ≠ forced-reset; pin delivery modes in vitest.
 - [Medication records & reminders](medication-records.md) — one schedule core copied byte-identical (parity test); reminders derive from records; notification actions MUST foreground the app; adherence is a nullable extra roster input.

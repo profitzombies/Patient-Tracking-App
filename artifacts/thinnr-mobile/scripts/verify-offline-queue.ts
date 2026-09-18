@@ -25,6 +25,10 @@
  *      each account resumes its own queue on its next sign-in.
  *   8. The chip and detail sheet reflect offline / syncing / attention /
  *      up-to-date, list items in order, and expose retry / discard.
+ *   9. Quiet chip: a routine online save never shows the chip (and no
+ *      "Up to date" flash follows it); a save held past the grace period
+ *      shows "Syncing", then flashes "Up to date" and leaves; offline and
+ *      failed states show at once; the snackbar shelf follows visibility.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:offline-queue
  */
@@ -55,6 +59,7 @@ import { usePatientAccount, type PatientAccountState } from '../context/PatientA
 import { SyncStatusChip, syncChipLabel, syncChipVisible } from '../components/patient/SyncStatusChip';
 import { PatientDataError } from '../lib/patient-data-error';
 import {
+  SYNC_CHIP_TUNING,
   WRITE_QUEUE_TUNING,
   backoffDelay,
   classifyWriteFailure,
@@ -70,6 +75,7 @@ import {
   type WriteProjectionState,
 } from '../lib/patient-write-queue';
 import { setConnectivityOverride } from '../lib/connectivity';
+import { patientSnackbarBottom } from '../constants/layout';
 import { TODAY_KEY, type DailyTargets, type MealLogEntry } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import { setStubSession, setStubSessionLoadingTicks, type StubSession } from './live-diary-stubs/supabase';
@@ -136,6 +142,8 @@ const apiCalls: ApiCall[] = [];
 const failNext = new Map<string, { times: number; result: Scripted | 'network' }>();
 /** Routes whose NEXT write is applied server-side but whose response is lost. */
 const loseResponseNext = new Set<string>();
+/** Routes whose NEXT request is held open until the test releases it (a slow save). */
+const holdNext = new Map<string, Promise<void>>();
 /** When true every request fails like a dead radio (offline relaunch). */
 let networkDead = false;
 
@@ -176,6 +184,15 @@ const JPEG_DATA_URI = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA
 
 function failTimes(key: string, times: number, result: Scripted | 'network') {
   failNext.set(key, { times, result });
+}
+
+/** Holds the next request to `key` open; returns the release. */
+function holdNextRequest(key: string): () => void {
+  let release!: () => void;
+  holdNext.set(key, new Promise<void>(resolve => {
+    release = resolve;
+  }));
+  return release;
 }
 
 /** Mirrors the API's patient-media-ids: an uploadId pins the object path. */
@@ -362,6 +379,12 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   };
   apiCalls.push(call);
   if (networkDead) throw new TypeError('network request failed');
+  const key = `${call.method} ${call.path}`;
+  const held = holdNext.get(key);
+  if (held) {
+    holdNext.delete(key);
+    await held;
+  }
   const result = routeCall(call);
   return { ok: result.status < 300, status: result.status, json: async () => result.body } as Response;
 }) as typeof fetch;
@@ -380,11 +403,15 @@ let notice: PatientSyncNoticeValue | null = null;
 let sync!: PatientSyncValue;
 let account!: PatientAccountState;
 
+/** Set whenever a committed render had the chip on screen; reset per scenario. */
+let chipEverVisible = false;
+
 function Probe() {
   ctx = usePatient();
   notice = usePatientSyncNotice();
   sync = usePatientSync();
   account = usePatientAccount();
+  if (syncChipVisible(sync)) chipEverVisible = true;
   return null;
 }
 
@@ -635,7 +662,7 @@ async function main() {
 
   await goOffline();
   assert('offline status without pending writes', sync.status === 'offline' && !sync.online);
-  assert('chip shows Offline', textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Offline');
+  assert('chip shows Offline at once (no grace period)', !sync.slowSync && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Offline');
 
   const writesBefore = writeCalls().length;
   await act(async () => {
@@ -716,6 +743,101 @@ async function main() {
   });
   await waitFor('foregrounding drains the queue', () => sync.items.length === 0);
   assert('the foreground replay landed', storeFor('p-1').entries.some(e => e.name === 'Foreground Fig') && sync.online);
+
+  // ── 4b · A routine save is silent; a slow one shows after the grace period ──
+  section('quiet chip: routine online saves show nothing; a slow save shows Syncing after the grace period, then Up to date');
+  SYNC_CHIP_TUNING.syncingGraceMs = 60;
+  await waitFor('the earlier Up to date flash ends on its own', () => !sync.justSynced && byTestID(tree, 'patient-sync-chip') === null, 4000);
+  const quietBase = patientSnackbarBottom(0, false);
+  const raisedShelf = patientSnackbarBottom(0, true);
+  assert('the snackbar sits on the bare shelf while the chip is away', raisedShelf > quietBase && patientSnackbarBottom(0, syncChipVisible(sync)) === quietBase);
+
+  chipEverVisible = false;
+  const quietWritesBefore = writeCalls().length;
+  await act(async () => {
+    await ctx.addEntry(entryInput('Quiet Quinoa'));
+  });
+  await act(async () => {
+    await ctx.setWater(TODAY_KEY, 44);
+  });
+  await act(async () => {
+    await ctx.addCheckIn({ dateKey: TODAY_KEY, mood: 3, sideEffects: [], weight: 180 });
+  });
+  await waitFor('routine online saves land', () => sync.items.length === 0 && writeCalls().length >= quietWritesBefore + 3
+    && storeFor('p-1').entries.some(e => e.name === 'Quiet Quinoa') && storeFor('p-1').water[TODAY_KEY] === 44);
+  await tick(80);
+  assert('the chip never appeared for a routine save', !chipEverVisible && byTestID(tree, 'patient-sync-chip') === null);
+  assert('no Up to date flash follows an invisible save', !sync.justSynced && !sync.slowSync && sync.status === 'idle');
+  assert('the snackbar shelf never moved', patientSnackbarBottom(0, syncChipVisible(sync)) === quietBase);
+
+  // A save the server is slow to answer: quiet through the grace period,
+  // then the chip reports it, and finishes with a visible confirmation.
+  chipEverVisible = false;
+  const releaseSlowSave = holdNextRequest('PUT patient-data/water');
+  await act(async () => {
+    await ctx.setWater(TODAY_KEY, 48);
+  });
+  await tick(20);
+  assert('the held save is pending but still quiet inside the grace period',
+    sync.status === 'syncing' && sync.pendingCount === 1 && !sync.slowSync && !chipEverVisible
+    && byTestID(tree, 'patient-sync-chip') === null && sync.isPending(`water:${TODAY_KEY}`));
+  assert('the sync value still reports syncing to callers (only the chip waits)', !syncChipVisible(sync) && sync.status === 'syncing');
+  await waitFor('after the grace period the chip shows Syncing', () => sync.slowSync && syncChipVisible(sync)
+    && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Syncing 1 change');
+  assert('the snackbar shelf clears the chip while it is up',
+    patientSnackbarBottom(0, syncChipVisible(sync)) === raisedShelf);
+  assert('the sheet explains the slow sync', await press(tree, 'patient-sync-chip')
+    && textOf(byTestID(tree, 'patient-sync-sheet-headline')) === 'Syncing your changes now.');
+  await press(tree, 'patient-sync-sheet-close');
+  await act(async () => {
+    releaseSlowSave();
+  });
+  await waitFor('the held save lands once released', () => sync.items.length === 0 && storeFor('p-1').water[TODAY_KEY] === 48);
+  assert('a drain the patient saw flashes Up to date', sync.status === 'idle' && sync.justSynced && !sync.slowSync
+    && syncChipVisible(sync) && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Up to date');
+
+  // A routine save started while that confirmation is still up: the new
+  // queue cycle ends the flash, and the fast drain must not bring it back.
+  await act(async () => {
+    await ctx.setWater(TODAY_KEY, 50);
+  });
+  await waitFor('a fast save during the flash lands', () => sync.items.length === 0 && storeFor('p-1').water[TODAY_KEY] === 50);
+  await tick(80);
+  assert('the old confirmation does not come back after an invisible drain',
+    !sync.justSynced && !sync.slowSync && sync.status === 'idle' && byTestID(tree, 'patient-sync-chip') === null);
+  await tick(100);
+  assert('and it stays away', !sync.justSynced && byTestID(tree, 'patient-sync-chip') === null);
+  assert('the shelf drops back once the chip leaves', patientSnackbarBottom(0, syncChipVisible(sync)) === quietBase);
+
+  // Offline still shows at once, with the changes waiting — no grace period.
+  await goOffline();
+  chipEverVisible = false;
+  await act(async () => {
+    await ctx.setWater(TODAY_KEY, 52);
+  });
+  assert('an offline save shows the chip immediately', chipEverVisible && !sync.slowSync
+    && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Offline · 1 change waiting');
+  await goOnline();
+  await waitFor('the offline save drains on reconnect', () => sync.items.length === 0 && storeFor('p-1').water[TODAY_KEY] === 52);
+  assert('a drain that was visible as Offline still confirms', sync.justSynced && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Up to date');
+  await waitFor('that confirmation leaves too', () => !sync.justSynced && byTestID(tree, 'patient-sync-chip') === null, 4000);
+
+  // A failed save shows at once as well (the retry cap parks it below;
+  // here a permanent 4xx parks on the first answer).
+  chipEverVisible = false;
+  failTimes('PUT patient-data/targets', 1, { status: 422, body: { error: 'Rejected' } });
+  await act(async () => {
+    await ctx.setTargets({ carbs: 90 });
+  });
+  await waitFor('a permanent failure parks the save at once', () => sync.status === 'attention' && sync.failedCount === 1);
+  assert('a failed save shows the chip immediately, before any grace period', chipEverVisible && !sync.slowSync
+    && textOf(byTestID(tree, 'patient-sync-chip-label')) === '1 change needs attention');
+  const rejectedTargets = sync.items[0];
+  await act(async () => {
+    await sync.discard(rejectedTargets.id);
+  });
+  await waitFor('discarding clears the chip', () => sync.items.length === 0 && byTestID(tree, 'patient-sync-chip') === null);
+  assert('discarding a failed save is not a sync and shows no confirmation', !sync.justSynced);
 
   // ── 5 · Backoff, retry cap, permanent failures ─────────────────────────────
   section('failures: exponential backoff, retry cap → needs attention, 4xx parks without blocking');

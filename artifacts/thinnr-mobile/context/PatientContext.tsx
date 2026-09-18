@@ -53,6 +53,7 @@ import {
 import type { DoseLogWrite } from '@/context/PatientAccountContext';
 import { isOnline, subscribeConnectivity } from '@/lib/connectivity';
 import {
+  SYNC_CHIP_TUNING,
   backoffDelay,
   deriveSyncStatus,
   markAttemptFailed,
@@ -549,7 +550,17 @@ export interface PatientSyncValue {
   foodSubmissions: readonly RecoverableFoodSubmission[];
   pendingCount: number;
   failedCount: number;
-  /** True briefly after the queue drains, so the shell can flash "Up to date". */
+  /**
+   * True once a drain has been pending longer than the syncing grace
+   * period. A normal online save acks before this flips, so the shell shows
+   * "syncing" only for a save that is actually taking a while.
+   */
+  slowSync: boolean;
+  /**
+   * True briefly after the queue drains, so the shell can flash "Up to date".
+   * Only set when the chip was already on screen for that drain — a fast,
+   * invisible save produces no flash.
+   */
   justSynced: boolean;
   /** Whether an entity has an unsent write (see pendingEntityKeys for the keys). */
   isPending: (entityKey: string) => boolean;
@@ -577,6 +588,7 @@ const DISABLED_SYNC: PatientSyncValue = {
   foodSubmissions: [],
   pendingCount: 0,
   failedCount: 0,
+  slowSync: false,
   justSynced: false,
   isPending: () => false,
   retry: () => undefined,
@@ -729,6 +741,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(() => isOnline());
   const onlineRef = useRef(online);
   const [justSynced, setJustSynced] = useState(false);
+  const [slowSync, setSlowSync] = useState(false);
+  // Whether the sync chip has been on screen at any point for the current
+  // (non-empty) queue: offline with changes waiting, needs attention, or a
+  // slow drain. The "Up to date" flash only follows a drain the patient saw.
+  const chipShownRef = useRef(false);
 
   // Bumped whenever the active account changes (and pinned alongside the
   // account it belongs to). Every async continuation captures the epoch it
@@ -925,6 +942,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   );
 
   const flashJustSynced = useCallback(() => {
+    // A save that never showed the chip gets no confirmation either.
+    if (!chipShownRef.current) return;
     if (justSyncedTimerRef.current) clearTimeout(justSyncedTimerRef.current);
     setJustSynced(true);
     const timer = setTimeout(() => {
@@ -1280,6 +1299,35 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     const keys = pendingEntityKeys(queue);
     return (entityKey: string) => keys.has(entityKey);
   }, [queue]);
+
+  // Delayed "syncing": the chip stays quiet for a normal online save and
+  // only reports a drain that has been pending for the whole grace period.
+  // The clock runs on the queue being continuously non-empty (offline
+  // periods included), and resets the moment it empties.
+  const queueNonEmpty = queue.length > 0;
+  useEffect(() => {
+    if (!queueNonEmpty) {
+      setSlowSync(false);
+      return undefined;
+    }
+    // A new queue cycle ends any confirmation still up from the last one:
+    // otherwise a fast, invisible save started during the flash would
+    // bring "Up to date" back once it drained.
+    if (justSyncedTimerRef.current) {
+      clearTimeout(justSyncedTimerRef.current);
+      justSyncedTimerRef.current = null;
+    }
+    setJustSynced(false);
+    const timer = setTimeout(() => setSlowSync(true), SYNC_CHIP_TUNING.syncingGraceMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    return () => clearTimeout(timer);
+  }, [queueNonEmpty]);
+
+  const anyFailed = queue.some(item => item.status === 'failed');
+  useEffect(() => {
+    if (!queueNonEmpty) chipShownRef.current = false;
+    else if (!online || anyFailed || slowSync) chipShownRef.current = true;
+  }, [queueNonEmpty, online, anyFailed, slowSync]);
 
   const retryQueued = useCallback((id: string) => {
     const account = runAccountRef.current;
@@ -3253,6 +3301,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       foodSubmissions,
       pendingCount: queue.filter(item => item.status === 'pending').length,
       failedCount: queue.filter(item => item.status === 'failed').length,
+      slowSync,
       justSynced,
       isPending,
       retry: retryQueued,
@@ -3269,7 +3318,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       retryAll: retryAllQueued,
       discard: discardQueued,
     };
-  }, [account.kind, discardQueued, isPending, justSynced, online, queue, retryAllQueued, retryQueued]);
+  }, [account.kind, discardQueued, isPending, justSynced, online, queue, retryAllQueued, retryQueued, slowSync]);
 
   return (
     <PatientContext.Provider value={value}>

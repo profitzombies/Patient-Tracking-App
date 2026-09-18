@@ -22,6 +22,7 @@ export function usePatientSync() {
     items: [] as never[],
     pendingCount: 0,
     failedCount: 0,
+    slowSync: false,
     justSynced: false,
     isPending: () => false,
     retry: () => undefined,

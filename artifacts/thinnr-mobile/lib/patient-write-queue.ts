@@ -500,6 +500,17 @@ export function parseQueue(raw: string | null): QueuedWrite[] {
 /** Sync status the patient tab shell shows. */
 export type SyncStatus = 'offline' | 'syncing' | 'attention' | 'idle';
 
+/**
+ * Shell-side tuning for the sync chip (mutable so the Node suites can
+ * shorten the grace period). A normal online save acks well inside the
+ * grace period, so the chip only appears for a drain that is taking
+ * noticeably long — offline and failed states never wait on it.
+ */
+export const SYNC_CHIP_TUNING = {
+  /** How long the queue must stay continuously non-empty before "syncing" is shown. */
+  syncingGraceMs: 4_000,
+};
+
 export function deriveSyncStatus(
   queue: readonly QueuedWrite[],
   online: boolean,

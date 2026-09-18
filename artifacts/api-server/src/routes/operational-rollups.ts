@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { assembleRetention, requestDates, type RetentionRawRow } from "../lib/patient-retention";
 import { inboxMetrics } from "./staff-conversations";
 import {
   assembleInsights,
@@ -447,6 +448,34 @@ router.get("/hq/app-usage", requireHqPermission("analytics_read"), async (req, r
   } catch (error) {
     req.log?.error({ err: error }, "HQ app usage failed");
     res.status(502).json({ error: "Could not load app usage right now." });
+  }
+});
+
+/* ---------------------------------------------------- patient retention */
+
+/**
+ * Onboarded / active / buying / inactive per office and network-wide, as of
+ * the range end, plus the trend at each sample date. Bucket definitions and
+ * the assembly live in ../lib/patient-retention.ts; the SQL function
+ * evaluates every as-of date independently.
+ */
+router.get("/hq/patient-retention", requireHqPermission("analytics_read"), async (req, res) => {
+  const range = parseRange(req.query as Record<string, unknown>);
+  if (!range) {
+    res.status(400).json({ error: RANGE_ERROR });
+    return;
+  }
+  try {
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_retention_offices", {
+      p_dates: requestDates(range.start, range.end),
+    });
+    if (result.status >= 300 || !Array.isArray(result.json)) {
+      throw new Error(`patient retention offices failed (${result.status})`);
+    }
+    res.json(assembleRetention(range, result.json as RetentionRawRow[], new Date()));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ patient retention failed");
+    res.status(502).json({ error: "Could not load patient retention right now." });
   }
 });
 

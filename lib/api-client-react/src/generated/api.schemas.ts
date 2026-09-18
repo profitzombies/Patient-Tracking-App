@@ -450,6 +450,67 @@ export interface AppUsageResult {
   offices: AppUsageOfficeRow[];
 }
 
+export interface PatientRetentionCounts {
+  onboarded: number;
+  /** Onboarded within the requested range */
+  newInRange: number;
+  active: number;
+  inactive: number;
+  buying: number;
+  /** Subset of buying with a subscription active on the date */
+  subscribed: number;
+  /** Inactive, quiet under 30 days (never opened the app since onboarding) */
+  inactiveUnder30: number;
+  inactive30to60: number;
+  inactive60to90: number;
+  inactive90plus: number;
+  activePct: number | null;
+  buyingPct: number | null;
+  inactivePct: number | null;
+}
+
+export interface PatientRetentionPoint {
+  date: string;
+  onboarded: number;
+  active: number;
+  buying: number;
+  inactive: number;
+}
+
+export interface PatientRetentionOfficeRow {
+  providerId: string;
+  officeName: string;
+  providerName: string;
+  firstPatientDate: string | null;
+  /** False when the office had no patient record by the range end */
+  available: boolean;
+  metrics: PatientRetentionCounts | null;
+  series: PatientRetentionPoint[];
+}
+
+export type PatientRetentionResultStep = typeof PatientRetentionResultStep[keyof typeof PatientRetentionResultStep];
+
+
+export const PatientRetentionResultStep = {
+  week: 'week',
+  month: 'month',
+} as const;
+
+export type PatientRetentionResultNetwork = {
+  firstPatientDate: string | null;
+  available: boolean;
+  metrics: PatientRetentionCounts | null;
+  series: PatientRetentionPoint[];
+};
+
+export interface PatientRetentionResult {
+  range: DateRangeKeys;
+  asOf: string;
+  step: PatientRetentionResultStep;
+  network: PatientRetentionResultNetwork;
+  offices: PatientRetentionOfficeRow[];
+}
+
 export type AppUsageInsightsDataset = typeof AppUsageInsightsDataset[keyof typeof AppUsageInsightsDataset];
 
 
@@ -4878,6 +4939,11 @@ end: string;
 };
 
 export type GetHqAppUsageParams = {
+start: string;
+end: string;
+};
+
+export type GetHqPatientRetentionParams = {
 start: string;
 end: string;
 };

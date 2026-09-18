@@ -264,6 +264,14 @@ args = "app-usage-insights-api"
 task = "workflow.run"
 args = "app-usage-insights-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-retention-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-retention-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2123,6 +2131,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/supabase-admin.test.ts src/lib/request-metrics.test.ts src/system src/jobs/definitions/data-growth-snapshot.test.ts src/jobs/definitions/system-thresholds.test.ts src/alerts/staff-sender.test.ts src/routes/system-jobs.test.ts src/routes/hq-staff-alerts.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-retention-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:patient-retention && pnpm --filter @workspace/thinnr-operations run test:app-usage && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-retention-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-retention.test.ts src/routes/patient-retention.sql.test.ts src/routes/operational-rollups.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

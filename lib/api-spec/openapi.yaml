@@ -2003,6 +2003,28 @@ paths:
           description: Network totals plus one row per enabled office (aggregate only)
           content: { application/json: { schema: { $ref: "#/components/schemas/AppUsageResult" } } }
         "400": { description: Invalid range }
+  /hq/patient-retention:
+    get:
+      operationId: getHqPatientRetention
+      tags: [hq]
+      summary: Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
+      description: >-
+        Onboarded = a real-account patient (claimed/created, activated, not archived) by the
+        as-of date. Active = an app-activity day in the trailing 30 days (the App usage source);
+        inactive is the exact complement, tiered by days since the last activity day.
+        Buying = a paid order (partly refunded still counts, fully refunded does not) in the
+        trailing 90 days, or a subscription that was active on the date judged by its lifetime
+        (started on or before, not yet canceled), not by its status today.
+        Headline figures are as of the range end; the series samples the range start, each
+        week end (ranges up to 13 weeks) or month end, and the range end.
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Network totals plus one row per enabled office (aggregate only)
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientRetentionResult" } } }
+        "400": { description: Invalid range }
   /hq/app-usage-insights:
     get:
       operationId: getHqAppUsageInsights
@@ -3115,6 +3137,71 @@ components:
         offices:
           type: array
           items: { $ref: "#/components/schemas/AppUsageOfficeRow" }
+    PatientRetentionCounts:
+      type: object
+      required: [onboarded, newInRange, active, inactive, buying, subscribed, inactiveUnder30, inactive30to60, inactive60to90, inactive90plus, activePct, buyingPct, inactivePct]
+      properties:
+        onboarded: { type: number }
+        newInRange: { type: number, description: "Onboarded within the requested range" }
+        active: { type: number }
+        inactive: { type: number }
+        buying: { type: number }
+        subscribed: { type: number, description: "Subset of buying with a subscription active on the date" }
+        inactiveUnder30: { type: number, description: "Inactive, quiet under 30 days (never opened the app since onboarding)" }
+        inactive30to60: { type: number }
+        inactive60to90: { type: number }
+        inactive90plus: { type: number }
+        activePct: { type: number, nullable: true }
+        buyingPct: { type: number, nullable: true }
+        inactivePct: { type: number, nullable: true }
+    PatientRetentionPoint:
+      type: object
+      required: [date, onboarded, active, buying, inactive]
+      properties:
+        date: { type: string }
+        onboarded: { type: number }
+        active: { type: number }
+        buying: { type: number }
+        inactive: { type: number }
+    PatientRetentionOfficeRow:
+      type: object
+      required: [providerId, officeName, providerName, firstPatientDate, available, metrics, series]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        providerName: { type: string }
+        firstPatientDate: { type: string, nullable: true }
+        available: { type: boolean, description: "False when the office had no patient record by the range end" }
+        metrics:
+          oneOf:
+            - $ref: "#/components/schemas/PatientRetentionCounts"
+            - type: "null"
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/PatientRetentionPoint" }
+    PatientRetentionResult:
+      type: object
+      required: [range, asOf, step, network, offices]
+      properties:
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        step: { type: string, enum: [week, month] }
+        network:
+          type: object
+          required: [firstPatientDate, available, metrics, series]
+          properties:
+            firstPatientDate: { type: string, nullable: true }
+            available: { type: boolean }
+            metrics:
+              oneOf:
+                - $ref: "#/components/schemas/PatientRetentionCounts"
+                - type: "null"
+            series:
+              type: array
+              items: { $ref: "#/components/schemas/PatientRetentionPoint" }
+        offices:
+          type: array
+          items: { $ref: "#/components/schemas/PatientRetentionOfficeRow" }
     AppUsageInsightsDataset:
       type: string
       enum: [app_open, food_log, water_log, weigh_in, progress_photo, coach_message, care_team_message, medication_log, order]

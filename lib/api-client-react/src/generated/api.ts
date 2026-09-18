@@ -98,6 +98,7 @@ import type {
   GetHqFilesParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
+  GetHqPatientRetentionParams,
   GetHqStaffAlertDeliveries200,
   GetHqStaffAlertDeliveriesParams,
   GetOfficeAlertDigestsParams,
@@ -190,6 +191,7 @@ import type {
   PatientCareTeamResult,
   PatientCareTeamStartInput,
   PatientCareTeamStartResult,
+  PatientRetentionResult,
   ProgressPhotoFileParams,
   ReadOfficeConversationParams,
   RegisterStaffNotificationDeviceBody,
@@ -7184,6 +7186,91 @@ export function useGetHqAppUsage<TData = Awaited<ReturnType<typeof getHqAppUsage
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqAppUsageQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqPatientRetentionUrl = (params: GetHqPatientRetentionParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/patient-retention?${stringifiedParams}` : `/api/hq/patient-retention`
+}
+
+/**
+ * Onboarded = a real-account patient (claimed/created, activated, not archived) by the as-of date. Active = an app-activity day in the trailing 30 days (the App usage source); inactive is the exact complement, tiered by days since the last activity day. Buying = a paid order (partly refunded still counts, fully refunded does not) in the trailing 90 days, or a subscription that was active on the date judged by its lifetime (started on or before, not yet canceled), not by its status today. Headline figures are as of the range end; the series samples the range start, each week end (ranges up to 13 weeks) or month end, and the range end.
+ * @summary Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
+ */
+export const getHqPatientRetention = async (params: GetHqPatientRetentionParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientRetentionResult> => {
+
+  return customFetch<PatientRetentionResult>(getGetHqPatientRetentionUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqPatientRetentionQueryKey = (params?: GetHqPatientRetentionParams,) => {
+    return [
+    `/api/hq/patient-retention`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqPatientRetentionQueryOptions = <TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqPatientRetentionQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqPatientRetention>>> = ({ signal }) => getHqPatientRetention(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqPatientRetentionQueryResult = NonNullable<Awaited<ReturnType<typeof getHqPatientRetention>>>
+export type GetHqPatientRetentionQueryError = ErrorType<void>
+
+
+/**
+ * @summary Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
+ */
+
+export function useGetHqPatientRetention<TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(
+ params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqPatientRetentionQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

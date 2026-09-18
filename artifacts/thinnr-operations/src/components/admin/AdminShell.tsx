@@ -29,6 +29,7 @@ import {
   FileDown,
   ShieldCheck,
   CreditCard,
+  UserCheck,
 } from 'lucide-react';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
@@ -50,6 +51,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { path: '/admin', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/admin/app-usage', label: 'App usage', mobileLabel: 'Usage', icon: Smartphone },
+  { path: '/admin/retention', label: 'Patient retention', mobileLabel: 'Retention', icon: UserCheck },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/escalations', label: 'Escalations', icon: ActivitySquare },
@@ -78,7 +80,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
-  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage'] },
+  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage', '/admin/retention'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/payments', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },

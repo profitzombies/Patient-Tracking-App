@@ -157,3 +157,4 @@
 - [App usage Insights](app-usage-insights.md) — one event helper at write seams, patient-local hour (−1 = day-only), rollups ∪ raw tail, one shared rule engine for demo + live; rebuild lib dist on signature change.
 - [System performance metrics](system-performance-metrics.md) — latency flush needs a request after the minute rolls; pg_stat_statements is since-reset; unlistable storage prefix withholds the total; HQ alerts have provider_id null.
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
+- [As-of-date billing state](as-of-date-billing-state.md) — judge past-date subscribed/buying by lifetime columns, never today's status; test before/on/after boundaries; RPC shape holes → 502, not zeros.

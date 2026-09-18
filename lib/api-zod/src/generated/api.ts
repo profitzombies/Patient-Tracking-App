@@ -3338,6 +3338,80 @@ export const GetHqAppUsageResponse = zod.object({
 
 
 /**
+ * Onboarded = a real-account patient (claimed/created, activated, not archived) by the as-of date. Active = an app-activity day in the trailing 30 days (the App usage source); inactive is the exact complement, tiered by days since the last activity day. Buying = a paid order (partly refunded still counts, fully refunded does not) in the trailing 90 days, or a subscription that was active on the date judged by its lifetime (started on or before, not yet canceled), not by its status today. Headline figures are as of the range end; the series samples the range start, each week end (ranges up to 13 weeks) or month end, and the range end.
+ * @summary Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
+ */
+export const GetHqPatientRetentionQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date()
+})
+
+export const GetHqPatientRetentionResponse = zod.object({
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "step": zod.enum(['week', 'month']),
+  "network": zod.object({
+  "firstPatientDate": zod.string().nullable(),
+  "available": zod.boolean(),
+  "metrics": zod.union([zod.object({
+  "onboarded": zod.number(),
+  "newInRange": zod.number().describe('Onboarded within the requested range'),
+  "active": zod.number(),
+  "inactive": zod.number(),
+  "buying": zod.number(),
+  "subscribed": zod.number().describe('Subset of buying with a subscription active on the date'),
+  "inactiveUnder30": zod.number().describe('Inactive, quiet under 30 days (never opened the app since onboarding)'),
+  "inactive30to60": zod.number(),
+  "inactive60to90": zod.number(),
+  "inactive90plus": zod.number(),
+  "activePct": zod.number().nullable(),
+  "buyingPct": zod.number().nullable(),
+  "inactivePct": zod.number().nullable()
+}),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.string(),
+  "onboarded": zod.number(),
+  "active": zod.number(),
+  "buying": zod.number(),
+  "inactive": zod.number()
+}))
+}),
+  "offices": zod.array(zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerName": zod.string(),
+  "firstPatientDate": zod.string().nullable(),
+  "available": zod.boolean().describe('False when the office had no patient record by the range end'),
+  "metrics": zod.union([zod.object({
+  "onboarded": zod.number(),
+  "newInRange": zod.number().describe('Onboarded within the requested range'),
+  "active": zod.number(),
+  "inactive": zod.number(),
+  "buying": zod.number(),
+  "subscribed": zod.number().describe('Subset of buying with a subscription active on the date'),
+  "inactiveUnder30": zod.number().describe('Inactive, quiet under 30 days (never opened the app since onboarding)'),
+  "inactive30to60": zod.number(),
+  "inactive60to90": zod.number(),
+  "inactive90plus": zod.number(),
+  "activePct": zod.number().nullable(),
+  "buyingPct": zod.number().nullable(),
+  "inactivePct": zod.number().nullable()
+}),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.string(),
+  "onboarded": zod.number(),
+  "active": zod.number(),
+  "buying": zod.number(),
+  "inactive": zod.number()
+}))
+}))
+})
+
+
+/**
  * Counts patient app events for one feature across the range and the same-length period immediately before it. Heatmap cells are in each patient's local time; day-only history (water, app-open days before hourly tracking) counts toward totals and the series but not the heatmap. `office` narrows every figure to one enabled practice.
  * @summary One app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
  */

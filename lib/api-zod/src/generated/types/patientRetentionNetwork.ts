@@ -8,9 +8,10 @@
 import type { PatientRetentionCounts } from './patientRetentionCounts';
 import type { PatientRetentionPoint } from './patientRetentionPoint';
 
-export type PatientRetentionResultNetwork = {
-  firstPatientDate: string | null;
+export interface PatientRetentionNetwork {
+  /** @nullable */
+  firstOnboardedDate: Date | null;
   available: boolean;
-  metrics: PatientRetentionCounts | null;
+  counts: PatientRetentionCounts | null;
   series: PatientRetentionPoint[];
-};
+}

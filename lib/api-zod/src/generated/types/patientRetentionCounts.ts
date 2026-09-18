@@ -5,22 +5,19 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PatientRetentionInactiveTiers } from './patientRetentionInactiveTiers';
 
 export interface PatientRetentionCounts {
   onboarded: number;
-  /** Onboarded within the requested range */
-  newInRange: number;
   active: number;
-  inactive: number;
   buying: number;
-  /** Subset of buying with a subscription active on the date */
-  subscribed: number;
-  /** Inactive, quiet under 30 days (never opened the app since onboarding) */
-  inactiveUnder30: number;
-  inactive30to60: number;
-  inactive60to90: number;
-  inactive90plus: number;
+  inactive: number;
+  /**
+     * Active as a share of onboarded, one decimal; null when nobody is onboarded
+     * @nullable
+     */
   activePct: number | null;
+  /** @nullable */
   buyingPct: number | null;
-  inactivePct: number | null;
+  inactiveTiers: PatientRetentionInactiveTiers;
 }

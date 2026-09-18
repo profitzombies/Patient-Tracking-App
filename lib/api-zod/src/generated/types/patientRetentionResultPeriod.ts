@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PatientRetentionResultStep = typeof PatientRetentionResultStep[keyof typeof PatientRetentionResultStep];
+export type PatientRetentionResultPeriod = typeof PatientRetentionResultPeriod[keyof typeof PatientRetentionResultPeriod];
 
 
-export const PatientRetentionResultStep = {
+export const PatientRetentionResultPeriod = {
   week: 'week',
   month: 'month',
 } as const;

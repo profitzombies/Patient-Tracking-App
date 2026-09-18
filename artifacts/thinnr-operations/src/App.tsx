@@ -113,7 +113,7 @@ function AdminArea() {
             <Switch>
               <Route path="/admin" component={HqOverview} />
               <Route path="/admin/app-usage" component={AppUsage} />
-              <Route path="/admin/retention" component={PatientRetention} />
+              <Route path="/admin/patient-retention" component={PatientRetention} />
               <Route path="/admin/accounts" component={Accounts} />
               <Route path="/admin/accounts/:id" component={AccountDetail} />
               <Route path="/admin/conversations" component={Conversations} />

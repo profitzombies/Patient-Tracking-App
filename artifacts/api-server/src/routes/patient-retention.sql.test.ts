@@ -1,24 +1,24 @@
 /**
- * The HQ patient-retention aggregate, run for real.
+ * The HQ patient-retention aggregates, run for real.
  *
- * Boots a throwaway PostgreSQL cluster, applies the presence/usage migration
- * (the activity-day source) and then the retention migration verbatim on top
- * of a minimal mirror of the patient + billing tables, seeds fixtures, and
- * asserts:
+ * Boots a throwaway PostgreSQL cluster (unix socket only), applies the
+ * canonical presence migration (for the shared activity-day source) and the
+ * retention migration verbatim on top of a minimal mirror of the patient and
+ * billing tables, seeds fixtures, and asserts:
  *
- *  - onboarded = real-account, activated, not archived, claimed/created on or
- *    before the as-of date (later claims are not counted yet);
- *  - active = an activity day in the trailing 30 days; inactive is the exact
- *    complement, tiered by days since the last activity day (or since
- *    onboarding when there has never been one);
- *  - buying = a paid order in the trailing 90 days OR a subscription active on
- *    the as-of date (canceled / not-yet-created subscriptions don't count,
- *    refunded orders don't count); subscribed is reported on its own;
- *  - several as-of dates come back per office and each is evaluated
- *    independently (a patient active in May is inactive by September);
- *  - disabled offices are excluded, offices without patients still get a row
- *    with first_patient_date = null;
- *  - service-role gating and grants.
+ *  - onboarded = linked + activated + not archived + onboarding day <= as-of
+ *    (claimed_at wins over created_at; staff-only and pending rows never count);
+ *  - every onboarded patient is in exactly one of active / inactive;
+ *  - active = any activity day in the trailing 30 days (presence counts like
+ *    a logged action); the inactive tiers follow the last activity day, and a
+ *    never-active patient is quiet since onboarding;
+ *  - buying = a paid order in the trailing 90 days (pending / failed never
+ *    count) or a subscription active on the as-of date (canceled / expired
+ *    never count);
+ *  - per-office rows are zero-filled for every requested date, offices with no
+ *    onboarded patient report first_onboarded_on = null, the office filter
+ *    narrows every figure, and disabled offices never appear;
+ *  - service-role gating and grants on both functions.
  *
  * Skips (loudly) when no PostgreSQL binaries are available.
  */
@@ -30,9 +30,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261102000000_patient_retention.sql");
 const PRESENCE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261026000000_patient_app_presence.sql");
 const TIMEZONE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260925138000_patient_activity_summary.sql");
-const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261030000000_patient_retention.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -49,8 +49,8 @@ create function auth.role() returns text language sql stable as $$ select curren
 create table public.providers (provider_id text primary key, office_name text, provider_name text, access_disabled boolean default false);
 create table public.patients (
   id uuid primary key, provider_id text not null references public.providers(provider_id), timezone text,
-  auth_user_id uuid, activation_status text not null default 'activated', archived_at timestamptz,
-  claimed_at timestamptz, last_log_date date, last_login_at timestamptz, created_at timestamptz not null default now());
+  auth_user_id uuid, activation_status text not null default 'activated', archived_at timestamptz, claimed_at timestamptz,
+  last_log_date date, last_login_at timestamptz, created_at timestamptz not null default now());
 create table public.patient_diary_entries (
   patient_id uuid references public.patients(id), entry_id text, date_key date not null,
   calories numeric not null default 0, primary key (patient_id, entry_id));
@@ -72,12 +72,14 @@ create table public.patient_chat_conversations (
 create table public.patient_chat_messages (
   conversation_id uuid references public.patient_chat_conversations(id), client_id text, role text not null,
   created_at timestamptz not null default now(), primary key (conversation_id, client_id));
-create table public.billing_orders (
-  id uuid primary key, provider_id text not null, patient_id uuid references public.patients(id),
-  status text not null, paid_at timestamptz);
 create table public.billing_subscriptions (
-  id uuid primary key, provider_id text not null, patient_id uuid references public.patients(id),
-  status text not null, created_at timestamptz not null, canceled_at timestamptz, current_period_end timestamptz);
+  id uuid primary key default gen_random_uuid(), provider_id text not null references public.providers(provider_id),
+  patient_id uuid references public.patients(id), status text not null, current_period_end timestamptz,
+  created_at timestamptz not null default now());
+create table public.billing_orders (
+  id uuid primary key default gen_random_uuid(), provider_id text not null references public.providers(provider_id),
+  patient_id uuid references public.patients(id), status text not null, paid_at timestamptz,
+  created_at timestamptz not null default now());
 create function private.guard_patient_dependency_write() returns trigger language plpgsql security definer set search_path = '' as $$
 declare target_archived_at timestamptz;
 begin
@@ -120,6 +122,7 @@ function uuid(n: number): string {
 }
 
 interface PatientOptions {
+  timezone?: string | null;
   real?: boolean;
   archived?: boolean;
   status?: string;
@@ -128,15 +131,19 @@ interface PatientOptions {
 }
 
 function insertPatient(n: number, provider: string, options: PatientOptions = {}) {
+  const timezone = options.timezone === undefined ? "UTC" : options.timezone;
   const real = options.real ?? true;
+  const claimed = options.claimedAt === undefined ? null : options.claimedAt;
   psql(
     `insert into public.patients (id, provider_id, timezone, auth_user_id, activation_status, archived_at, claimed_at, created_at) values (
-      '${uuid(n)}', '${provider}', 'UTC',
+      '${uuid(n)}', '${provider}', ${timezone === null ? "null" : `'${timezone}'`},
       ${real ? `'${uuid(1000 + n)}'` : "null"}, '${options.status ?? "activated"}',
-      ${options.archived ? "now()" : "null"},
-      ${options.claimedAt ? `'${options.claimedAt}'` : "null"},
-      '${options.createdAt ?? "2026-01-01T00:00:00Z"}')`,
+      ${options.archived ? "now()" : "null"}, ${claimed === null ? "null" : `'${claimed}'`}, '${options.createdAt ?? "2026-01-01T00:00:00Z"}')`,
   );
+}
+
+function touch(n: number, at: string) {
+  rows(`select * from public.patient_app_presence_touch('${uuid(n)}', 'ios', '${at}'::timestamptz)`);
 }
 
 function insertDiary(n: number, days: string[]) {
@@ -144,17 +151,16 @@ function insertDiary(n: number, days: string[]) {
   psql(`insert into public.patient_diary_entries (patient_id, entry_id, date_key, calories) values ${values}`);
 }
 
-let orderSeq = 0;
-function insertOrder(n: number, paidAt: string, status = "paid") {
-  orderSeq += 1;
-  psql(`insert into public.billing_orders (id, provider_id, patient_id, status, paid_at) values ('${uuid(7000 + orderSeq)}', 'x', '${uuid(n)}', '${status}', '${paidAt}'::timestamptz)`);
+function insertOrder(n: number, provider: string, status: string, paidAt: string | null) {
+  psql(
+    `insert into public.billing_orders (provider_id, patient_id, status, paid_at) values ('${provider}', '${uuid(n)}', '${status}', ${paidAt ? `'${paidAt}'` : "null"})`,
+  );
 }
 
-let subSeq = 0;
-function insertSubscription(n: number, createdAt: string, status = "active", canceledAt: string | null = null, periodEnd: string | null = null) {
-  subSeq += 1;
-  const ts = (value: string | null) => (value ? `'${value}'::timestamptz` : "null");
-  psql(`insert into public.billing_subscriptions (id, provider_id, patient_id, status, created_at, canceled_at, current_period_end) values ('${uuid(8000 + subSeq)}', 'x', '${uuid(n)}', '${status}', '${createdAt}'::timestamptz, ${ts(canceledAt)}, ${ts(periodEnd)})`);
+function insertSubscription(n: number, provider: string, status: string, periodEnd: string | null, createdAt = "2026-01-01T00:00:00Z") {
+  psql(
+    `insert into public.billing_subscriptions (provider_id, patient_id, status, current_period_end, created_at) values ('${provider}', '${uuid(n)}', '${status}', ${periodEnd ? `'${periodEnd}'` : "null"}, '${createdAt}')`,
+  );
 }
 
 function resetData() {
@@ -166,29 +172,44 @@ function resetData() {
   );
 }
 
-interface RetentionRow {
+interface StatusRow {
+  patient_id: string;
   provider_id: string;
-  first_patient_date: string | null;
+  onboarded_on: string;
+  is_active: boolean;
+  is_buying: boolean;
+  quiet_days: number;
+}
+
+interface PointRow {
+  provider_id: string;
+  office_name: string;
+  first_onboarded_on: string | null;
   as_of: string;
   onboarded: number;
   active: number;
   buying: number;
-  subscribed: number;
-  inactive_under_30: number;
+  inactive: number;
   inactive_30_60: number;
   inactive_60_90: number;
   inactive_90_plus: number;
 }
 
-function retention(dates: string[]) {
-  return rows<RetentionRow>(
-    `select * from public.patient_retention_offices(array[${dates.map((d) => `'${d}'`).join(",")}]::date[])`,
+function status(asOf: string, provider: string | null = null) {
+  return rows<StatusRow>(
+    `select * from public.patient_retention_status('${asOf}', ${provider ? `'${provider}'` : "null"}) order by patient_id`,
   );
 }
 
-const find = (list: RetentionRow[], office: string, asOf: string) => list.find((row) => row.provider_id === office && row.as_of === asOf);
+function points(dates: string[], provider: string | null = null) {
+  return rows<PointRow>(
+    `select * from public.patient_retention_points(array[${dates.map((d) => `'${d}'`).join(",")}]::date[], ${provider ? `'${provider}'` : "null"})`,
+  );
+}
 
-describe.skipIf(!POSTGRES_AVAILABLE)("patient retention aggregate (real PostgreSQL)", () => {
+const byPatient = (list: StatusRow[]) => Object.fromEntries(list.map((row) => [row.patient_id, row]));
+
+describe.skipIf(!POSTGRES_AVAILABLE)("patient retention aggregates (real PostgreSQL)", () => {
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), "pr-"));
     dataDir = path.join(dir, "data");
@@ -219,126 +240,146 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient retention aggregate (real PostgreS
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("is service-role only and granted accordingly", () => {
+  it("applies the canonical migration verbatim and is service-role only", () => {
+    expect(readFileSync(MIGRATION, "utf8")).toContain("security definer");
+    expect(rows("select proname from pg_proc where proname like 'patient_retention_%' order by 1")).toEqual([
+      { proname: "patient_retention_points" },
+      { proname: "patient_retention_status" },
+    ]);
     resetData();
-    expect(() => rows("select * from public.patient_retention_offices(array['2026-09-01']::date[])", "authenticated")).toThrow(/service role required/);
-    expect(() => rows("select * from public.patient_retention_offices(array['2026-09-01']::date[])", "anon")).toThrow(/service role required/);
-    expect(() => rows("select * from public.patient_retention_offices(array[]::date[])")).toThrow(/invalid dates/);
-    const grants = rows<{ grantee: string }>(
-      "select grantee from information_schema.routine_privileges where routine_schema = 'public' and routine_name = 'patient_retention_offices' and privilege_type = 'EXECUTE'",
-    ).map((row) => row.grantee);
-    expect(grants).toContain("service_role");
-    expect(grants).not.toContain("anon");
-    expect(grants).not.toContain("authenticated");
-    expect(grants).not.toContain("PUBLIC");
+    for (const role of ["anon", "authenticated"]) {
+      expect(() => rows("select * from public.patient_retention_status('2026-09-18', null)", role)).toThrow(/service role required/);
+      expect(() => rows("select * from public.patient_retention_points(array['2026-09-18']::date[], null)", role)).toThrow(/service role required/);
+    }
+    const grants = rows<{ fn: string; role: string; can: boolean }>(
+      `select f.fn, r.role, has_function_privilege(r.role, f.fn, 'execute') as can
+         from (values ('public.patient_retention_status(date, text)'), ('public.patient_retention_points(date[], text)')) f(fn)
+         cross join (values ('anon'), ('authenticated'), ('service_role')) r(role)
+         order by 1, 2`,
+    );
+    for (const grant of grants) expect(grant.can, `${grant.role} on ${grant.fn}`).toBe(grant.role === "service_role");
+    expect(() => rows("select * from public.patient_retention_points(array[]::date[], null)")).toThrow(/invalid dates/);
+    expect(() => rows("select * from public.patient_retention_points(array['2026-09-18', null]::date[], null)")).toThrow(/invalid dates/);
   });
 
-  it("counts onboarded, active, buying and the inactive tiers as of each date", () => {
+  it("counts only linked, activated, unarchived patients onboarded by the as-of date (claimed_at wins over created_at)", () => {
     resetData();
-    const AS_OF = "2026-09-15";
-    // 1: active this week, bought last month → active + buying
-    insertPatient(1, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertDiary(1, ["2026-09-12"]);
-    insertOrder(1, "2026-08-20T12:00:00Z");
-    // 2: last activity 45 days ago, subscription active → inactive 30–60 + buying (subscribed)
-    insertPatient(2, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertDiary(2, ["2026-08-01"]);
-    insertSubscription(2, "2026-07-01T00:00:00Z");
-    // 3: last activity 75 days ago, order refunded → inactive 60–90, not buying
-    insertPatient(3, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertDiary(3, ["2026-07-02"]);
-    insertOrder(3, "2026-08-20T12:00:00Z", "refunded");
-    // 4: last activity in May, order 100 days ago, subscription canceled in August → inactive 90+, not buying
-    insertPatient(4, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertDiary(4, ["2026-05-10"]);
-    insertOrder(4, "2026-06-07T12:00:00Z");
-    insertSubscription(4, "2026-05-01T00:00:00Z", "canceled", "2026-08-10T00:00:00Z");
-    // 5: claimed 10 days ago, never opened, partially refunded order → inactive under 30, buying
-    insertPatient(5, "office-a", { claimedAt: "2026-09-05T00:00:00Z" });
-    insertOrder(5, "2026-09-06T12:00:00Z", "partially_refunded");
-    // 6: claimed AFTER the as-of date → not onboarded yet
-    insertPatient(6, "office-a", { claimedAt: "2026-09-20T00:00:00Z" });
-    insertDiary(6, ["2026-09-14"]);
-    // 7: staff-created row without an auth user → never counts
-    insertPatient(7, "office-a", { real: false });
-    insertDiary(7, ["2026-09-14"]);
-    // 8: archived → never counts
-    insertPatient(8, "office-a", { archived: true, claimedAt: "2026-03-01T00:00:00Z" });
-    // 9: discharged → never counts
-    insertPatient(9, "office-a", { status: "discharged", claimedAt: "2026-03-01T00:00:00Z" });
-    // 10: no claim date (self-created account) — creation date is the onboarding date; active via presence
-    insertPatient(10, "office-b", { createdAt: "2026-08-30T00:00:00Z" });
-    rows(`select * from public.patient_app_presence_touch('${uuid(10)}', 'ios', '2026-09-14T10:00:00Z'::timestamptz)`);
-    // 11: disabled office → office excluded entirely
-    insertPatient(11, "office-off", { claimedAt: "2026-03-01T00:00:00Z" });
+    insertPatient(1, "office-a", { createdAt: "2026-01-01T00:00:00Z", claimedAt: "2026-06-10T15:00:00Z" });
+    insertPatient(2, "office-a", { createdAt: "2026-03-01T00:00:00Z" });
+    insertPatient(3, "office-a", { real: false });
+    insertPatient(4, "office-a", { status: "pending" });
+    insertPatient(5, "office-a", { archived: true });
+    insertPatient(6, "office-a", { claimedAt: "2026-09-19T00:00:00Z" });
+    insertPatient(7, "office-off");
+    const asOf = byPatient(status("2026-09-18"));
+    expect(Object.keys(asOf).sort()).toEqual([uuid(1), uuid(2)]);
+    expect(asOf[uuid(1)].onboarded_on).toBe("2026-06-10");
+    expect(asOf[uuid(2)].onboarded_on).toBe("2026-03-01");
+    // Before patient 1 claimed, only patient 2 was onboarded.
+    expect(status("2026-06-09").map((row) => row.patient_id)).toEqual([uuid(2)]);
+  });
 
-    const list = retention([AS_OF]);
-    expect(list.map((row) => row.provider_id).sort()).toEqual(["office-a", "office-b"]);
-    const a = find(list, "office-a", AS_OF)!;
-    expect(a).toMatchObject({
-      first_patient_date: "2026-01-01",
-      onboarded: 5, active: 1, buying: 3, subscribed: 1,
-      inactive_under_30: 1, inactive_30_60: 1, inactive_60_90: 1, inactive_90_plus: 1,
+  it("puts every onboarded patient in exactly one of active / inactive and tiers the quiet ones by last activity", () => {
+    resetData();
+    // Active via presence (day 18) and via a logged meal (day 25 of 30).
+    insertPatient(1, "office-a");
+    touch(1, "2026-09-18T10:00:00Z");
+    insertPatient(2, "office-a");
+    insertDiary(2, ["2026-08-20"]);
+    // Last seen 30 days ago → inactive, 30-60 tier.
+    insertPatient(3, "office-a");
+    insertDiary(3, ["2026-08-19"]);
+    // Last seen 60 days ago → 60-90 tier.
+    insertPatient(4, "office-a");
+    insertDiary(4, ["2026-07-20"]);
+    // Last seen 89 days ago → still 60-90; 90 days ago → 90+.
+    insertPatient(5, "office-a");
+    insertDiary(5, ["2026-06-21"]);
+    insertPatient(6, "office-a");
+    insertDiary(6, ["2026-06-20"]);
+    // Never opened the app: quiet since onboarding (12 days → first tier; onboarded a year ago → 90+).
+    insertPatient(7, "office-a", { claimedAt: "2026-09-06T00:00:00Z" });
+    insertPatient(8, "office-a", { createdAt: "2025-09-01T00:00:00Z" });
+    const asOf = byPatient(status("2026-09-18"));
+    expect(asOf[uuid(1)]).toMatchObject({ is_active: true, quiet_days: 0 });
+    expect(asOf[uuid(2)]).toMatchObject({ is_active: true, quiet_days: 29 });
+    expect(asOf[uuid(3)]).toMatchObject({ is_active: false, quiet_days: 30 });
+    expect(asOf[uuid(4)]).toMatchObject({ is_active: false, quiet_days: 60 });
+    expect(asOf[uuid(5)]).toMatchObject({ is_active: false, quiet_days: 89 });
+    expect(asOf[uuid(6)]).toMatchObject({ is_active: false, quiet_days: 90 });
+    expect(asOf[uuid(7)]).toMatchObject({ is_active: false, quiet_days: 12 });
+    expect(asOf[uuid(8)]).toMatchObject({ is_active: false, quiet_days: 90 });
+    const [alpha] = points(["2026-09-18"], "office-a");
+    expect(alpha).toMatchObject({
+      provider_id: "office-a", as_of: "2026-09-18", onboarded: 8, active: 2, inactive: 6,
+      inactive_30_60: 2, inactive_60_90: 2, inactive_90_plus: 2,
     });
-    expect(a.active + a.inactive_under_30 + a.inactive_30_60 + a.inactive_60_90 + a.inactive_90_plus).toBe(a.onboarded);
-    const b = find(list, "office-b", AS_OF)!;
-    expect(b).toMatchObject({ onboarded: 1, active: 1, buying: 0, subscribed: 0, inactive_under_30: 0, inactive_30_60: 0, inactive_60_90: 0, inactive_90_plus: 0 });
+    expect(alpha.active + alpha.inactive).toBe(alpha.onboarded);
+    expect(alpha.inactive_30_60 + alpha.inactive_60_90 + alpha.inactive_90_plus).toBe(alpha.inactive);
+    // The same patients re-classified as of an earlier date: patient 4 was active on Aug 1.
+    const earlier = byPatient(status("2026-08-01"));
+    expect(earlier[uuid(4)].is_active).toBe(true);
+    expect(earlier[uuid(3)].is_active).toBe(false);
+    expect(earlier[uuid(7)]).toBeUndefined();
   });
 
-  it("evaluates every requested as-of date independently, oldest first", () => {
+  it("marks buying from a paid order in the trailing 90 days or a subscription active on the as-of date", () => {
     resetData();
-    insertPatient(1, "office-a", { claimedAt: "2026-04-01T00:00:00Z" });
-    insertDiary(1, ["2026-05-10"]);
-    insertOrder(1, "2026-05-12T12:00:00Z");
-    insertSubscription(1, "2026-06-01T00:00:00Z", "active", null);
-    const list = retention(["2026-09-30", "2026-03-31", "2026-05-31", "2026-07-31"]);
-    const a = list.filter((row) => row.provider_id === "office-a");
-    expect(a.map((row) => row.as_of)).toEqual(["2026-03-31", "2026-05-31", "2026-07-31", "2026-09-30"]);
-    // March: not yet claimed.
-    expect(a[0]).toMatchObject({ onboarded: 0, active: 0, buying: 0 });
-    // May: active (May 10), bought May 12 → buying; subscription not created yet.
-    expect(a[1]).toMatchObject({ onboarded: 1, active: 1, buying: 1, subscribed: 0 });
-    // July: 82 days quiet → inactive 60–90; order 80 days old still counts + subscription active.
-    expect(a[2]).toMatchObject({ onboarded: 1, active: 0, inactive_60_90: 1, buying: 1, subscribed: 1 });
-    // September: 143 days quiet → 90+; order too old, but the subscription keeps them buying.
-    expect(a[3]).toMatchObject({ onboarded: 1, active: 0, inactive_90_plus: 1, buying: 1, subscribed: 1 });
+    insertPatient(1, "office-a");
+    insertOrder(1, "office-a", "paid", "2026-09-01T12:00:00Z");
+    insertPatient(2, "office-a");
+    insertOrder(2, "office-a", "paid", "2026-06-20T12:00:00Z"); // 90 days before → outside the window
+    insertPatient(3, "office-a");
+    insertOrder(3, "office-a", "partially_refunded", "2026-06-21T12:00:00Z"); // 89 days before → inside
+    insertPatient(4, "office-a");
+    insertOrder(4, "office-a", "pending", null);
+    insertOrder(4, "office-a", "failed", "2026-09-10T12:00:00Z");
+    insertPatient(5, "office-a");
+    insertSubscription(5, "office-a", "active", "2026-10-01T00:00:00Z");
+    insertPatient(6, "office-a");
+    insertSubscription(6, "office-a", "canceled", "2026-10-01T00:00:00Z");
+    insertPatient(7, "office-a");
+    insertSubscription(7, "office-a", "active", "2026-09-17T00:00:00Z"); // period already over
+    insertPatient(8, "office-a");
+    insertSubscription(8, "office-a", "active", null, "2026-09-19T00:00:00Z"); // starts after the as-of date
+    insertPatient(9, "office-a", { timezone: "America/Los_Angeles" });
+    // 03:00Z on Jun 21 is still Jun 20 in Los Angeles → outside the window for that patient.
+    insertOrder(9, "office-a", "paid", "2026-06-21T03:00:00Z");
+    const asOf = byPatient(status("2026-09-18"));
+    expect(Object.fromEntries(Object.values(asOf).map((row) => [row.patient_id, row.is_buying]))).toEqual({
+      [uuid(1)]: true, [uuid(2)]: false, [uuid(3)]: true, [uuid(4)]: false, [uuid(5)]: true,
+      [uuid(6)]: false, [uuid(7)]: false, [uuid(8)]: false, [uuid(9)]: false,
+    });
+    const [alpha] = points(["2026-09-18"], "office-a");
+    expect(alpha).toMatchObject({ onboarded: 9, buying: 3 });
+    // Subscription 8 counts once it has started.
+    expect(byPatient(status("2026-09-19"))[uuid(8)].is_buying).toBe(true);
   });
 
-  it("judges subscriptions by their lifetime on the date, not by today's status", () => {
+  it("returns zero-filled rows per office per date, reports empty offices as unavailable, hides disabled offices, and honours the office filter", () => {
     resetData();
-    // 1: subscribed Apr 1, canceled Aug 10 (status is canceled TODAY) — still buying on earlier dates.
-    insertPatient(1, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertSubscription(1, "2026-04-01T00:00:00Z", "canceled", "2026-08-10T00:00:00Z");
-    // 2: checkout never completed — an incomplete subscription that was later canceled never counts.
-    insertPatient(2, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertSubscription(2, "2026-04-01T00:00:00Z", "incomplete", null);
-    // 3: went unpaid; the last paid period ended Jul 15 — buying through Jul 14, not after.
-    insertPatient(3, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertSubscription(3, "2026-04-01T00:00:00Z", "unpaid", null, "2026-07-15T00:00:00Z");
-    // 4: past due but not canceled — still counts as subscribed.
-    insertPatient(4, "office-a", { claimedAt: "2026-03-01T00:00:00Z" });
-    insertSubscription(4, "2026-04-01T00:00:00Z", "past_due", null);
-    const list = retention(["2026-03-15", "2026-05-31", "2026-07-14", "2026-07-31", "2026-08-09", "2026-08-10", "2026-09-15"]);
-    const a = list.filter((row) => row.provider_id === "office-a");
-    // Mid March: nobody has subscribed yet.
-    expect(a[0]).toMatchObject({ onboarded: 4, subscribed: 0, buying: 0 });
-    // End of May: 1 (later canceled), 3 (later unpaid) and 4 are all active; 2 never was.
-    expect(a[1]).toMatchObject({ subscribed: 3, buying: 3 });
-    // Jul 14: the unpaid one is still inside its last paid period.
-    expect(a[2]).toMatchObject({ subscribed: 3 });
-    // Jul 31: the unpaid one has lapsed.
-    expect(a[3]).toMatchObject({ subscribed: 2 });
-    // Aug 9 vs Aug 10: the cancellation date itself is the first day off.
-    expect(a[4]).toMatchObject({ subscribed: 2 });
-    expect(a[5]).toMatchObject({ subscribed: 1 });
-    expect(a[6]).toMatchObject({ subscribed: 1, buying: 1 });
-  });
-
-  it("returns a row per date for an office with no patients (first_patient_date null)", () => {
-    resetData();
-    const list = retention(["2026-09-01", "2026-09-15"]);
-    const b = list.filter((row) => row.provider_id === "office-b");
-    expect(b).toHaveLength(2);
-    expect(b[0]).toMatchObject({ first_patient_date: null, onboarded: 0, active: 0, buying: 0 });
+    insertPatient(1, "office-a", { claimedAt: "2026-04-05T00:00:00Z" });
+    insertDiary(1, ["2026-09-10"]);
+    insertPatient(2, "office-b", { createdAt: "2026-08-01T00:00:00Z" });
+    insertPatient(3, "office-off");
+    insertOrder(2, "office-b", "paid", "2026-08-02T00:00:00Z");
+    const all = points(["2026-07-31", "2026-09-18"]);
+    expect(all.map((row) => [row.provider_id, row.as_of])).toEqual([
+      ["office-a", "2026-07-31"], ["office-a", "2026-09-18"], ["office-b", "2026-07-31"], ["office-b", "2026-09-18"],
+    ]);
+    // Quiet since onboarding on Apr 5 → 117 days by Jul 31 → 90+ tier.
+    expect(all[0]).toMatchObject({ first_onboarded_on: "2026-04-05", onboarded: 1, active: 0, buying: 0, inactive: 1, inactive_30_60: 0, inactive_60_90: 0, inactive_90_plus: 1 });
+    expect(all[1]).toMatchObject({ onboarded: 1, active: 1, buying: 0, inactive: 0 });
+    expect(all[2]).toMatchObject({ first_onboarded_on: "2026-08-01", onboarded: 0, active: 0, buying: 0, inactive: 0 });
+    expect(all[3]).toMatchObject({ onboarded: 1, active: 0, buying: 1, inactive: 1, inactive_30_60: 1 });
+    const only = points(["2026-09-18"], "office-b");
+    expect(only).toHaveLength(1);
+    expect(only[0]).toMatchObject({ provider_id: "office-b", onboarded: 1, buying: 1 });
+    expect(points(["2026-09-18"], "office-off")).toEqual([]);
+    expect(points(["2026-09-18"], "nope")).toEqual([]);
+    // An office with no onboarded patient still returns a row with a null first date.
+    psql(`delete from public.billing_orders; delete from public.patients where id = '${uuid(2)}'`);
+    const empty = points(["2026-09-18"], "office-b");
+    expect(empty[0]).toMatchObject({ first_onboarded_on: null, onboarded: 0, active: 0 });
   });
 });

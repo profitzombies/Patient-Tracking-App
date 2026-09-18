@@ -7,7 +7,9 @@
  */
 
 export interface PatientRetentionPoint {
-  date: string;
+  periodStart: Date;
+  /** The as-of date for the point */
+  periodEnd: Date;
   onboarded: number;
   active: number;
   buying: number;

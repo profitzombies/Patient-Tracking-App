@@ -7198,91 +7198,6 @@ export function useGetHqAppUsage<TData = Awaited<ReturnType<typeof getHqAppUsage
 
 
 
-export const getGetHqPatientRetentionUrl = (params: GetHqPatientRetentionParams,) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? 'null' : String(value))
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0 ? `/api/hq/patient-retention?${stringifiedParams}` : `/api/hq/patient-retention`
-}
-
-/**
- * Onboarded = a real-account patient (claimed/created, activated, not archived) by the as-of date. Active = an app-activity day in the trailing 30 days (the App usage source); inactive is the exact complement, tiered by days since the last activity day. Buying = a paid order (partly refunded still counts, fully refunded does not) in the trailing 90 days, or a subscription that was active on the date judged by its lifetime (started on or before, not yet canceled), not by its status today. Headline figures are as of the range end; the series samples the range start, each week end (ranges up to 13 weeks) or month end, and the range end.
- * @summary Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
- */
-export const getHqPatientRetention = async (params: GetHqPatientRetentionParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientRetentionResult> => {
-
-  return customFetch<PatientRetentionResult>(getGetHqPatientRetentionUrl(params),
-  {
-    ...options,
-    method: 'GET'
-
-
-  }
-);}
-
-
-
-
-
-export const getGetHqPatientRetentionQueryKey = (params?: GetHqPatientRetentionParams,) => {
-    return [
-    `/api/hq/patient-retention`, ...(params ? [params] : [])
-    ] as const;
-    }
-
-
-export const getGetHqPatientRetentionQueryOptions = <TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getGetHqPatientRetentionQueryKey(params);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqPatientRetention>>> = ({ signal }) => getHqPatientRetention(params, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData> & { queryKey: QueryKey }
-}
-
-export type GetHqPatientRetentionQueryResult = NonNullable<Awaited<ReturnType<typeof getHqPatientRetention>>>
-export type GetHqPatientRetentionQueryError = ErrorType<void>
-
-
-/**
- * @summary Patients onboarded, still active, still buying, or gone quiet — network-wide and per office
- */
-
-export function useGetHqPatientRetention<TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(
- params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
-
- ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-
-  const queryOptions = getGetHqPatientRetentionQueryOptions(params,options)
-
-  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-
-
-
-
-
-
 export const getGetHqAppUsageInsightsUrl = (params: GetHqAppUsageInsightsParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -7356,6 +7271,91 @@ export function useGetHqAppUsageInsights<TData = Awaited<ReturnType<typeof getHq
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqAppUsageInsightsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqPatientRetentionUrl = (params: GetHqPatientRetentionParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/patient-retention?${stringifiedParams}` : `/api/hq/patient-retention`
+}
+
+/**
+ * Onboarded = a claimed, activated patient account (linked sign-in, not archived, enabled office). Active = an app-activity day (App usage notion: app open or any logged action, staff excluded) in the trailing 30 days; inactive = onboarded but not active, tiered by days since the last activity day (30-60, 60-90, 90+). Buying = an order paid in the trailing 90 days or a subscription active on the date. Headline counts are as of the range end; the series measures each period end (weekly up to 120 days, else monthly). `office` narrows every figure to one enabled practice.
+ * @summary Patients onboarded per practice and how many are still active, still buying, or inactive
+ */
+export const getHqPatientRetention = async (params: GetHqPatientRetentionParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientRetentionResult> => {
+
+  return customFetch<PatientRetentionResult>(getGetHqPatientRetentionUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqPatientRetentionQueryKey = (params?: GetHqPatientRetentionParams,) => {
+    return [
+    `/api/hq/patient-retention`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqPatientRetentionQueryOptions = <TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqPatientRetentionQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqPatientRetention>>> = ({ signal }) => getHqPatientRetention(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqPatientRetentionQueryResult = NonNullable<Awaited<ReturnType<typeof getHqPatientRetention>>>
+export type GetHqPatientRetentionQueryError = ErrorType<void>
+
+
+/**
+ * @summary Patients onboarded per practice and how many are still active, still buying, or inactive
+ */
+
+export function useGetHqPatientRetention<TData = Awaited<ReturnType<typeof getHqPatientRetention>>, TError = ErrorType<void>>(
+ params: GetHqPatientRetentionParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientRetention>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqPatientRetentionQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

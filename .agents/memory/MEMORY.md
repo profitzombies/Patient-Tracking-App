@@ -158,3 +158,4 @@
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
 - [As-of-date billing state](as-of-date-billing-state.md) — judge past-date subscribed/buying by lifetime columns, never today's status; test before/on/after boundaries; RPC shape holes → 502, not zeros.
 - [AI usage ledger & prompt cache](ai-usage-ledger-and-prompt-cache.md) — meter at the client seam; one system message in canonical source order caches ~99%; tier switches only via recorded harnesses.
+- [JSX type args vs dev metadata plugin](jsx-type-args-metadata-plugin.md) — `<Comp<'a'|'b'>…>` typechecks but the dev-only metadata transform makes Vite fail on every route; instantiate the generic at module level.

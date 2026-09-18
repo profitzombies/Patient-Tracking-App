@@ -404,3 +404,5 @@ const DEMO_PROFILES: Record<InsightsDataset, { hour: number[]; weekday: number[]
   medication_log: { hour: MORNING, weekday: FLAT, perPatientPerDay: 0.7 },
   order: { hour: DAYTIME, weekday: WEEKEND_LIGHT, perPatientPerDay: 0.025 },
 };
+
+export * from "./retention-periods";

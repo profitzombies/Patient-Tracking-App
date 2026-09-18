@@ -9,4 +9,5 @@
 export type GetHqPatientRetentionParams = {
 start: Date;
 end: Date;
+office?: string;
 };

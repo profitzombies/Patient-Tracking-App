@@ -1,54 +1,50 @@
 /**
- * HQ Patient retention — how many patients each practice has onboarded onto
- * the platform, and how many of those are still active, still buying, or
- * have gone quiet (and for how long).
+ * HQ Patient retention — how many patients each practice onboarded, and how
+ * many are still active, still buying, or have gone quiet.
  *
- * Onboarded = a real-account patient through a practice. Active = an
- * app-activity day in the trailing 30 days (the App usage rule); inactive is
- * the exact complement, tiered by days since the last activity. Buying = a
- * paid order in the trailing 90 days or a subscription active on the date.
- * Headline figures are as of the range end; the trend samples the range
- * start, week or month ends, and the range end.
+ * Four headline tiles as of the range end (onboarded, active in the trailing
+ * 30 days, buying in the trailing 90 days, inactive), a trend across the range
+ * (weekly up to 120 days, monthly beyond), a per-practice table with an
+ * "all practices" total row, and the inactive patients tiered by how long
+ * they have been quiet. Choosing a practice narrows the whole page to it; the
+ * selection lives in the URL (`?office=`) so a shared link restores the view.
  *
- * The page can be narrowed to one practice (dropdown or a row's Focus
- * button); narrowing is purely client-side — the tiles, chart and inactive
- * breakdown read that office's row from the same payload.
- *
- * Signed-in HQ polls the rollup every 30 seconds while the page is open and
- * shows when the figures last landed. Loading, failure, and "unavailable for
+ * Signed-in HQ reads the live rollup; loading, failure and "unavailable for
  * this range" are explicit — the page never falls back to seeded numbers.
  * The signed-out guided demo renders the same screen from the deterministic
  * seeded dataset (anchored to the demo date) and issues no live request.
  */
-import { useMemo, useState } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
-import type { PatientRetentionCounts, PatientRetentionPoint, PatientRetentionResult } from '@workspace/api-client-react';
+import { useMemo } from 'react';
+import { useLocation, useSearch } from 'wouter';
+import { AlertCircle, RefreshCw, X } from 'lucide-react';
+import type { PatientRetentionResult } from '@workspace/api-client-react';
 import { getGetHqPatientRetentionQueryKey, useGetHqPatientRetention } from '@workspace/api-client-react';
-import { INPUT_CLASS, SectionCard } from '@/components/patient/heritage';
+import { SectionCard } from '@/components/patient/heritage';
 import { AdminPage, MetricTile, PageHeader } from '@/components/admin/primitives';
 import { PatientRetentionTable } from '@/components/admin/PatientRetentionTable';
 import { AreaChart, CHART_COLORS } from '@/components/billing/hq/RevenueCharts';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useSession } from '@/contexts/session';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
-import { demoPatientRetention } from '@/data/hq/patient-retention-demo';
+import { DEMO_RETENTION_OFFICE_OPTIONS, demoPatientRetention } from '@/data/hq/patient-retention-demo';
 import { formatDateKey } from '@/data/nutrition-data';
 import { DEMO_TODAY_KEY, type OperationsDateRange } from '@/lib/date-range-keys';
 import { formatLocalDate } from '@/lib/local-time';
 import { formatUpdatedAt } from '@/lib/app-usage';
 import {
-  ACTIVE_DEFINITION,
-  BUYING_DEFINITION,
-  INACTIVE_TIERS,
-  ONBOARDED_DEFINITION,
-  PATIENT_RETENTION_REFRESH_MS,
+  RETENTION_DEFINITIONS,
   countRetentionUnavailable,
+  inactiveTierRows,
+  periodNoun,
   retentionChartSeries,
-  retentionShare,
+  retentionPointLabel,
+  retentionTotalCounts,
   shareOfOnboarded,
 } from '@/lib/patient-retention';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
+
+export const PATIENT_RETENTION_PATH = '/admin/patient-retention';
 
 export type PatientRetentionViewState = 'loading' | 'error' | 'ready';
 
@@ -60,47 +56,32 @@ interface PatientRetentionViewProps {
   asOfLabel: string;
   /** "Updated 12:04:31 PM" for live reads; the demo shows its anchor instead. */
   updatedLabel: string | null;
-  /** A refresh is in flight behind already-shown figures. */
   refreshing?: boolean;
   onRetry?: () => void;
-}
-
-/** What the tiles, chart and breakdown read: the network, or one focused practice. */
-interface RetentionScope {
-  label: string;
-  available: boolean;
-  metrics: PatientRetentionCounts | null;
-  series: PatientRetentionPoint[];
-}
-
-function scopeFor(data: PatientRetentionResult | undefined, focused: string | null): RetentionScope {
-  const office = focused ? data?.offices.find((row) => row.providerId === focused) : undefined;
-  if (office) return { label: office.officeName, available: office.available, metrics: office.metrics, series: office.series };
-  return { label: 'All practices', available: data?.network.available ?? false, metrics: data?.network.metrics ?? null, series: data?.network.series ?? [] };
+  selectedOffice: string | null;
+  onSelectOffice: (providerId: string | null) => void;
 }
 
 /** Shared presentation for the live and demo branches — the data source is the only difference. */
-export function PatientRetentionView({ state, data, range, asOfLabel, updatedLabel, refreshing = false, onRetry }: PatientRetentionViewProps) {
+export function PatientRetentionView({ state, data, range, asOfLabel, updatedLabel, refreshing = false, onRetry, selectedOffice, onSelectOffice }: PatientRetentionViewProps) {
   const rangeLabel = formatRangeLabel(range);
   const loading = state === 'loading';
   const failed = state === 'error';
+  const network = data?.network;
+  const counts = network?.counts ?? null;
   const rows = data?.offices ?? [];
-  const [focusedRaw, setFocused] = useState<string | null>(null);
-  // A focused practice that is unavailable for the new range (or gone) falls back to all practices.
-  const focused = focusedRaw && rows.some((row) => row.providerId === focusedRaw && row.available) ? focusedRaw : null;
-  const scope = useMemo(() => scopeFor(data, focused), [data, focused]);
-  const metrics = scope.metrics;
-  const noData = state === 'ready' && !scope.available;
+  const noData = state === 'ready' && (!network || !network.available);
   const unavailable = countRetentionUnavailable(rows);
-  const stepLabel = data?.step === 'month' ? 'month by month' : 'week by week';
+  const period = data?.period ?? 'week';
+  const scopeLabel = data?.office?.name ?? (selectedOffice ? 'Selected practice' : 'All practices');
 
-  const tileValue = (value: number | null | undefined) =>
+  const tileValue = (value: number | undefined | null) =>
     loading ? '—' : failed ? 'Error' : value == null ? '—' : fmt(value);
   const tileDetail = (ready: string) =>
-    loading ? 'Loading live data…' : failed ? 'Failed to load' : ready;
+    loading ? 'Loading live data…' : failed ? 'Failed to load' : noData ? 'Unavailable for this range' : ready;
 
-  const chart = useMemo(() => retentionChartSeries(scope.series), [scope.series]);
-  const focusOptions = rows.filter((row) => row.available);
+  const chart = useMemo(() => retentionChartSeries(network?.series ?? []), [network?.series]);
+  const tiers = inactiveTierRows(counts);
 
   return (
     <AdminPage>
@@ -109,7 +90,7 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
         title="Patient retention"
         sub={
           <>
-            <span data-testid="text-retention-asof">{asOfLabel}</span> · Patients onboarded, active, buying and quiet as of the end of{' '}
+            <span data-testid="text-retention-asof">{asOfLabel}</span> · <span data-testid="text-retention-scope">{scopeLabel}</span> · Patients as of the end of{' '}
             <span className="font-semibold text-navy" data-testid="text-retention-range">{rangeLabel}</span>
             {updatedLabel && (
               <>
@@ -125,69 +106,52 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
         action={<DateRangeControl />}
       />
 
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <p className="max-w-[80ch] text-[11px] leading-relaxed text-muted-foreground" data-testid="text-retention-definition">
-          {ONBOARDED_DEFINITION} {ACTIVE_DEFINITION} {BUYING_DEFINITION}
-        </p>
-        <label className="block min-w-[220px]">
-          <span className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Practice</span>
-          <select
-            data-testid="select-retention-office"
-            className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-            value={focused ?? ''}
-            disabled={loading || failed}
-            onChange={(event) => setFocused(event.target.value === '' ? null : event.target.value)}
+      {selectedOffice && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs" data-testid="banner-retention-office">
+          <span className="text-muted-foreground">Showing one practice:</span>
+          <span className="font-semibold text-navy" data-testid="text-retention-office-name">{data?.office?.name ?? (loading ? 'Loading…' : selectedOffice)}</span>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-semibold text-navy transition hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onSelectOffice(null)}
+            data-testid="button-retention-all-practices"
           >
-            <option value="">All practices</option>
-            {focusOptions.map((row) => (
-              <option key={row.providerId} value={row.providerId}>
-                {row.officeName}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {focused && (
-        <p className="mb-3 text-xs text-navy" data-testid="text-retention-focus">
-          Showing <b>{scope.label}</b>.{' '}
-          <button type="button" className="underline" onClick={() => setFocused(null)} data-testid="button-retention-focus-clear">
-            Show all practices
+            <X size={11} aria-hidden="true" /> Show all practices
           </button>
-        </p>
+        </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label={`${scope.label} patient retention`}>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Patient lifecycle">
         <MetricTile
           label="Onboarded"
-          value={tileValue(metrics?.onboarded)}
-          detail={tileDetail(metrics ? `${metrics.newInRange > 0 ? `+${fmt(metrics.newInRange)}` : 'None'} new in this range` : noData ? 'Unavailable for this range' : '')}
+          value={tileValue(counts?.onboarded)}
+          detail={tileDetail(counts ? `Claimed, activated accounts by ${formatDateKey(range.end, true)}` : '')}
           testId="text-retention-onboarded"
         />
         <MetricTile
           label="Active"
-          value={tileValue(metrics?.active)}
-          detail={tileDetail(metrics ? `Last 30 days · ${shareOfOnboarded(metrics.activePct, metrics.onboarded)}` : noData ? 'Unavailable for this range' : '')}
+          value={tileValue(counts?.active)}
+          detail={tileDetail(counts ? `Used the app in the last 30 days · ${shareOfOnboarded(counts.activePct)}` : '')}
           testId="text-retention-active"
         />
         <MetricTile
           label="Buying"
-          value={tileValue(metrics?.buying)}
-          detail={tileDetail(metrics ? `${shareOfOnboarded(metrics.buyingPct, metrics.onboarded)} · ${fmt(metrics.subscribed)} on a subscription` : noData ? 'Unavailable for this range' : '')}
+          value={tileValue(counts?.buying)}
+          detail={tileDetail(counts ? `Paid order or active subscription in the last 90 days · ${shareOfOnboarded(counts.buyingPct)}` : '')}
           testId="text-retention-buying"
         />
         <MetricTile
           label="Inactive"
-          value={tileValue(metrics?.inactive)}
-          detail={tileDetail(metrics ? `Quiet 30+ days or never opened · ${shareOfOnboarded(metrics.inactivePct, metrics.onboarded)}` : noData ? 'Unavailable for this range' : '')}
+          value={tileValue(counts?.inactive)}
+          detail={tileDetail(counts ? `No app activity for 30+ days · ${shareOfOnboarded(counts.onboarded > 0 ? 100 - (counts.activePct ?? 0) : null)}` : '')}
           testId="text-retention-inactive"
         />
       </div>
 
       <div className="mt-5">
         <SectionCard
-          title="Patients over time"
-          sub={`Onboarded, active, buying and inactive patients for ${scope.label}, ${stepLabel}, across ${rangeLabel}. Hover a point for the exact figures.`}
+          title="Retention over time"
+          sub={`Onboarded, active, buying and inactive patients at the end of each ${periodNoun(period)} across ${rangeLabel}. Hover a point for the exact figures.`}
         >
           <div className="px-5 py-4">
             {loading ? (
@@ -196,11 +160,11 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
               <ErrorNotice testId="text-retention-chart-error" onRetry={onRetry} />
             ) : noData ? (
               <p className="py-8 text-center text-xs text-muted-foreground" data-testid="text-retention-chart-unavailable">
-                No patient had been onboarded by the end of this range — figures are unavailable, not zero. Try a later range.
+                No practice had an onboarded patient by the end of this range — figures are unavailable, not zero. Try a later range.
               </p>
             ) : (
               <AreaChart
-                title={`${scope.label} patients`}
+                title="Patient retention"
                 dates={chart.dates}
                 series={[
                   { key: 'onboarded', label: 'Onboarded', color: CHART_COLORS.gross, values: chart.onboarded },
@@ -210,6 +174,7 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
                 ]}
                 unit="count"
                 height={240}
+                formatLabel={(key) => retentionPointLabel(network?.series ?? [], period, key)}
                 labelCount={Math.min(8, chart.dates.length)}
                 emptyLabel="No onboarded patients in this range yet"
                 testId="chart-patient-retention"
@@ -219,33 +184,10 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
         </SectionCard>
       </div>
 
-      <div className="mt-5">
-        <SectionCard
-          title="How long inactive patients have been quiet"
-          sub={`Every inactive patient for ${scope.label} falls in exactly one tier, counted from their last app activity (or from onboarding if they never opened the app).`}
-        >
-          <div className="grid gap-4 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="group-retention-tiers">
-            {INACTIVE_TIERS.map((tier) => {
-              const value = metrics ? metrics[tier.key] : null;
-              const share = metrics && value != null ? retentionShare(value, metrics.inactive) : null;
-              return (
-                <MetricTile
-                  key={tier.key}
-                  label={tier.label}
-                  value={tileValue(value)}
-                  detail={tileDetail(metrics ? `${tier.help} · ${share == null ? 'No inactive patients' : `${Math.round(share)}% of inactive`}` : noData ? 'Unavailable for this range' : '')}
-                  testId={`text-retention-${tier.key}`}
-                />
-              );
-            })}
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="mt-5">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <SectionCard
           title="By practice"
-          sub={`Every practice as of ${formatDateKey(range.end, true)}. Sort any column; rank follows the sorted metric; the last row totals every practice with data.`}
+          sub={`Lifecycle counts per office as of ${formatDateKey(range.end, true)}. Sort any column; choose a practice to narrow the page.`}
         >
           {loading ? (
             <p className="px-5 py-8 text-center text-xs text-muted-foreground" data-testid="text-retention-table-loading">Loading practices…</p>
@@ -258,13 +200,55 @@ export function PatientRetentionView({ state, data, range, asOfLabel, updatedLab
               {unavailable > 0 && (
                 <p className="border-b border-border bg-secondary px-5 py-2 text-[11px] text-muted-foreground" data-testid="text-retention-unavailable-note">
                   {unavailable === rows.length
-                    ? 'No practice had a patient by the end of this range — figures are unavailable, not zero. Try a later range.'
-                    : `${unavailable} of ${rows.length} practices had no patient by the end of this range and are shown as unavailable.`}
+                    ? 'No office has an onboarded patient in this range — figures are unavailable, not zero. Try a later range.'
+                    : `${unavailable} of ${rows.length} offices have no onboarded patient in this range and are shown as unavailable.`}
                 </p>
               )}
-              <PatientRetentionTable rows={rows} rangeEnd={range.end} focused={focused} onFocus={setFocused} />
+              <PatientRetentionTable rows={rows} total={retentionTotalCounts(data)} rangeEnd={range.end} selectedOffice={selectedOffice} onSelectOffice={onSelectOffice} />
             </>
           )}
+        </SectionCard>
+
+        <SectionCard title="Inactive by time quiet" sub={`How long the ${loading || failed || !counts ? '' : `${fmt(counts.inactive)} `}inactive patients have gone without opening the app.`}>
+          <div className="px-5 py-4">
+            {loading ? (
+              <p className="py-6 text-center text-xs text-muted-foreground" data-testid="text-retention-tiers-loading">Loading…</p>
+            ) : failed ? (
+              <ErrorNotice testId="text-retention-tiers-error" onRetry={onRetry} />
+            ) : noData ? (
+              <p className="py-6 text-center text-xs text-muted-foreground" data-testid="text-retention-tiers-unavailable">Unavailable for this range.</p>
+            ) : (
+              <ul className="space-y-3" aria-label="Inactive patients by days quiet" data-testid="list-retention-tiers">
+                {tiers.map((tier) => (
+                  <li key={tier.key} data-testid={`retention-tier-${tier.key}`}>
+                    <div className="flex items-baseline justify-between gap-3 text-xs">
+                      <span className="font-semibold text-navy">{tier.label}</span>
+                      <span className="tabular-nums text-navy">
+                        <b data-testid={`retention-tier-value-${tier.key}`}>{fmt(tier.value)}</b>
+                        {tier.pct != null && <span className="ml-1 text-[10px] text-muted-foreground">({tier.pct}%)</span>}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary" aria-hidden="true">
+                      <div className="h-full rounded-full bg-[#b65c22]" style={{ width: `${tier.pct ?? 0}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="mt-5">
+        <SectionCard title="How these numbers are counted" sub="Every figure on this page follows these rules, network-wide and per practice.">
+          <dl className="grid gap-x-6 gap-y-3 px-5 py-4 text-[11px] leading-relaxed text-muted-foreground sm:grid-cols-2" data-testid="text-retention-definitions">
+            {RETENTION_DEFINITIONS.map((definition) => (
+              <div key={definition.term}>
+                <dt className="font-bold uppercase tracking-[.12em] text-navy">{definition.term}</dt>
+                <dd className="mt-0.5 max-w-[70ch]">{definition.text}</dd>
+              </div>
+            ))}
+          </dl>
         </SectionCard>
       </div>
     </AdminPage>
@@ -285,36 +269,57 @@ function ErrorNotice({ testId, onRetry }: { testId: string; onRetry?: () => void
   );
 }
 
+/** The narrowed practice lives in the URL (`?office=`), replace-navigated so Back is not spammed. */
+function useSelectedOffice(): [string | null, (providerId: string | null) => void] {
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const params = new URLSearchParams(search);
+  const office = params.get('office');
+  const selected = office && office.trim() !== '' ? office.trim() : null;
+  const select = (providerId: string | null) => {
+    const next = new URLSearchParams(search);
+    if (providerId) next.set('office', providerId);
+    else next.delete('office');
+    navigate(`${PATIENT_RETENTION_PATH}${next.toString() ? `?${next}` : ''}`, { replace: true });
+  };
+  return [selected, select];
+}
+
 function LivePatientRetention() {
   const { authUser } = useSession();
   const { range } = useDateRange();
-  const params = { start: range.start, end: range.end };
-  const retention = useGetHqPatientRetention(params, {
+  const [selectedOffice, selectOffice] = useSelectedOffice();
+  const params = { start: range.start, end: range.end, ...(selectedOffice ? { office: selectedOffice } : {}) };
+  const query = useGetHqPatientRetention(params, {
     query: {
       queryKey: [...getGetHqPatientRetentionQueryKey(params), authUser?.id],
       retry: 1,
-      refetchInterval: PATIENT_RETENTION_REFRESH_MS,
     },
   });
-  // A failed poll is reported, never papered over with the previous figures.
-  const state: PatientRetentionViewState = retention.isPending ? 'loading' : retention.isError ? 'error' : 'ready';
-  const asOfLabel = retention.data?.asOf ? formatLocalDate(retention.data.asOf) : 'Live';
+  // A failed read is reported, never papered over with the previous figures.
+  const state: PatientRetentionViewState = query.isPending ? 'loading' : query.isError ? 'error' : 'ready';
+  const asOfLabel = query.data?.asOf ? formatLocalDate(query.data.asOf) : 'Live';
   return (
     <PatientRetentionView
       state={state}
-      data={retention.data}
+      data={query.data}
       range={range}
       asOfLabel={asOfLabel}
-      updatedLabel={formatUpdatedAt(retention.dataUpdatedAt)}
-      refreshing={retention.isFetching && !retention.isPending}
-      onRetry={() => retention.refetch()}
+      updatedLabel={formatUpdatedAt(query.dataUpdatedAt)}
+      refreshing={query.isFetching && !query.isPending}
+      onRetry={() => query.refetch()}
+      selectedOffice={selectedOffice}
+      onSelectOffice={selectOffice}
     />
   );
 }
 
 function DemoPatientRetention() {
   const { range } = useDateRange();
-  const data = useMemo(() => demoPatientRetention(range), [range]);
+  const [selectedOffice, selectOffice] = useSelectedOffice();
+  // A stale link to an unknown seeded office falls back to every practice.
+  const known = selectedOffice !== null && DEMO_RETENTION_OFFICE_OPTIONS.some((office) => office.id === selectedOffice) ? selectedOffice : null;
+  const data = useMemo(() => demoPatientRetention(range, known), [range, known]);
   return (
     <PatientRetentionView
       state="ready"
@@ -322,6 +327,8 @@ function DemoPatientRetention() {
       range={range}
       asOfLabel={formatDateKey(DEMO_TODAY_KEY, true)}
       updatedLabel="Demo figures"
+      selectedOffice={known}
+      onSelectOffice={selectOffice}
     />
   );
 }

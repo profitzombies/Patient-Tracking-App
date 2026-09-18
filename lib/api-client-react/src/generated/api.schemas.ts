@@ -450,27 +450,34 @@ export interface AppUsageResult {
   offices: AppUsageOfficeRow[];
 }
 
+/**
+ * Inactive patients by days since their last activity day (never-active patients are quiet since onboarding)
+ */
+export interface PatientRetentionInactiveTiers {
+  days30to60: number;
+  days60to90: number;
+  days90plus: number;
+}
+
 export interface PatientRetentionCounts {
   onboarded: number;
-  /** Onboarded within the requested range */
-  newInRange: number;
   active: number;
-  inactive: number;
   buying: number;
-  /** Subset of buying with a subscription active on the date */
-  subscribed: number;
-  /** Inactive, quiet under 30 days (never opened the app since onboarding) */
-  inactiveUnder30: number;
-  inactive30to60: number;
-  inactive60to90: number;
-  inactive90plus: number;
+  inactive: number;
+  /**
+     * Active as a share of onboarded, one decimal; null when nobody is onboarded
+     * @nullable
+     */
   activePct: number | null;
+  /** @nullable */
   buyingPct: number | null;
-  inactivePct: number | null;
+  inactiveTiers: PatientRetentionInactiveTiers;
 }
 
 export interface PatientRetentionPoint {
-  date: string;
+  periodStart: string;
+  /** The as-of date for the point */
+  periodEnd: string;
   onboarded: number;
   active: number;
   buying: number;
@@ -481,33 +488,45 @@ export interface PatientRetentionOfficeRow {
   providerId: string;
   officeName: string;
   providerName: string;
-  firstPatientDate: string | null;
-  /** False when the office had no patient record by the range end */
+  /** @nullable */
+  firstOnboardedDate: string | null;
+  /** False when the office had no onboarded patient by the range end (figures null, not zero) */
   available: boolean;
-  metrics: PatientRetentionCounts | null;
+  counts: PatientRetentionCounts | null;
   series: PatientRetentionPoint[];
 }
 
-export type PatientRetentionResultStep = typeof PatientRetentionResultStep[keyof typeof PatientRetentionResultStep];
+export interface PatientRetentionNetwork {
+  /** @nullable */
+  firstOnboardedDate: string | null;
+  available: boolean;
+  counts: PatientRetentionCounts | null;
+  series: PatientRetentionPoint[];
+}
+
+export type PatientRetentionResultPeriod = typeof PatientRetentionResultPeriod[keyof typeof PatientRetentionResultPeriod];
 
 
-export const PatientRetentionResultStep = {
+export const PatientRetentionResultPeriod = {
   week: 'week',
   month: 'month',
 } as const;
 
-export type PatientRetentionResultNetwork = {
-  firstPatientDate: string | null;
-  available: boolean;
-  metrics: PatientRetentionCounts | null;
-  series: PatientRetentionPoint[];
-};
+/**
+ * The practice the figures are narrowed to, or null network-wide
+ */
+export type PatientRetentionResultOffice = {
+  id: string;
+  name: string;
+} | null;
 
 export interface PatientRetentionResult {
   range: DateRangeKeys;
   asOf: string;
-  step: PatientRetentionResultStep;
-  network: PatientRetentionResultNetwork;
+  period: PatientRetentionResultPeriod;
+  /** The practice the figures are narrowed to, or null network-wide */
+  office: PatientRetentionResultOffice;
+  network: PatientRetentionNetwork;
   offices: PatientRetentionOfficeRow[];
 }
 
@@ -4943,13 +4962,14 @@ start: string;
 end: string;
 };
 
-export type GetHqPatientRetentionParams = {
-start: string;
-end: string;
-};
-
 export type GetHqAppUsageInsightsParams = {
 dataset: AppUsageInsightsDataset;
+start: string;
+end: string;
+office?: string;
+};
+
+export type GetHqPatientRetentionParams = {
 start: string;
 end: string;
 office?: string;

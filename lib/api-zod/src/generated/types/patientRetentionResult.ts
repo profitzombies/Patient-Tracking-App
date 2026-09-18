@@ -6,14 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DateRangeKeys } from './dateRangeKeys';
+import type { PatientRetentionNetwork } from './patientRetentionNetwork';
 import type { PatientRetentionOfficeRow } from './patientRetentionOfficeRow';
-import type { PatientRetentionResultNetwork } from './patientRetentionResultNetwork';
-import type { PatientRetentionResultStep } from './patientRetentionResultStep';
+import type { PatientRetentionResultOffice } from './patientRetentionResultOffice';
+import type { PatientRetentionResultPeriod } from './patientRetentionResultPeriod';
 
 export interface PatientRetentionResult {
   range: DateRangeKeys;
   asOf: string;
-  step: PatientRetentionResultStep;
-  network: PatientRetentionResultNetwork;
+  period: PatientRetentionResultPeriod;
+  /** The practice the figures are narrowed to, or null network-wide */
+  office: PatientRetentionResultOffice;
+  network: PatientRetentionNetwork;
   offices: PatientRetentionOfficeRow[];
 }

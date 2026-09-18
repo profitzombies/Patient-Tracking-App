@@ -1524,7 +1524,6 @@ externalPort = 3001
 [[ports]]
 localPort = 19713
 externalPort = 80
-exposeLocalhost = true
 
 [[ports]]
 localPort = 21456
@@ -2144,23 +2143,23 @@ args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/l
 isValidation = true
 
 [[workflows.workflow]]
+name = "patient-retention-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/hq-patient-retention.test.ts src/routes/patient-retention.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
 name = "patient-retention-web"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:patient-retention && pnpm --filter @workspace/thinnr-operations run test:app-usage && pnpm --filter @workspace/thinnr-operations run typecheck"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "patient-retention-api"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-retention.test.ts src/routes/patient-retention.sql.test.ts src/routes/operational-rollups.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

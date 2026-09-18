@@ -43,17 +43,17 @@ export const DEMO_APP_USAGE_AS_OF = `${DEMO_TODAY_KEY}T12:00:00.000Z`;
 const DAY_MS = 86_400_000;
 
 /** Whole days since the epoch for a YYYY-MM-DD key (timezone-proof). */
-function dayNumber(key: string): number {
+export function dayNumber(key: string): number {
   const [year, month, day] = key.split('-').map(Number);
   return Math.round(Date.UTC(year, month - 1, day) / DAY_MS);
 }
 
-function keyOfDay(day: number): string {
+export function keyOfDay(day: number): string {
   return new Date(day * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** Deterministic fraction in [0, 1) — the same sin-hash the seeded office data uses. */
-function seededFraction(seed: number): number {
+export function seededFraction(seed: number): number {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
   return value - Math.floor(value);
 }
@@ -62,8 +62,9 @@ function seededFraction(seed: number): number {
  * Multiplier in [0.9, 1] for one office on one day. It is exactly 1 on the
  * demo date, so the default range's headline figures are the plain ratios
  * (e.g. Jenkins weekly = round(142 × 0.63) = 89).
+ * Shared with the Patient retention demo so both pages breathe together.
  */
-function wave(officeIndex: number, day: number): number {
+export function wave(officeIndex: number, day: number): number {
   const offset = dayNumber(DEMO_TODAY_KEY) - day;
   if (offset === 0) return 1;
   const gentle = 0.5 + 0.5 * Math.sin((offset / 9) + officeIndex);

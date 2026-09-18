@@ -12,9 +12,10 @@ export interface PatientRetentionOfficeRow {
   providerId: string;
   officeName: string;
   providerName: string;
-  firstPatientDate: string | null;
-  /** False when the office had no patient record by the range end */
+  /** @nullable */
+  firstOnboardedDate: Date | null;
+  /** False when the office had no onboarded patient by the range end (figures null, not zero) */
   available: boolean;
-  metrics: PatientRetentionCounts | null;
+  counts: PatientRetentionCounts | null;
   series: PatientRetentionPoint[];
 }

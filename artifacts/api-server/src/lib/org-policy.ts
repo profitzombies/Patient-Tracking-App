@@ -30,6 +30,12 @@ export interface RetentionPolicy {
   progressPhotoDays: number;
   notificationHistoryDays: number;
   auditEventDays: number;
+  /** System job run ledger (the latest 50 runs per job are always kept). */
+  jobRunDays: number;
+  /** Sign-in ledger rows (each account's latest active session is always kept). */
+  signInDays: number;
+  /** Processed Stripe webhook event rows (unprocessed or failed rows are always kept). */
+  webhookEventDays: number;
 }
 
 export interface OrgPolicy {
@@ -90,6 +96,9 @@ export const POLICY_BOUNDS = {
   progressPhotoDays: { min: 30, max: 3650 },
   notificationHistoryDays: { min: 7, max: 3650 },
   auditEventDays: { min: 365, max: 3650 },
+  jobRunDays: { min: 7, max: 3650 },
+  signInDays: { min: 30, max: 3650 },
+  webhookEventDays: { min: 30, max: 3650 },
   exportLinkHours: { min: 1, max: 168 },
 } as const;
 
@@ -107,7 +116,15 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
   outreachCooldownDays: 14,
   outreachDailyCap: 500,
   conversationAutoCloseDays: 14,
-  retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555 },
+  retention: {
+    chatTranscriptDays: 730,
+    progressPhotoDays: 730,
+    notificationHistoryDays: 180,
+    auditEventDays: 2555,
+    jobRunDays: 90,
+    signInDays: 180,
+    webhookEventDays: 365,
+  },
   exportLinkHours: 24,
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
@@ -126,7 +143,8 @@ export const SETTINGS_SELECT =
   "organization_name,support_email,support_phone,default_timezone,app_store_url,google_play_url,updated_at,version,coach_available,escalation_email," +
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
-  "retention_notification_days,retention_audit_days,export_link_hours,section_changes";
+  "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
+  "export_link_hours,section_changes";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -166,6 +184,9 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       progressPhotoDays: int(row.retention_photo_days, d.retention.progressPhotoDays),
       notificationHistoryDays: int(row.retention_notification_days, d.retention.notificationHistoryDays),
       auditEventDays: int(row.retention_audit_days, d.retention.auditEventDays),
+      jobRunDays: int(row.retention_job_run_days, d.retention.jobRunDays),
+      signInDays: int(row.retention_sign_in_days, d.retention.signInDays),
+      webhookEventDays: int(row.retention_webhook_event_days, d.retention.webhookEventDays),
     },
     exportLinkHours: int(row.export_link_hours, d.exportLinkHours),
     version: int(row.version, 1),
@@ -215,6 +236,9 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     retention_photo_days: policy.retention.progressPhotoDays,
     retention_notification_days: policy.retention.notificationHistoryDays,
     retention_audit_days: policy.retention.auditEventDays,
+    retention_job_run_days: policy.retention.jobRunDays,
+    retention_sign_in_days: policy.retention.signInDays,
+    retention_webhook_event_days: policy.retention.webhookEventDays,
     export_link_hours: policy.exportLinkHours,
   };
 }

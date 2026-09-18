@@ -14,6 +14,14 @@
  *   retention-session-revocations
  *                             session revocation rows past their token
  *                             horizon (reads already ignore them)
+ *   retention-billing-webhooks
+ *                             processed Stripe webhook payloads (nulled after
+ *                             a short window) and, past the long policy
+ *                             window, the final event rows themselves
+ *   retention-job-ledger      system job runs (+ their item failures), always
+ *                             keeping the latest KEEP_RUNS_PER_JOB per job
+ *   retention-sign-ins        sign-in ledger rows, never an account's latest
+ *                             active session or a row backing a live session
  *
  * Progress photos are deliberately NOT trimmed here: the photo retention
  * period is policy-defined but the patient-visible deletion flow that would
@@ -31,6 +39,9 @@ const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const BATCH = 500;
 const MAX_BATCHES = 20;
+
+/** The System health page history stays meaningful whatever the window says. */
+export const KEEP_RUNS_PER_JOB = 50;
 const enc = encodeURIComponent;
 
 /** Days must be a sane positive integer or the job refuses to trim. */
@@ -167,6 +178,21 @@ export async function pruneBillingWebhookPayloads(ctx: JobContext): Promise<void
   if (result.status >= 300) throw new Error(`billing webhook payload prune failed (${result.status})`);
 }
 
+/** Past the long policy window the final event rows go too; unprocessed or failed rows stay. */
+export async function trimBillingWebhookEvents(ctx: JobContext): Promise<void> {
+  const days = retentionDays((await policy()).retention.webhookEventDays, "webhook event");
+  const cutoff = cutoffFor(ctx.now, days);
+  ctx.log("retention_cutoff", { days, cutoff, rule: "webhook_events" });
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    ctx.checkpoint();
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/retention_trim_billing_webhook_events", { p_cutoff: cutoff, p_limit: BATCH, p_dry_run: ctx.dryRun });
+    if (result.status >= 300) throw new Error(`webhook event trim failed (${result.status})`);
+    const n = typeof result.json === "number" ? result.json : Number(result.json) || 0;
+    ctx.tally(ctx.dryRun ? "eventRowsDue" : "eventRowsDeleted", n);
+    if (ctx.dryRun || n < BATCH) break;
+  }
+}
+
 export async function sweepSessionRevocations(ctx: JobContext): Promise<void> {
   const cutoff = ctx.now.toISOString();
   const due = await supabaseAdmin(
@@ -220,11 +246,20 @@ export const retentionExportsJob: JobDefinition = {
 
 export const retentionBillingWebhooksJob: JobDefinition = {
   name: "retention-billing-webhooks",
-  title: "Billing webhook payload retention",
-  description: "Prunes old processed Stripe webhook payloads while retaining event processing records.",
+  title: "Billing webhook retention",
+  description: "Prunes old processed Stripe webhook payloads, then deletes processed event records older than the webhook event retention period. Unprocessed and failed events are always kept.",
   intervalMs: 24 * HOUR_MS,
   leaseSeconds: 15 * 60,
-  run: pruneBillingWebhookPayloads,
+  run: retainBillingWebhooks,
+};
+
+export const retentionJobLedgerJob: JobDefinition = {
+  name: "retention-job-ledger",
+  title: "Job run history retention",
+  description: `Deletes system job runs (and their item failures) older than the job run history retention period, always keeping the latest ${KEEP_RUNS_PER_JOB} runs of every job.`,
+  intervalMs: 24 * HOUR_MS,
+  leaseSeconds: 15 * 60,
+  run: trimJobLedger,
 };
 
 export const retentionSessionRevocationsJob: JobDefinition = {
@@ -235,3 +270,66 @@ export const retentionSessionRevocationsJob: JobDefinition = {
   leaseSeconds: 5 * 60,
   run: sweepSessionRevocations,
 };
+
+/**
+ * Sign-in rows past the window, except an account's latest active session,
+ * any row still backing a live GoTrue session, and rows whose "this wasn't
+ * me" token has not yet expired. Those guards live inside the SQL, in the
+ * same statement as the delete, so a sign-in landing mid-run cannot race
+ * them.
+ */
+export async function trimSignInLedger(ctx: JobContext): Promise<void> {
+  const days = retentionDays((await policy()).retention.signInDays, "sign-in history");
+  const cutoff = cutoffFor(ctx.now, days);
+  ctx.log("retention_cutoff", { days, cutoff });
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    ctx.checkpoint();
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/retention_trim_sign_ins", {
+      p_cutoff: cutoff,
+      p_now: ctx.now.toISOString(),
+      p_limit: BATCH,
+      p_dry_run: ctx.dryRun,
+    });
+    if (result.status >= 300) throw new Error(`sign-in trim failed (${result.status})`);
+    const n = typeof result.json === "number" ? result.json : Number(result.json) || 0;
+    ctx.tally(ctx.dryRun ? "signInsDue" : "signInsDeleted", n);
+    if (ctx.dryRun || n < BATCH) break;
+  }
+}
+
+export const retentionSignInsJob: JobDefinition = {
+  name: "retention-sign-ins",
+  title: "Sign-in history retention",
+  description: "Deletes sign-in ledger rows older than the sign-in history retention period, never an account's latest active session, a row behind a still-live session, or a row whose \"this wasn't me\" link is still valid.",
+  intervalMs: 24 * HOUR_MS,
+  leaseSeconds: 15 * 60,
+  run: trimSignInLedger,
+};
+
+export async function trimJobLedger(ctx: JobContext): Promise<void> {
+  const days = retentionDays((await policy()).retention.jobRunDays, "job run history");
+  const cutoff = cutoffFor(ctx.now, days);
+  ctx.log("retention_cutoff", { days, cutoff, keepPerJob: KEEP_RUNS_PER_JOB });
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    ctx.checkpoint();
+    const row = rpcRow<{ runs_deleted: number; item_failures_deleted: number }>(
+      await supabaseAdmin("POST", "/rest/v1/rpc/retention_trim_job_runs", {
+        p_cutoff: cutoff,
+        p_keep: KEEP_RUNS_PER_JOB,
+        p_limit: BATCH,
+        p_dry_run: ctx.dryRun,
+      }),
+      "job run trim",
+    );
+    ctx.tally(ctx.dryRun ? "runsDue" : "runsDeleted", row.runs_deleted);
+    ctx.tally(ctx.dryRun ? "itemFailuresDue" : "itemFailuresDeleted", row.item_failures_deleted);
+    if (ctx.dryRun || row.runs_deleted < BATCH) break;
+  }
+}
+
+/** The one billing-webhook job body: short-window payload prune, then long-window row trim. */
+export async function retainBillingWebhooks(ctx: JobContext): Promise<void> {
+  await pruneBillingWebhookPayloads(ctx);
+  ctx.checkpoint();
+  await trimBillingWebhookEvents(ctx);
+}

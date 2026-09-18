@@ -152,3 +152,4 @@
 - [Coach usage limits store](coach-usage-limits-store.md) — caps reserved via advisory-lock RPC after identity resolves, before paid work; only rapid bucket is process-local; vitest pins memory store; fail closed.
 - [External tick heartbeat](external-tick-heartbeat.md) — production runs no process timers: every worker family must be reachable from the job tick; heartbeat awaited, stale derived server-side; async execFile in vitest.
 - [Office Overview live numbers](overview-live-counts.md) — linked counts come from roster rows + shared predicates (never the rollup RPC); finance rides one prior+current dashboard request; billing 403 = owners-only, not Error.
+- [Ledger retention guards](ledger-retention-guards.md) — keep-latest guard + delete in ONE data-modifying CTE with `and not p_dry_run`; mutation-check guards; new settings columns need runner postconditions.

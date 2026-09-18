@@ -40,6 +40,9 @@ const db = vi.hoisted(() => {
     retention_photo_days: 730,
     retention_notification_days: 180,
     retention_audit_days: 2555,
+    retention_job_run_days: 90,
+    retention_sign_in_days: 180,
+    retention_webhook_event_days: 365,
     export_link_hours: 24,
     section_changes: {},
   });
@@ -145,6 +148,8 @@ beforeEach(() => {
   });
 });
 
+const fullRetention = { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 };
+
 async function putSettings(body: Record<string, unknown>) {
   const response = await fetch(`${base}/hq/settings`, { method: "PUT", headers: HQ, body: JSON.stringify(body) });
   return { status: response.status, json: (await response.json()) as Record<string, any> };
@@ -164,7 +169,7 @@ describe("HQ organization policy", () => {
       outreachCooldownDays: 14,
       outreachDailyCap: 500,
       conversationAutoCloseDays: 14,
-      retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555 },
+      retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 },
       exportLinkHours: 24,
       version: 1,
       sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null },
@@ -199,6 +204,10 @@ describe("HQ organization policy", () => {
     expect((await putSettings({ retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 6, auditEventDays: 2555 } })).status).toBe(400);
     expect((await putSettings({ retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 364 } })).status).toBe(400);
     expect((await putSettings({ retention: { chatTranscriptDays: 730, progressPhotoDays: 3651, notificationHistoryDays: 180, auditEventDays: 2555 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, jobRunDays: 6 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, signInDays: 29 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, webhookEventDays: 3651 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, jobRunDays: 30.5 } })).status).toBe(400);
     expect((await putSettings({ defaultQuietHours: { start: "22:00", end: "22:00" } })).status).toBe(400);
     expect((await putSettings({ defaultQuietHours: { start: "25:00", end: "07:00" } })).status).toBe(400);
     expect((await putSettings({ escalationEmail: "not-an-email" })).status).toBe(400);
@@ -210,11 +219,12 @@ describe("HQ organization policy", () => {
   it("accepts the boundary values", async () => {
     const { status, json } = await putSettings({
       outreachCooldownDays: 90, outreachDailyCap: 1, conversationAutoCloseDays: 365, exportLinkHours: 168,
-      retention: { chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365 },
+      retention: { chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650 },
     });
     expect(status).toBe(200);
     expect(json).toMatchObject({ outreachCooldownDays: 90, outreachDailyCap: 1, conversationAutoCloseDays: 365, exportLinkHours: 168 });
-    expect(json.retention).toEqual({ chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365 });
+    expect(json.retention).toEqual({ chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650 });
+    expect(db.settings).toMatchObject({ retention_job_run_days: 7, retention_sign_in_days: 30, retention_webhook_event_days: 3650 });
   });
 
   it("audits every changed field with section/from/to/version and stamps only the touched sections", async () => {

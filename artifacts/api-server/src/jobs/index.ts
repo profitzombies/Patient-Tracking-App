@@ -17,20 +17,17 @@ import { billingRenewalRemindersJob } from "./definitions/billing-renewal-remind
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
 import { patientSignInMetricsJob } from "./definitions/patient-sign-in-metrics";
 import { photoVariantsBackfillJob } from "./definitions/photo-variants-backfill";
-import { retentionAuditJob, retentionBillingWebhooksJob, retentionChatJob, retentionExportsJob, retentionNotificationsJob, retentionSessionRevocationsJob } from "./definitions/retention";
-
-const HOUR_MS = 3_600_000;
-
-export const trainingMediaCleanupJob: JobDefinition = {
-  name: "training-media-cleanup",
-  title: "Training media clean-up queue",
-  description: "Retries deletes of replaced or abandoned training video files whose first delete was refused by storage.",
-  intervalMs: HOUR_MS,
-  leaseSeconds: 15 * 60,
-  run: async (ctx) => {
-    await drainTrainingMediaCleanup(ctx, 50);
-  },
-};
+import {
+  retentionAuditJob,
+  retentionBillingWebhooksJob,
+  retentionChatJob,
+  retentionExportsJob,
+  retentionJobLedgerJob,
+  retentionNotificationsJob,
+  retentionSessionRevocationsJob,
+  retentionSignInsJob,
+} from "./definitions/retention";
+import {
 
 /** Request-scoped patient upload discards; logged as user runs, never scheduled. */
 export const patientMediaCleanupJob: JobDefinition = {
@@ -61,6 +58,8 @@ export const ALL_JOBS: JobDefinition[] = [
   retentionNotificationsJob,
   retentionAuditJob,
   retentionSessionRevocationsJob,
+  retentionJobLedgerJob,
+  retentionSignInsJob,
   trainingMediaCleanupJob,
   patientMediaCleanupJob,
   patientSignInMetricsJob,
@@ -72,3 +71,15 @@ export function registerAllJobs(): void {
   for (const job of ALL_JOBS) registerJob(job);
   registered = true;
 }
+const HOUR_MS = 3_600_000;
+
+export const trainingMediaCleanupJob: JobDefinition = {
+  name: "training-media-cleanup",
+  title: "Training media clean-up queue",
+  description: "Retries deletes of replaced or abandoned training video files whose first delete was refused by storage.",
+  intervalMs: HOUR_MS,
+  leaseSeconds: 15 * 60,
+  run: async (ctx) => {
+    await drainTrainingMediaCleanup(ctx, 50);
+  },
+};

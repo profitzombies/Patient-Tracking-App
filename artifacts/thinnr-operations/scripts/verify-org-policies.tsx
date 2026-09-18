@@ -163,7 +163,7 @@ function hqFixture(): HqOrganizationSettings {
     outreachCooldownDays: 14,
     outreachDailyCap: 500,
     conversationAutoCloseDays: 14,
-    retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555 },
+    retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 },
     exportLinkHours: 24,
     version: 3,
     updatedAt: '2026-09-06T12:00:00.000Z',
@@ -310,6 +310,7 @@ console.log('HQ settings — signed-in admin');
   check('notifications stamp names its last editor', textOf(oneByTestId(root, 'policy-stamp-notifications')).startsWith('Last changed by Blake Ops · '));
   check('untouched coach section reads Never changed', textOf(oneByTestId(root, 'policy-stamp-coach')) === 'Never changed');
   check('fields show persisted values', oneByTestId(root, 'input-setting-live-org-name').props.value === 'THINNR, Inc.' && oneByTestId(root, 'input-policy-escalation-email').props.value === 'care@hq.example.com' && oneByTestId(root, 'input-policy-cooldown').props.value === 14 && oneByTestId(root, 'input-policy-retention-audit').props.value === 2555);
+  check('the three ledger retention knobs render with their persisted values and bounds', oneByTestId(root, 'input-policy-retention-job-runs').props.value === 90 && oneByTestId(root, 'input-policy-retention-job-runs').props.min === 7 && oneByTestId(root, 'input-policy-retention-sign-ins').props.value === 180 && oneByTestId(root, 'input-policy-retention-sign-ins').props.min === 30 && oneByTestId(root, 'input-policy-retention-webhook-events').props.value === 365 && oneByTestId(root, 'input-policy-retention-webhook-events').props.max === 3650);
   check('coach switch reflects availability', switchOf(root, 'switch-policy-coach-available')?.props['aria-checked'] === true);
 
   // App store links live on the organization card: the saved App Store link
@@ -421,6 +422,7 @@ console.log('office settings — signed-in provider staff (manager)');
   check('effective escalation = HQ default', textOf(oneByTestId(root, 'effective-escalation-email')) === 'care@hq.example.com');
   check('HQ store links are echoed for copy/paste: the saved App Store link and the missing Play notice', textOf(oneByTestId(root, 'policy-store-link-appStore')) === 'https://apps.apple.com/us/app/thinnr/id6740000001' && oneByTestId(root, 'policy-store-link-appStore').props.href === 'https://apps.apple.com/us/app/thinnr/id6740000001' && byTestId(root, 'button-copy-store-link-appStore').length === 1 && textOf(oneByTestId(root, 'policy-store-link-googlePlay')) === 'HQ hasn’t added this link yet' && byTestId(root, 'button-copy-store-link-googlePlay').length === 0);
   check('the rest of HQ policy is read-only text', textOf(oneByTestId(root, 'policy-daily-cap')) === '500 per day' && textOf(oneByTestId(root, 'policy-auto-close')) === '14 days' && textOf(oneByTestId(root, 'policy-retention-audit')) === '2555 days (7 years)' && textOf(oneByTestId(root, 'policy-export-hours')) === '24 hours (1 day)' && textOf(oneByTestId(root, 'policy-default-office')) === 'Off by default');
+  check('offices see the ledger retention windows read-only', textOf(oneByTestId(root, 'policy-retention-job-runs')) === '90 days (about 3 months)' && textOf(oneByTestId(root, 'policy-retention-sign-ins')) === '180 days (about 6 months)' && textOf(oneByTestId(root, 'policy-retention-webhook-events')) === '365 days (1 year)');
   check('no override rows yet → no stamp, Save disabled', byTestId(root, 'override-stamp').length === 0 && oneByTestId(root, 'button-save-office-overrides').props.disabled === true);
 
   // Custom window seeds from the HQ default; escalation email previews live.

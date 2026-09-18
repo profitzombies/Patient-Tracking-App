@@ -252,6 +252,10 @@ args = "overview-live-web"
 task = "workflow.run"
 args = "overview-live-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ledger-retention"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1938,6 +1942,14 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:patients-badge && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[[workflows.workflow]]
+name = "ledger-retention"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/jobs/ledger-retention.sql.test.ts src/jobs/definitions/retention.test.ts src/routes/hq-org-policy.test.ts && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

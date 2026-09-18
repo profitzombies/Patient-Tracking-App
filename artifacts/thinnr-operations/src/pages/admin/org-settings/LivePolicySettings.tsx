@@ -350,10 +350,27 @@ interface ConversationsDraft { conversationAutoCloseDays: number }
 const conversationsFrom = (s: HqOrganizationSettings): ConversationsDraft => ({ conversationAutoCloseDays: s.conversationAutoCloseDays });
 const conversationsPayload = (d: ConversationsDraft): HqOrganizationSettingsInput => ({ conversationAutoCloseDays: d.conversationAutoCloseDays });
 
-interface RetentionDraft { chatTranscriptDays: number; progressPhotoDays: number; notificationHistoryDays: number; auditEventDays: number; exportLinkHours: number }
+interface RetentionDraft {
+  chatTranscriptDays: number;
+  progressPhotoDays: number;
+  notificationHistoryDays: number;
+  auditEventDays: number;
+  jobRunDays: number;
+  signInDays: number;
+  webhookEventDays: number;
+  exportLinkHours: number;
+}
 const retentionFrom = (s: HqOrganizationSettings): RetentionDraft => ({ ...s.retention, exportLinkHours: s.exportLinkHours });
 const retentionPayload = (d: RetentionDraft): HqOrganizationSettingsInput => ({
-  retention: { chatTranscriptDays: d.chatTranscriptDays, progressPhotoDays: d.progressPhotoDays, notificationHistoryDays: d.notificationHistoryDays, auditEventDays: d.auditEventDays },
+  retention: {
+    chatTranscriptDays: d.chatTranscriptDays,
+    progressPhotoDays: d.progressPhotoDays,
+    notificationHistoryDays: d.notificationHistoryDays,
+    auditEventDays: d.auditEventDays,
+    jobRunDays: d.jobRunDays,
+    signInDays: d.signInDays,
+    webhookEventDays: d.webhookEventDays,
+  },
   exportLinkHours: d.exportLinkHours,
 });
 
@@ -540,7 +557,7 @@ export function LivePolicySettings() {
         settings={settings}
         fromSettings={retentionFrom}
         toPayload={retentionPayload}
-        incomplete={(draft) => numbersComplete([draft.chatTranscriptDays, draft.progressPhotoDays, draft.notificationHistoryDays, draft.auditEventDays, draft.exportLinkHours])}
+        incomplete={(draft) => numbersComplete([draft.chatTranscriptDays, draft.progressPhotoDays, draft.notificationHistoryDays, draft.auditEventDays, draft.jobRunDays, draft.signInDays, draft.webhookEventDays, draft.exportLinkHours])}
       >
         {(draft, setDraft) => (
           <>
@@ -555,6 +572,15 @@ export function LivePolicySettings() {
             </FieldRow>
             <FieldRow label="Audit events" help="Staff and HQ audit trail. At least one year.">
               <NumberField id="input-policy-retention-audit" label="Audit event retention days" value={draft.auditEventDays} bounds={POLICY_BOUNDS.auditEventDays} unit="days" onChange={(auditEventDays) => setDraft({ auditEventDays })} />
+            </FieldRow>
+            <FieldRow label="Job run history" help="System health run ledger. The latest 50 runs of every job are always kept.">
+              <NumberField id="input-policy-retention-job-runs" label="Job run history retention days" value={draft.jobRunDays} bounds={POLICY_BOUNDS.jobRunDays} unit="days" onChange={(jobRunDays) => setDraft({ jobRunDays })} />
+            </FieldRow>
+            <FieldRow label="Sign-in history" help="Account security sign-in ledger. Each account's latest active session is always kept; sign-in metrics cannot look back further than this.">
+              <NumberField id="input-policy-retention-sign-ins" label="Sign-in history retention days" value={draft.signInDays} bounds={POLICY_BOUNDS.signInDays} unit="days" onChange={(signInDays) => setDraft({ signInDays })} />
+            </FieldRow>
+            <FieldRow label="Webhook events" help="Processed Stripe webhook records. Unprocessed or failed events are always kept.">
+              <NumberField id="input-policy-retention-webhook-events" label="Webhook event retention days" value={draft.webhookEventDays} bounds={POLICY_BOUNDS.webhookEventDays} unit="days" onChange={(webhookEventDays) => setDraft({ webhookEventDays })} />
             </FieldRow>
             <FieldRow label="Export link lifetime" help="How long a finished export can be downloaded before its link expires." last>
               <NumberField id="input-policy-export-hours" label="Export link lifetime hours" value={draft.exportLinkHours} bounds={POLICY_BOUNDS.exportLinkHours} unit="hours" onChange={(exportLinkHours) => setDraft({ exportLinkHours })} />

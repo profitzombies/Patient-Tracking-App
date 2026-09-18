@@ -137,6 +137,9 @@ export function mergePolicyInput(
     ["progressPhotoDays", input.retention?.progressPhotoDays, v => { next.retention.progressPhotoDays = v; }, "Progress photo retention"],
     ["notificationHistoryDays", input.retention?.notificationHistoryDays, v => { next.retention.notificationHistoryDays = v; }, "Notification history retention"],
     ["auditEventDays", input.retention?.auditEventDays, v => { next.retention.auditEventDays = v; }, "Audit event retention"],
+    ["jobRunDays", input.retention?.jobRunDays, v => { next.retention.jobRunDays = v; }, "Job run history retention"],
+    ["signInDays", input.retention?.signInDays, v => { next.retention.signInDays = v; }, "Sign-in history retention"],
+    ["webhookEventDays", input.retention?.webhookEventDays, v => { next.retention.webhookEventDays = v; }, "Webhook event retention"],
   ];
   for (const [key, value, set, label] of ints) {
     if (value === undefined) continue;

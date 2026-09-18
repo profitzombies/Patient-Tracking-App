@@ -1299,6 +1299,24 @@ export interface RetentionPolicy {
      * @maximum 3650
      */
   auditEventDays: number;
+  /**
+     * Days of system job run history kept; the latest 50 runs per job are always kept.
+     * @minimum 7
+     * @maximum 3650
+     */
+  jobRunDays: number;
+  /**
+     * Days of sign-in history kept; each account's latest active session is always kept.
+     * @minimum 30
+     * @maximum 3650
+     */
+  signInDays: number;
+  /**
+     * Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.
+     * @minimum 30
+     * @maximum 3650
+     */
+  webhookEventDays: number;
 }
 
 export interface PolicySectionChange {

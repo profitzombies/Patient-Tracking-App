@@ -25,7 +25,7 @@ export function demoOfficeSettings(): OfficeSettingsDto {
     outreachCooldownDays: 14,
     outreachDailyCap: 500,
     conversationAutoCloseDays: 14,
-    retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555 },
+    retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 },
     exportLinkHours: 24,
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',

@@ -3654,12 +3654,27 @@ components:
         officeReminders: { type: boolean }
     RetentionPolicy:
       type: object
-      required: [chatTranscriptDays, progressPhotoDays, notificationHistoryDays, auditEventDays]
+      required: [chatTranscriptDays, progressPhotoDays, notificationHistoryDays, auditEventDays, jobRunDays, signInDays, webhookEventDays]
       properties:
         chatTranscriptDays: { type: number, minimum: 30, maximum: 3650 }
         progressPhotoDays: { type: number, minimum: 30, maximum: 3650 }
         notificationHistoryDays: { type: number, minimum: 7, maximum: 3650 }
         auditEventDays: { type: number, minimum: 365, maximum: 3650 }
+        jobRunDays:
+          type: number
+          minimum: 7
+          maximum: 3650
+          description: Days of system job run history kept; the latest 50 runs per job are always kept.
+        signInDays:
+          type: number
+          minimum: 30
+          maximum: 3650
+          description: Days of sign-in history kept; each account's latest active session is always kept.
+        webhookEventDays:
+          type: number
+          minimum: 30
+          maximum: 3650
+          description: Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.
     PolicySectionChange:
       type: object
       required: [changedAt, changedBy, changedByName]

@@ -72,7 +72,12 @@ function LevelChip({ level, testId }: { level: ThresholdLevel; testId?: string }
   );
 }
 
-function Toggle<T extends string>({ value, options, onChange, label }: { value: T; options: Array<{ value: T; label: string }>; onChange: (next: T) => void; label: string }) {
+type LatencyWindow = 'lastHour' | 'lastDay';
+type StatementOrder = 'byTotal' | 'byMean';
+const LATENCY_WINDOWS: ReadonlyArray<{ value: LatencyWindow; label: string }> = [{ value: 'lastHour', label: 'Last hour' }, { value: 'lastDay', label: 'Last 24 h' }];
+const STATEMENT_ORDERS: ReadonlyArray<{ value: StatementOrder; label: string }> = [{ value: 'byTotal', label: 'By total time' }, { value: 'byMean', label: 'By mean time' }];
+
+function Toggle<T extends string>({ value, options, onChange, label }: { value: T; options: ReadonlyArray<{ value: T; label: string }>; onChange: (next: T) => void; label: string }) {
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-md border border-border bg-card p-0.5 text-[11px]">
       {options.map((option) => (
@@ -191,7 +196,7 @@ function LatencyTable({ families, minRequests }: { families: LatencyFamily[]; mi
 }
 
 export function LatencyPanel({ latency, minRequests, loaded }: { latency: SystemPerformanceResult['latency'] | undefined; minRequests: number; loaded: boolean }) {
-  const [window, setWindow] = useState<'lastHour' | 'lastDay'>('lastHour');
+  const [window, setWindow] = useState<LatencyWindow>('lastHour');
   return (
     <PanelShell
       id="latency"
@@ -199,7 +204,7 @@ export function LatencyPanel({ latency, minRequests, loaded }: { latency: System
       intro="p50 is the typical answer; p95 is what the slowest one in twenty waits. Rows turn amber or red against the family's budget once it has enough requests in the hour."
       icon={<Gauge size={15} />}
       testId="section-latency"
-      right={<Toggle<'lastHour' | 'lastDay'> label="Latency window" value={window} onChange={setWindow} options={[{ value: 'lastHour', label: 'Last hour' }, { value: 'lastDay', label: 'Last 24 h' }]} />}
+      right={<Toggle label="Latency window" value={window} onChange={(next) => setWindow(next)} options={LATENCY_WINDOWS} />}
     >
       {loaded && latency === null && <Unavailable testId="text-latency-unavailable">Request metrics unavailable — the latency table could not be read.</Unavailable>}
       {latency && <LatencyTable families={latency[window].families} minRequests={window === 'lastHour' ? minRequests : 0} />}
@@ -243,7 +248,7 @@ function StatementRows({ statements }: { statements: SlowStatement[] }) {
 }
 
 export function SlowStatementsPanel({ statements, loaded }: { statements: SystemPerformanceResult['slowStatements'] | undefined; loaded: boolean }) {
-  const [order, setOrder] = useState<'byTotal' | 'byMean'>('byTotal');
+  const [order, setOrder] = useState<StatementOrder>('byTotal');
   return (
     <PanelShell
       id="slow-statements"
@@ -251,7 +256,7 @@ export function SlowStatementsPanel({ statements, loaded }: { statements: System
       intro={`From pg_stat_statements since ${statements?.statsResetAt ? new Date(statements.statsResetAt).toLocaleString() : 'the last statistics reset'}. Total time finds the statements that cost the most overall; mean time finds the ones that are slow every time.`}
       icon={<Database size={15} />}
       testId="section-slow-statements"
-      right={<Toggle<'byTotal' | 'byMean'> label="Statement order" value={order} onChange={setOrder} options={[{ value: 'byTotal', label: 'By total time' }, { value: 'byMean', label: 'By mean time' }]} />}
+      right={<Toggle label="Statement order" value={order} onChange={(next) => setOrder(next)} options={STATEMENT_ORDERS} />}
     >
       {loaded && statements === null && <Unavailable testId="text-statements-unavailable">Statement statistics unavailable — pg_stat_statements could not be read.</Unavailable>}
       {statements && <StatementRows statements={statements[order]} />}

@@ -53,7 +53,8 @@
     "test:files": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-files.tsx",
     "test:office-files": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-files.tsx",
     "test:local-time": "TZ=America/New_York tsx scripts/verify-local-time.ts && TZ=America/Los_Angeles tsx scripts/verify-local-time.ts && TZ=UTC tsx scripts/verify-local-time.ts && TZ=Asia/Tokyo tsx scripts/verify-local-time.ts",
-    "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx"
+    "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx",
+    "test:app-usage": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-app-usage.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

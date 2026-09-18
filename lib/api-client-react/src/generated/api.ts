@@ -21,6 +21,7 @@ import type {
 
 import type {
   AddOfficeConversationNoteParams,
+  AppUsageResult,
   AssignOfficeConversationParams,
   BarcodeLookupResult,
   BloodworkAccessError,
@@ -87,6 +88,7 @@ import type {
   GetBloodworkFilePageParams,
   GetBloodworkFileSourceParams,
   GetBloodworkReportParams,
+  GetHqAppUsageParams,
   GetHqAuditEventsParams,
   GetHqConversationEventsParams,
   GetHqConversationsParams,
@@ -6922,6 +6924,91 @@ export function useGetHqOfficeComparison<TData = Awaited<ReturnType<typeof getHq
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqOfficeComparisonQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqAppUsageUrl = (params: GetHqAppUsageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/app-usage?${stringifiedParams}` : `/api/hq/app-usage`
+}
+
+/**
+ * An active app user is a patient with a real account who, on a local day, opened the app or performed any recorded in-app action. Weekly = trailing 7 days, monthly = trailing 30 days. Network figures end on each patient's local today (live tiles); atRangeEnd, the per-office rows and both series end on the range end.
+ * @summary Live weekly and monthly active app users, network-wide and per office
+ */
+export const getHqAppUsage = async (params: GetHqAppUsageParams, options?: Parameters<typeof customFetch>[1]): Promise<AppUsageResult> => {
+
+  return customFetch<AppUsageResult>(getGetHqAppUsageUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqAppUsageQueryKey = (params?: GetHqAppUsageParams,) => {
+    return [
+    `/api/hq/app-usage`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqAppUsageQueryOptions = <TData = Awaited<ReturnType<typeof getHqAppUsage>>, TError = ErrorType<void>>(params: GetHqAppUsageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqAppUsageQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqAppUsage>>> = ({ signal }) => getHqAppUsage(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqAppUsageQueryResult = NonNullable<Awaited<ReturnType<typeof getHqAppUsage>>>
+export type GetHqAppUsageQueryError = ErrorType<void>
+
+
+/**
+ * @summary Live weekly and monthly active app users, network-wide and per office
+ */
+
+export function useGetHqAppUsage<TData = Awaited<ReturnType<typeof getHqAppUsage>>, TError = ErrorType<void>>(
+ params: GetHqAppUsageParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqAppUsageQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

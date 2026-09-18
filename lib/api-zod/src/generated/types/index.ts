@@ -7,6 +7,11 @@
  */
 
 export * from './addOfficeConversationNoteParams';
+export * from './appUsageNetwork';
+export * from './appUsageOfficeMetrics';
+export * from './appUsageOfficeRow';
+export * from './appUsagePoint';
+export * from './appUsageResult';
 export * from './assignOfficeConversationParams';
 export * from './attentionReason';
 export * from './attentionReasonCode';
@@ -166,6 +171,7 @@ export * from './foodNutritionVariantDimensions';
 export * from './getBloodworkFilePageParams';
 export * from './getBloodworkFileSourceParams';
 export * from './getBloodworkReportParams';
+export * from './getHqAppUsageParams';
 export * from './getHqAuditEventsParams';
 export * from './getHqConversationEventsParams';
 export * from './getHqConversationsChannel';

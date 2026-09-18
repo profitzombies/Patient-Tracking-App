@@ -101,6 +101,8 @@ interface RequestOptions {
    * times before answering, so checkout overrides the diary default.
    */
   timeoutMs?: number;
+  /** Extra request headers (the presence heartbeat sends its platform hint). */
+  headers?: Record<string, string>;
 }
 export async function authedRequest(
   method: string,
@@ -133,6 +135,7 @@ export async function authedRequest(
         Authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(opts.idempotencyKey ? { 'Idempotency-Key': opts.idempotencyKey } : {}),
+        ...(opts.headers ?? {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
@@ -163,6 +166,26 @@ export async function authedRequest(
     );
   }
   return json;
+}
+
+// ── App presence ─────────────────────────────────────────────────────────────
+
+/** Platform hint the server's sign-in ledger and presence recorder understand. */
+export function presencePlatformHint(): 'ios' | 'android' | 'web' {
+  return Platform.OS === 'ios' || Platform.OS === 'android' ? Platform.OS : 'web';
+}
+
+/**
+ * "I'm here": marks the signed-in patient as an active app user for their
+ * local day even when nothing else is fetched (cold launch, foreground).
+ * The server throttles repeated calls; callers debounce as well.
+ */
+export async function sendPresenceHeartbeat(accessToken: string): Promise<void> {
+  await authedRequest('POST', '/patient-data/presence', undefined, {
+    accessToken,
+    timeoutMs: 8_000,
+    headers: { 'x-thinnr-platform': presencePlatformHint() },
+  });
 }
 
 // ── Account resolution ───────────────────────────────────────────────────────

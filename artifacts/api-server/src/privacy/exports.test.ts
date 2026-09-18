@@ -18,6 +18,7 @@ function emptySections(): PatientArchiveSections {
     media: [],
     chat: [],
     coachMemory: { memories: [], exclusions: [] },
+    appUsage: [{ day: "2026-10-01", first_seen_at: "2026-10-01T12:00:00Z", last_seen_at: "2026-10-01T12:05:00Z", platform: "ios" }],
     bloodwork: { reports: [], files: [], results: [], corrections: [], incompleteTranscriptionPages: [] },
     billing: {
       orders: [{
@@ -49,6 +50,8 @@ describe("patient billing export", () => {
     });
     const zip = await JSZip.loadAsync(archive.buffer);
     const billing = JSON.parse(await zip.file("billing.json")!.async("string"));
+    const appUsage = JSON.parse(await zip.file("app-usage.json")!.async("string"));
+    expect(appUsage).toEqual([{ day: "2026-10-01", first_seen_at: "2026-10-01T12:00:00Z", last_seen_at: "2026-10-01T12:05:00Z", platform: "ios" }]);
     expect(billing.orders[0]).toMatchObject({
       order_number: "TH-100",
       total_cents: 13000,

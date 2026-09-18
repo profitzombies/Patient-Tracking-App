@@ -30,7 +30,10 @@ import { useSession } from '@/contexts/session';
 import { useTimeOfDayGreeting } from '@/hooks/use-local-clock';
 import { formatLocalDate } from '@/lib/local-time';
 import { formatPercent, percentOf, sumComparison } from '@/lib/office-analytics';
-import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey, useGetHqOverview, getGetHqOverviewQueryKey } from '@workspace/api-client-react';
+import { APP_USAGE_REFRESH_MS, shareDetail } from '@/lib/app-usage';
+import { demoAppUsage } from '@/data/hq/app-usage-demo';
+import { DEFAULT_DATE_RANGE } from '@/lib/date-range-keys';
+import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey, useGetHqOverview, getGetHqOverviewQueryKey, useGetHqAppUsage, getGetHqAppUsageQueryKey } from '@workspace/api-client-react';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 
@@ -68,6 +71,20 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
   const overview = useGetHqOverview({
     query: { queryKey: [...getGetHqOverviewQueryKey(), authUser?.id], retry: 1 },
   });
+  // Live app usage ("now" tiles end on each patient's local today); polls like the App usage page.
+  const appUsage = useGetHqAppUsage(
+    { start: range.start, end: range.end },
+    {
+      query: {
+        queryKey: [...getGetHqAppUsageQueryKey({ start: range.start, end: range.end }), authUser?.id],
+        retry: 1,
+        refetchInterval: APP_USAGE_REFRESH_MS,
+      },
+    },
+  );
+  const usageNetwork = appUsage.data?.network;
+  const usageValue = (value: number | undefined) => (appUsage.isPending ? '—' : appUsage.isError ? 'Error' : fmt(value ?? 0));
+  const usageDetail = (ready: string) => (appUsage.isPending ? 'Loading live data…' : appUsage.isError ? 'Failed to load' : ready);
 
   const rows = comparison.data?.offices ?? [];
   const totals = useMemo(() => sumComparison(rows), [rows]);
@@ -125,6 +142,22 @@ function LiveHqOverview({ firstName }: { firstName: string | null }) {
           detail={tileDetail(`${fmt(totals.loggingLapsed)} lapsed · ${fmt(totals.checkInsOverdue)} overdue`)}
           href="/admin/accounts"
           testId="text-hq-attention"
+        />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2" aria-label="App usage overview">
+        <MetricLinkTile
+          label="Weekly active users"
+          value={usageValue(usageNetwork?.weeklyActive)}
+          detail={usageDetail(usageNetwork ? `Opened the app or logged anything in the last 7 days · ${shareDetail(usageNetwork.weeklySharePct, usageNetwork.activatedPatients)}` : '')}
+          href="/admin/app-usage"
+          testId="text-hq-weekly-active"
+        />
+        <MetricLinkTile
+          label="Monthly active users"
+          value={usageValue(usageNetwork?.monthlyActive)}
+          detail={usageDetail(usageNetwork ? `Opened the app or logged anything in the last 30 days · ${shareDetail(usageNetwork.monthlySharePct, usageNetwork.activatedPatients)}` : '')}
+          href="/admin/app-usage"
+          testId="text-hq-monthly-active"
         />
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Inbox overview">
@@ -204,6 +237,8 @@ function DemoHqOverview() {
   const pulseDate = formatDateKey(TODAY_KEY, true);
 
   const latestConversations = getConversations().slice(0, 3);
+  // Seeded app usage, anchored to the demo date (partitions exactly across the four seeded offices).
+  const demoUsage = demoAppUsage(DEFAULT_DATE_RANGE).network;
 
   return (
     <AdminPage>
@@ -242,6 +277,23 @@ function DemoHqOverview() {
           value={engagementValue}
           detail={engagementDetail}
           testId="text-hq-engagement"
+        />
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2" aria-label="App usage overview">
+        <MetricLinkTile
+          label="Weekly active users"
+          value={fmt(demoUsage.weeklyActive)}
+          detail={`Opened the app or logged anything in the last 7 days · ${shareDetail(demoUsage.weeklySharePct, demoUsage.activatedPatients)}`}
+          href="/admin/app-usage"
+          testId="text-hq-weekly-active"
+        />
+        <MetricLinkTile
+          label="Monthly active users"
+          value={fmt(demoUsage.monthlyActive)}
+          detail={`Opened the app or logged anything in the last 30 days · ${shareDetail(demoUsage.monthlySharePct, demoUsage.activatedPatients)}`}
+          href="/admin/app-usage"
+          testId="text-hq-monthly-active"
         />
       </div>
 

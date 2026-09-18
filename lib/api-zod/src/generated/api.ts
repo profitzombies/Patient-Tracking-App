@@ -3198,6 +3198,68 @@ export const GetHqOfficeComparisonResponse = zod.object({
 
 
 /**
+ * An active app user is a patient with a real account who, on a local day, opened the app or performed any recorded in-app action. Weekly = trailing 7 days, monthly = trailing 30 days. Network figures end on each patient's local today (live tiles); atRangeEnd, the per-office rows and both series end on the range end.
+ * @summary Live weekly and monthly active app users, network-wide and per office
+ */
+export const GetHqAppUsageQueryParams = zod.object({
+  "start": zod.date(),
+  "end": zod.date()
+})
+
+export const GetHqAppUsageResponse = zod.object({
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "network": zod.object({
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean(),
+  "activatedPatients": zod.number(),
+  "activeNow": zod.number().describe('Patients seen in the last 15 minutes'),
+  "activeToday": zod.number(),
+  "weeklyActive": zod.number(),
+  "monthlyActive": zod.number(),
+  "activeNowSharePct": zod.number().nullable(),
+  "activeTodaySharePct": zod.number().nullable(),
+  "weeklySharePct": zod.number().nullable(),
+  "monthlySharePct": zod.number().nullable(),
+  "atRangeEnd": zod.object({
+  "activatedPatients": zod.number(),
+  "weeklyActive": zod.number(),
+  "monthlyActive": zod.number(),
+  "weeklySharePct": zod.number().nullable(),
+  "monthlySharePct": zod.number().nullable()
+}),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "weeklyActive": zod.number(),
+  "monthlyActive": zod.number()
+}))
+}),
+  "offices": zod.array(zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerName": zod.string(),
+  "firstPatientDate": zod.coerce.date().nullable(),
+  "available": zod.boolean(),
+  "metrics": zod.union([zod.object({
+  "activatedPatients": zod.number(),
+  "weeklyActive": zod.number(),
+  "monthlyActive": zod.number(),
+  "weeklySharePct": zod.number().nullable(),
+  "monthlySharePct": zod.number().nullable()
+}),zod.null()]),
+  "series": zod.array(zod.object({
+  "date": zod.coerce.date(),
+  "weeklyActive": zod.number(),
+  "monthlyActive": zod.number()
+}))
+}))
+})
+
+
+/**
  * @summary The caller's recent export jobs and the kinds they may request
  */
 export const ListExportsResponse = zod.object({

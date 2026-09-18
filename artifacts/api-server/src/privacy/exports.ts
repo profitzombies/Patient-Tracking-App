@@ -209,6 +209,8 @@ export interface PatientArchiveSections {
     orders: Array<Record<string, unknown>>;
     subscriptions: Array<Record<string, unknown>>;
   };
+  /** Days the app was opened (first/last seen and platform per local day). */
+  appUsage: Array<Record<string, unknown>>;
 }
 
 const MAX_ROWS = 20_000;
@@ -216,7 +218,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -239,6 +241,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
         `/rest/v1/patient_chat_conversations?${scope}&select=id,thread,provider_id,title,title_state,archived_at,version,processing_state,created_at,updated_at&order=created_at.asc,id.asc`,
         "chat conversations",
       ),
+      rows(`/rest/v1/patient_app_presence?${scope}&select=day,first_seen_at,last_seen_at,platform&order=day.asc&limit=${MAX_ROWS}`, "app usage"),
     ]);
   const businessNames = new Map<string, string>();
   await Promise.all(
@@ -420,6 +423,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     media,
     chat,
     coachMemory: { memories, exclusions },
+    appUsage,
     bloodwork: {
       reports: bloodworkReports,
       files: bloodworkFiles,
@@ -491,6 +495,7 @@ export async function buildPatientArchive(
   zip.file("chat.json", json(sections.chat));
   zip.file("coach-memory.json", json(sections.coachMemory));
   zip.file("billing.json", json(sections.billing));
+  zip.file("app-usage.json", json(sections.appUsage));
 
   const mediaPaths = mediaPathsOf({
     photos: sections.photos,

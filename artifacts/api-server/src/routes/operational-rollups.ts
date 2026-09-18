@@ -182,6 +182,187 @@ function availableSeries(points: SeriesPointDto[] | undefined, firstPatientDate:
   return points.filter((point) => point.date >= firstPatientDate);
 }
 
+/* ------------------------------------------------------------ app usage */
+
+/**
+ * Active app users. An active app user is a patient with a real account who,
+ * on a local day, opened the app (presence) or performed any in-app action
+ * the server records. Weekly = trailing 7 days, monthly = trailing 30 days.
+ * The network tiles (`network.*`) end on each patient's local TODAY (live
+ * "now" figures); the per-office rows and both series end on the range end.
+ * Patients belong to exactly one office, so network figures are sums of the
+ * per-office distinct counts.
+ */
+export interface AppUsageOfficeRow {
+  providerId: string;
+  officeName: string;
+  providerName: string;
+  firstPatientDate: string | null;
+  available: boolean;
+  metrics: {
+    activatedPatients: number;
+    weeklyActive: number;
+    monthlyActive: number;
+    weeklySharePct: number | null;
+    monthlySharePct: number | null;
+  } | null;
+  series: AppUsagePoint[];
+}
+
+export interface AppUsagePoint {
+  date: string;
+  weeklyActive: number;
+  monthlyActive: number;
+}
+
+function sharePct(part: number, whole: number): number | null {
+  return whole > 0 ? Math.round((part / whole) * 1000) / 10 : null;
+}
+
+export function appUsageOfficeDto(row: Record<string, unknown>, range: DateRangeKeys) {
+  const n = (key: string) => {
+    const value = Number(row[key] ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+  const firstPatientDate = typeof row.first_patient_date === "string" ? row.first_patient_date.slice(0, 10) : null;
+  const available = firstPatientDate !== null && firstPatientDate <= range.end;
+  const activatedPatients = n("activated_patients");
+  const weeklyActive = n("weekly_active");
+  const monthlyActive = n("monthly_active");
+  const office: AppUsageOfficeRow = {
+    providerId: String(row.provider_id),
+    officeName: String(row.office_name ?? row.provider_name ?? "Office"),
+    providerName: String(row.provider_name ?? row.office_name ?? ""),
+    firstPatientDate,
+    available,
+    metrics: available
+      ? {
+          activatedPatients,
+          weeklyActive,
+          monthlyActive,
+          weeklySharePct: sharePct(weeklyActive, activatedPatients),
+          monthlySharePct: sharePct(monthlyActive, activatedPatients),
+        }
+      : null,
+    series: [],
+  };
+  // Live ("today") figures ride alongside for the network totals.
+  const live = {
+    activatedPatientsNow: n("activated_patients_now"),
+    activeNow: n("active_now"),
+    activeToday: n("active_today"),
+    weeklyActiveToday: n("weekly_active_today"),
+    monthlyActiveToday: n("monthly_active_today"),
+  };
+  return { office, live };
+}
+
+export function appUsagePointDto(row: Record<string, unknown>): AppUsagePoint {
+  const n = (key: string) => {
+    const value = Number(row[key] ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  };
+  return { date: String(row.date).slice(0, 10), weeklyActive: n("weekly_active"), monthlyActive: n("monthly_active") };
+}
+
+async function loadAppUsageOffices(range: DateRangeKeys, at: Date) {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_usage_offices", {
+    p_start: range.start,
+    p_end: range.end,
+    p_at: at.toISOString(),
+  });
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`app usage offices failed (${result.status})`);
+  }
+  return (result.json as Record<string, unknown>[]).map((row) => appUsageOfficeDto(row, range));
+}
+
+async function loadAppUsageSeries(range: DateRangeKeys): Promise<Map<string, AppUsagePoint[]>> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_usage_daily", {
+    p_start: range.start,
+    p_end: range.end,
+  });
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`app usage daily series failed (${result.status})`);
+  }
+  const byOffice = new Map<string, AppUsagePoint[]>();
+  for (const raw of result.json as Record<string, unknown>[]) {
+    const id = String(raw.provider_id);
+    const list = byOffice.get(id) ?? [];
+    list.push(appUsagePointDto(raw));
+    byOffice.set(id, list);
+  }
+  return byOffice;
+}
+
+/**
+ * Assemble the HQ app-usage payload from the two RPC result sets. Exported so
+ * the network arithmetic (sums, shares, trimmed series) is unit-testable.
+ */
+export function assembleAppUsage(
+  range: DateRangeKeys,
+  rows: ReturnType<typeof appUsageOfficeDto>[],
+  series: Map<string, AppUsagePoint[]>,
+  asOf: Date,
+) {
+  const offices = rows.map(({ office }) => ({
+    ...office,
+    series: office.firstPatientDate
+      ? (series.get(office.providerId) ?? []).filter((point) => point.date >= office.firstPatientDate!)
+      : [],
+  }));
+  const sum = (pick: (row: ReturnType<typeof appUsageOfficeDto>) => number) => rows.reduce((total, row) => total + pick(row), 0);
+  const activatedPatients = sum((row) => row.live.activatedPatientsNow);
+  const activatedAtRangeEnd = sum((row) => row.office.metrics?.activatedPatients ?? 0);
+  const weeklyAtRangeEnd = sum((row) => row.office.metrics?.weeklyActive ?? 0);
+  const monthlyAtRangeEnd = sum((row) => row.office.metrics?.monthlyActive ?? 0);
+  const activeNow = sum((row) => row.live.activeNow);
+  const activeToday = sum((row) => row.live.activeToday);
+  const weeklyActive = sum((row) => row.live.weeklyActiveToday);
+  const monthlyActive = sum((row) => row.live.monthlyActiveToday);
+  // Network series: sum per date across the offices that have data that day.
+  const byDate = new Map<string, AppUsagePoint>();
+  for (const office of offices) {
+    for (const point of office.series) {
+      const current = byDate.get(point.date) ?? { date: point.date, weeklyActive: 0, monthlyActive: 0 };
+      current.weeklyActive += point.weeklyActive;
+      current.monthlyActive += point.monthlyActive;
+      byDate.set(point.date, current);
+    }
+  }
+  const networkSeries = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const firstPatientDates = offices.map((office) => office.firstPatientDate).filter((d): d is string => d !== null).sort();
+  const firstPatientDate = firstPatientDates[0] ?? null;
+  return {
+    range,
+    asOf: asOf.toISOString(),
+    network: {
+      firstPatientDate,
+      available: firstPatientDate !== null && firstPatientDate <= range.end,
+      activatedPatients,
+      activeNow,
+      activeToday,
+      weeklyActive,
+      monthlyActive,
+      activeNowSharePct: sharePct(activeNow, activatedPatients),
+      activeTodaySharePct: sharePct(activeToday, activatedPatients),
+      weeklySharePct: sharePct(weeklyActive, activatedPatients),
+      monthlySharePct: sharePct(monthlyActive, activatedPatients),
+      atRangeEnd: {
+        activatedPatients: activatedAtRangeEnd,
+        weeklyActive: weeklyAtRangeEnd,
+        monthlyActive: monthlyAtRangeEnd,
+        weeklySharePct: sharePct(weeklyAtRangeEnd, activatedAtRangeEnd),
+        monthlySharePct: sharePct(monthlyAtRangeEnd, activatedAtRangeEnd),
+      },
+      series: networkSeries,
+    },
+    offices,
+  };
+}
+
+export type AppUsageResult = ReturnType<typeof assembleAppUsage>;
+
 /* -------------------------------------------------------------- routes */
 
 router.get("/office/overview", async (req, res) => {
@@ -240,6 +421,23 @@ router.get("/hq/office-comparison", requireHqPermission("analytics_read"), async
   } catch (error) {
     req.log?.error({ err: error }, "HQ office comparison failed");
     res.status(502).json({ error: "Could not load the office comparison right now." });
+  }
+});
+
+/** Live weekly / monthly active app users, network-wide and per office. */
+router.get("/hq/app-usage", requireHqPermission("analytics_read"), async (req, res) => {
+  const range = parseRange(req.query as Record<string, unknown>);
+  if (!range) {
+    res.status(400).json({ error: RANGE_ERROR });
+    return;
+  }
+  try {
+    const now = new Date();
+    const [rows, series] = await Promise.all([loadAppUsageOffices(range, now), loadAppUsageSeries(range)]);
+    res.json(assembleAppUsage(range, rows, series, now));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ app usage failed");
+    res.status(502).json({ error: "Could not load app usage right now." });
   }
 });
 

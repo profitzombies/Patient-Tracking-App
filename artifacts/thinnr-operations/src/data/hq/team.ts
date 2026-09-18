@@ -50,6 +50,8 @@ export function canHq(role: HqRole | null, permission: HqPermission): boolean {
 }
 
 export function permissionForAdminPath(path: string): HqPermission {
+  // App usage is analytics: the same gate as the overview / office comparison.
+  if (path.startsWith('/admin/app-usage')) return 'overview';
   if (path.startsWith('/admin/payments')) return 'payments';
   if (path.startsWith('/admin/accounts')) return 'accounts';
   if (path.startsWith('/admin/conversations')) return 'conversations';

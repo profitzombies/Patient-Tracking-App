@@ -20,6 +20,11 @@
  * While a session's resolution is in flight the state reports
  * resolving=true and PatientProvider holds hydration, so a real patient
  * never sees a flash of the demo diary.
+ *
+ * Once a REAL account is resolved the provider also runs the app-presence
+ * heartbeat (lib/patient-presence-heartbeat): one ping on resolve and one
+ * per debounced return to the foreground, so HQ's active-user figures see
+ * a patient who merely opens the app. Demo and staff sessions never ping.
  */
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
@@ -34,6 +39,7 @@ import {
   readCachedAccountRole,
   writeCachedAccountRole,
 } from '@/lib/account-role-cache';
+import { usePatientPresenceHeartbeat } from '@/lib/patient-presence-heartbeat';
 import {
   DEMO_ACCOUNT_STATE,
   PatientAccountContext,
@@ -132,6 +138,8 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       getAccessToken: getSessionAccessToken,
     };
   }, [sessionLoading, userId, resolved, retryResolve]);
+
+  usePatientPresenceHeartbeat(value.account, value.resolving);
 
   return <PatientAccountContext.Provider value={value}>{children}</PatientAccountContext.Provider>;
 }

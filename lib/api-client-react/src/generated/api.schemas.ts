@@ -382,6 +382,62 @@ export interface OfficeComparisonResult {
   offices: OfficeComparisonRow[];
 }
 
+export interface AppUsagePoint {
+  date: string;
+  weeklyActive: number;
+  monthlyActive: number;
+}
+
+export interface AppUsageOfficeMetrics {
+  activatedPatients: number;
+  weeklyActive: number;
+  monthlyActive: number;
+  /** @nullable */
+  weeklySharePct: number | null;
+  /** @nullable */
+  monthlySharePct: number | null;
+}
+
+export interface AppUsageOfficeRow {
+  providerId: string;
+  officeName: string;
+  providerName: string;
+  /** @nullable */
+  firstPatientDate: string | null;
+  available: boolean;
+  metrics: AppUsageOfficeMetrics | null;
+  series: AppUsagePoint[];
+}
+
+export interface AppUsageNetwork {
+  /** @nullable */
+  firstPatientDate: string | null;
+  available: boolean;
+  activatedPatients: number;
+  /** Patients seen in the last 15 minutes */
+  activeNow: number;
+  activeToday: number;
+  weeklyActive: number;
+  monthlyActive: number;
+  /** @nullable */
+  activeNowSharePct: number | null;
+  /** @nullable */
+  activeTodaySharePct: number | null;
+  /** @nullable */
+  weeklySharePct: number | null;
+  /** @nullable */
+  monthlySharePct: number | null;
+  atRangeEnd: AppUsageOfficeMetrics;
+  series: AppUsagePoint[];
+}
+
+export interface AppUsageResult {
+  range: DateRangeKeys;
+  asOf: string;
+  network: AppUsageNetwork;
+  offices: AppUsageOfficeRow[];
+}
+
 export type OfficeAnalyticsResultOffice = {
   providerId: string;
   officeName: string;
@@ -4275,6 +4331,11 @@ office?: OfficeIdParameter;
 };
 
 export type GetHqOfficeComparisonParams = {
+start: string;
+end: string;
+};
+
+export type GetHqAppUsageParams = {
 start: string;
 end: string;
 };

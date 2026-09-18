@@ -24,6 +24,7 @@ import {
   Users,
   ActivitySquare,
   HeartPulse,
+  Smartphone,
   type LucideIcon,
   FileDown,
   ShieldCheck,
@@ -48,6 +49,7 @@ interface NavItem {
 /** Ordered to match the menu's section grouping, top to bottom. */
 const NAV_ITEMS: NavItem[] = [
   { path: '/admin', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
+  { path: '/admin/app-usage', label: 'App usage', mobileLabel: 'Usage', icon: Smartphone },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/escalations', label: 'Escalations', icon: ActivitySquare },
@@ -76,7 +78,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
-  { label: 'Dashboard', paths: ['/admin'] },
+  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/payments', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },

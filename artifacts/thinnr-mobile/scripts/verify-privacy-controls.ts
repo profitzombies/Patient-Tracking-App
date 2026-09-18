@@ -150,6 +150,10 @@ function routeCall(call: ApiCall): { status: number; body: unknown } {
     store.deletion = null;
     return { status: 200, body: { cancelled, deletion: null } };
   }
+  if (key === 'POST patient-data/presence') {
+    // Account-layer presence heartbeat (real accounts only); not a diary write.
+    return { status: 200, body: { ok: true } };
+  }
   throw new Error(`unscripted route: ${key}`);
 }
 

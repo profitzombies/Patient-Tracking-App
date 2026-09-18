@@ -1898,6 +1898,24 @@ paths:
           description: One row per enabled office (aggregate only)
           content: { application/json: { schema: { $ref: "#/components/schemas/OfficeComparisonResult" } } }
         "400": { description: Invalid range }
+  /hq/app-usage:
+    get:
+      operationId: getHqAppUsage
+      tags: [hq]
+      summary: Live weekly and monthly active app users, network-wide and per office
+      description: >-
+        An active app user is a patient with a real account who, on a local day, opened the
+        app or performed any recorded in-app action. Weekly = trailing 7 days, monthly =
+        trailing 30 days. Network figures end on each patient's local today (live tiles);
+        atRangeEnd, the per-office rows and both series end on the range end.
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200":
+          description: Network totals plus one row per enabled office (aggregate only)
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppUsageResult" } } }
+        "400": { description: Invalid range }
   /exports:
     get:
       operationId: listExports
@@ -2907,6 +2925,67 @@ components:
         offices:
           type: array
           items: { $ref: "#/components/schemas/OfficeComparisonRow" }
+    AppUsagePoint:
+      type: object
+      required: [date, weeklyActive, monthlyActive]
+      properties:
+        date: { type: string, format: date }
+        weeklyActive: { type: number }
+        monthlyActive: { type: number }
+    AppUsageOfficeMetrics:
+      type: object
+      required: [activatedPatients, weeklyActive, monthlyActive, weeklySharePct, monthlySharePct]
+      properties:
+        activatedPatients: { type: number }
+        weeklyActive: { type: number }
+        monthlyActive: { type: number }
+        weeklySharePct: { type: ["number", "null"] }
+        monthlySharePct: { type: ["number", "null"] }
+    AppUsageOfficeRow:
+      type: object
+      required: [providerId, officeName, providerName, firstPatientDate, available, metrics, series]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        providerName: { type: string }
+        firstPatientDate: { type: ["string", "null"], format: date }
+        available: { type: boolean }
+        metrics:
+          oneOf:
+            - $ref: "#/components/schemas/AppUsageOfficeMetrics"
+            - type: "null"
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsagePoint" }
+    AppUsageNetwork:
+      type: object
+      required: [firstPatientDate, available, activatedPatients, activeNow, activeToday, weeklyActive, monthlyActive, activeNowSharePct, activeTodaySharePct, weeklySharePct, monthlySharePct, atRangeEnd, series]
+      properties:
+        firstPatientDate: { type: ["string", "null"], format: date }
+        available: { type: boolean }
+        activatedPatients: { type: number }
+        activeNow: { type: number, description: "Patients seen in the last 15 minutes" }
+        activeToday: { type: number }
+        weeklyActive: { type: number }
+        monthlyActive: { type: number }
+        activeNowSharePct: { type: ["number", "null"] }
+        activeTodaySharePct: { type: ["number", "null"] }
+        weeklySharePct: { type: ["number", "null"] }
+        monthlySharePct: { type: ["number", "null"] }
+        atRangeEnd: { $ref: "#/components/schemas/AppUsageOfficeMetrics" }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsagePoint" }
+    AppUsageResult:
+      type: object
+      required: [range, asOf, network, offices]
+      properties:
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        network: { $ref: "#/components/schemas/AppUsageNetwork" }
+        offices:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsageOfficeRow" }
     OfficeAnalyticsResult:
       type: object
       required: [office, range, asOf, firstPatientDate, available, metrics, series]

@@ -249,6 +249,10 @@ function routeCall(call: ApiCall): Scripted {
     if (body.recents !== undefined) store.recents = body.recents as string[];
     return { status: 200, body: { ok: true } };
   }
+  if (key === 'POST patient-data/presence') {
+    // Account-layer presence heartbeat (real accounts only); not a diary write.
+    return { status: 200, body: { ok: true } };
+  }
   throw new Error(`unscripted route: ${key}`);
 }
 

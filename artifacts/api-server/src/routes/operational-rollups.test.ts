@@ -103,6 +103,94 @@ describe("HQ office comparison", () => {
   });
 });
 
+const usageRow = (overrides: Record<string, unknown> = {}) => ({
+  provider_id: "p1", office_name: "One", provider_name: "Dr One", first_patient_date: "2026-09-01",
+  activated_patients: 10, activated_patients_now: 12, active_now: 1, active_today: 3,
+  weekly_active_today: 6, monthly_active_today: 9, weekly_active: 5, monthly_active: 8, ...overrides,
+});
+const usageDay = (provider_id: string, date: string, weekly_active: number, monthly_active: number) => ({ provider_id, date, weekly_active, monthly_active });
+
+describe("HQ app usage", () => {
+  const RANGE = "start=2026-08-30&end=2026-09-02";
+  it("is denied to Support and Content (same gate as the office comparison)", async () => {
+    for (const departmentRole of ["support", "content"]) {
+      mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole });
+      mocks.admin.mockReset();
+      expect((await call(`/hq/app-usage?${RANGE}`)).status).toBe(403);
+      expect(mocks.admin).not.toHaveBeenCalled();
+    }
+    mocks.staff.mockReturnValue(null);
+    expect((await call(`/hq/app-usage?${RANGE}`)).status).toBe(401);
+  });
+  it("validates the range before any RPC", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset();
+    expect((await call("/hq/app-usage?start=2026-09-06&end=2026-08-01")).status).toBe(400);
+    expect((await call("/hq/app-usage")).status).toBe(400);
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+  it("sums per-office distinct counts into network figures, shares, and a trimmed network series", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "clinical" });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.endsWith("patient_app_usage_offices")) {
+        expect(body).toMatchObject({ p_start: "2026-08-30", p_end: "2026-09-02" });
+        expect(typeof body.p_at).toBe("string");
+        return response([
+          usageRow(),
+          usageRow({ provider_id: "p2", office_name: "Two", first_patient_date: "2026-08-31", activated_patients: 4, activated_patients_now: 4, active_now: 0, active_today: 1, weekly_active_today: 2, monthly_active_today: 3, weekly_active: 1, monthly_active: 2 }),
+          usageRow({ provider_id: "p3", office_name: "Empty", first_patient_date: null, activated_patients: 0, activated_patients_now: 0, active_now: 0, active_today: 0, weekly_active_today: 0, monthly_active_today: 0, weekly_active: 0, monthly_active: 0 }),
+        ]);
+      }
+      if (path.endsWith("patient_app_usage_daily")) {
+        expect(body).toEqual({ p_start: "2026-08-30", p_end: "2026-09-02" });
+        return response([
+          usageDay("p1", "2026-08-30", 0, 0), usageDay("p1", "2026-08-31", 0, 0), usageDay("p1", "2026-09-01", 4, 6), usageDay("p1", "2026-09-02", 5, 8),
+          usageDay("p2", "2026-08-30", 0, 0), usageDay("p2", "2026-08-31", 1, 1), usageDay("p2", "2026-09-01", 1, 2), usageDay("p2", "2026-09-02", 1, 2),
+          usageDay("p3", "2026-08-30", 0, 0), usageDay("p3", "2026-08-31", 0, 0), usageDay("p3", "2026-09-01", 0, 0), usageDay("p3", "2026-09-02", 0, 0),
+        ]);
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const res = await call(`/hq/app-usage?${RANGE}`);
+    expect(res.status).toBe(200);
+    const json = await res.json() as {
+      network: Record<string, unknown> & { atRangeEnd: Record<string, unknown>; series: Array<{ date: string; weeklyActive: number; monthlyActive: number }> };
+      offices: Array<{ providerId: string; available: boolean; metrics: Record<string, unknown> | null; series: Array<{ date: string }> }>;
+    };
+    expect(json.network).toMatchObject({
+      firstPatientDate: "2026-08-31", available: true,
+      activatedPatients: 16, activeNow: 1, activeToday: 4, weeklyActive: 8, monthlyActive: 12,
+      activeNowSharePct: 6.3, activeTodaySharePct: 25, weeklySharePct: 50, monthlySharePct: 75,
+    });
+    expect(json.network.atRangeEnd).toEqual({ activatedPatients: 14, weeklyActive: 6, monthlyActive: 10, weeklySharePct: 42.9, monthlySharePct: 71.4 });
+    expect(json.network.series).toEqual([
+      { date: "2026-08-31", weeklyActive: 1, monthlyActive: 1 },
+      { date: "2026-09-01", weeklyActive: 5, monthlyActive: 8 },
+      { date: "2026-09-02", weeklyActive: 6, monthlyActive: 10 },
+    ]);
+    expect(json.offices).toHaveLength(3);
+    expect(json.offices[0]).toMatchObject({ providerId: "p1", available: true, metrics: { activatedPatients: 10, weeklyActive: 5, monthlyActive: 8, weeklySharePct: 50, monthlySharePct: 80 } });
+    expect(json.offices[0].series.map((p) => p.date)).toEqual(["2026-09-01", "2026-09-02"]);
+    expect(json.offices[2]).toMatchObject({ providerId: "p3", available: false, metrics: null, series: [] });
+  });
+  it("reports a range that predates every office as unavailable rather than zero", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string) => {
+      if (path.endsWith("patient_app_usage_offices")) return response([usageRow({ first_patient_date: "2026-09-10", weekly_active: 0, monthly_active: 0 })]);
+      return response([usageDay("p1", "2026-08-30", 0, 0)]);
+    });
+    const json = await (await call(`/hq/app-usage?${RANGE}`)).json() as { network: { available: boolean; atRangeEnd: { weeklySharePct: number | null } }; offices: Array<{ available: boolean; metrics: unknown }> };
+    expect(json.network.available).toBe(false);
+    expect(json.network.atRangeEnd.weeklySharePct).toBeNull();
+    expect(json.offices[0]).toMatchObject({ available: false, metrics: null });
+  });
+  it("maps RPC failures to 502", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset().mockResolvedValue(response({}, 500));
+    expect((await call(`/hq/app-usage?${RANGE}`)).status).toBe(502);
+  });
+});
+
 describe("office analytics", () => {
   it("scopes through resolveOfficeScope with provider_read and pins the RPC to that office", async () => {
     mocks.scope.mockReset().mockResolvedValue({ kind: "ok", scope: { providerId: "p1", officeName: "One", actorUserId: "a", actorKind: "provider" } });

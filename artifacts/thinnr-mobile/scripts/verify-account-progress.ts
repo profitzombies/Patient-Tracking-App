@@ -313,6 +313,10 @@ function routeCall(call: ApiCall): Scripted {
     Object.assign(store.flags, call.body ?? {});
     return { status: 200, body: { ok: true } };
   }
+  if (key === 'POST patient-data/presence') {
+    // Account-layer presence heartbeat (real accounts only); not a diary write.
+    return { status: 200, body: { ok: true } };
+  }
   throw new Error(`unscripted route: ${key}`);
 }
 

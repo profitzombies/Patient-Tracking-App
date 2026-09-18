@@ -25,9 +25,15 @@
  * gate is a convenience, not the control. Only the consent/privacy routes
  * themselves opt out (`consent: "skip"`): they are how a patient records
  * consent, reads their pending deletion, or cancels it.
+ *
+ * App presence is recorded here too: once a bearer resolves to a patient
+ * row the request counts as "the app is open" for that patient's local day
+ * (throttled, fire-and-forget — see ./patient-presence). Staff sessions never
+ * reach a patient row, so they never leave a presence trace.
  */
 import { fetchAuthUser, supabaseAdmin } from "./supabase-admin";
 import { consentDto, loadLatestConsent, type ConsentDto } from "../privacy/consent";
+import { notePatientPresence } from "./patient-presence";
 
 const enc = encodeURIComponent;
 
@@ -69,6 +75,7 @@ export async function resolvePatient(
 ): Promise<ResolvedPatient> {
   const identity = await resolvePatientIdentityInternal(req, "throw");
   if (!identity.ok) return identity;
+  notePatientPresence(identity.patientId, req.headers);
   const mode = options.consent ?? "required";
   if (mode === "skip") return { ...identity, consent: consentDto(null) };
   const consent = consentDto(await loadLatestConsent(identity.patientId));
@@ -107,7 +114,9 @@ type ResolvedIdentity =
 export async function resolvePatientIdentity(req: {
   headers: Record<string, unknown>;
 }): Promise<ResolvedIdentity> {
-  return resolvePatientIdentityInternal(req, "respond");
+  const identity = await resolvePatientIdentityInternal(req, "respond");
+  if (identity.ok) notePatientPresence(identity.patientId, req.headers);
+  return identity;
 }
 
 async function resolvePatientIdentityInternal(

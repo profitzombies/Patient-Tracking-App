@@ -28,6 +28,7 @@
     "test:live-diary": "tsx --tsconfig tsconfig.live-diary.json scripts/verify-live-diary.ts",
     "test:offline-queue": "tsx --tsconfig tsconfig.offline-queue.json scripts/verify-offline-queue.ts",
     "test:account-progress": "tsx --tsconfig tsconfig.account-progress.json scripts/verify-account-progress.ts",
+    "test:presence-heartbeat": "tsx --tsconfig tsconfig.presence-heartbeat.json scripts/verify-presence-heartbeat.ts",
     "test:privacy-controls": "tsx --tsconfig tsconfig.privacy-controls.json scripts/verify-privacy-controls.ts",
     "test:patient-billing": "tsx --tsconfig tsconfig.patient-billing.json scripts/verify-patient-billing.tsx",
     "test:account-security": "tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.ts",

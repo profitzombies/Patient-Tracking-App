@@ -164,8 +164,11 @@ function callsTo(path: string): ApiCall[] {
   return apiCalls.filter(call => call.path === path);
 }
 
+/** Presence heartbeats are account-layer pings, not diary writes; the queue never carries them. */
+const isPresencePing = (call: ApiCall) => call.path === 'patient-data/presence';
+
 function writeCalls(): ApiCall[] {
-  return apiCalls.filter(call => call.path.startsWith('patient-data/') && call.method !== 'GET');
+  return apiCalls.filter(call => call.path.startsWith('patient-data/') && call.method !== 'GET' && !isPresencePing(call));
 }
 
 /** A tiny valid-looking JPEG data URI (the fake rail never sniffs bytes). */
@@ -244,6 +247,9 @@ function applyWrite(key: string, call: ApiCall, store: ServerStore, patientId: s
     const body = call.body ?? {};
     if (body.favorites !== undefined) store.favorites = body.favorites as string[];
     if (body.recents !== undefined) store.recents = body.recents as string[];
+    return { status: 200, body: { ok: true } };
+  }
+  if (key === 'POST patient-data/presence') {
     return { status: 200, body: { ok: true } };
   }
   throw new Error(`unscripted route: ${key}`);
@@ -875,7 +881,7 @@ async function main() {
   const readsBefore = apiCalls.length;
   tree = await mountLive();
   assert('the remembered role survives the session-loading phase', localStorageBacking.has('thinnr_account_role_v1'));
-  assert('the relaunch really had no network', apiCalls.slice(readsBefore).length > 0 && apiCalls.slice(readsBefore).every(c => c.method === 'GET'));
+  assert('the relaunch really had no network', apiCalls.slice(readsBefore).length > 0 && apiCalls.slice(readsBefore).every(c => c.method === 'GET' || isPresencePing(c)));
   assert('offline relaunch still resolves the same real account from its last-known role',
     account.account.kind === 'real' && account.account.patientId === 'p-1' && account.accountNotice === null);
   assert('offline relaunch opens on the last synced diary with the queue applied',

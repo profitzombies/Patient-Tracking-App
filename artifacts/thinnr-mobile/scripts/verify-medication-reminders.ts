@@ -154,6 +154,10 @@ function applyWrite(key: string, call: ApiCall, store: ServerStore): Scripted {
   if (key === 'POST patient-data/check-ins' || key === 'POST patient-data/entries' || key === 'PUT patient-data/water' || key === 'PUT patient-data/prefs' || key === 'PUT patient-data/targets') {
     return { status: 200, body: { ok: true } };
   }
+  if (key === 'POST patient-data/presence') {
+    // Account-layer presence heartbeat (real accounts only); not a diary write.
+    return { status: 200, body: { ok: true } };
+  }
   throw new Error(`unscripted route: ${key}`);
 }
 

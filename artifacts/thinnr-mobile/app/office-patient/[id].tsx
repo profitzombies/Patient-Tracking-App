@@ -12,7 +12,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useSupabaseSession } from '@/lib/supabase';
-import { useGetOfficePatientRecord } from '@workspace/api-client-react';
+import { signOfficePatientPhotoPage, useGetOfficePatientRecord } from '@workspace/api-client-react';
+import { useQuery } from '@tanstack/react-query';
 import type { Session } from '@supabase/supabase-js';
 import { useColors } from '@/hooks/useColors';
 import theme, { fonts } from '@/constants/colors';
@@ -175,6 +176,13 @@ function LivePatientData({
     }
   );
 
+  // Photo pages: ONE signing call per size instead of a redirect per <Image>.
+  // Thumbnails load with the grid; medium only once the viewer opens. Either
+  // page failing leaves the record's own (original) URLs in place.
+  const photoIds = (data?.progressPhotos ?? []).filter(p => !!p.url).map(p => p.id);
+  const thumbPage = useOfficePhotoPage(patientId, session, photoIds, 'thumb', true);
+  const mediumPage = useOfficePhotoPage(patientId, session, photoIds, 'medium', lightboxOpen);
+
   if (isLoading && !error) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]} testID="live-patient-loading">
@@ -255,10 +263,12 @@ function LivePatientData({
     .filter(p => !!p.url)
     .map(p => ({
       key: p.id,
-      uri: p.url!,
+      // Viewer: the medium page when signed, else the record's original URL.
+      uri: mediumPage.data?.get(p.id) ?? p.url!,
       label: p.label || 'Photo',
       caption: p.dateKey ? `Date: ${p.dateKey}` : undefined,
     }));
+  const thumbFor = (id: string, original: string) => thumbPage.data?.get(id) ?? original;
 
   const weightHistory = [...(data.weights || [])].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
   const checkIns = [...(data.checkIns || [])].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
@@ -504,7 +514,7 @@ function LivePatientData({
                   }}
                   style={[styles.photoWrap, { borderColor: colors.border, backgroundColor: colors.muted }]}
                 >
-                  <Image source={{ uri: photo.uri }} style={styles.thumbnail} contentFit="cover" />
+                  <Image source={{ uri: thumbFor(photo.key, photo.uri) }} style={styles.thumbnail} contentFit="cover" />
                   <View style={[styles.photoLabelWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <Text style={[styles.photoLabel, { color: colors.foreground }]} numberOfLines={1}>{photo.label}</Text>
                   </View>
@@ -533,6 +543,40 @@ function LivePatientData({
       )}
     </View>
   );
+}
+
+/**
+ * Signs one page of a patient's progress photos at a display size, keyed on
+ * the exact id list so a new upload re-signs once. Failures are silent by
+ * design: callers fall back to the record's original URLs.
+ */
+function useOfficePhotoPage(
+  patientId: string,
+  session: Session,
+  photoIds: string[],
+  variant: 'thumb' | 'medium',
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['office-patient-photo-page', patientId, session.user.id, variant, photoIds.join(',')],
+    enabled: enabled && photoIds.length > 0,
+    staleTime: 20 * 60 * 1000,
+    gcTime: 0,
+    retry: false,
+    queryFn: async () => {
+      const map = new Map<string, string>();
+      for (let i = 0; i < photoIds.length; i += 100) {
+        const page = await signOfficePatientPhotoPage(
+          patientId,
+          { ids: photoIds.slice(i, i + 100), variant },
+          undefined,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        );
+        for (const item of page.urls) map.set(item.id, item.url);
+      }
+      return map;
+    },
+  });
 }
 
 const styles = StyleSheet.create({

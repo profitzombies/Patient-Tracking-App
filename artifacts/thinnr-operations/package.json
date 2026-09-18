@@ -56,6 +56,7 @@
     "test:office-files": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-files.tsx",
     "test:local-time": "TZ=America/New_York tsx scripts/verify-local-time.ts && TZ=America/Los_Angeles tsx scripts/verify-local-time.ts && TZ=UTC tsx scripts/verify-local-time.ts && TZ=Asia/Tokyo tsx scripts/verify-local-time.ts",
     "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx",
+    "test:photo-pages": "TZ=UTC tsx --tsconfig tsconfig.photo-pages.json scripts/verify-photo-pages.tsx",
     "test:app-usage": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-app-usage.tsx"
   },
   "devDependencies": {

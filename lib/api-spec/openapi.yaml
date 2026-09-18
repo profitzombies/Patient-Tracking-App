@@ -1420,6 +1420,59 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: No patient record found for this office }
+  /office/patients/{patientId}/photos/urls:
+    post:
+      operationId: signOfficePatientPhotoPage
+      tags: [office]
+      summary: Sign a page of one patient's progress photos in a single call
+      description: >-
+        Returns short-lived signed URLs for up to 100 progress photos of one
+        patient at the requested display size (thumb for grids, medium for the
+        viewer, original for downloads). Each entry reports the size actually
+        signed: a photo whose variant is not generated yet comes back as its
+        original. Same scope rules and neutral 404 as the record read; photos
+        not on this patient's grid are simply absent from the response.
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string }
+                variant:
+                  $ref: "#/components/schemas/PhotoSize"
+      responses:
+        "200":
+          description: Signed URLs for the photos found on the patient's grid
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [urls, expiresAt]
+                properties:
+                  expiresAt: { type: string, format: date-time }
+                  urls:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, url, size]
+                      properties:
+                        id: { type: string }
+                        url: { type: string }
+                        size: { $ref: "#/components/schemas/PhotoSize" }
+        "400": { description: "Bad page (empty, over 100, unknown size) or missing HQ office" }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: No patient record found for this office }
   /office/patients/{patientId}/follow-ups/{reason}:
     put:
       operationId: updateOfficePatientFollowUp
@@ -2692,6 +2745,15 @@ components:
       type: http
       scheme: bearer
   schemas:
+    PhotoSize:
+      type: string
+      enum: [thumb, medium, original]
+      description: >-
+        Display size of a patient photo. thumb (~320 px) for grids and chat
+        previews, medium (~1024 px) for tap-in views, original for downloads
+        and exports. Variants are derived at upload and backfilled for older
+        photos; a request for a variant that does not exist yet is served as
+        the original.
     BloodworkAccessError:
       type: object
       required: [error]

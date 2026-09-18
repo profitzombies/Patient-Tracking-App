@@ -734,7 +734,8 @@ describe("POST /patient-data/photos — deletes", () => {
     expect(backend.removeRpcCalls).toBe(1);
     expect(backend.tables.patient_progress_photos).toHaveLength(0);
     expect(backend.tables.patient_media).toHaveLength(0);
-    expect(storageState.deleted).toEqual([path]);
+    // The original AND both display variants go in one delete.
+    expect(storageState.deleted).toEqual([path, `${path}.thumb`, `${path}.medium`]);
 
     const state = await fetchState("tok-1");
     expect(state.photos).toEqual([]);

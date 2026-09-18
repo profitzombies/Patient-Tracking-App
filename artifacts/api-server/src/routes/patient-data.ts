@@ -51,7 +51,7 @@ import { createLimiter, envLimit } from "../coach/limits";
 import { openIdempotentWrite } from "../lib/idempotency";
 import { clientIp } from "../auth/ledger";
 import { isOwnPatientMediaPath, PATIENT_MEDIA_PREFIX } from "./patient-media";
-import { objectStorage } from "../lib/objectStorage";
+import { deletePhotoWithVariants } from "../lib/photo-variants";
 import { firstNameOf, programDayFor } from "../coach/real-patient";
 import crypto from "node:crypto";
 import { normalizeIdentifier } from "../claim/normalize";
@@ -2116,7 +2116,8 @@ router.post("/patient-data/photos", async (req, res) => {
         : [];
       for (const objectPath of paths) {
         try {
-          await objectStorage.deleteObjectStrict(objectPath);
+          // The original AND its display variants go together.
+          await deletePhotoWithVariants(objectPath);
         } catch (error) {
           req.log?.warn({ err: error, objectPath }, "progress photo byte delete failed");
         }

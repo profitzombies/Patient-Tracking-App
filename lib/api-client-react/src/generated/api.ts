@@ -196,6 +196,9 @@ import type {
   SearchHqFilesParams,
   SearchOfficeFilesParams,
   SetOfficeConversationStatusParams,
+  SignOfficePatientPhotoPage200,
+  SignOfficePatientPhotoPageBody,
+  SignOfficePatientPhotoPageParams,
   SupportChatInput,
   SystemHealthResult,
   SystemJobRunResult,
@@ -4597,6 +4600,88 @@ export function useGetOfficePatientRecord<TData = Awaited<ReturnType<typeof getO
 
 
 
+
+export const getSignOfficePatientPhotoPageUrl = (patientId: string,
+    params?: SignOfficePatientPhotoPageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/photos/urls?${stringifiedParams}` : `/api/office/patients/${patientId}/photos/urls`
+}
+
+/**
+ * Returns short-lived signed URLs for up to 100 progress photos of one patient at the requested display size (thumb for grids, medium for the viewer, original for downloads). Each entry reports the size actually signed: a photo whose variant is not generated yet comes back as its original. Same scope rules and neutral 404 as the record read; photos not on this patient's grid are simply absent from the response.
+ * @summary Sign a page of one patient's progress photos in a single call
+ */
+export const signOfficePatientPhotoPage = async (patientId: string,
+    signOfficePatientPhotoPageBody: SignOfficePatientPhotoPageBody,
+    params?: SignOfficePatientPhotoPageParams, options?: Parameters<typeof customFetch>[1]): Promise<SignOfficePatientPhotoPage200> => {
+
+  return customFetch<SignOfficePatientPhotoPage200>(getSignOfficePatientPhotoPageUrl(patientId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(signOfficePatientPhotoPageBody)
+  }
+);}
+
+
+
+
+
+export const getSignOfficePatientPhotoPageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signOfficePatientPhotoPage>>, TError,{patientId: string;data: BodyType<SignOfficePatientPhotoPageBody>;params?: SignOfficePatientPhotoPageParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof signOfficePatientPhotoPage>>, TError,{patientId: string;data: BodyType<SignOfficePatientPhotoPageBody>;params?: SignOfficePatientPhotoPageParams}, TContext> => {
+
+const mutationKey = ['signOfficePatientPhotoPage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof signOfficePatientPhotoPage>>, {patientId: string;data: BodyType<SignOfficePatientPhotoPageBody>;params?: SignOfficePatientPhotoPageParams}> = (props) => {
+          const {patientId,data,params} = props ?? {};
+
+          return  signOfficePatientPhotoPage(patientId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SignOfficePatientPhotoPageMutationResult = NonNullable<Awaited<ReturnType<typeof signOfficePatientPhotoPage>>>
+    export type SignOfficePatientPhotoPageMutationBody = BodyType<SignOfficePatientPhotoPageBody>
+    export type SignOfficePatientPhotoPageMutationError = ErrorType<void>
+
+    /**
+ * @summary Sign a page of one patient's progress photos in a single call
+ */
+export const useSignOfficePatientPhotoPage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signOfficePatientPhotoPage>>, TError,{patientId: string;data: BodyType<SignOfficePatientPhotoPageBody>;params?: SignOfficePatientPhotoPageParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof signOfficePatientPhotoPage>>,
+        TError,
+        {patientId: string;data: BodyType<SignOfficePatientPhotoPageBody>;params?: SignOfficePatientPhotoPageParams},
+        TContext
+      > => {
+      return useMutation(getSignOfficePatientPhotoPageMutationOptions(options));
+    }
 
 export const getUpdateOfficePatientFollowUpUrl = (patientId: string,
     reason: 'no_activity_14d' | 'logging_lapsed' | 'check_in_overdue',

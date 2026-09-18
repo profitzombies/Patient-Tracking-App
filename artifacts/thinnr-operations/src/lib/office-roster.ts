@@ -431,6 +431,7 @@ export async function fetchOfficePatient(patientId: string, office?: string | nu
   );
 }
 
+export type OfficePhotoSize = 'thumb' | 'medium' | 'original';
 export interface OfficePatientMedications {
   medications: MedicationRecord[];
   doseLogs: DoseLogRecord[];
@@ -823,4 +824,41 @@ export interface LeaderboardParams {
   office: string | null;
   period: LeaderboardPeriod;
   stage: LeaderboardStage;
+}
+
+export interface OfficePhotoPage {
+  urls: Array<{ id: string; url: string; size: OfficePhotoSize }>;
+  expiresAt: string;
+}
+
+/** Server ceiling per page-signing call; longer lists are split. */
+export const OFFICE_PHOTO_PAGE_MAX = 100;
+
+/**
+ * One call signs a page of a patient's progress photos at a display size
+ * (thumb for the grid, medium for the viewer). Each entry reports the size
+ * actually signed — a photo whose variant is not generated yet comes back as
+ * its original. Ids missing from the answer are not on this patient's grid.
+ */
+export async function fetchOfficePatientPhotoPage(
+  patientId: string,
+  ids: readonly string[],
+  variant: OfficePhotoSize,
+  office?: string | null,
+): Promise<Map<string, { url: string; size: OfficePhotoSize }>> {
+  const urls = new Map<string, { url: string; size: OfficePhotoSize }>();
+  for (let i = 0; i < ids.length; i += OFFICE_PHOTO_PAGE_MAX) {
+    const page = await request<OfficePhotoPage>(patientPath(patientId, '/photos/urls', office), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids.slice(i, i + OFFICE_PHOTO_PAGE_MAX), variant }),
+    });
+    if (!page || !Array.isArray(page.urls)) throw new Error('Photo page returned an unexpected response');
+    for (const item of page.urls) {
+      if (typeof item?.id !== 'string' || typeof item.url !== 'string') continue;
+      const size: OfficePhotoSize = item.size === 'thumb' || item.size === 'medium' ? item.size : 'original';
+      urls.set(item.id, { url: item.url, size });
+    }
+  }
+  return urls;
 }

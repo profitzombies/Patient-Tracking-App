@@ -208,6 +208,18 @@ args = "patients-badge"
 task = "workflow.run"
 args = "polite-pollers-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "photo-pages-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "photo-pages-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "photo-pages-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1901,6 +1913,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:exports && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "photo-pages-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-media.test.ts src/routes/patient-progress.test.ts src/routes/office-roster.test.ts src/jobs/definitions/reconcile-storage.test.ts src/jobs/definitions/photo-variants-backfill.test.ts src/jobs/definitions/retention.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "photo-pages-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:photo-pages && pnpm --filter @workspace/thinnr-mobile run test:guided-photos && pnpm --filter @workspace/thinnr-mobile run test:photo-remove && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "photo-pages-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:photo-pages && pnpm --filter @workspace/thinnr-operations run test:body-measurements && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

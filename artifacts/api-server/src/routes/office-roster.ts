@@ -33,6 +33,7 @@ import {
 import { effectiveProviderCode, normalizeUsPhone } from "./provider-accounts";
 import { objectStorage } from "../lib/objectStorage";
 import { isOwnPatientMediaPath } from "./patient-media";
+import { isPhotoSize, resolvePhotoObjectPath, type PhotoSize } from "../lib/photo-variants";
 import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
@@ -879,6 +880,88 @@ const InviteInput = z.object({
     .email("Enter a valid email address."),
   phone: z.string().trim().min(1, "Phone number is required.").max(40, "Enter a valid 10-digit US mobile number."),
   office: z.string().trim().max(120).optional(),
+});
+
+/** Most progress photos one staff page-signing call covers. */
+export const OFFICE_PHOTO_PAGE_MAX = 100;
+
+/**
+ * POST /office/patients/:id/photos/urls  { ids: string[], variant?: size }
+ *
+ * One call signs a page of a patient's progress photos at the asked size —
+ * thumbnails for the grid, medium for the viewer. Same scope as the record
+ * read (office membership or HQ provider_read with ?office=); only photos
+ * on THIS patient's grid within THIS office are signed, and each entry says
+ * which size was actually signed (original until the variant is backfilled).
+ * The record DTO's own `url` stays the original for downloads.
+ */
+router.post("/office/patients/:id/photos/urls", async (req, res) => {
+  try {
+    const resolved = await resolveOfficeScope({
+      authorization: req.headers.authorization,
+      explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
+      hqPermission: "provider_read",
+      requireUnlocked: false,
+    });
+    if (resolved.kind !== "ok") {
+      respondOfficeScopeDenied(req, res, resolved);
+      return;
+    }
+    const scope = resolved.scope;
+    const patientId = String(req.params.id ?? "");
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 80) : [];
+    if (ids.length === 0 || ids.length > OFFICE_PHOTO_PAGE_MAX || ids.length !== (body.ids as unknown[]).length) {
+      res.status(400).json({ error: `Send between 1 and ${OFFICE_PHOTO_PAGE_MAX} photo ids.` });
+      return;
+    }
+    const size: PhotoSize | null = body.variant === undefined || body.variant === "" ? "original" : isPhotoSize(body.variant) ? body.variant : null;
+    if (size === null) {
+      res.status(400).json({ error: "Unknown photo size." });
+      return;
+    }
+    const found = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=id&limit=1`,
+    );
+    if (found.status >= 300) throw new Error(`patient record lookup failed (${found.status})`);
+    if (!Array.isArray(found.json) || found.json.length === 0) {
+      res.status(404).json({ error: RECORD_NOT_FOUND });
+      return;
+    }
+    const wanted = new Set(ids);
+    const idList = [...wanted].map((id) => `"${id.replace(/"/g, '\\"')}"`).join(",");
+    const photos = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patient_progress_photos?patient_id=eq.${enc(patientId)}&photo_id=in.(${enc(idList)})` +
+        `&select=photo_id,object_path&limit=${OFFICE_PHOTO_PAGE_MAX}`,
+    );
+    if (photos.status >= 300 || !Array.isArray(photos.json)) throw new Error(`progress photo lookup failed (${photos.status})`);
+    const rows = (photos.json as Array<{ photo_id: string; object_path: unknown }>)
+      .filter((row) => wanted.has(row.photo_id) && typeof row.object_path === "string" && isOwnPatientMediaPath(row.object_path, patientId)) as Array<{ photo_id: string; object_path: string }>;
+    const variantsByPath = new Map<string, unknown>();
+    if (rows.length > 0 && size !== "original") {
+      const pathList = rows.map((row) => `"${row.object_path.replace(/"/g, '\\"')}"`).join(",");
+      const ledger = await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_media?patient_id=eq.${enc(patientId)}&object_path=in.(${enc(pathList)})` +
+          `&select=object_path,variants&limit=${OFFICE_PHOTO_PAGE_MAX}`,
+      );
+      if (ledger.status >= 300 || !Array.isArray(ledger.json)) throw new Error(`patient media lookup failed (${ledger.status})`);
+      for (const row of ledger.json as Array<{ object_path: string; variants: unknown }>) variantsByPath.set(row.object_path, row.variants);
+    }
+    const expiresAt = new Date(Date.now() + STAFF_PHOTO_TTL_SEC * 1000).toISOString();
+    const urls: Array<{ id: string; url: string; size: PhotoSize }> = [];
+    for (const row of rows) {
+      const target = resolvePhotoObjectPath(row.object_path, size, variantsByPath.get(row.object_path));
+      urls.push({ id: row.photo_id, url: await objectStorage.signedDownloadURL(target.objectPath, STAFF_PHOTO_TTL_SEC), size: target.size });
+    }
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({ urls, expiresAt });
+  } catch (error) {
+    req.log?.error({ err: error }, "office photo page signing failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
 });
 
 router.post("/office/invitations", async (req, res) => {

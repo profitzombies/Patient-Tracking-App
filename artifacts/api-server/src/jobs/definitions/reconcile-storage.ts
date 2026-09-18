@@ -12,8 +12,15 @@
  * food/recipe photos, training attachments) are counted and logged, never
  * silently ignored. The training clean-up queue is a reference (pending
  * delete), not a ledger to flag.
+ *
+ * Photo display variants (`<original>.thumb` / `<original>.medium`, see
+ * lib/photo-variants) have no ledger row of their own: a variant object is
+ * owned exactly when its ORIGINAL is on a ledger, and a patient_media row
+ * that records a variant whose object is gone has that entry cleared so
+ * readers fall back to the original instead of a broken image.
  */
 import { objectStorage, type StoredObjectSummary } from "../../lib/objectStorage";
+import { availableVariants, parsePhotoVariantPath, photoVariantPath } from "../../lib/photo-variants";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import { envInt } from "../scheduler";
 import type { JobContext, JobDefinition } from "../types";
@@ -99,6 +106,67 @@ export async function loadLedger(prefix: string): Promise<Map<string, LedgerEntr
   return ledger;
 }
 
+/**
+ * Whether a stored object is referenced: by a ledger row of its own, or —
+ * for a photo display variant — by its original's ledger row.
+ */
+export function isReferencedObject(path: string, ledger: Map<string, LedgerEntry>): boolean {
+  if (ledger.has(path)) return true;
+  const variant = parsePhotoVariantPath(path);
+  return variant !== null && ledger.has(variant.originalPath);
+}
+
+const VARIANT_PREFIX = "/objects/patient-media/";
+
+interface VariantRow {
+  object_path: string;
+  variants: unknown;
+}
+
+/**
+ * ledger → storage for variants: patient_media rows that record a variant
+ * whose object is gone lose that entry (the backfill regenerates it later).
+ * Rows are paged by object_path; only rows with something recorded count.
+ */
+export async function reconcileVariantFlags(ctx: JobContext, stored: Map<string, StoredObjectSummary>): Promise<void> {
+  let after = "";
+  for (let page = 0; page < 10_000; page += 1) {
+    ctx.checkpoint();
+    const result = await supabaseAdmin(
+      "GET",
+      "/rest/v1/patient_media?select=object_path,variants&variants=neq.{}" +
+        `&object_path=gt.${enc(after)}&order=object_path.asc&limit=${LEDGER_PAGE}`,
+    );
+    if (result.status >= 300 || !Array.isArray(result.json)) {
+      throw new Error(`patient media variant read failed (${result.status})`);
+    }
+    const rows = result.json as VariantRow[];
+    for (const row of rows) {
+      ctx.checkpoint();
+      const recorded = availableVariants(row.variants);
+      const present = recorded.filter((variant) => stored.has(photoVariantPath(row.object_path, variant)));
+      if (present.length === recorded.length) continue;
+      if (ctx.dryRun) {
+        ctx.tally("variantsMissingFound", recorded.length - present.length);
+        continue;
+      }
+      const patch = await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patient_media?object_path=eq.${enc(row.object_path)}`,
+        { variants: present },
+        "return=minimal",
+      );
+      if (patch.status >= 300) {
+        ctx.failItem(`variants:${row.object_path}`, new Error(`variant flag update failed (${patch.status})`));
+        continue;
+      }
+      ctx.tally("variantsMissingCleared", recorded.length - present.length);
+    }
+    if (rows.length < LEDGER_PAGE) break;
+    after = rows[rows.length - 1].object_path;
+  }
+}
+
 function chunks<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -143,8 +211,9 @@ export async function reconcilePrefix(ctx: JobContext, prefix: string): Promise<
 
   // storage → ledger: orphans
   const graceCutoff = ctx.now.getTime() - orphanGraceMs();
-  const candidates = objects.filter((o) => !ledger.has(o.path) && o.createdAt !== null && o.createdAt.getTime() <= graceCutoff);
-  ctx.tally("orphanYoung", objects.filter((o) => !ledger.has(o.path)).length - candidates.length);
+  const unreferenced = objects.filter((o) => !isReferencedObject(o.path, ledger));
+  const candidates = unreferenced.filter((o) => o.createdAt !== null && o.createdAt.getTime() <= graceCutoff);
+  ctx.tally("orphanYoung", unreferenced.length - candidates.length);
   const protectedPaths = candidates.length > 0 ? await liveIntents(candidates.map((o) => o.path)) : new Set<string>();
   for (const orphan of candidates) {
     ctx.checkpoint();
@@ -186,6 +255,13 @@ export async function reconcilePrefix(ctx: JobContext, prefix: string): Promise<
   if (unflaggable.length > 0) {
     ctx.tally("missingUnflaggable", unflaggable.length);
     ctx.log("missing_objects_without_flag", { prefix, sample: unflaggable.slice(0, 20), total: unflaggable.length });
+  }
+  if (prefix === VARIANT_PREFIX) {
+    try {
+      await reconcileVariantFlags(ctx, stored);
+    } catch (error) {
+      ctx.failItem(`variants:${prefix}`, error);
+    }
   }
   if (ctx.dryRun) {
     ctx.tally("missingFound", newlyMissing.length);

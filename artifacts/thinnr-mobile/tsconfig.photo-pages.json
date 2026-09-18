@@ -1,0 +1,10 @@
+{
+  // tsx config for scripts/verify-photo-pages.ts ONLY (not part of typecheck).
+  //
+  // Renders the REAL Progress screen under Node to prove the one-call photo
+  // page path: thumbnails signed as one page, per-photo fallback until it
+  // lands or when it fails, medium signed only once the viewer opens. The
+  // Progress screen pulls the guided-session libs, so this reuses the
+  // guided-photos stub map verbatim.
+  "extends": "./tsconfig.guided-photos.json"
+}

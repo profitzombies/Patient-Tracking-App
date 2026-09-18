@@ -19,6 +19,11 @@ export function setPatientMediaToken(token: string | null): void {
   mediaReadToken = token;
 }
 
+/** The held token, for request bodies that carry it (photo page signing). */
+export function currentMediaToken(): string | null {
+  return mediaReadToken;
+}
+
 /** Append the current token to a /patient-media/file URL, when one is held. */
 export function appendMediaToken(url: string): string {
   return mediaReadToken ? `${url}&mt=${encodeURIComponent(mediaReadToken)}` : url;

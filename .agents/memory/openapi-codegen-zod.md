@@ -22,3 +22,8 @@ Using `type: integer` in the OpenAPI spec makes orval v8 emit `zod.int()` — a 
 **How to apply:** keep a narrowly asserted post-codegen rename for the query type, fail the codegen step if the expected generated declaration is absent, and finish with the root library typecheck.
 
 **The collision fix is an allow-list, not automatic.** Every NEW operation that has both a path parameter and query parameters must be added to the rename list in `lib/api-spec/fix-zod-parameter-type.mjs`, or codegen fails on the duplicate export. Also: a YAML flow-mapping `description` containing `:` or `|` must be quoted, or the spec silently loses the mapping.
+
+## Also: `format: uri` and inline bodies/params
+- `format: uri` makes orval emit zod-4 `zod.url()` (same break as `type: integer`); use a plain `type: string` for URL fields.
+- Any new operation with an inline request body or query params must be added to `lib/api-spec/fix-zod-parameter-type.mjs` (Params → QueryInput, Body → BodyInput) or the api-zod barrel double-exports the name.
+- A YAML flow-style `{ description: ... }` containing a comma or parenthesis must be quoted; orval's error names the offending path.

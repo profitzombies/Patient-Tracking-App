@@ -47,10 +47,8 @@ import type {
 import { parsePatientProfile } from '@/lib/patient-profile';
 import { apiBase } from '@/lib/coach-api';
 import { decodeBase64 } from '@/lib/base64';
-import {
-  appendMediaToken,
-  setPatientMediaToken as setMediaTokenDirect,
-} from '@/lib/media-token-holder';
+import { setPatientMediaToken as setMediaTokenDirect } from '@/lib/media-token-holder';
+import { photoFileUrl, type PhotoSize } from '@/lib/photo-page-urls';
 import { resolveSessionAccessToken, SessionReconnectingError, supabase } from '@/lib/supabase';
 import type { HealthMeasurement } from '@/lib/device-feature-core';
 import {
@@ -312,11 +310,13 @@ function parseEntry(raw: unknown): MealLogEntry {
 
 export { setPatientMediaToken } from './media-token-holder';
 
-/** Display URL for a stored photo — a token-authorized 302 to a signed URL. */
-export function patientMediaDisplayUrl(objectPath: string): string {
-  return appendMediaToken(
-    `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`,
-  );
+/**
+ * Display URL for a stored photo — a token-authorized 302 to a signed URL,
+ * optionally at a derived size. Screens showing many photos at once should
+ * prefer usePhotoPageUrls (one signed page) and keep this as the fallback.
+ */
+export function patientMediaDisplayUrl(objectPath: string, size?: PhotoSize): string {
+  return photoFileUrl(objectPath, size);
 }
 
 /**
@@ -666,8 +666,9 @@ function parseChatMessage(raw: unknown): ChatWireMessage {
       width: p.width,
       height: p.height,
       // Display URL derived here, at the API seam, so the chat layer never
-      // builds media URLs itself.
-      uri: patientMediaDisplayUrl(p.path),
+      // builds media URLs itself. A chat bubble is a preview, so it asks for
+      // the thumbnail; the chat screen upgrades this to a page-signed URL.
+      uri: patientMediaDisplayUrl(p.path, 'thumb'),
     };
     if (typeof p.kind === 'string' && CHAT_PHOTO_KINDS.has(p.kind)) {
       photo.kind = p.kind as ChatWirePhoto['kind'];

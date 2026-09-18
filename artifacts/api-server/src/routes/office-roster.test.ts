@@ -35,7 +35,7 @@ vi.hoisted(() => {
   process.env.AUTH_INVITE_DAILY_BUDGET = "100000";
 });
 
-import router from "./office-roster";
+import router, { RECORD_NOT_FOUND } from "./office-roster";
 import { ensurePatientAuthUser } from "../auth/session";
 
 type Row = Record<string, unknown>;
@@ -157,6 +157,7 @@ beforeEach(() => {
     patient_custom_foods: [],
     patient_saved_recipes: [],
     patient_progress_photos: [],
+    patient_media: [],
     patient_check_ins: [],
     patient_flags: [],
     patient_provider_notes: [],
@@ -877,6 +878,65 @@ describe("live patient records", () => {
     hqMemberships = [{ department_role: "support", status: "active" }];
     const denied = await api("/office/patients/pat-other?office=office-2", "hq-token");
     expect(denied.status).toBe(403);
+  });
+});
+
+describe("staff photo page signing", () => {
+  const ownId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const own = (slug: string) => `/objects/patient-media/${ownId}/progress-${slug}`;
+  const post = (path: string, token: string, body: unknown) =>
+    api(path, token, { method: "POST", body: JSON.stringify(body) });
+
+  beforeEach(() => {
+    patients[0].id = ownId;
+    patientTables.patient_progress_photos.push(
+      { patient_id: ownId, photo_id: "p-1", date_key: "2026-01-05", label: "Start", angle: "front", object_path: own("11111111") },
+      { patient_id: ownId, photo_id: "p-2", date_key: "2026-01-12", label: "Week 1", angle: "front", object_path: own("22222222") },
+      { patient_id: ownId, photo_id: "p-bad", date_key: "2026-01-12", label: "Bad", angle: "side", object_path: `/objects/patient-media/pat-other/progress-33333333` },
+    );
+    patientTables.patient_media.push(
+      { patient_id: ownId, object_path: own("11111111"), kind: "progress", variants: ["thumb", "medium"] },
+      { patient_id: ownId, object_path: own("22222222"), kind: "progress", variants: [] },
+    );
+  });
+
+  it("signs a page of the patient's own photos at the asked size, falling back per photo to the original", async () => {
+    const res = await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: ["p-1", "p-2", "p-bad", "p-missing"], variant: "thumb" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.urls).toEqual([
+      { id: "p-1", url: `https://signed.test/read?key=${encodeURIComponent(`${own("11111111")}.thumb`)}`, size: "thumb" },
+      { id: "p-2", url: `https://signed.test/read?key=${encodeURIComponent(own("22222222"))}`, size: "original" },
+    ]);
+    expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now());
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    expect(JSON.stringify(body)).not.toContain("object_path");
+  });
+
+  it("serves medium for the viewer and the original when no size is asked", async () => {
+    const medium = (await (await post(`/office/patients/${ownId}/photos/urls`, "member-token", { ids: ["p-1"], variant: "medium" })).json()) as any;
+    expect(medium.urls[0]).toMatchObject({ id: "p-1", size: "medium" });
+    expect(medium.urls[0].url).toContain(encodeURIComponent(".medium"));
+    const original = (await (await post(`/office/patients/${ownId}/photos/urls`, "member-token", { ids: ["p-1"] })).json()) as any;
+    expect(original.urls[0]).toEqual({ id: "p-1", url: `https://signed.test/read?key=${encodeURIComponent(own("11111111"))}`, size: "original" });
+  });
+
+  it("rejects bad pages and unknown sizes", async () => {
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: [], variant: "thumb" })).status).toBe(400);
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: [1, 2] })).status).toBe(400);
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: Array.from({ length: 101 }, (_, i) => `p-${i}`) })).status).toBe(400);
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: ["p-1"], variant: "huge" })).status).toBe(400);
+  });
+
+  it("keeps office isolation and HQ scope rules identical to the record read", async () => {
+    const crossOffice = await post("/office/patients/pat-other/photos/urls", "provider-token", { ids: ["p-1"], variant: "thumb" });
+    expect(crossOffice.status).toBe(404);
+    expect(await crossOffice.json()).toEqual({ error: RECORD_NOT_FOUND });
+    expect((await post("/office/patients/pat-other/photos/urls", "hq-token", { ids: ["p-1"] })).status).toBe(400);
+    expect((await post("/office/patients/pat-other/photos/urls?office=office-2", "hq-token", { ids: ["p-1"] })).status).toBe(200);
+    hqMemberships = [{ department_role: "support", status: "active" }];
+    expect((await post("/office/patients/pat-other/photos/urls?office=office-2", "hq-token", { ids: ["p-1"] })).status).toBe(403);
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "patient-token", { ids: ["p-1"] })).status).toBe(403);
   });
 });
 

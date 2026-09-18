@@ -146,3 +146,4 @@
 - [Patient session persistence](patient-session-persistence.md) — auth-js reports session:null during retryable refresh failures; storage is truth, only SIGNED_OUT signs out; mgmt-API session timeouts are in HOURS.
 - [Patients menu badge](patients-menu-badge.md) — badge shares the roster query (no new poll); flagged = evaluator verdict; pin is URL-only; Shell-in-Node RTR recipe.
 - [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
+- [Photo variants & pages](photo-variants-pages.md) — display is a resolver (page URL else per-photo route at same size); server reports actual signed size; medium signed only on viewer open; set media token after provider mount in suites.

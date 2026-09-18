@@ -1,0 +1,20 @@
+{
+  // tsx config for scripts/verify-photo-pages.tsx ONLY (not part of typecheck).
+  //
+  // Renders the REAL live patient record under react-test-renderer against a
+  // scripted global fetch to prove the progress-photo page path (one signing
+  // call per size, per-photo fallback, medium viewer, original download).
+  // Same stub map as tsconfig.body-measurements.json plus the DOM-free dialog
+  // stand-in, since the viewer is a Radix dialog (portals need a document).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

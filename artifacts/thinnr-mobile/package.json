@@ -44,6 +44,7 @@
     "test:photo-backfill": "tsx scripts/verify-photo-backfill.ts",
     "test:provider-training": "tsx --tsconfig tsconfig.provider-training.json scripts/verify-provider-training.mts",
     "test:photo-remove": "tsx scripts/verify-photo-remove.ts",
+    "test:photo-pages": "tsx --tsconfig tsconfig.photo-pages.json scripts/verify-photo-pages.ts",
     "test:recipe-nutrition": "tsx scripts/verify-recipe-nutrition.ts",
     "test:stall-nudge": "tsx scripts/verify-stall-nudge.ts",
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",

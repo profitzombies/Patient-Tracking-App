@@ -30,7 +30,7 @@
  * under the newest finished meal reply so a bad guess is one tap from a
  * new shot.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -71,6 +71,7 @@ import {
 } from "@/context/CoachChatContext";
 import { isOutreachMessageId } from "@/data/stall-nudge";
 import { createFoodCameraRequest, type FoodCameraCapture } from "@/lib/food-camera";
+import { type PhotoUrlResolver, usePhotoPageUrls } from "@/lib/photo-page-urls";
 import { preparePhotoForUpload, type PreparedPhoto } from "@/lib/photo-prep";
 
 /** Heritage soft shadows as boxShadow strings (shadow* props warn on web). */
@@ -156,6 +157,17 @@ export default function CoachChatScreen() {
     startNewConversation,
   } =
     useCoachChat();
+  // Stored photo bubbles (hydrated turns, whose uri is a server display URL)
+  // are signed as ONE thumbnail page per thread instead of one redirect per
+  // bubble. Photos just taken keep their on-device data URI and never join.
+  const storedPhotoPaths = useMemo(
+    () =>
+      messages.flatMap((message) =>
+        message.photo?.path && !message.photo.uri.startsWith("data:") ? [message.photo.path] : [],
+      ),
+    [messages],
+  );
+  const photoThumbUrl = usePhotoPageUrls(storedPhotoPaths, "thumb");
   // Unknown/denied selections cannot send (including quick replies and photos).
   // A cached transcript remains readable during refresh, but never represents
   // a different selected thread. The provider enforces the same write barrier.
@@ -713,6 +725,7 @@ export default function CoachChatScreen() {
               <MessageBubble
                 message={message}
                 readOnly={Boolean(selectedConversation?.archivedAt)}
+                thumbUrl={photoThumbUrl}
               />
             </View>
           ))}
@@ -1246,7 +1259,16 @@ const STAGE_LINES: Record<CoachStage, string> = {
   reading_label: "Reading the label…",
 };
 
-function MessageBubble({ message, readOnly = false }: { message: CoachMessage; readOnly?: boolean }) {
+function MessageBubble({
+  message,
+  readOnly = false,
+  thumbUrl,
+}: {
+  message: CoachMessage;
+  readOnly?: boolean;
+  /** Page-signed thumbnail resolver for stored photos (falls back per photo). */
+  thumbUrl: PhotoUrlResolver;
+}) {
   const colors = useColors();
   const { isStreaming, pendingStage, retry, selectedConversation } = useCoachChat();
   const isUser = message.role === "user";
@@ -1301,7 +1323,12 @@ function MessageBubble({ message, readOnly = false }: { message: CoachMessage; r
           ]}
         >
           <Image
-            source={{ uri: message.photo.uri }}
+            source={{
+              uri:
+                message.photo.path && !message.photo.uri.startsWith("data:")
+                  ? thumbUrl(message.photo.path)
+                  : message.photo.uri,
+            }}
             style={[
               styles.bubblePhoto,
               {

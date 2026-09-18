@@ -22,8 +22,7 @@
  * records the grid row. Offline devices skip the upload attempt outright.
  */
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { apiBase } from './coach-api';
-import { appendMediaToken } from './media-token-holder';
+import { photoFileUrl, type PhotoSize } from './photo-page-urls';
 import { preparePhotoForUpload } from './photo-prep';
 import type { GuidedAngle, GuidedShot } from './guided-photos';
 import { isOnline } from './connectivity';
@@ -61,19 +60,12 @@ export type ProgressPhotoUploader = (
 ) => Promise<{ photoPath: string }>;
 
 /**
- * Grid display URL for a stored shot — resolved at render, never persisted.
- * Account photos live on the per-patient media rail; anything else is a
- * legacy object from the retired anonymous rail, still served read-only.
+ * Per-photo display URL for a stored shot — resolved at render, never
+ * persisted. The grid prefers a one-call signed page (usePhotoPageUrls)
+ * and uses this as its fallback; `size` asks for a derived variant.
  */
-export function progressPhotoDisplayUrl(objectPath: string): string {
-  if (objectPath.startsWith('/objects/patient-media/')) {
-    // Account media reads are token-authorized — append the patient's
-    // media token minted at hydration (absent for demo/seeded content).
-    return appendMediaToken(
-      `${apiBase()}/patient-media/file?path=${encodeURIComponent(objectPath)}`,
-    );
-  }
-  return `${apiBase()}/progress-photos/file?path=${encodeURIComponent(objectPath)}`;
+export function progressPhotoDisplayUrl(objectPath: string, size?: PhotoSize): string {
+  return photoFileUrl(objectPath, size);
 }
 
 /**

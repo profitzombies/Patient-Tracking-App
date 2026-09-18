@@ -33,10 +33,26 @@ function ctx(dryRun = false) {
 }
 
 interface LedgerRow { object_path: string; source: string; missing: boolean }
+interface VariantRow { object_path: string; variants: string[] }
 
-function fakeAdmin(ledger: LedgerRow[], intents: string[] = []) {
+function fakeAdmin(ledger: LedgerRow[], intents: string[] = [], variantRows: VariantRow[] = []) {
   const flagged: Array<{ paths: string[]; missing: boolean }> = [];
+  const variantPatches: Array<{ path: string; variants: string[] }> = [];
   mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
+    if (method === "GET" && path.startsWith("/rest/v1/patient_media?select=object_path,variants")) {
+      const after = decodeURIComponent(path.split("object_path=gt.")[1].split("&")[0]);
+      const limit = Number(path.split("limit=")[1]);
+      const rows = variantRows
+        .filter((r) => r.variants.length > 0 && r.object_path > after)
+        .sort((a, b) => a.object_path.localeCompare(b.object_path))
+        .slice(0, limit);
+      return { status: 200, json: rows };
+    }
+    if (method === "PATCH" && path.startsWith("/rest/v1/patient_media?object_path=eq.")) {
+      const target = decodeURIComponent(path.split("object_path=eq.")[1]);
+      variantPatches.push({ path: target, variants: body?.variants as string[] });
+      return { status: 204, json: null };
+    }
     if (path === "/rest/v1/rpc/storage_ledger_paths") {
       const prefix = body?.p_prefix as string;
       const after = (body?.p_after as string | null) ?? "";
@@ -58,7 +74,7 @@ function fakeAdmin(ledger: LedgerRow[], intents: string[] = []) {
     }
     throw new Error(`unexpected ${method} ${path}`);
   });
-  return { flagged };
+  return { flagged, variantPatches };
 }
 
 const PM = "/objects/patient-media/";
@@ -122,6 +138,68 @@ describe("storage reconciliation", () => {
     expect(counts).toMatchObject({ objects: 5, ledgerRows: 1, orphansDeleted: 1, orphanYoung: 2, orphanPendingUpload: 1 });
     expect(flagged).toEqual([]);
     expect(failures).toEqual([]);
+  });
+
+  it("treats photo variants as owned by their original: kept while the original is on a ledger, orphans otherwise", async () => {
+    fakeAdmin([{ object_path: `${PM}p1/progress-kept`, source: "patient_media", missing: false }]);
+    mocks.listObjects.mockResolvedValue([
+      { path: `${PM}p1/progress-kept`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-kept.thumb`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-kept.medium`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-gone.thumb`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-gone.medium`, createdAt: daysAgo(10), sizeBytes: 1 },
+    ]);
+    const { c, counts, failures } = ctx();
+    await reconcilePrefix(c, PM);
+    expect(mocks.deleteObjectStrict.mock.calls.map((call) => call[0]).sort()).toEqual([
+      `${PM}p1/progress-gone.medium`,
+      `${PM}p1/progress-gone.thumb`,
+    ]);
+    expect(counts).toMatchObject({ objects: 5, orphansDeleted: 2, orphanYoung: 0 });
+    expect(failures).toEqual([]);
+  });
+
+  it("clears recorded variants whose object is gone and leaves complete rows alone", async () => {
+    const { variantPatches } = fakeAdmin(
+      [
+        { object_path: `${PM}p1/progress-a`, source: "patient_media", missing: false },
+        { object_path: `${PM}p1/progress-b`, source: "patient_media", missing: false },
+        { object_path: `${PM}p1/progress-c`, source: "patient_media", missing: false },
+      ],
+      [],
+      [
+        { object_path: `${PM}p1/progress-a`, variants: ["thumb", "medium"] },
+        { object_path: `${PM}p1/progress-b`, variants: ["thumb", "medium"] },
+        { object_path: `${PM}p1/progress-c`, variants: [] },
+      ],
+    );
+    mocks.listObjects.mockResolvedValue([
+      { path: `${PM}p1/progress-a`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-a.thumb`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-a.medium`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-b`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-b.thumb`, createdAt: daysAgo(10), sizeBytes: 1 },
+      { path: `${PM}p1/progress-c`, createdAt: daysAgo(10), sizeBytes: 1 },
+    ]);
+    const { c, counts, failures } = ctx();
+    await reconcilePrefix(c, PM);
+    expect(variantPatches).toEqual([{ path: `${PM}p1/progress-b`, variants: ["thumb"] }]);
+    expect(counts).toMatchObject({ variantsMissingCleared: 1 });
+    expect(mocks.deleteObjectStrict).not.toHaveBeenCalled();
+    expect(failures).toEqual([]);
+  });
+
+  it("dry run counts stale variant entries without patching rows", async () => {
+    const { variantPatches } = fakeAdmin(
+      [{ object_path: `${PM}p1/progress-b`, source: "patient_media", missing: false }],
+      [],
+      [{ object_path: `${PM}p1/progress-b`, variants: ["thumb", "medium"] }],
+    );
+    mocks.listObjects.mockResolvedValue([{ path: `${PM}p1/progress-b`, createdAt: daysAgo(10), sizeBytes: 1 }]);
+    const { c, counts } = ctx(true);
+    await reconcilePrefix(c, PM);
+    expect(variantPatches).toEqual([]);
+    expect(counts).toMatchObject({ variantsMissingFound: 2 });
   });
 
   it("flags ledger rows whose object is gone, skips already-flagged ones, and unflags recovered ones", async () => {

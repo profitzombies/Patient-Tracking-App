@@ -5,7 +5,15 @@
  * inside the chart's goal reference.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Image as RNImage,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
@@ -18,13 +26,14 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { PatientWeightChart } from '@/components/patient/PatientWeightChart';
 import { PendingDot } from '@/components/patient/PendingDot';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
+import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { PROGRESS_UNDO_WINDOW_MS, usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
+import { usePhotoPageUrls } from '@/lib/photo-page-urls';
 import { preparePhotoForUpload } from '@/lib/photo-prep';
-import { progressPhotoDisplayUrl } from '@/lib/progress-photo-upload';
 import { photoDisplayLabels, type RemovedProgressPhoto } from '@/data/progress-photo-state';
 import {
   ENROLLMENT_DAYS,
@@ -45,6 +54,18 @@ export default function ProgressScreen() {
   // and keeps the seeded enrollment figure, byte-identical.
   const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
   const [photoError, setPhotoError] = useState('');
+  // Stored account photos are signed as ONE page per size: thumbnails for
+  // the grid up front, medium only once the viewer opens (so a patient who
+  // never taps in never pays for the larger files). Until a page lands —
+  // or if it fails — each photo falls back to its own file route at the
+  // same size, so the grid always renders.
+  const storedPaths = useMemo(
+    () => patient.photos.flatMap(photo => (photo.objectPath ? [photo.objectPath] : [])),
+    [patient.photos],
+  );
+  const thumbUrl = usePhotoPageUrls(storedPaths, 'thumb');
+  const [viewer, setViewer] = useState<{ open: boolean; index: number }>({ open: false, index: 0 });
+  const mediumUrl = usePhotoPageUrls(viewer.open ? storedPaths : NO_PATHS, 'medium');
   // One snackbar slot for the last removed photo, mirroring the diary's undo
   // notice. A fresh object per removal restarts the auto-dismiss timer; once
   // the window lapses the removal is committed for good (for a real account
@@ -181,6 +202,27 @@ export default function ProgressScreen() {
   // displayed list, so removing a duplicate heals the numbering.
   const displayLabels = useMemo(() => photoDisplayLabels(patient.photos), [patient.photos]);
 
+  const viewerPhotos = useMemo<LightboxPhoto[]>(
+    () =>
+      patient.photos.map(photo => {
+        const label = displayLabels.get(photo.id) ?? photo.label;
+        const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
+        const uri =
+          photo.source === 'seed'
+            ? RNImage.resolveAssetSource(PROGRESS_IMAGES[photo.id]).uri
+            : photo.objectPath
+              ? mediumUrl(photo.objectPath)
+              : photo.uri ?? '';
+        return {
+          key: photo.id,
+          uri,
+          label,
+          caption: `${formatDateKey(photo.dateKey)}${seedWeight !== null ? ` · ${seedWeight.toFixed(1)} lbs` : ''}`,
+        };
+      }),
+    [patient.photos, displayLabels, mediumUrl],
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <PatientHeader title="Progress" subtitle={`DAY ${programDay} OF YOUR PROGRAM`} />
@@ -248,18 +290,25 @@ export default function ProgressScreen() {
           <Text style={[styles.photoError, { color: colors.riskText }]}>{photoError}</Text>
         ) : null}
         <View style={styles.photoGrid}>
-          {patient.photos.map(photo => {
+          {patient.photos.map((photo, index) => {
             const source =
               photo.source === 'seed'
                 ? PROGRESS_IMAGES[photo.id]
                 : photo.objectPath
-                  ? { uri: progressPhotoDisplayUrl(photo.objectPath) }
+                  ? { uri: thumbUrl(photo.objectPath) }
                   : { uri: photo.uri };
             const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
             const label = displayLabels.get(photo.id) ?? photo.label;
             return (
               <LedgerCard key={photo.id} style={styles.photoCard}>
-                <Image source={source} style={styles.photoImage} contentFit="cover" transition={120} />
+                <Pressable
+                  testID={`photo-open-${photo.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${label} photo`}
+                  onPress={() => setViewer({ open: true, index })}
+                >
+                  <Image source={source} style={styles.photoImage} contentFit="cover" transition={120} />
+                </Pressable>
                 {/* Only photos the patient added can be removed — seed milestones stay. */}
                 {photo.source === 'user' && (
                   <Pressable
@@ -331,6 +380,15 @@ export default function ProgressScreen() {
         <SyntheticDisclaimer />
       </ScrollView>
 
+      {/* Tap-in viewer: the same photos at medium size, one signed page. */}
+      <PhotoLightbox
+        visible={viewer.open}
+        photos={viewerPhotos}
+        index={viewer.index}
+        onIndexChange={index => setViewer({ open: true, index })}
+        onClose={() => setViewer(current => ({ ...current, open: false }))}
+      />
+
       {/* ── Transient undo notice (floats above the tab bar) ── */}
       {removedNotice && (
         <Snackbar
@@ -353,6 +411,9 @@ export default function ProgressScreen() {
     </View>
   );
 }
+
+/** Stable empty list so the medium page hook stays idle until the viewer opens. */
+const NO_PATHS: string[] = [];
 
 // Matches the diary snackbar's undo window, so delete/undo feels the same
 // everywhere.

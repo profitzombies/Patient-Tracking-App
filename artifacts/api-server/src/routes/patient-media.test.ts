@@ -13,6 +13,7 @@
 import express from "express";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import sharp from "sharp";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 import {
@@ -27,12 +28,17 @@ const OTHER_ID = "87654321-4321-4321-8321-cba987654321";
 const MINTED_ID = "11111111-1111-4111-8111-111111111111";
 const FOOD_PATH = `/objects/patient-media/${PATIENT_ID}/food-${MINTED_ID}`;
 const RECIPE_PATH = `/objects/patient-media/${PATIENT_ID}/recipe-${MINTED_ID}`;
+const PROGRESS_PATH = `/objects/patient-media/${PATIENT_ID}/progress-${MINTED_ID}`;
+const CHAT_PATH = `/objects/patient-media/${PATIENT_ID}/chat-${MINTED_ID}`;
 
 const state = vi.hoisted(() => ({
   uploadedSize: 4321,
+  /** Full stored bytes (what a variant render decodes); null = zero-filled. */
+  uploadedBytes: null as Buffer | null,
   detectedType: "image/jpeg" as string | null,
   entityMissing: false,
   deleted: [] as string[],
+  saved: [] as Array<{ path: string; contentType: string; bytes: Buffer }>,
   metadataSet: [] as Array<Record<string, unknown>>,
   minted: [] as Array<{ patientId: string; kind: string; uploadId?: string }>,
   downloadRanges: [] as Array<{ start?: number; end?: number }>,
@@ -66,9 +72,13 @@ vi.mock("../lib/objectStorage", () => {
           }),
           download: vi.fn(async (options?: { start?: number; end?: number }) => {
             state.downloadRanges.push({ start: options?.start, end: options?.end });
+            if (options === undefined && state.uploadedBytes) return [state.uploadedBytes];
             return [Buffer.alloc(Math.min(state.uploadedSize, 4096))];
           }),
         };
+      }),
+      saveBuffer: vi.fn(async (path: string, bytes: Buffer, contentType: string) => {
+        state.saved.push({ path, contentType, bytes });
       }),
       signedDownloadURL: vi.fn(
         async (path: string, ttlSec: number) => `https://storage.test${path}?ttl=${ttlSec}`,
@@ -137,12 +147,15 @@ function fakeSupabase(href: string, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/patient_media" && method === "GET") {
     if (fake.failLedger) return json(500, { message: "fake ledger failure" });
     const pid = (url.searchParams.get("patient_id") ?? "").replace(/^eq\./, "");
-    const path = (url.searchParams.get("object_path") ?? "").replace(/^eq\./, "");
+    const filter = url.searchParams.get("object_path") ?? "";
+    const wanted = filter.startsWith("in.(")
+      ? new Set([...filter.slice(4, -1).matchAll(/"([^"]+)"/g)].map(m => m[1]))
+      : new Set([filter.replace(/^eq\./, "")]);
     return json(
       200,
       fake.mediaRows
-        .filter(r => r.patient_id === pid && r.object_path === path)
-        .map(r => ({ object_path: r.object_path })),
+        .filter(r => r.patient_id === pid && wanted.has(String(r.object_path)))
+        .map(r => ({ object_path: r.object_path, variants: r.variants ?? [] })),
     );
   }
   if (url.pathname === "/rest/v1/patient_media" && method === "POST") {
@@ -215,6 +228,8 @@ beforeAll(async () => {
   process.env.SUPABASE_URL = FAKE_SUPABASE;
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
   process.env.PATIENT_MEDIA_WRITE_BURST = "100000";
+  process.env.PATIENT_MEDIA_PAGE_BURST = "100000";
+  process.env.PATIENT_MEDIA_PAGE_DAILY_BUDGET = "100000";
   process.env.PATIENT_MEDIA_WRITE_DAILY_BUDGET = "100000";
 
   vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) => {
@@ -250,9 +265,11 @@ afterAll(async () => {
 
 beforeEach(() => {
   state.uploadedSize = 4321;
+  state.uploadedBytes = null;
   state.detectedType = "image/jpeg";
   state.entityMissing = false;
   state.deleted.length = 0;
+  state.saved.length = 0;
   state.metadataSet.length = 0;
   state.minted.length = 0;
   state.downloadRanges.length = 0;
@@ -453,9 +470,11 @@ describe("POST /patient-media/finalize", () => {
       "tok-1",
     );
     expect(status).toBe(200);
-    expect(body).toEqual({ objectPath: FOOD_PATH, sizeBytes: 4321, contentType: "image/jpeg" });
+    expect(body).toEqual({ objectPath: FOOD_PATH, sizeBytes: 4321, contentType: "image/jpeg", variants: [] });
     expect(state.metadataSet).toEqual([{ contentType: "image/jpeg" }]);
     expect(state.deleted).toEqual([]);
+    // Library photos (food/recipe) are not variant kinds: nothing rendered.
+    expect(state.saved).toEqual([]);
     expect(fake.mediaRows).toEqual([
       {
         object_path: FOOD_PATH,
@@ -463,8 +482,45 @@ describe("POST /patient-media/finalize", () => {
         kind: "food",
         content_type: "image/jpeg",
         size_bytes: 4321,
+        variants: [],
+        variants_attempted_at: null,
       },
     ]);
+  });
+
+  it("renders thumb and medium variants for a progress photo and records them on the row", async () => {
+    const original = await sharp({ create: { width: 1600, height: 1200, channels: 3, background: "#3355aa" } })
+      .jpeg()
+      .toBuffer();
+    state.uploadedBytes = original;
+    state.uploadedSize = original.length;
+    const { status, json: body } = await post("/patient-media/finalize", { objectPath: PROGRESS_PATH }, "tok-1");
+    expect(status).toBe(200);
+    expect(body.variants).toEqual(["thumb", "medium"]);
+    expect(state.saved.map(s => [s.path, s.contentType])).toEqual([
+      [`${PROGRESS_PATH}.thumb`, "image/jpeg"],
+      [`${PROGRESS_PATH}.medium`, "image/jpeg"],
+    ]);
+    const thumb = await sharp(state.saved[0].bytes).metadata();
+    const medium = await sharp(state.saved[1].bytes).metadata();
+    expect([thumb.width, thumb.height, thumb.format]).toEqual([320, 240, "jpeg"]);
+    expect([medium.width, medium.height, medium.format]).toEqual([1024, 768, "jpeg"]);
+    expect(state.saved[0].bytes.length).toBeLessThan(state.saved[1].bytes.length);
+    expect(state.saved[1].bytes.length).toBeLessThan(original.length);
+    const row = fake.mediaRows[0];
+    expect(row).toMatchObject({ object_path: PROGRESS_PATH, kind: "progress", variants: ["thumb", "medium"] });
+    expect(typeof row.variants_attempted_at).toBe("string");
+  });
+
+  it("keeps the upload when a variant render fails — row registered without variants, attempt stamped", async () => {
+    // Zero-filled bytes pass the mocked sniff but are not a decodable image.
+    const { status, json: body } = await post("/patient-media/finalize", { objectPath: CHAT_PATH }, "tok-1");
+    expect(status).toBe(200);
+    expect(body.variants).toEqual([]);
+    expect(state.saved).toEqual([]);
+    expect(state.deleted).toEqual([]);
+    expect(fake.mediaRows[0]).toMatchObject({ object_path: CHAT_PATH, kind: "chat", variants: [] });
+    expect(typeof fake.mediaRows[0].variants_attempted_at).toBe("string");
   });
 
   it("derives the ledger kind from the object id (recipe)", async () => {
@@ -516,7 +572,7 @@ describe("POST /patient-media/finalize", () => {
     state.uploadedSize = 10 * 1024 * 1024 + 5;
     const res = await post("/patient-media/finalize", { objectPath: FOOD_PATH }, "tok-1");
     expect(res.status).toBe(413);
-    expect(state.deleted).toEqual([FOOD_PATH]);
+    expect(state.deleted).toEqual([FOOD_PATH, `${FOOD_PATH}.thumb`, `${FOOD_PATH}.medium`]);
     expect(fake.mediaRows).toEqual([]);
   });
 
@@ -524,7 +580,7 @@ describe("POST /patient-media/finalize", () => {
     state.detectedType = null;
     const res = await post("/patient-media/finalize", { objectPath: FOOD_PATH }, "tok-1");
     expect(res.status).toBe(422);
-    expect(state.deleted).toEqual([FOOD_PATH]);
+    expect(state.deleted).toEqual([FOOD_PATH, `${FOOD_PATH}.thumb`, `${FOOD_PATH}.medium`]);
     expect(state.metadataSet).toEqual([]);
     expect(fake.mediaRows).toEqual([]);
   });
@@ -533,7 +589,7 @@ describe("POST /patient-media/finalize", () => {
     fake.failLedger = true;
     const res = await post("/patient-media/finalize", { objectPath: FOOD_PATH }, "tok-1");
     expect(res.status).toBe(500);
-    expect(state.deleted).toEqual([FOOD_PATH]);
+    expect(state.deleted).toEqual([FOOD_PATH, `${FOOD_PATH}.thumb`, `${FOOD_PATH}.medium`]);
     expect(fake.mediaRows).toEqual([]);
   });
 
@@ -541,7 +597,7 @@ describe("POST /patient-media/finalize", () => {
     state.metadataThrows = true;
     const res = await post("/patient-media/finalize", { objectPath: FOOD_PATH }, "tok-1");
     expect(res.status).toBe(500);
-    expect(state.deleted).toEqual([FOOD_PATH]);
+    expect(state.deleted).toEqual([FOOD_PATH, `${FOOD_PATH}.thumb`, `${FOOD_PATH}.medium`]);
   });
 });
 
@@ -627,6 +683,96 @@ describe("GET /patient-media/file", () => {
   });
 });
 
+describe("GET /patient-media/file?variant=", () => {
+  const fileUrl = (path: string, variant: string, token = mintPatientMediaToken(PATIENT_ID)) =>
+    `/patient-media/file?path=${encodeURIComponent(path)}&variant=${variant}&mt=${encodeURIComponent(token)}`;
+
+  it("serves the recorded variant object", async () => {
+    fake.mediaRows.push({ object_path: PROGRESS_PATH, patient_id: PATIENT_ID, kind: "progress", variants: ["thumb", "medium"] });
+    const thumb = await getRaw(fileUrl(PROGRESS_PATH, "thumb"));
+    expect(thumb.status).toBe(302);
+    expect(thumb.headers.get("location")).toBe(`https://storage.test${PROGRESS_PATH}.thumb?ttl=3600`);
+    const medium = await getRaw(fileUrl(PROGRESS_PATH, "medium"));
+    expect(medium.headers.get("location")).toBe(`https://storage.test${PROGRESS_PATH}.medium?ttl=3600`);
+  });
+
+  it("falls back to the original while a variant is not generated yet", async () => {
+    fake.mediaRows.push({ object_path: PROGRESS_PATH, patient_id: PATIENT_ID, kind: "progress", variants: ["thumb"] });
+    const medium = await getRaw(fileUrl(PROGRESS_PATH, "medium"));
+    expect(medium.status).toBe(302);
+    expect(medium.headers.get("location")).toBe(`https://storage.test${PROGRESS_PATH}?ttl=3600`);
+  });
+
+  it("rejects an unknown size and never guesses at a variant path", async () => {
+    fake.mediaRows.push({ object_path: PROGRESS_PATH, patient_id: PATIENT_ID, kind: "progress", variants: [] });
+    const bad = await getRaw(fileUrl(PROGRESS_PATH, "huge"));
+    expect(bad.status).toBe(400);
+    expect(state.entityCalls).toBe(0);
+  });
+});
+
+describe("POST /patient-media/urls (batch page signing)", () => {
+  const A = `/objects/patient-media/${PATIENT_ID}/progress-aaaaaaaa`;
+  const B = `/objects/patient-media/${PATIENT_ID}/progress-bbbbbbbb`;
+  const C = `/objects/patient-media/${PATIENT_ID}/chat-cccccccc`;
+  const THEIRS = `/objects/patient-media/${OTHER_ID}/progress-dddddddd`;
+
+  beforeEach(() => {
+    fake.mediaRows.push(
+      { object_path: A, patient_id: PATIENT_ID, kind: "progress", variants: ["thumb", "medium"] },
+      { object_path: B, patient_id: PATIENT_ID, kind: "progress", variants: [] },
+      { object_path: THEIRS, patient_id: OTHER_ID, kind: "progress", variants: ["thumb", "medium"] },
+    );
+  });
+
+  it("signs a whole page in one call, per photo honest about the size it signed", async () => {
+    const res = await post("/patient-media/urls", { paths: [A, B, C], variant: "thumb", mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(res.status).toBe(200);
+    expect(res.json.urls).toEqual([
+      { path: A, url: `https://storage.test${A}.thumb?ttl=1800`, size: "thumb" },
+      { path: B, url: `https://storage.test${B}?ttl=1800`, size: "original" },
+    ]);
+    expect(Date.parse(res.json.expiresAt)).toBeGreaterThan(Date.now());
+    expect(state.entityCalls).toBe(0);
+  });
+
+  it("defaults to the original when no size is asked for", async () => {
+    const res = await post("/patient-media/urls", { paths: [A], mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(res.status).toBe(200);
+    expect(res.json.urls).toEqual([{ path: A, url: `https://storage.test${A}?ttl=1800`, size: "original" }]);
+  });
+
+  it("scopes a page to ONE patient: a mixed-owner list is rejected before any signing", async () => {
+    const res = await post("/patient-media/urls", { paths: [A, THEIRS], variant: "thumb", mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toMatch(/one patient/);
+  });
+
+  it("refuses another patient's token, a missing token, and an unknown size", async () => {
+    const theirs = await post("/patient-media/urls", { paths: [A], variant: "thumb", mt: mintPatientMediaToken(OTHER_ID) });
+    expect(theirs.status).toBe(403);
+    const anon = await post("/patient-media/urls", { paths: [A], variant: "thumb" });
+    expect(anon.status).toBe(401);
+    const size = await post("/patient-media/urls", { paths: [A], variant: "huge", mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(size.status).toBe(400);
+  });
+
+  it("rejects non-media paths and out-of-range batches", async () => {
+    const bad = await post("/patient-media/urls", { paths: ["/objects/hq-files/x"], mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(bad.status).toBe(400);
+    const empty = await post("/patient-media/urls", { paths: [], mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(empty.status).toBe(400);
+    const many = await post("/patient-media/urls", { paths: Array.from({ length: 101 }, (_, i) => `/objects/patient-media/${PATIENT_ID}/progress-${String(i).padStart(8, "0")}`), mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(many.status).toBe(400);
+  });
+
+  it("502s when the ledger read fails — never an open fallback", async () => {
+    fake.failLedger = true;
+    const res = await post("/patient-media/urls", { paths: [A], variant: "thumb", mt: mintPatientMediaToken(PATIENT_ID) });
+    expect(res.status).toBe(502);
+  });
+});
+
 describe("POST /patient-media/cleanup", () => {
   const PROGRESS_A = `/objects/patient-media/${PATIENT_ID}/progress-aaaaaaaa`;
   const PROGRESS_B = `/objects/patient-media/${PATIENT_ID}/progress-bbbbbbbb`;
@@ -678,7 +824,8 @@ describe("POST /patient-media/cleanup", () => {
     );
     expect(res.status).toBe(200);
     expect(res.json.removed).toEqual([PROGRESS_A]);
-    expect(state.deleted).toEqual([PROGRESS_A]);
+    // The original and both display variants go together.
+    expect(state.deleted).toEqual([PROGRESS_A, `${PROGRESS_A}.thumb`, `${PROGRESS_A}.medium`]);
     expect(fake.mediaRows.map(r => r.object_path)).toEqual([PROGRESS_B]);
   });
 

@@ -39,7 +39,18 @@ export const TextInput = hostComponent('TextInput');
 export const ScrollView = hostComponent('ScrollView');
 export const FlatList = hostComponent('FlatList');
 export const Pressable = hostComponent('Pressable');
-export const Image = hostComponent('Image');
+/**
+ * Image also carries RN's static resolveAssetSource: a bundled require()
+ * (a number on native, a sentinel object here) becomes a {uri} descriptor,
+ * which the Progress viewer needs for seed photos.
+ */
+export const Image = Object.assign(hostComponent('Image'), {
+  resolveAssetSource(source: unknown): { uri: string; width: number; height: number } {
+    const record = source && typeof source === 'object' ? (source as Record<string, unknown>) : null;
+    const uri = typeof record?.uri === 'string' ? record.uri : `asset:${String(record?.testUri ?? source)}`;
+    return { uri, width: 0, height: 0 };
+  },
+});
 export const ActivityIndicator = hostComponent('ActivityIndicator');
 export const RefreshControl = hostComponent('RefreshControl');
 export const SafeAreaView = hostComponent('SafeAreaView');

@@ -17,6 +17,7 @@ import { billingReconcileJob } from "./definitions/billing-reconcile";
 import { billingRenewalRemindersJob } from "./definitions/billing-renewal-reminders";
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
 import { patientSignInMetricsJob } from "./definitions/patient-sign-in-metrics";
+import { photoVariantsBackfillJob } from "./definitions/photo-variants-backfill";
 
 const HOUR_MS = 3_600_000;
 
@@ -53,6 +54,7 @@ export const ALL_JOBS: JobDefinition[] = [
   bloodworkExtractionJob,
   bloodworkCleanupJob,
   reconcileStorageJob,
+  photoVariantsBackfillJob,
   retentionExportsJob,
   retentionBillingWebhooksJob,
   retentionChatJob,

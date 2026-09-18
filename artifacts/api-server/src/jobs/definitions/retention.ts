@@ -19,7 +19,7 @@
 import { sweepExpiredExports } from "../../exports/worker";
 import { sweepExpiredPatientExports } from "../../privacy/exports";
 import { loadOrgPolicy } from "../../lib/org-policy";
-import { objectStorage } from "../../lib/objectStorage";
+import { deletePhotoWithVariants } from "../../lib/photo-variants";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import type { JobContext, JobDefinition } from "../types";
 
@@ -72,7 +72,7 @@ export async function trimChatTranscripts(ctx: JobContext): Promise<void> {
         continue;
       }
       try {
-        await objectStorage.deleteObjectStrict(path);
+        await deletePhotoWithVariants(path);
         ctx.tally("mediaObjectsDeleted");
       } catch (error) {
         ctx.failItem(path, error);

@@ -2390,6 +2390,7 @@ export interface PatientSpend {
      */
   lastPaidAt: string | null;
 }
+
 export interface OfficeRosterPatient {
   id: string;
   name: string;
@@ -4592,3 +4593,4 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
+

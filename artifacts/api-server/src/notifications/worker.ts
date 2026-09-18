@@ -135,8 +135,10 @@ export function runScheduledTick(
       store,
       push: client,
       now,
-      config: { owner: OWNER },
-      log: (event, detail) => logger.warn(detail, event),
+      // The drain keeps claiming until the outbox is empty or this budget is
+      // spent; a scheduled tick every 30 s then picks up whatever is left.
+      config: { owner: OWNER, tickBudgetMs: envMs("NOTIFICATIONS_TICK_BUDGET_MS", 20_000) },
+      log: (event, detail) => (event === "notification_batch" ? logger.info(detail, event) : logger.warn(detail, event)),
       policy,
     });
     const staffOutbox = await runStaffNotificationTick({
@@ -145,8 +147,24 @@ export function runScheduledTick(
       now,
       owner: `${OWNER}:staff`,
     });
-    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0) || (renewals && renewals.queued > 0)) {
-      logger.info({ outbox, staffOutbox, outreach, missedDoses, renewals }, "notification tick");
+    if (outbox.claimed > 0 || outbox.receiptsChecked > 0 || outbox.tokensRetired > 0 || (outreach && outreach.sent > 0) || (missedDoses && missedDoses.sent > 0) || (renewals && renewals.queued > 0)) {
+      logger.info(
+        {
+          claimed: outbox.claimed,
+          sent: outbox.sent,
+          delivered: outbox.delivered,
+          retired: outbox.tokensRetired,
+          elapsedMs: outbox.elapsedMs,
+          batches: outbox.batches,
+          budgetExhausted: outbox.budgetExhausted,
+          outbox,
+          staffOutbox,
+          outreach,
+          missedDoses,
+          renewals,
+        },
+        "notification tick",
+      );
     }
     return { owner: OWNER, outbox, staffOutbox, outreach, missedDoses, renewals };
   })();

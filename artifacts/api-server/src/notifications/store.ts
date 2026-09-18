@@ -103,6 +103,16 @@ export interface CoachSeedMessage {
   quickReplies: string[];
 }
 
+/** How much work is waiting in the patient push outbox right now. */
+export interface OutboxBacklog {
+  /** Queued rows whose next attempt is due (claimable on the next tick). */
+  due: number;
+  /** next_attempt_at of the oldest due row, or null when nothing is due. */
+  oldestDueAt: string | null;
+  /** Rows a sender currently holds under a live lease. */
+  inFlight: number;
+}
+
 export interface NotificationStore {
   // ── Outbox ────────────────────────────────────────────────────────────
   enqueue(input: EnqueueInput): Promise<{ row: NotificationRow; created: boolean }>;
@@ -113,6 +123,14 @@ export interface NotificationStore {
    */
   enqueueCapped(input: EnqueueInput & { dedupeKey: string }, cap: DailyCap): Promise<CappedEnqueueResult>;
   claimDue(owner: string, limit: number, leaseSeconds: number): Promise<NotificationRow[]>;
+  /**
+   * Extends the lease on rows `owner` still holds (status sending). Rows
+   * another process re-claimed in the meantime are left alone; returns how
+   * many leases moved.
+   */
+  renewLeases(owner: string, ids: string[], leaseSeconds: number): Promise<number>;
+  /** Due/in-flight counts and the oldest due row, for the System Health page. */
+  outboxBacklog(now: Date): Promise<OutboxBacklog>;
   /** Returns the updated row, or null when the guard no longer matched. */
   updateNotification(id: string, patch: NotificationPatch, guard?: UpdateGuard): Promise<NotificationRow | null>;
   getNotification(id: string): Promise<NotificationRow | null>;
@@ -126,6 +144,11 @@ export interface NotificationStore {
 
   // ── Tokens ────────────────────────────────────────────────────────────
   activeTokens(patientId: string): Promise<PushTokenRow[]>;
+  /**
+   * Active (not retired) tokens for many patients in one read; patients with
+   * no device are absent from the map. The sender uses this per claimed batch.
+   */
+  activeTokensFor(patientIds: string[]): Promise<Map<string, PushTokenRow[]>>;
   /**
    * Upserts (patient, token); re-enables a previously disabled row; retires
    * other patients' active rows on the same device (account switch) and the
@@ -143,6 +166,8 @@ export interface NotificationStore {
 
   // ── Policy ────────────────────────────────────────────────────────────
   policyContext(patientId: string): Promise<PolicyContext>;
+  /** Policy contexts for many patients in a few reads (one entry per requested id). */
+  policyContexts(patientIds: string[]): Promise<Map<string, PolicyContext>>;
   /** Coach outreach rows enqueued at or after `since` (the daily send cap). */
   countOutreachSince(since: Date): Promise<number>;
 
@@ -190,6 +215,29 @@ function numeric(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+/** Total from a `Prefer: count=exact` response (`0-0/1234`), falling back to the rows returned. */
+function exactCount(res: { json: unknown; contentRange: string | null }): number {
+  const total = res.contentRange?.match(/\/(\d+)$/)?.[1];
+  if (total !== undefined) return Number(total);
+  return Array.isArray(res.json) ? res.json.length : 0;
+}
+
+/**
+ * PostgREST `in.(...)` filters ride the URL, so batched reads go out in
+ * chunks that keep every request well under proxy URL limits.
+ */
+const IN_FILTER_CHUNK = 50;
+
+function chunked<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function inList(ids: string[]): string {
+  return `in.(${ids.map(enc).join(",")})`;
 }
 
 export const supabaseNotificationStore: NotificationStore = {
@@ -267,6 +315,50 @@ export const supabaseNotificationStore: NotificationStore = {
       }),
       "notification claim",
     );
+  },
+
+  async renewLeases(owner, ids, leaseSeconds) {
+    if (!ids.length) return 0;
+    const now = new Date();
+    const lease_until = new Date(now.getTime() + leaseSeconds * 1000).toISOString();
+    let renewed = 0;
+    for (const chunk of chunked(ids, IN_FILTER_CHUNK)) {
+      renewed += rowsOf<NotificationRow>(
+        await supabaseAdmin(
+          "PATCH",
+          `/rest/v1/patient_notifications?id=${inList(chunk)}&lease_owner=eq.${enc(owner)}&status=eq.sending`,
+          { lease_until, updated_at: now.toISOString() },
+          "return=representation",
+        ),
+        "lease renew",
+      ).length;
+    }
+    return renewed;
+  },
+
+  async outboxBacklog(now) {
+    const at = enc(now.toISOString());
+    const [due, inFlight] = await Promise.all([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notifications?status=eq.queued&next_attempt_at=lte.${at}&select=next_attempt_at&order=next_attempt_at.asc&limit=1`,
+        undefined,
+        "count=exact",
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_notifications?status=eq.sending&lease_until=gt.${at}&select=id&limit=1`,
+        undefined,
+        "count=exact",
+      ),
+    ]);
+    const oldest = rowsOf<Pick<NotificationRow, "next_attempt_at">>(due, "outbox backlog")[0];
+    expectOk(inFlight, "outbox in-flight count");
+    return {
+      due: exactCount(due),
+      oldestDueAt: oldest?.next_attempt_at ?? null,
+      inFlight: exactCount(inFlight),
+    };
   },
 
   async updateNotification(id, patch, guard) {
@@ -376,6 +468,26 @@ export const supabaseNotificationStore: NotificationStore = {
     );
   },
 
+  async activeTokensFor(patientIds) {
+    const out = new Map<string, PushTokenRow[]>();
+    const unique = [...new Set(patientIds)];
+    for (const chunk of chunked(unique, IN_FILTER_CHUNK)) {
+      const rows = rowsOf<PushTokenRow>(
+        await supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_push_tokens?patient_id=${inList(chunk)}&disabled_at=is.null&order=last_registered_at.desc`,
+        ),
+        "token batch list",
+      );
+      for (const row of rows) {
+        const list = out.get(row.patient_id) ?? [];
+        list.push(row);
+        out.set(row.patient_id, list);
+      }
+    }
+    return out;
+  },
+
   async registerToken(input) {
     const now = new Date().toISOString();
     // Retire other accounts' rows on this device (account switch) and this
@@ -451,52 +563,75 @@ export const supabaseNotificationStore: NotificationStore = {
   },
 
   async policyContext(patientId) {
-    const [flags, patient] = await Promise.all([
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/patient_flags?patient_id=eq.${enc(patientId)}&select=notification_prefs,nudge_opt_out&limit=1`,
-      ),
-      supabaseAdmin(
-        "GET",
-        `/rest/v1/patients?id=eq.${enc(patientId)}&select=timezone,provider_id,activation_status,archived_at,deletion_requested_at&limit=1`,
-      ),
-    ]);
-    const flag = rowsOf<Record<string, unknown>>(flags, "policy flags")[0];
-    const row = rowsOf<Record<string, unknown>>(patient, "policy patient")[0];
-    const providerId = typeof row?.provider_id === "string" && row.provider_id ? row.provider_id : null;
-    let officeAvailable = false;
-    let officeLocked = false;
-    if (providerId) {
-      const [provider, locks] = await Promise.all([
+    const contexts = await this.policyContexts([patientId]);
+    const context = contexts.get(patientId);
+    if (!context) throw new Error("policy context lookup returned no entry");
+    return context;
+  },
+
+  async policyContexts(patientIds) {
+    const unique = [...new Set(patientIds)];
+    const flagsById = new Map<string, Record<string, unknown>>();
+    const patientsById = new Map<string, Record<string, unknown>>();
+    for (const chunk of chunked(unique, IN_FILTER_CHUNK)) {
+      const [flags, patients] = await Promise.all([
         supabaseAdmin(
           "GET",
-          `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=provider_id,access_disabled&limit=1`,
+          `/rest/v1/patient_flags?patient_id=${inList(chunk)}&select=patient_id,notification_prefs,nudge_opt_out`,
         ),
         supabaseAdmin(
           "GET",
-          `/rest/v1/provider_account_locks?or=(account_id.eq.${enc(providerId)},account_id.eq.${enc(`acct-${providerId}`)})&select=account_id&limit=1`,
+          `/rest/v1/patients?id=${inList(chunk)}&select=id,timezone,provider_id,activation_status,archived_at,deletion_requested_at`,
         ),
       ]);
-      const providerRow = rowsOf<Record<string, unknown>>(provider, "policy office")[0];
-      officeAvailable = !!providerRow && providerRow.access_disabled !== true;
-      officeLocked = rowsOf<Record<string, unknown>>(locks, "policy office lock").length > 0;
+      for (const flag of rowsOf<Record<string, unknown>>(flags, "policy flags")) flagsById.set(String(flag.patient_id), flag);
+      for (const row of rowsOf<Record<string, unknown>>(patients, "policy patient")) patientsById.set(String(row.id), row);
     }
-    return {
-      prefs:
-        flag?.notification_prefs && typeof flag.notification_prefs === "object"
-          ? (flag.notification_prefs as Record<string, unknown>)
-          : null,
-      timezone: typeof row?.timezone === "string" && row.timezone ? row.timezone : null,
-      nudgeOptOut: flag?.nudge_opt_out === true,
-      providerId,
-      patientAvailable:
-        !!row &&
-        row.archived_at == null &&
-        row.deletion_requested_at == null &&
-        row.activation_status !== "disabled",
-      officeAvailable,
-      officeLocked,
-    };
+    const providerIds = [
+      ...new Set(
+        [...patientsById.values()]
+          .map((row) => (typeof row.provider_id === "string" && row.provider_id ? row.provider_id : null))
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const availableOffices = new Set<string>();
+    const lockedOffices = new Set<string>();
+    for (const chunk of chunked(providerIds, IN_FILTER_CHUNK)) {
+      const lockIds = chunk.flatMap((id) => [id, `acct-${id}`]);
+      const [providers, locks] = await Promise.all([
+        supabaseAdmin("GET", `/rest/v1/providers?provider_id=${inList(chunk)}&select=provider_id,access_disabled`),
+        supabaseAdmin("GET", `/rest/v1/provider_account_locks?account_id=${inList(lockIds)}&select=account_id`),
+      ]);
+      for (const providerRow of rowsOf<Record<string, unknown>>(providers, "policy office")) {
+        if (providerRow.access_disabled !== true) availableOffices.add(String(providerRow.provider_id));
+      }
+      for (const lock of rowsOf<Record<string, unknown>>(locks, "policy office lock")) {
+        lockedOffices.add(String(lock.account_id).replace(/^acct-/, ""));
+      }
+    }
+    const out = new Map<string, PolicyContext>();
+    for (const patientId of unique) {
+      const flag = flagsById.get(patientId);
+      const row = patientsById.get(patientId);
+      const providerId = typeof row?.provider_id === "string" && row.provider_id ? row.provider_id : null;
+      out.set(patientId, {
+        prefs:
+          flag?.notification_prefs && typeof flag.notification_prefs === "object"
+            ? (flag.notification_prefs as Record<string, unknown>)
+            : null,
+        timezone: typeof row?.timezone === "string" && row.timezone ? row.timezone : null,
+        nudgeOptOut: flag?.nudge_opt_out === true,
+        providerId,
+        patientAvailable:
+          !!row &&
+          row.archived_at == null &&
+          row.deletion_requested_at == null &&
+          row.activation_status !== "disabled",
+        officeAvailable: providerId !== null && availableOffices.has(providerId),
+        officeLocked: providerId !== null && lockedOffices.has(providerId),
+      });
+    }
+    return out;
   },
 
   async countOutreachSince(since) {

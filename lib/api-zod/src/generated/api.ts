@@ -4459,7 +4459,13 @@ export const GetHqSystemHealthResponse = zod.object({
   "counts": zod.record(zod.string(), zod.number()),
   "failureCount": zod.number(),
   "error": zod.string().nullable()
-}))
+})),
+  "outbox": zod.union([zod.object({
+  "due": zod.number().describe('Queued rows whose next attempt is due now.'),
+  "oldestDueAt": zod.string().nullable(),
+  "oldestDueAgeMs": zod.number().nullable().describe('How long the oldest due row has been waiting.'),
+  "inFlight": zod.number().describe('Rows a sender currently holds under a live lease.')
+}),zod.null()]).describe('Patient push outbox backlog; null when the outbox could not be read.')
 })
 
 

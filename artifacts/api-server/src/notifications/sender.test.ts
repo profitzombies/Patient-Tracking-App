@@ -10,6 +10,7 @@ import {
   CARE_TEAM_PUSH_BODY,
   CARE_TEAM_PUSH_TITLE,
   DEFAULT_SENDER_CONFIG,
+  nextClaimLimit,
   PUSH_CHANNEL_ID,
   runNotificationTick,
 } from "./sender";
@@ -244,7 +245,7 @@ describe("outbox sender", () => {
     h.push.script(TOKEN_A, { kind: "error", error: "DeviceNotRegistered" });
     const { row } = await h.enqueue();
     let summary = await h.tick();
-    expect(summary).toMatchObject({ sent: 1, tokensDisabled: 1 });
+    expect(summary).toMatchObject({ sent: 1, tokensRetired: 1 });
     expect(h.row(row.id).status).toBe("sent");
     expect(h.store.tokens.get(tokenA.id)).toMatchObject({ disabled_reason: "device_not_registered" });
     expect(h.store.tokens.get(tokenB.id)!.disabled_at).toBeNull();
@@ -253,7 +254,7 @@ describe("outbox sender", () => {
     h.push.script(TOKEN_B, { kind: "error", error: "DeviceNotRegistered" });
     const { row: second } = await h.enqueue({ dedupeKey: "second" });
     summary = await h.tick();
-    expect(summary).toMatchObject({ failed: 1, tokensDisabled: 1 });
+    expect(summary).toMatchObject({ failed: 1, tokensRetired: 1 });
     expect(h.row(second.id)).toMatchObject({ status: "failed", last_error: "DeviceNotRegistered" });
     expect(await h.store.activeTokens(P1)).toHaveLength(0);
     // And a third is suppressed for lack of devices.
@@ -292,7 +293,7 @@ describe("outbox sender", () => {
     h.push.receipts.set(ticketOf(bad.id), { status: "error", message: "gone", details: { error: "DeviceNotRegistered" } });
     h.advance(11 * 60_000);
     let summary = await h.tick();
-    expect(summary).toMatchObject({ receiptsChecked: 2, delivered: 1, failed: 1, tokensDisabled: 1 });
+    expect(summary).toMatchObject({ receiptsChecked: 2, delivered: 1, failed: 1, tokensRetired: 1 });
     expect(h.row(ok.id)).toMatchObject({ status: "delivered" });
     expect(h.row(ok.id).delivered_at).not.toBeNull();
     expect(h.row(bad.id)).toMatchObject({ status: "failed", last_error: "receipt: DeviceNotRegistered" });
@@ -363,6 +364,181 @@ describe("outbox sender", () => {
     expect(late).toBeNull();
     expect(h.row(row.id).status).toBe("sent");
     expect(h.push.sent).toHaveLength(1);
+  });
+
+  describe("drain loop", () => {
+    const P = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
+    /** Many one-device patients, one queued reminder each. */
+    async function crowd(h: ReturnType<typeof harness>, count: number) {
+      for (let i = 1; i <= count; i++) {
+        h.store.addPatient({ patientId: P(i), providerId: "prov-1", timezone: "America/New_York" });
+        h.store.addToken(P(i), `ExponentPushToken[${String(i).padStart(22, "0")}]`);
+        await h.enqueue({ patientId: P(i), dedupeKey: `reminder:${i}` });
+      }
+    }
+
+    it("drains 5,000 queued rows in one tick, 100 messages per push request, well inside the budget", async () => {
+      const h = harness();
+      await crowd(h, 5_000);
+      const startedAt = performance.now();
+      const summary = await h.tick();
+      const wallMs = performance.now() - startedAt;
+      expect(summary).toMatchObject({ claimed: 5_000, sent: 5_000, failed: 0, leaseLost: 0, budgetExhausted: false });
+      expect(wallMs).toBeLessThan(DEFAULT_SENDER_CONFIG.tickBudgetMs);
+      // 25 → 50 → 100 → 200 and then full batches: far fewer rounds than rows.
+      expect(summary.batches).toBeLessThanOrEqual(30);
+      expect(h.store.claims.map((c) => c.limit).slice(0, 4)).toEqual([25, 50, 100, 200]);
+      expect(h.push.sent.every((request) => request.length <= 100)).toBe(true);
+      expect(h.push.sent.length).toBeLessThanOrEqual(summary.batches * 2);
+      expect(h.push.sent.flat()).toHaveLength(5_000);
+      const lastId = [...h.store.notifications.keys()][4_999];
+      expect(h.row(lastId).status).toBe("sent");
+      expect(await h.store.listAttempts([lastId])).toHaveLength(1);
+      expect((await h.store.outboxBacklog(h.clock())).due).toBe(0);
+      expect((await h.tick()).claimed).toBe(0);
+    });
+
+    it("grows the claim size after clean batches, shrinks it on outages, rate limits, and provider errors, and never leaves [min, max]", async () => {
+      const h = harness();
+      await crowd(h, 600);
+      // Second request (the 50-row batch) hits an outage; the fourth is rate limited.
+      let sends = 0;
+      h.push.onSend = () => {
+        sends += 1;
+        if (sends === 2) h.push.failNextSends = 1;
+        if (sends === 4) {
+          h.push.failStatus = 429;
+          h.push.failNextSends = 1;
+        }
+      };
+      const summary = await h.tick();
+      const limits = h.store.claims.map((c) => c.limit);
+      // 25 ok → 50 outage → 25 ok → 50 rate limited → 25 ok → 50 → 100 → 200 …
+      expect(limits.slice(0, 8)).toEqual([25, 50, 25, 50, 25, 50, 100, 200]);
+      expect(Math.max(...limits)).toBe(200);
+      expect(summary.retried).toBe(100);
+      expect(summary.sent).toBe(500);
+      expect(summary.claimed).toBe(600);
+
+      // Per-message provider errors also shrink; dead devices do not.
+      const g = harness();
+      await crowd(g, 80);
+      g.push.script(`ExponentPushToken[${String(1).padStart(22, "0")}]`, { kind: "error", error: "ExpoError" });
+      g.push.script(`ExponentPushToken[${String(30).padStart(22, "0")}]`, { kind: "error", error: "DeviceNotRegistered" });
+      await g.tick();
+      // 25 (ExpoError → shrink to 12) → 12 (clean → 24) → 24 → 48 (dead device only, still grows)
+      expect(g.store.claims.map((c) => c.limit).slice(0, 4)).toEqual([25, 12, 24, 48]);
+
+      // The floor holds under a sustained outage; the ceiling is the RPC's clamp.
+      const f = harness();
+      await crowd(f, 40);
+      f.push.failNextSends = 99;
+      const floor = await f.tick();
+      expect(f.store.claims.map((c) => c.limit)).toEqual([25, 12, 10]);
+      expect(floor).toMatchObject({ retried: 40, sent: 0, lastClaimLimit: 10 });
+      expect(nextClaimLimit(200, { transportFailed: false, rateLimited: false, providerErrors: false }, DEFAULT_SENDER_CONFIG)).toBe(200);
+      expect(nextClaimLimit(500, { transportFailed: false, rateLimited: false, providerErrors: false }, { claimLimitMin: 10, claimLimitMax: 10_000 })).toBe(200);
+      expect(nextClaimLimit(11, { transportFailed: true, rateLimited: false, providerErrors: false }, DEFAULT_SENDER_CONFIG)).toBe(10);
+    });
+
+    it("stops claiming once the budget is spent, finishes the batch in progress, and hands the rest to the next tick", async () => {
+      const h = harness();
+      await crowd(h, 120);
+      // Every push request takes 7 s of wall clock.
+      h.push.onSend = () => h.advance(7_000);
+      const first = await runNotificationTick({
+        store: h.store,
+        push: h.push,
+        now: h.clock,
+        config: { owner: "worker-a", claimLimit: 10, claimLimitMax: 10, tickBudgetMs: 20_000 },
+      });
+      // 0 s → 7 s → 14 s → 21 s: three batches, the third completes although it crosses the budget.
+      expect(first).toMatchObject({ claimed: 30, sent: 30, batches: 3, budgetExhausted: true });
+      expect(first.elapsedMs).toBeGreaterThanOrEqual(20_000);
+      const backlog = await h.store.outboxBacklog(h.clock());
+      expect(backlog).toMatchObject({ due: 90, inFlight: 0 });
+      expect(backlog.oldestDueAt).toBe(h.row([...h.store.notifications.keys()][30]).next_attempt_at);
+      const second = await runNotificationTick({
+        store: h.store,
+        push: h.push,
+        now: h.clock,
+        config: { owner: "worker-a", claimLimit: 10, claimLimitMax: 10, tickBudgetMs: 20_000 },
+      });
+      expect(second).toMatchObject({ claimed: 30, sent: 30, budgetExhausted: true });
+      expect((await h.store.outboxBacklog(h.clock())).due).toBe(60);
+    });
+
+    it("retires a device the service reports gone and skips it from the very next batch while the other device keeps receiving", async () => {
+      const h = harness();
+      const dead = h.store.addToken(P1, TOKEN_A, "device-1");
+      const alive = h.store.addToken(P1, TOKEN_B, "device-2", "android");
+      h.push.script(TOKEN_A, { kind: "error", error: "DeviceNotRegistered" }, { kind: "ok" });
+      const first = await h.enqueue({ dedupeKey: "r1" });
+      const second = await h.enqueue({ dedupeKey: "r2" });
+      const summary = await runNotificationTick({
+        store: h.store,
+        push: h.push,
+        now: h.clock,
+        config: { owner: "worker-a", claimLimit: 1, claimLimitMin: 1, claimLimitMax: 1 },
+      });
+      expect(summary).toMatchObject({ claimed: 2, sent: 2, tokensRetired: 1, batches: 2 });
+      expect(h.push.sent[0].map((m) => m.to).sort()).toEqual([TOKEN_A, TOKEN_B].sort());
+      // Second batch never even tried the retired device.
+      expect(h.push.sent[1].map((m) => m.to)).toEqual([TOKEN_B]);
+      expect(h.store.tokens.get(dead.id)).toMatchObject({ disabled_reason: "device_not_registered" });
+      expect(h.store.tokens.get(alive.id)?.disabled_at).toBeNull();
+      expect(h.row(first.row.id).status).toBe("sent");
+      expect(h.row(second.row.id).status).toBe("sent");
+      expect(await h.store.activeTokens(P1)).toHaveLength(1);
+    });
+
+    it("renews leases mid-batch when the push service is slow, so the rows stay with the sender that is pushing them", async () => {
+      const h = harness();
+      await crowd(h, 3);
+      // The push request takes 70 s against a 120 s lease.
+      h.push.onSend = () => h.advance(70_000);
+      const summary = await h.tick();
+      expect(summary).toMatchObject({ sent: 3, leasesRenewed: 3, leaseLost: 0 });
+      expect(h.store.renewals).toHaveLength(1);
+      expect(h.store.renewals[0]).toMatchObject({ owner: "worker-a", renewed: 3 });
+      expect(h.store.renewals[0].ids).toHaveLength(3);
+
+      const quick = harness();
+      await crowd(quick, 3);
+      await quick.tick();
+      expect(quick.store.renewals).toHaveLength(0);
+    });
+
+    it("re-claims a stalled tick's rows on the next tick once the lease lapses, and drops the stalled tick's late writes", async () => {
+      const h = harness();
+      await crowd(h, 5);
+      let release!: () => void;
+      const stalled = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      // Worker A's first push request hangs (service outage, no response).
+      h.push.onSend = async () => {
+        h.push.onSend = null;
+        await stalled;
+      };
+      const tickA = h.tick("worker-a");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect((await h.store.outboxBacklog(h.clock())).inFlight).toBe(5);
+      // Nothing for B while A's lease is live.
+      expect((await h.tick("worker-b")).claimed).toBe(0);
+      // The lease lapses (no renewal ran: A is stuck inside the push call).
+      h.advance(121_000);
+      expect((await h.store.outboxBacklog(h.clock())).inFlight).toBe(0);
+      const tickB = await h.tick("worker-b");
+      expect(tickB).toMatchObject({ claimed: 5, sent: 5, leaseLost: 0 });
+      // A finally gets its answer: every guarded write is dropped, nothing double-counted.
+      release();
+      const summaryA = await tickA;
+      expect(summaryA).toMatchObject({ claimed: 5, sent: 0, leaseLost: 5 });
+      for (const row of h.store.notifications.values()) expect(row).toMatchObject({ status: "sent", lease_owner: null });
+      // The patient got exactly one push per reminder from B, plus A's stale request.
+      expect(h.push.sent).toHaveLength(2);
+    });
   });
 
   describe("care-team reply safety", () => {

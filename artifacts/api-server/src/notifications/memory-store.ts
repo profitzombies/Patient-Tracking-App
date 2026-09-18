@@ -16,6 +16,7 @@ import type {
   NotificationPatch,
   NotificationStore,
   MedicationDoseFacts,
+  OutboxBacklog,
   OutreachFacts,
   ReceiptCandidate,
   UpdateGuard,
@@ -48,6 +49,10 @@ export class MemoryNotificationStore implements NotificationStore {
   patients = new Map<string, MemoryPatient>();
   outreachStates = new Map<string, OutreachStateRow>();
   seededMessages: Array<{ patientId: string; message: CoachSeedMessage }> = [];
+  /** Every claim the sender made (owner + requested size), for adaptive-sizing tests. */
+  claims: Array<{ owner: string; limit: number; got: number }> = [];
+  /** Every lease renewal the sender asked for. */
+  renewals: Array<{ owner: string; ids: string[]; renewed: number }> = [];
   private seq = 0;
 
   constructor(now: () => Date = () => new Date()) {
@@ -62,6 +67,8 @@ export class MemoryNotificationStore implements NotificationStore {
     this.patients.clear();
     this.outreachStates.clear();
     this.seededMessages = [];
+    this.claims = [];
+    this.renewals = [];
   }
 
   private iso(): string {
@@ -185,6 +192,7 @@ export class MemoryNotificationStore implements NotificationStore {
       })
       .sort((a, b) => a.next_attempt_at.localeCompare(b.next_attempt_at) || a.created_at.localeCompare(b.created_at))
       .slice(0, limit);
+    this.claims.push({ owner, limit, got: due.length });
     return due.map((row) => {
       const next: NotificationRow = {
         ...row,
@@ -196,6 +204,35 @@ export class MemoryNotificationStore implements NotificationStore {
       this.notifications.set(row.id, next);
       return next;
     });
+  }
+
+  async renewLeases(owner: string, ids: string[], leaseSeconds: number) {
+    const until = new Date(this.now().getTime() + leaseSeconds * 1000).toISOString();
+    let renewed = 0;
+    for (const id of ids) {
+      const row = this.notifications.get(id);
+      if (!row || row.lease_owner !== owner || row.status !== "sending") continue;
+      this.notifications.set(id, { ...row, lease_until: until, updated_at: this.iso() });
+      renewed += 1;
+    }
+    this.renewals.push({ owner, ids: [...ids], renewed });
+    return renewed;
+  }
+
+  async outboxBacklog(now: Date): Promise<OutboxBacklog> {
+    const at = now.getTime();
+    let due = 0;
+    let inFlight = 0;
+    let oldest: string | null = null;
+    for (const row of this.notifications.values()) {
+      if (row.status === "queued" && new Date(row.next_attempt_at).getTime() <= at) {
+        due += 1;
+        if (oldest === null || row.next_attempt_at < oldest) oldest = row.next_attempt_at;
+      } else if (row.status === "sending" && row.lease_until !== null && new Date(row.lease_until).getTime() > at) {
+        inFlight += 1;
+      }
+    }
+    return { due, oldestDueAt: oldest, inFlight };
   }
 
   async updateNotification(id: string, patch: NotificationPatch, guard?: UpdateGuard) {
@@ -278,6 +315,18 @@ export class MemoryNotificationStore implements NotificationStore {
     return [...this.tokens.values()].filter((row) => row.patient_id === patientId && row.disabled_at === null);
   }
 
+  async activeTokensFor(patientIds: string[]) {
+    const wanted = new Set(patientIds);
+    const out = new Map<string, PushTokenRow[]>();
+    for (const row of this.tokens.values()) {
+      if (!wanted.has(row.patient_id) || row.disabled_at !== null) continue;
+      const list = out.get(row.patient_id) ?? [];
+      list.push(row);
+      out.set(row.patient_id, list);
+    }
+    return out;
+  }
+
   async registerToken(input: { patientId: string; token: string; deviceId: string; platform: "ios" | "android" }) {
     let retired = 0;
     const now = this.iso();
@@ -341,6 +390,12 @@ export class MemoryNotificationStore implements NotificationStore {
       officeAvailable: !!patient && patient.officeAvailable !== false,
       officeLocked: patient?.officeLocked === true,
     };
+  }
+
+  async policyContexts(patientIds: string[]): Promise<Map<string, PolicyContext>> {
+    const out = new Map<string, PolicyContext>();
+    for (const patientId of new Set(patientIds)) out.set(patientId, await this.policyContext(patientId));
+    return out;
   }
 
   async countOutreachSince(since: Date): Promise<number> {
@@ -432,6 +487,10 @@ export class FakePushClient implements ExpoPushClient {
   /** Throw a transport error on the next N send calls. */
   failNextSends = 0;
   failNextReceipts = 0;
+  /** Status the scripted transport failures carry (503 by default; 429 stages rate limiting). */
+  failStatus = 503;
+  /** Runs before every send: tests stall or slow the service here (block, advance the clock). */
+  onSend: ((messages: PushMessage[]) => Promise<void> | void) | null = null;
   private ticketSeq = 0;
   /** ticket id -> token it was issued for. */
   ticketTokens = new Map<string, string>();
@@ -441,9 +500,10 @@ export class FakePushClient implements ExpoPushClient {
   }
 
   async send(messages: PushMessage[]): Promise<PushTicket[]> {
+    if (this.onSend) await this.onSend(messages);
     if (this.failNextSends > 0) {
       this.failNextSends -= 1;
-      throw new PushTransportError("scripted push outage", 503);
+      throw new PushTransportError("scripted push outage", this.failStatus);
     }
     this.sent.push(messages);
     return messages.map((message) => {

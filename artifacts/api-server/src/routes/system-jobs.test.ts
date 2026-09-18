@@ -28,6 +28,11 @@ import { createSystemJobsRouter, describeInterval, jobHealthStatus, type JobHeal
 
 let clock = new Date("2026-09-07T12:00:00Z");
 const store = createMemoryJobStore(() => clock);
+let outbox: (now: Date) => Promise<{ due: number; oldestDueAt: string | null; inFlight: number }> = async () => ({
+  due: 0,
+  oldestDueAt: null,
+  inFlight: 0,
+});
 let server: http.Server;
 let base = "";
 
@@ -38,7 +43,7 @@ function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinit
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use(createSystemJobsRouter(store, { manualWaitMs: 150 }));
+  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, outboxBacklog: (now) => outbox(now) }));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -51,6 +56,7 @@ beforeEach(() => {
   vi.setSystemTime(clock);
   store.reset();
   resetJobRegistry();
+  outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
   mocks.audit.mockReset().mockResolvedValue(undefined);
   delete process.env.NOTIFICATIONS_INTERNAL_TOKEN;
 });
@@ -106,6 +112,24 @@ describe("GET /hq/system-health", () => {
     expect(byName["bad-job"].nextEligibleAt).not.toBeNull();
     expect(byName["idle-job"]).toMatchObject({ status: "on_demand", schedule: "On demand", lastSuccessAt: null });
     expect(body.recentRuns.map((r) => [r.jobName, r.status])).toEqual([["bad-job", "failed"], ["ok-job", "succeeded"]]);
+  });
+
+  it("reports the push outbox backlog with the oldest due age, and null (not zeros) when the outbox is unreadable", async () => {
+    outbox = async (now) => ({ due: 4_200, oldestDueAt: new Date(now.getTime() - 90_000).toISOString(), inFlight: 200 });
+    const res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { outbox: { due: number; oldestDueAt: string; oldestDueAgeMs: number; inFlight: number } | null };
+    expect(body.outbox).toMatchObject({ due: 4_200, inFlight: 200, oldestDueAgeMs: 90_000 });
+    expect(body.outbox?.oldestDueAt).toBe(new Date(clock.getTime() - 90_000).toISOString());
+
+    outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
+    const idle = await (await fetch(`${base}/hq/system-health`, { headers: admin })).json() as { outbox: { oldestDueAgeMs: number | null } };
+    expect(idle.outbox).toEqual({ due: 0, oldestDueAt: null, oldestDueAgeMs: null, inFlight: 0 });
+
+    outbox = async () => { throw new Error("pg down"); };
+    const broken = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(broken.status).toBe(200);
+    expect((await broken.json() as { outbox: unknown }).outbox).toBeNull();
   });
 
   it("exposes report-local errors without putting healthy queued work into backoff", async () => {

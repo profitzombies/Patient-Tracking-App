@@ -3,7 +3,9 @@
  *
  *   GET  /hq/system-health                 every job with its health state,
  *                                          last success/failure, counts,
- *                                          recent item failures + recent runs
+ *                                          recent item failures + recent runs,
+ *                                          and the patient push outbox backlog
+ *                                          (due rows, oldest due age, in flight)
  *   POST /hq/system-health/jobs/:name/run  run one job now (`{ dryRun }`);
  *                                          waits briefly, then 202 with the
  *                                          run id if it is still going
@@ -21,6 +23,7 @@ import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { registerAllJobs } from "../jobs";
 import { getJob, listJobs, runDueJobs, runJob } from "../jobs/scheduler";
 import { supabaseJobStore, type JobStore } from "../jobs/store";
+import { supabaseNotificationStore, type OutboxBacklog } from "../notifications/store";
 import type { JobDefinition, JobItemFailureRecord, JobRunRecord, JobStateRecord } from "../jobs/types";
 
 export type JobHealthStatus = "ok" | "failing" | "stale" | "never_ran" | "running" | "on_demand";
@@ -115,15 +118,45 @@ function runDto(run: JobRunRecord) {
   return run;
 }
 
-export function createSystemJobsRouter(store: JobStore = supabaseJobStore, options: { manualWaitMs?: number } = {}): IRouter {
+export interface OutboxBacklogDto extends OutboxBacklog {
+  /** How long the oldest due row has waited, or null when nothing is due. */
+  oldestDueAgeMs: number | null;
+}
+
+export function outboxBacklogDto(backlog: OutboxBacklog, now: Date): OutboxBacklogDto {
+  const oldest = backlog.oldestDueAt ? new Date(backlog.oldestDueAt).getTime() : NaN;
+  return {
+    ...backlog,
+    oldestDueAgeMs: Number.isFinite(oldest) ? Math.max(0, now.getTime() - oldest) : null,
+  };
+}
+
+export function createSystemJobsRouter(
+  store: JobStore = supabaseJobStore,
+  options: { manualWaitMs?: number; outboxBacklog?: (now: Date) => Promise<OutboxBacklog> } = {},
+): IRouter {
   registerAllJobs();
   const r: IRouter = Router();
   const manualWaitMs = options.manualWaitMs ?? MANUAL_RUN_WAIT_MS;
+  const readOutbox = options.outboxBacklog ?? ((now: Date) => supabaseNotificationStore.outboxBacklog(now));
 
   r.get("/hq/system-health", requireHqPermission("settings_manage"), async (req: Request, res: Response) => {
     try {
       const now = new Date();
-      const [states, recentRuns] = await Promise.all([store.listStates(), store.listRecentRuns(25)]);
+      // The outbox read is separate from the job ledger: when it fails the
+      // page still shows the jobs, and the outbox tiles read as unavailable
+      // rather than an empty, healthy-looking queue.
+      const [states, recentRuns, outbox] = await Promise.all([
+        store.listStates(),
+        store.listRecentRuns(25),
+        readOutbox(now).then(
+          (backlog) => outboxBacklogDto(backlog, now),
+          (error: unknown) => {
+            req.log?.error({ err: error }, "push outbox backlog read failed");
+            return null;
+          },
+        ),
+      ]);
       const stateByName = new Map(states.map((s) => [s.jobName, s]));
       const jobs: JobHealthDto[] = [];
       for (const definition of listJobs()) {
@@ -137,7 +170,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
           : [];
         jobs.push(toJobHealthDto(definition, state, failures, now));
       }
-      res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto) });
+      res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto), outbox });
     } catch (error) {
       req.log?.error({ err: error }, "system health read failed");
       res.status(502).json({ error: "Could not load system health right now." });

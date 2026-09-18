@@ -387,6 +387,7 @@ export * from './productSuggestionItemInputPurchase';
 export * from './productSuggestionItemPurchase';
 export * from './productSuggestionMode';
 export * from './progressPhotoFileParams';
+export * from './pushOutboxBacklog';
 export * from './quietHoursWindow';
 export * from './readOfficeConversationParams';
 export * from './registerStaffNotificationDeviceBody';

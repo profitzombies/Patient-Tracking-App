@@ -1930,10 +1930,26 @@ export interface SystemJobHealth {
   recentFailures: SystemJobItemFailure[];
 }
 
+export interface PushOutboxBacklog {
+  /** Queued rows whose next attempt is due now. */
+  due: number;
+  /** @nullable */
+  oldestDueAt: string | null;
+  /**
+     * How long the oldest due row has been waiting.
+     * @nullable
+     */
+  oldestDueAgeMs: number | null;
+  /** Rows a sender currently holds under a live lease. */
+  inFlight: number;
+}
+
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
   recentRuns: SystemJobRun[];
+  /** Patient push outbox backlog; null when the outbox could not be read. */
+  outbox: PushOutboxBacklog | null;
 }
 
 export interface SystemJobRunResult {

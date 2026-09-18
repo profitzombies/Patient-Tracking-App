@@ -31,6 +31,10 @@ Server environment controls:
 - `NOTIFICATIONS_INTERNAL_TOKEN`: protects the internal tick endpoint.
 - `EXPO_ACCESS_TOKEN`: optional enhanced push-security credential.
 - `NOTIFICATIONS_TICK_MS`: outbox interval; defaults to 30000.
+- `NOTIFICATIONS_TICK_BUDGET_MS`: how long one tick keeps claiming and sending
+  before handing the rest to the next tick; defaults to 20000. Within a tick the
+  claim size adapts between 10 and 200 rows (up after clean batches, down on
+  outages, 429s, or per-message provider errors).
 - `NOTIFICATIONS_OUTREACH_EVERY_MS`: outreach evaluation interval; defaults to
   900000.
 - `NOTIFICATIONS_DISABLED`: disables notification processing when enabled.

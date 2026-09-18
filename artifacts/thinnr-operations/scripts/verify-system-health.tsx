@@ -20,11 +20,11 @@
  *     - a 502 from the ledger renders the error notice, never an empty
  *       healthy-looking board;
  *     - the demo persona sees the unavailable note and makes no request.
+ *     - the patient push outbox tiles show backlog size, oldest due age, and
+ *       in-flight rows; an unreadable outbox shows dashes and a notice, never
+ *       zeros.
  *
- *   Files (HQ Admin)
- *     - a file flagged unavailable shows the "File unavailable" chip and a
- *       "Cannot download" note instead of the Download button; healthy files
- *       keep theirs; Delete stays available for both.
+ *   (The HQ Files page has its own suites: test:files / test:office-files.)
  *
  * Pure half: the status → label/class mapping and the counts formatter.
  */
@@ -32,14 +32,13 @@ import * as React from 'react';
 import { act } from 'react';
 import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
-import { Route, Router } from 'wouter';
+import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { __setSession } from './a11y-stubs/session';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
-import SystemHealth, { STATUS_LABEL, formatCounts, statusClass } from '../src/pages/admin/SystemHealth';
-import Files from '../src/pages/admin/Files';
+import SystemHealth, { STATUS_LABEL, formatAge, formatCounts, statusClass } from '../src/pages/admin/SystemHealth';
 import { useToast } from '../src/hooks/use-toast';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -122,15 +121,12 @@ const recentRuns = [
 ];
 
 let healthStatus = 200;
+type OutboxFixture = { due: number; oldestDueAt: string | null; oldestDueAgeMs: number | null; inFlight: number } | null;
+let outbox: OutboxFixture = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
 let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknown } = (name, dryRun) => ({
   status: 200,
   body: { run: { id: 'run-9', jobName: name, trigger: 'manual', dryRun, status: 'succeeded', owner: 'api:1', startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), counts: dryRun ? { wouldDelete: 3 } : { deleted: 3 }, failureCount: 0, error: null } },
 });
-
-const files = [
-  { id: 'f-ok', name: 'Playbook.pdf', contentType: 'application/pdf', size: 2048, createdAt: hoursAgo(48), updatedAt: hoursAgo(48), unavailableSince: null },
-  { id: 'f-gone', name: 'Old deck.pptx', contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', size: 4096, createdAt: hoursAgo(72), updatedAt: hoursAgo(72), unavailableSince: hoursAgo(5) },
-];
 
 const requests: Array<{ url: string; method: string; body: unknown }> = [];
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
@@ -146,9 +142,8 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox });
   }
-  if (url.includes('/api/hq/files') && method === 'GET') return json({ files });
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
 
@@ -251,12 +246,34 @@ console.log('\nsystem health: admin board');
   check('a 409 answer surfaces the server reason without crashing', textOf(root).includes('not started') && textOf(root).includes('That job is already running.') && byTestId(root, 'system-health-jobs').length === 1);
 }
 
+console.log('\nsystem health: push outbox backlog');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('backlog size, oldest due age, and in-flight rows are shown',
+    textOf(byTestId(root, 'metric-outbox-due')[0]) === '4,200' && textOf(byTestId(root, 'metric-outbox-oldest-age')[0]) === '12m' && textOf(byTestId(root, 'metric-outbox-in-flight')[0]) === '200',
+    `${textOf(byTestId(root, 'metric-outbox-due')[0])} / ${textOf(byTestId(root, 'metric-outbox-oldest-age')[0])} / ${textOf(byTestId(root, 'metric-outbox-in-flight')[0])}`);
+  check('a twelve-minute oldest age reads as the drain falling behind', textOf(byTestId(root, 'system-health-outbox')[0]).includes('Drain is behind') && byTestId(root, 'text-outbox-unreadable').length === 0);
+  check('formatAge covers seconds, minutes, hours, and days',
+    formatAge(12_000) === '12s' && formatAge(4 * 60_000) === '4m' && formatAge(2 * 3_600_000 + 5 * 60_000) === '2h 05m' && formatAge(3 * 86_400_000 + 4 * 3_600_000) === '3d 4h' && formatAge(null) === '—');
+
+  outbox = { due: 0, oldestDueAt: null, oldestDueAgeMs: null, inFlight: 0 };
+  const idle = await render('/admin/system-health', <SystemHealth />);
+  check('an empty outbox shows zeros with a dash for the age', textOf(byTestId(idle.root, 'metric-outbox-due')[0]) === '0' && textOf(byTestId(idle.root, 'metric-outbox-oldest-age')[0]) === '—' && textOf(byTestId(idle.root, 'system-health-outbox')[0]).includes('Nothing waiting'));
+
+  outbox = null;
+  const unreadable = await render('/admin/system-health', <SystemHealth />);
+  check('an unreadable outbox shows dashes and a notice, never zeros',
+    textOf(byTestId(unreadable.root, 'metric-outbox-due')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-outbox-in-flight')[0]) === '—' && byTestId(unreadable.root, 'text-outbox-unreadable').length === 1
+      && byTestId(unreadable.root, 'job-retention-chat').length === 1);
+  outbox = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
+}
+
 console.log('\nsystem health: ledger unavailable');
 {
   healthStatus = 502;
   const { root } = await render('/admin/system-health', <SystemHealth />);
   check('a 502 renders the error notice and no job cards', byTestId(root, 'text-system-health-error').length === 1 && root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('job-')).length === 0);
-  check('tiles show dashes rather than zeros', textOf(byTestId(root, 'metric-jobs-failing')[0]) === '—' && textOf(byTestId(root, 'metric-jobs-healthy')[0]) === '—');
+  check('tiles show dashes rather than zeros', textOf(byTestId(root, 'metric-jobs-failing')[0]) === '—' && textOf(byTestId(root, 'metric-jobs-healthy')[0]) === '—' && textOf(byTestId(root, 'metric-outbox-due')[0]) === '—');
   healthStatus = 200;
 }
 
@@ -271,21 +288,6 @@ console.log('\nsystem health: demo persona and non-admin role');
   __setSupabaseSession('hq-token');
   const content = await render('/admin/system-health', <SystemHealth />);
   check('a Content role sees the role note and makes no request', textOf(byTestId(content.root, 'text-system-health-demo-note')[0]).includes('role') && requests.length === before);
-}
-
-// ─── Files ───────────────────────────────────────────────────────────────────
-
-console.log('\nfiles: unavailable state');
-{
-  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' }, hqRole: 'Admin' });
-  __setSupabaseSession('hq-token');
-  const { root } = await render('/admin/files', <Route path="/admin/files"><Files /></Route>);
-  check('both files render', byTestId(root, 'file-f-ok').length === 1 && byTestId(root, 'file-f-gone').length === 1);
-  check('the healthy file keeps its Download button and no chip', byTestId(root, 'button-download-f-ok').length === 1 && byTestId(root, 'chip-file-unavailable-f-ok').length === 0);
-  check('the missing file shows the File unavailable chip and Cannot download instead of a button',
-    byTestId(root, 'chip-file-unavailable-f-gone').length === 1 && textOf(byTestId(root, 'chip-file-unavailable-f-gone')[0]).includes('File unavailable')
-      && byTestId(root, 'button-download-f-gone').length === 0 && byTestId(root, 'text-file-unavailable-f-gone').length === 1);
-  check('Delete stays available for both', byTestId(root, 'button-delete-f-ok').length === 1 && byTestId(root, 'button-delete-f-gone').length === 1);
 }
 
 console.log(failures === 0 ? '\nall system-health checks passed' : `\n${failures} system-health check(s) failed`);

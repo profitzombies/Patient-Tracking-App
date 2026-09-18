@@ -3947,11 +3947,24 @@ components:
         recentFailures: { type: array, items: { $ref: "#/components/schemas/SystemJobItemFailure" } }
     SystemHealthResult:
       type: object
-      required: [asOf, jobs, recentRuns]
+      required: [asOf, jobs, recentRuns, outbox]
       properties:
         asOf: { type: string }
         jobs: { type: array, items: { $ref: "#/components/schemas/SystemJobHealth" } }
         recentRuns: { type: array, items: { $ref: "#/components/schemas/SystemJobRun" } }
+        outbox:
+          description: Patient push outbox backlog; null when the outbox could not be read.
+          oneOf:
+            - $ref: "#/components/schemas/PushOutboxBacklog"
+            - type: "null"
+    PushOutboxBacklog:
+      type: object
+      required: [due, oldestDueAt, oldestDueAgeMs, inFlight]
+      properties:
+        due: { type: number, description: Queued rows whose next attempt is due now. }
+        oldestDueAt: { type: ["string", "null"] }
+        oldestDueAgeMs: { type: ["number", "null"], description: How long the oldest due row has been waiting. }
+        inFlight: { type: number, description: Rows a sender currently holds under a live lease. }
     SystemJobRunResult:
       type: object
       required: [run]

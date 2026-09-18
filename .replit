@@ -180,6 +180,14 @@ args = "app-usage-web"
 task = "workflow.run"
 args = "app-usage-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "push-drain-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "push-drain-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1796,6 +1804,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-mobile run test:presence-heartbeat && pnpm --filter @workspace/thinnr-mobile run test:offline-queue && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "push-drain-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/notifications src/routes/system-jobs.test.ts src/routes/patient-notifications.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "push-drain-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

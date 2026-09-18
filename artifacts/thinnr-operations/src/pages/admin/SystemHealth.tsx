@@ -21,6 +21,7 @@ import {
   getGetHqSystemHealthQueryKey,
   useGetHqSystemHealth,
   useRunHqSystemJob,
+  type SystemHealthResult,
   type SystemJobHealth,
   type SystemJobHealthStatus,
   type SystemJobRun,
@@ -79,6 +80,32 @@ export function formatCounts(counts: Record<string, number> | null | undefined):
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()} ${v}`)
     .join(' · ');
+}
+
+/** "12s", "4m", "2h 05m", "3d 4h" — how long the oldest due reminder has waited. */
+export function formatAge(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
+  const seconds = Math.max(0, Math.round(ms / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
+/** Backlog ages past one tick are worth a look; past ten minutes the drain is behind. */
+export const OUTBOX_AGE_WARN_MS = 60_000;
+export const OUTBOX_AGE_ALERT_MS = 10 * 60_000;
+
+export function outboxAgeDetail(outbox: SystemHealthResult['outbox'] | undefined): string {
+  if (outbox === undefined) return 'Waiting for first read';
+  if (outbox === null) return 'Outbox unreadable';
+  if (outbox.oldestDueAgeMs === null) return 'Nothing waiting';
+  if (outbox.oldestDueAgeMs >= OUTBOX_AGE_ALERT_MS) return 'Drain is behind';
+  if (outbox.oldestDueAgeMs >= OUTBOX_AGE_WARN_MS) return 'Older than one tick';
+  return 'Within one tick';
 }
 
 const TRIGGER_LABEL: Record<SystemJobRun['trigger'], string> = {
@@ -142,6 +169,7 @@ export default function SystemHealth() {
   const stale = jobs.filter((j) => j.status === 'stale' || j.status === 'never_ran').length;
   const running = jobs.filter((j) => j.running).length;
   const healthy = jobs.filter((j) => j.status === 'ok').length;
+  const outbox = data?.outbox ?? null;
 
   return (
     <div className="mx-auto max-w-[1320px] px-5 py-7 md:px-8">
@@ -165,6 +193,38 @@ export default function SystemHealth() {
             <MetricTile label="Running" value={data ? String(running) : '—'} detail="Holding a lease now" testId="metric-jobs-running" />
             <MetricTile label="Healthy" value={data ? String(healthy) : '—'} detail={dataUpdatedAt ? `Checked ${format(new Date(dataUpdatedAt), 'HH:mm:ss')}` : 'Waiting for first read'} testId="metric-jobs-healthy" />
           </div>
+
+          <section className="mt-6" aria-labelledby="outbox-heading" data-testid="system-health-outbox">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2 id="outbox-heading" className="font-serif text-base font-bold text-navy">Patient push outbox</h2>
+              <p className="text-[11px] text-muted-foreground">Reminders waiting to leave. The sender drains in batches every tick; a growing backlog or an old oldest-due age means it is falling behind.</p>
+            </div>
+            {data && data.outbox === null && (
+              <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-outbox-unreadable">
+                The outbox could not be read, so these figures are unavailable rather than zero.
+              </p>
+            )}
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <MetricTile
+                label="Due now"
+                value={outbox ? outbox.due.toLocaleString() : '—'}
+                detail={outbox ? (outbox.due === 0 ? 'Queue is empty' : 'Rows ready to send') : outboxAgeDetail(data?.outbox)}
+                testId="metric-outbox-due"
+              />
+              <MetricTile
+                label="Oldest due age"
+                value={outbox ? formatAge(outbox.oldestDueAgeMs) : '—'}
+                detail={outboxAgeDetail(data?.outbox)}
+                testId="metric-outbox-oldest-age"
+              />
+              <MetricTile
+                label="In flight"
+                value={outbox ? outbox.inFlight.toLocaleString() : '—'}
+                detail={outbox ? 'Held by a sender right now' : outboxAgeDetail(data?.outbox)}
+                testId="metric-outbox-in-flight"
+              />
+            </div>
+          </section>
 
           {isError && (
             <div role="alert" className="mt-6 rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-4 py-3 text-xs text-destructive" data-testid="text-system-health-error">

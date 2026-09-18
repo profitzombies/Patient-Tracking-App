@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PushOutboxBacklog } from './pushOutboxBacklog';
 import type { SystemJobHealth } from './systemJobHealth';
 import type { SystemJobRun } from './systemJobRun';
 
@@ -12,4 +13,6 @@ export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
   recentRuns: SystemJobRun[];
+  /** Patient push outbox backlog; null when the outbox could not be read. */
+  outbox: PushOutboxBacklog | null;
 }

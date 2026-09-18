@@ -2,7 +2,7 @@
   // tsx config for scripts/verify-system-health.tsx ONLY (not part of
   // typecheck — tsconfig.json includes src/**/* alone).
   //
-  // Renders the REAL HQ System health page and the HQ Files page under
+  // Renders the REAL HQ System health page under
   // react-test-renderer against a scripted global fetch. Session / provider
   // scope / HQ directory contexts are the a11y stubs, lib/supabase is the
   // invite-suite stub (poses as a signed-in HQ admin), and the Radix

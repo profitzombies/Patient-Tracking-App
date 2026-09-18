@@ -27,7 +27,7 @@ import {
   retentionSessionRevocationsJob,
   retentionSignInsJob,
 } from "./definitions/retention";
-import {
+import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-events";
 
 /** Request-scoped patient upload discards; logged as user runs, never scheduled. */
 export const patientMediaCleanupJob: JobDefinition = {
@@ -40,7 +40,19 @@ export const patientMediaCleanupJob: JobDefinition = {
     throw new Error("patient-media-cleanup only runs from the patient app");
   },
 };
-import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-events";
+
+const HOUR_MS = 3_600_000;
+
+export const trainingMediaCleanupJob: JobDefinition = {
+  name: "training-media-cleanup",
+  title: "Training media clean-up queue",
+  description: "Retries deletes of replaced or abandoned training video files whose first delete was refused by storage.",
+  intervalMs: HOUR_MS,
+  leaseSeconds: 15 * 60,
+  run: async (ctx) => {
+    await drainTrainingMediaCleanup(ctx, 50);
+  },
+};
 
 export const ALL_JOBS: JobDefinition[] = [
   staffAttentionDigestJob,
@@ -74,15 +86,3 @@ export function registerAllJobs(): void {
   for (const job of ALL_JOBS) registerJob(job);
   registered = true;
 }
-const HOUR_MS = 3_600_000;
-
-export const trainingMediaCleanupJob: JobDefinition = {
-  name: "training-media-cleanup",
-  title: "Training media clean-up queue",
-  description: "Retries deletes of replaced or abandoned training video files whose first delete was refused by storage.",
-  intervalMs: HOUR_MS,
-  leaseSeconds: 15 * 60,
-  run: async (ctx) => {
-    await drainTrainingMediaCleanup(ctx, 50);
-  },
-};

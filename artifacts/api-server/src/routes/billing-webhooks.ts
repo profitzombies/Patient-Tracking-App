@@ -9,13 +9,17 @@ router.use(express.raw({ type: "application/json" }));
 async function webhook(kind: WebhookEndpointKind, req: Request, res: Response): Promise<void> {
   const signature = req.headers["stripe-signature"];
   if (typeof signature !== "string" || !Buffer.isBuffer(req.body)) {
+    // Refused deliveries are logged (never the body or signature) so repeated
+    // forgery attempts are visible in the server logs.
+    req.log?.warn({ kind, ip: req.ip, reason: "missing_signature_or_raw_body" }, "billing webhook rejected");
     res.status(400).json({ error: "Invalid webhook signature." }); return;
   }
   let event;
   try {
     const [stripe, secret] = await Promise.all([getStripe(), getEndpointSecret(kind)]);
     event = stripe.webhooks.constructEvent(req.body, signature, secret);
-  } catch {
+  } catch (error) {
+    req.log?.warn({ kind, ip: req.ip, reason: error instanceof Error ? error.message.slice(0, 200) : "invalid_signature" }, "billing webhook rejected");
     res.status(400).json({ error: "Invalid webhook signature." }); return;
   }
   try {

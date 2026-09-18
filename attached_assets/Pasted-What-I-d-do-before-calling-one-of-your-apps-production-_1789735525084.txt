@@ -1,0 +1,25 @@
+What I’d do before calling one of your apps production-ready
+
+Use OWASP ASVS⁠￼ as the master standard. You don’t necessarily need to satisfy every enterprise-level control, but it gives you an established framework rather than making up your own.
+
+For the kinds of software you’re building, I’d specifically test:
+
+1. Authentication — login, password reset, sessions, MFA for admins, brute-force protection.
+2. Authorization — attempt to access another user’s/customer’s data by changing IDs, URLs, API parameters, etc. This is a huge one.
+3. Database security — no public DB access, proper row-level permissions where applicable, parameterized queries, least-privilege credentials.
+4. API security — every sensitive endpoint independently verifies authentication and authorization. Don’t rely on the frontend hiding a button.
+5. Input attacks — SQL injection, XSS, command injection, malicious JSON, oversized inputs, etc.
+6. File uploads — restrict file types/sizes, don’t execute uploads, isolate storage, use safe filenames.
+7. Secrets — absolutely no Stripe keys, database passwords, API secrets, etc. shipped to the browser or committed to Git.
+8. Rate limiting/abuse protection — login, password reset, SMS, email, AI calls, expensive API endpoints, scraping, etc.
+9. Dependencies/supply chain — vulnerability scanning, lockfiles, minimal packages, automated dependency alerts.
+10. Recovery — automatic database backups plus actually testing that you can restore one.
+11. Logging/alerts — failed logins, unusual admin activity, permission failures, major DB changes, unexpected API usage.
+12. Infrastructure — production separated from development, least-privilege cloud accounts, MFA, restricted deployment permissions.
+13. Payments — don’t handle raw card numbers yourself; let Stripe or another PCI-compliant processor handle them.
+14. Sensitive/health data — if your software contains patient information, this becomes substantially more important because you have HIPAA/security considerations beyond ordinary SaaS security.
+15. Breach containment — you should know exactly how you’d rotate every credential, disable compromised accounts, roll back a deployment and restore the database.
+
+And there’s one test I’d especially want done manually on your software:
+
+“Assume I am a legitimate low-privilege user. Try to make me see, modify, delete, or export absolutely anything belonging to another customer/clinic.”

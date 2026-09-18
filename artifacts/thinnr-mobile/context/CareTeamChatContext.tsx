@@ -22,7 +22,7 @@ import type {
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { CareTeamUnreadContext } from '@/context/CareTeamUnreadContext';
 import { subscribeChatSync } from '@/lib/chat-sync-events';
-import { supabase } from '@/lib/supabase';
+import { missingTokenMessage, supabase } from '@/lib/supabase';
 import { TODAY } from '@/data/patient-data';
 
 export type CareTeamConversation = GeneratedCareTeamConversation;
@@ -248,7 +248,7 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
     if (!isCurrent(operation)) return null;
     const token = result?.data.session?.access_token ?? null;
     const userId = result?.data.session?.user?.id ?? null;
-    if (!token) throw new Error('Your session has expired. Please sign in again.');
+    if (!token) throw new Error(await missingTokenMessage('You’re signed out. Sign in again to message your care team.'));
     if (!userId) throw new Error('Your authenticated patient session is invalid.');
     return { token, userId };
   }, [isCurrent]);

@@ -1,5 +1,5 @@
 import { apiBase } from '@/lib/coach-api';
-import { supabase } from '@/lib/supabase';
+import { readStoredSession, SessionReconnectingError, supabase } from '@/lib/supabase';
 
 export type SignInMethod = 'email_code' | 'sms_code' | 'password_sms_code' | 'password_email_code' | 'signup' | 'claim';
 export type SecurityPlatform = 'ios' | 'android' | 'web' | 'unknown';
@@ -58,7 +58,12 @@ async function request<T>(method: string, path: string, body?: unknown, authenti
   let token: string | undefined;
   if (authenticated) {
     token = (await supabase?.auth.getSession())?.data.session?.access_token ?? undefined;
-    if (!token) throw new SecurityApiError('You’re signed out. Sign in again to manage account security.', 401);
+    if (!token) {
+      // A pending refresh (offline, auth service trouble) is not a sign-out:
+      // status 0 marks it as a connection failure like any other.
+      if (await readStoredSession()) throw new SecurityApiError(new SessionReconnectingError().message, 0);
+      throw new SecurityApiError('You’re signed out. Sign in again to manage account security.', 401);
+    }
   }
   let response: Response;
   try {

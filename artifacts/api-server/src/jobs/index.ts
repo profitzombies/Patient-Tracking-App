@@ -16,6 +16,7 @@ import { coachTitleProcessingJob } from "./definitions/coach-title-processing";
 import { billingReconcileJob } from "./definitions/billing-reconcile";
 import { billingRenewalRemindersJob } from "./definitions/billing-renewal-reminders";
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
+import { patientSignInMetricsJob } from "./definitions/patient-sign-in-metrics";
 
 const HOUR_MS = 3_600_000;
 
@@ -59,6 +60,7 @@ export const ALL_JOBS: JobDefinition[] = [
   retentionAuditJob,
   trainingMediaCleanupJob,
   patientMediaCleanupJob,
+  patientSignInMetricsJob,
 ];
 
 let registered = false;

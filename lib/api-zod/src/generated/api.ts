@@ -4465,7 +4465,16 @@ export const GetHqSystemHealthResponse = zod.object({
   "oldestDueAt": zod.string().nullable(),
   "oldestDueAgeMs": zod.number().nullable().describe('How long the oldest due row has been waiting.'),
   "inFlight": zod.number().describe('Rows a sender currently holds under a live lease.')
-}),zod.null()]).describe('Patient push outbox backlog; null when the outbox could not be read.')
+}),zod.null()]).describe('Patient push outbox backlog; null when the outbox could not be read.'),
+  "patientSignIns": zod.array(zod.object({
+  "month": zod.string().describe('First day of the UTC month (YYYY-MM-DD)'),
+  "smsSignIns": zod.number(),
+  "patientsWithSmsSignIn": zod.number(),
+  "newDeviceSmsSignIns": zod.number(),
+  "signups": zod.number(),
+  "activePatients": zod.number(),
+  "smsPerActivePatient": zod.number().nullable()
+})).nullable()
 })
 
 

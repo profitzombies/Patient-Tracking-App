@@ -3947,7 +3947,7 @@ components:
         recentFailures: { type: array, items: { $ref: "#/components/schemas/SystemJobItemFailure" } }
     SystemHealthResult:
       type: object
-      required: [asOf, jobs, recentRuns, outbox]
+      required: [asOf, jobs, recentRuns, outbox, patientSignIns]
       properties:
         asOf: { type: string }
         jobs: { type: array, items: { $ref: "#/components/schemas/SystemJobHealth" } }
@@ -3957,6 +3957,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/PushOutboxBacklog"
             - type: "null"
+        # Text-message login codes per active patient per UTC month, newest
+        # first; null when the sign-in ledger could not be read.
+        patientSignIns:
+          type: ["array", "null"]
+          items: { $ref: "#/components/schemas/PatientSignInMonth" }
     PushOutboxBacklog:
       type: object
       required: [due, oldestDueAt, oldestDueAgeMs, inFlight]
@@ -3965,6 +3970,17 @@ components:
         oldestDueAt: { type: ["string", "null"] }
         oldestDueAgeMs: { type: ["number", "null"], description: How long the oldest due row has been waiting. }
         inFlight: { type: number, description: Rows a sender currently holds under a live lease. }
+    PatientSignInMonth:
+      type: object
+      required: [month, smsSignIns, patientsWithSmsSignIn, newDeviceSmsSignIns, signups, activePatients, smsPerActivePatient]
+      properties:
+        month: { type: string, description: "First day of the UTC month (YYYY-MM-DD)" }
+        smsSignIns: { type: number }
+        patientsWithSmsSignIn: { type: number }
+        newDeviceSmsSignIns: { type: number }
+        signups: { type: number }
+        activePatients: { type: number }
+        smsPerActivePatient: { type: ["number", "null"] }
     SystemJobRunResult:
       type: object
       required: [run]

@@ -1944,12 +1944,26 @@ export interface PushOutboxBacklog {
   inFlight: number;
 }
 
+export interface PatientSignInMonth {
+  /** First day of the UTC month (YYYY-MM-DD) */
+  month: string;
+  smsSignIns: number;
+  patientsWithSmsSignIn: number;
+  newDeviceSmsSignIns: number;
+  signups: number;
+  activePatients: number;
+  /** @nullable */
+  smsPerActivePatient: number | null;
+}
+
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
   recentRuns: SystemJobRun[];
   /** Patient push outbox backlog; null when the outbox could not be read. */
   outbox: PushOutboxBacklog | null;
+  /** @nullable */
+  patientSignIns: PatientSignInMonth[] | null;
 }
 
 export interface SystemJobRunResult {

@@ -188,6 +188,18 @@ args = "push-drain-api"
 task = "workflow.run"
 args = "push-drain-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "session-persistence-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "session-persistence-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "session-persistence-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1821,6 +1833,39 @@ isValidation = true
 
 [[workflows.workflow]]
 name = "push-drain-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "session-persistence-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:session-persistence && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:account-security && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "session-persistence-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/system-jobs.test.ts src/jobs/definitions/patient-sign-in-metrics.test.ts src/routes/patient-sign-in-metrics.sql.test.ts src/routes/security.test.ts src/routes/auth.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "session-persistence-web"
 author = "agent"
 
 [[workflows.workflow.tasks]]

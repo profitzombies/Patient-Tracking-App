@@ -126,6 +126,14 @@ export interface CoachAvailability {
  * token, offline, non-2xx): callers keep their current state — the chat
  * request itself is the authority and reports a pause on send.
  */
+/**
+ * Matches lib/supabase's SessionReconnectingError by name; this module stays
+ * free of the Supabase import so Node suites can load it without storage.
+ */
+function isReconnectingError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'SessionReconnectingError';
+}
+
 export async function fetchCoachAvailability(
   getAuthToken: () => Promise<string | null>,
   signal?: AbortSignal,
@@ -309,15 +317,19 @@ export async function streamCoachChat(
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (options.getAuthToken) {
       let token: string | null = null;
+      let missingTokenMessage = 'You’re signed out. Sign in again to chat with your coach.';
       try {
         token = await options.getAuthToken();
-      } catch {
+      } catch (error) {
         token = null;
+        // A stored session waiting on its refresh is a connection problem,
+        // never a reason to send the patient back through sign-in.
+        if (isReconnectingError(error)) missingTokenMessage = error.message;
       }
       if (!token) {
         state.finished = true;
         if (!signal?.aborted) {
-          callbacks.onError('You’re signed out. Sign in again to chat with your coach.', true);
+          callbacks.onError(missingTokenMessage, true);
         }
         return;
       }
@@ -718,7 +730,8 @@ async function scanHeaders(
   let token: string | null;
   try {
     token = await options.getAuthToken();
-  } catch {
+  } catch (error) {
+    if (isReconnectingError(error)) throw fail(error.message);
     token = null;
   }
   if (!token) throw fail(SCAN_SIGNED_OUT_MESSAGE);

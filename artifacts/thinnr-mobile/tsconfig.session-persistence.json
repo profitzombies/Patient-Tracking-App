@@ -1,0 +1,32 @@
+{
+  // tsx config for scripts/verify-session-persistence.tsx ONLY (not part of
+  // typecheck).
+  //
+  // Unlike the other patient suites this one runs the REAL lib/supabase.ts
+  // (and the real @supabase/supabase-js client) against a scripted fetch and
+  // an in-memory AsyncStorage, so it proves how a stored session behaves
+  // through a transient refresh failure, a definitive refusal, a new device,
+  // and a long absence. lib/patient-data-api rides along unstubbed so the
+  // bearer resolution its fetchers use is the production one.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

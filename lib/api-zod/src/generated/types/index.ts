@@ -376,6 +376,7 @@ export * from './patientOperationalFollowUpReason';
 export * from './patientOperationalFollowUpStatus';
 export * from './patientProgram';
 export * from './patientProgramStage';
+export * from './patientSignInMonth';
 export * from './policySectionChange';
 export * from './policySectionChanges';
 export * from './productSuggestion';

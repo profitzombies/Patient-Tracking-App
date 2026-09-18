@@ -24,7 +24,13 @@
  *       in-flight rows; an unreadable outbox shows dashes and a notice, never
  *       zeros.
  *
- *   (The HQ Files page has its own suites: test:files / test:office-files.)
+ *   Login codes per active patient (verification cost)
+ *     - this month's tiles and the per-month table come straight from the
+ *       API's patientSignIns; a month with no active patients shows a dash;
+ *     - a null metric (ledger unreadable) reads as unavailable, never zero.
+ *
+ *   (The HQ Files page has its own suite, scripts/verify-files.tsx, which
+ *   owns the missing-file behaviour that used to be checked here.)
  *
  * Pure half: the status → label/class mapping and the counts formatter.
  */
@@ -38,7 +44,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { __setSession } from './a11y-stubs/session';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
-import SystemHealth, { STATUS_LABEL, formatAge, formatCounts, statusClass } from '../src/pages/admin/SystemHealth';
+import SystemHealth, { STATUS_LABEL, formatAge, formatCounts, monthLabel, ratioLabel, statusClass } from '../src/pages/admin/SystemHealth';
 import { useToast } from '../src/hooks/use-toast';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -142,7 +148,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -190,6 +196,14 @@ console.log('status mapping and counts formatter');
 
 // ─── System health ───────────────────────────────────────────────────────────
 
+// Login codes per active patient: newest month first, as the API answers.
+type SignInMonth = { month: string; smsSignIns: number; patientsWithSmsSignIn: number; newDeviceSmsSignIns: number; signups: number; activePatients: number; smsPerActivePatient: number | null };
+const signInMonths: SignInMonth[] = [
+  { month: '2026-09-01', smsSignIns: 30, patientsWithSmsSignIn: 12, newDeviceSmsSignIns: 9, signups: 4, activePatients: 120, smsPerActivePatient: 0.25 },
+  { month: '2026-08-01', smsSignIns: 3, patientsWithSmsSignIn: 3, newDeviceSmsSignIns: 0, signups: 0, activePatients: 0, smsPerActivePatient: null },
+];
+let patientSignIns: SignInMonth[] | null = signInMonths;
+
 console.log('\nsystem health: admin board');
 {
   __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' }, hqRole: 'Admin' });
@@ -199,6 +213,17 @@ console.log('\nsystem health: admin board');
   check('summary tiles count failing / stale-or-never / running / healthy',
     textOf(byTestId(root, 'metric-jobs-failing')[0]) === '1' && textOf(byTestId(root, 'metric-jobs-stale')[0]) === '2' && textOf(byTestId(root, 'metric-jobs-running')[0]) === '1' && textOf(byTestId(root, 'metric-jobs-healthy')[0]) === '1',
     `${textOf(byTestId(root, 'metric-jobs-failing')[0])}/${textOf(byTestId(root, 'metric-jobs-stale')[0])}/${textOf(byTestId(root, 'metric-jobs-running')[0])}/${textOf(byTestId(root, 'metric-jobs-healthy')[0])}`);
+  check('login-code tiles show this month: codes per active patient, codes, patients, active',
+    textOf(byTestId(root, 'metric-sms-per-active-patient')[0]) === '0.25' && textOf(byTestId(root, 'metric-sms-sign-ins')[0]) === '30'
+      && textOf(byTestId(root, 'metric-patients-with-sms')[0]) === '12' && textOf(byTestId(root, 'metric-active-patients')[0]) === '120'
+      && textOf(byTestId(root, 'verification-cost-summary')[0]).includes('Sep 2026 so far') && textOf(byTestId(root, 'verification-cost-summary')[0]).includes('9 on a new device'),
+    textOf(byTestId(root, 'verification-cost-summary')[0]));
+  check('the month table lists every month newest first with a dash where nobody was active',
+    byTestId(root, 'row-sign-ins-2026-09').length === 1 && byTestId(root, 'row-sign-ins-2026-08').length === 1
+      && textOf(byTestId(root, 'text-sms-ratio-2026-09')[0]) === '0.25' && textOf(byTestId(root, 'text-sms-ratio-2026-08')[0]) === '—'
+      && textOf(byTestId(root, 'table-verification-cost')[0]).indexOf('Sep 2026') < textOf(byTestId(root, 'table-verification-cost')[0]).indexOf('Aug 2026'));
+  check('no unavailable notice while the ledger answers', byTestId(root, 'text-verification-cost-unavailable').length === 0);
+  check('month labels do not shift with the timezone', monthLabel('2026-01-01') === 'Jan 2026' && monthLabel('2026-12-01') === 'Dec 2026' && ratioLabel(1) === '1.00' && ratioLabel(null) === '—');
   check('every job renders a card', jobs.every((j) => byTestId(root, `job-${j.name}`).length === 1));
   const chip = (name: string) => textOf(byTestId(root, `chip-job-status-${name}`)[0]);
   check('status chips read healthy / failing / stale / never ran / running / on demand',
@@ -266,6 +291,16 @@ console.log('\nsystem health: push outbox backlog');
     textOf(byTestId(unreadable.root, 'metric-outbox-due')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-outbox-in-flight')[0]) === '—' && byTestId(unreadable.root, 'text-outbox-unreadable').length === 1
       && byTestId(unreadable.root, 'job-retention-chat').length === 1);
   outbox = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
+}
+
+console.log('\nsystem health: sign-in ledger unreadable');
+{
+  patientSignIns = null;
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('a null metric reads as unavailable, never as zero codes',
+    byTestId(root, 'text-verification-cost-unavailable').length === 1 && byTestId(root, 'verification-cost-summary').length === 0 && byTestId(root, 'table-verification-cost').length === 0);
+  check('job cards still render', byTestId(root, 'job-abandoned-uploads').length === 1);
+  patientSignIns = signInMonths;
 }
 
 console.log('\nsystem health: ledger unavailable');

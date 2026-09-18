@@ -51,7 +51,7 @@ import {
   appendMediaToken,
   setPatientMediaToken as setMediaTokenDirect,
 } from '@/lib/media-token-holder';
-import { supabase } from '@/lib/supabase';
+import { resolveSessionAccessToken, SessionReconnectingError, supabase } from '@/lib/supabase';
 import type { HealthMeasurement } from '@/lib/device-feature-core';
 import {
   parseConsent,
@@ -122,8 +122,18 @@ export async function authedRequest(
   if (!supabase) {
     throw new PatientDataError('Sign-in isn’t configured in this build.', null, { kind: 'config' });
   }
-  const token = opts.accessToken ?? (await supabase.auth.getSession()).data.session?.access_token;
-  if (!token) throw new PatientDataError(SIGNED_OUT_MESSAGE, null, { kind: 'signedOut' });
+  let token = opts.accessToken;
+  if (!token) {
+    const resolved = await resolveSessionAccessToken();
+    // A stored session whose refresh has not landed yet is a connectivity
+    // problem, not a sign-out: the write queue retries it and no screen may
+    // send the patient back to the sign-in card (and a new text-message code).
+    if (resolved.kind === 'stale') {
+      throw new PatientDataError(new SessionReconnectingError().message, null, { kind: 'network' });
+    }
+    if (resolved.kind === 'signedOut') throw new PatientDataError(SIGNED_OUT_MESSAGE, null, { kind: 'signedOut' });
+    token = resolved.token;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? REQUEST_TIMEOUT_MS);
@@ -197,9 +207,20 @@ export type AccountRole = { kind: 'patient'; patientId: string } | { kind: 'othe
  * (coach chat SSE). Null when signed out or sign-in isn't configured.
  */
 export async function getSessionAccessToken(): Promise<string | null> {
-  if (!supabase) return null;
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
+  const resolved = await resolveSessionAccessToken();
+  return resolved.kind === 'token' ? resolved.token : null;
+}
+
+/**
+ * Same bearer, but a stored session whose refresh has not landed yet throws
+ * SessionReconnectingError instead of reading as signed out. Screens that
+ * show the failure to the patient use this one, so a dead spot never turns
+ * into "sign in again" (and a fresh text-message code).
+ */
+export async function requireSessionAccessToken(): Promise<string | null> {
+  const resolved = await resolveSessionAccessToken();
+  if (resolved.kind === 'stale') throw new SessionReconnectingError();
+  return resolved.kind === 'token' ? resolved.token : null;
 }
 
 /**

@@ -58,6 +58,8 @@ beforeEach(() => {
   resetJobRegistry();
   outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
   mocks.audit.mockReset().mockResolvedValue(undefined);
+  // No ledger by default: the sign-in metric degrades to null.
+  mocks.admin.mockReset().mockResolvedValue({ status: 503, json: null });
   delete process.env.NOTIFICATIONS_INTERNAL_TOKEN;
 });
 afterEach(() => {
@@ -130,6 +132,36 @@ describe("GET /hq/system-health", () => {
     const broken = await fetch(`${base}/hq/system-health`, { headers: admin });
     expect(broken.status).toBe(200);
     expect((await broken.json() as { outbox: unknown }).outbox).toBeNull();
+  });
+
+  it("carries text-message login codes per active patient per month, newest first", async () => {
+    mocks.admin.mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (method === "POST" && path === "/rest/v1/rpc/hq_patient_sign_in_metrics") {
+        expect(body).toEqual({ p_months: 6 });
+        return { status: 200, json: [
+          { month: "2026-09-01", sms_sign_ins: 30, patients_with_sms_sign_in: 12, new_device_sms_sign_ins: 9, signups: 4, active_patients: 120 },
+          { month: "2026-08-01", sms_sign_ins: 3, patients_with_sms_sign_in: 3, new_device_sms_sign_ins: 0, signups: 0, active_patients: 0 },
+        ] };
+      }
+      return { status: 500, json: null };
+    });
+    const res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { patientSignIns: unknown };
+    expect(body.patientSignIns).toEqual([
+      { month: "2026-09-01", smsSignIns: 30, patientsWithSmsSignIn: 12, newDeviceSmsSignIns: 9, signups: 4, activePatients: 120, smsPerActivePatient: 0.25 },
+      { month: "2026-08-01", smsSignIns: 3, patientsWithSmsSignIn: 3, newDeviceSmsSignIns: 0, signups: 0, activePatients: 0, smsPerActivePatient: null },
+    ]);
+  });
+
+  it("reports the sign-in metric as unavailable (null) when the ledger read fails, without hiding job health", async () => {
+    mocks.admin.mockResolvedValue({ status: 500, json: null });
+    registerJob(def({ name: "ok-job", run: async () => undefined }));
+    const res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { patientSignIns: unknown; jobs: JobHealthDto[] };
+    expect(body.patientSignIns).toBeNull();
+    expect(body.jobs.map((j) => j.name)).toContain("ok-job");
   });
 
   it("exposes report-local errors without putting healthy queued work into backoff", async () => {

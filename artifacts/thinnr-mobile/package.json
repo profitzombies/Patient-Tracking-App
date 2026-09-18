@@ -79,7 +79,8 @@
     "test:sell-to-patient": "tsx --tsconfig tsconfig.payments.json scripts/verify-sell-to-patient.tsx",
     "test:patient-orders": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-orders.tsx",
     "test:patient-subscriptions": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-subscriptions.tsx",
-    "test:tap-to-pay": "tsx --tsconfig tsconfig.payments.json scripts/verify-tap-to-pay.tsx"
+    "test:tap-to-pay": "tsx --tsconfig tsconfig.payments.json scripts/verify-tap-to-pay.tsx",
+    "test:session-persistence": "tsx --tsconfig tsconfig.session-persistence.json scripts/verify-session-persistence.tsx"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

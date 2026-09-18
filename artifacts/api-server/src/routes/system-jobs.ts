@@ -25,6 +25,7 @@ import { getJob, listJobs, runDueJobs, runJob } from "../jobs/scheduler";
 import { supabaseJobStore, type JobStore } from "../jobs/store";
 import { supabaseNotificationStore, type OutboxBacklog } from "../notifications/store";
 import type { JobDefinition, JobItemFailureRecord, JobRunRecord, JobStateRecord } from "../jobs/types";
+import { readPatientSignInMetrics, type PatientSignInMonth } from "../security/sign-in-metrics";
 
 export type JobHealthStatus = "ok" | "failing" | "stale" | "never_ran" | "running" | "on_demand";
 
@@ -170,7 +171,15 @@ export function createSystemJobsRouter(
           : [];
         jobs.push(toJobHealthDto(definition, state, failures, now));
       }
-      res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto), outbox });
+      // Verification cost: a ledger read failure must not hide the job
+      // health, so it degrades to null and the UI says "unavailable".
+      let patientSignIns: PatientSignInMonth[] | null = null;
+      try {
+        patientSignIns = await readPatientSignInMetrics();
+      } catch (error) {
+        req.log?.error({ err: error }, "patient sign-in metrics read failed");
+      }
+      res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto), outbox, patientSignIns });
     } catch (error) {
       req.log?.error({ err: error }, "system health read failed");
       res.status(502).json({ error: "Could not load system health right now." });

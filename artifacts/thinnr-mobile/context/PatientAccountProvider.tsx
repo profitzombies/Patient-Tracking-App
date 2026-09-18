@@ -30,7 +30,7 @@ import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from
 import { supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
 import {
   fetchAccountRole,
-  getSessionAccessToken,
+  requireSessionAccessToken,
   patientDataApi,
   type AccountRole,
 } from '@/lib/patient-data-api';
@@ -124,7 +124,7 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
         account: { kind: 'demo' },
         accountNotice: null,
         retryResolve,
-        getAccessToken: getSessionAccessToken,
+        getAccessToken: requireSessionAccessToken,
       };
     }
     return {
@@ -135,7 +135,7 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       // A live session exists (real, unresolved, or staff browsing the demo
       // persona): expose its bearer supplier. Consumers decide per account
       // kind whether to authenticate a call with it.
-      getAccessToken: getSessionAccessToken,
+      getAccessToken: requireSessionAccessToken,
     };
   }, [sessionLoading, userId, resolved, retryResolve]);
 

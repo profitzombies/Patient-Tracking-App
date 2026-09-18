@@ -50,7 +50,7 @@ import {
   type PendingAttempt,
 } from '@/lib/checkout-flow';
 import { checkoutCart, listCards, quoteCart } from '@/lib/patient-billing-api';
-import { supabase } from '@/lib/supabase';
+import { missingTokenMessage, supabase } from '@/lib/supabase';
 import type { CartQuote, CartQuoteRequest, PatientCard, ShippingAddress } from '@/lib/patient-billing-types';
 
 type CardChoice = { kind: 'saved'; id: string } | { kind: 'new' };
@@ -225,7 +225,7 @@ export default function CheckoutScreen() {
     try {
       if (!scope) throw new Error('Your cart isn’t ready yet. Try again in a moment.');
       const startedBy = await sessionIdentity();
-      if (!startedBy) throw new Error('You’re signed out. Sign in again to pay.');
+      if (!startedBy) throw new Error(await missingTokenMessage('You’re signed out. Sign in again to pay.'));
       if (!cart.isCurrentScope(scope)) throw new CartScopeChangedError();
       let attempt: PendingAttempt;
       if (pendingAttempt) {

@@ -21,6 +21,7 @@ import {
   getGetHqSystemHealthQueryKey,
   useGetHqSystemHealth,
   useRunHqSystemJob,
+  type PatientSignInMonth,
   type SystemHealthResult,
   type SystemJobHealth,
   type SystemJobHealthStatus,
@@ -114,6 +115,79 @@ const TRIGGER_LABEL: Record<SystemJobRun['trigger'], string> = {
   internal: 'External trigger',
   user: 'User action',
 };
+
+/** "2026-09-01" → "Sep 2026" without a timezone shift (the month is a UTC calendar month). */
+export function monthLabel(month: string): string {
+  const [year, mm] = month.split('-').map(Number);
+  return format(new Date(year, (mm ?? 1) - 1, 1), 'MMM yyyy');
+}
+
+/** Codes per active patient for the tile: "0.25", or "—" while nobody was active. */
+export function ratioLabel(value: number | null): string {
+  return value === null ? '—' : value.toFixed(2);
+}
+
+/**
+ * Text-message login codes per active patient, per month. Each code is a
+ * paid message, so the ratio is the number that says whether sessions really
+ * persist: about one code per new device, not one per patient per month.
+ */
+function VerificationCostPanel({ months, loaded }: { months: PatientSignInMonth[] | null | undefined; loaded: boolean }) {
+  const current = months?.[0] ?? null;
+  return (
+    <section className="mt-8 overflow-hidden rounded-lg border border-border bg-card shadow-soft" aria-labelledby="verification-cost-title" data-testid="section-verification-cost">
+      <div className="border-b border-border bg-paper-alt px-4 py-3">
+        <h2 id="verification-cost-title" className="font-serif text-base font-bold text-navy">Login codes per active patient</h2>
+        <p className="text-[11px] text-muted-foreground">
+          Each patient text-message code is a paid message. A patient who stays signed in on the same phone needs one only on a new device, so this should stay well under one per active patient per month.
+        </p>
+      </div>
+      {loaded && months === null && (
+        <p role="alert" className="px-4 py-5 text-xs text-destructive" data-testid="text-verification-cost-unavailable">
+          Sign-in ledger unavailable — the login-code count could not be read.
+        </p>
+      )}
+      {months && (
+        <>
+          <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-4" data-testid="verification-cost-summary">
+            <MetricTile label="Codes per active patient" value={current ? ratioLabel(current.smsPerActivePatient) : '—'} detail={current ? `${monthLabel(current.month)} so far` : 'No months yet'} testId="metric-sms-per-active-patient" />
+            <MetricTile label="Text codes redeemed" value={current ? String(current.smsSignIns) : '—'} detail={current ? `${current.newDeviceSmsSignIns} on a new device` : ''} testId="metric-sms-sign-ins" />
+            <MetricTile label="Patients who needed one" value={current ? String(current.patientsWithSmsSignIn) : '—'} detail="Distinct patients this month" testId="metric-patients-with-sms" />
+            <MetricTile label="Active patients" value={current ? String(current.activePatients) : '—'} detail="Opened the app this month" testId="metric-active-patients" />
+          </div>
+          <div className="overflow-x-auto border-t border-border">
+            <table className="w-full text-xs" data-testid="table-verification-cost">
+              <thead>
+                <tr className="border-b border-border text-left text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground">
+                  <th className="px-4 py-2.5">Month</th>
+                  <th className="px-4 py-2.5 text-right">Text codes</th>
+                  <th className="px-4 py-2.5 text-right">New device</th>
+                  <th className="px-4 py-2.5 text-right">Patients</th>
+                  <th className="px-4 py-2.5 text-right">Sign-ups</th>
+                  <th className="px-4 py-2.5 text-right">Active patients</th>
+                  <th className="px-4 py-2.5 text-right">Codes per active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {months.map((row) => (
+                  <tr key={row.month} className="border-b border-border last:border-0" data-testid={`row-sign-ins-${row.month.slice(0, 7)}`}>
+                    <td className="whitespace-nowrap px-4 py-2.5 font-medium text-foreground">{monthLabel(row.month)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{row.smsSignIns}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.newDeviceSmsSignIns}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.patientsWithSmsSignIn}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{row.signups}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{row.activePatients}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-navy" data-testid={`text-sms-ratio-${row.month.slice(0, 7)}`}>{ratioLabel(row.smsPerActivePatient)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
 
 export default function SystemHealth() {
   const { authStatus, authUser, hqRole } = useSession();
@@ -231,6 +305,8 @@ export default function SystemHealth() {
               {(error as { data?: { error?: string } })?.data?.error ?? 'System health could not be loaded. The job ledger may be unreachable.'}
             </div>
           )}
+
+          <VerificationCostPanel months={data?.patientSignIns} loaded={!!data} />
 
           <section className="mt-6 space-y-3" aria-label="Background jobs" data-testid="system-health-jobs">
             {isLoading && !data && (

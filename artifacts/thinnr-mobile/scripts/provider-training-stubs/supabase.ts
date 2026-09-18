@@ -25,3 +25,23 @@ export function setStubSession(userId: string | null): void {
 export function useSupabaseSession() {
   return { session, sessionLoading: false };
 }
+
+// ── Session-state helpers the real lib also exports ─────────────────────────
+// eslint-disable-next-line no-restricted-imports
+import { stubSessionHelpers } from '../stub-session-helpers';
+const sessionHelpers = stubSessionHelpers(() => {
+  const client = supabase as { auth?: { getSession?: () => Promise<{ data: { session: { access_token?: string | null } | null } }> } } | null;
+  const getSession = client?.auth?.getSession;
+  return getSession ? () => getSession.call(client!.auth) : null;
+});
+export const {
+  SESSION_RECONNECTING_MESSAGE,
+  STALE_SESSION_RETRY_MS,
+  SessionReconnectingError,
+  isSessionReconnectingError,
+  sessionStorageKey,
+  sessionStorageKeyFor,
+  readStoredSession,
+  missingTokenMessage,
+  resolveSessionAccessToken,
+} = sessionHelpers;

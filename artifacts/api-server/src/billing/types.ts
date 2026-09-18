@@ -546,8 +546,13 @@ export interface OfficeDashboard {
   net_cents: number;
   orders: number;
   active_subscriptions: number;
+  /** Monthly recurring revenue: active subscriptions' price × quantity normalized from cadence weeks to a month; shipping excluded. */
+  mrr_cents: number;
+  /** Subscriptions whose renewal payment failed (past_due or unpaid). */
   needs_attention_subscriptions: number;
   to_ship: number;
+  /** False until the office has connected a payments account; balance and payout are zero placeholders until then. */
+  account_connected: boolean;
   series: SeriesPoint[];
 }
 

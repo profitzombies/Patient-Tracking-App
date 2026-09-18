@@ -10,8 +10,11 @@ export const DEMO_DASHBOARD: OfficeDashboard = {
   net_cents: 381966,
   orders: 42,
   active_subscriptions: 18,
+  // 18 four-week plans at $71.99 normalized to a calendar month (52/12 weeks).
+  mrr_cents: 1_684_566,
   needs_attention_subscriptions: 1,
   to_ship: 6,
+  account_connected: true,
   series: [
     { date: '2026-10-05', collected_cents: 65400, net_cents: 39120, fee_cents: 23840, refunded_cents: 0, orders: 4 },
     { date: '2026-10-06', collected_cents: 89900, net_cents: 52600, fee_cents: 34000, refunded_cents: 0, orders: 2 },

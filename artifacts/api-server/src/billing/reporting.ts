@@ -8,6 +8,28 @@ export class BillingReportingError extends Error {
 export function needsAttentionSubscriptionCount(rows: Array<{ status: string }>): number {
   return rows.filter((row) => row.status === "past_due" || row.status === "unpaid").length;
 }
+/** Cadence-to-month normalization for MRR: a calendar month is 52 weeks / 12 months (about 4.33 weeks). */
+export const WEEKS_PER_YEAR = 52;
+export const MONTHS_PER_YEAR = 12;
+export type RecurringRevenueRow = { status: string; unit_price_cents: number; quantity?: number | null; cadence_weeks?: number | null };
+/**
+ * Monthly recurring revenue in cents from the office's subscriptions: each
+ * ACTIVE subscription contributes product price × quantity, normalized from
+ * its renewal cadence in weeks to a calendar month (a 2-week plan counts
+ * about 2.17 times a month, a 12-week plan about 0.36 times). Shipping
+ * charges are a pass-through and are excluded. Legacy rows without a plan
+ * are 4 weeks × 1. Yearly cents are summed first and the total is divided
+ * and rounded once, at the end, so per-row rounding cannot drift.
+ */
+export function monthlyRecurringRevenueCents(rows: RecurringRevenueRow[]): number {
+  const yearly = rows.reduce((sum, row) => {
+    if (row.status !== "active") return sum;
+    const cadence = row.cadence_weeks && row.cadence_weeks > 0 ? row.cadence_weeks : 4;
+    const quantity = row.quantity && row.quantity > 0 ? row.quantity : 1;
+    return sum + (row.unit_price_cents * quantity * WEEKS_PER_YEAR) / cadence;
+  }, 0);
+  return Math.round(yearly / MONTHS_PER_YEAR);
+}
 export function reportRange(input: { from?: unknown; to?: unknown }) {
   const to = typeof input.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.to) ? input.to : new Date().toISOString().slice(0, 10);
   const fallback = new Date(`${to}T00:00:00.000Z`); fallback.setUTCDate(fallback.getUTCDate() - 29);
@@ -58,7 +80,7 @@ export async function officeDashboard(providerId: string, input: { from?: unknow
   const range = reportRange(input);
   const [orders, subscriptions, attention] = await Promise.all([
     selectMany("billing_orders", `provider_id=eq.${encodeURIComponent(providerId)}&created_at=gte.${range.start}&created_at=lte.${range.end}&order=created_at.asc`),
-    selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=eq.active&select=id`),
+    selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=eq.active&select=id,status,unit_price_cents,quantity,cadence_weeks`),
     selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=in.(past_due,unpaid)&select=id`),
   ]);
   const paid = orders.filter((row) => row.status === "paid" || row.status === "refunded" || row.status === "partially_refunded" || row.status === "disputed");
@@ -73,7 +95,9 @@ export async function officeDashboard(providerId: string, input: { from?: unknow
     refunded_cents: refunds.reduce((sum, row) => sum + row.amount_cents, 0),
     net_cents: paid.reduce((sum, row) => sum + (row.office_net_cents ?? 0), 0),
     orders: paid.length, active_subscriptions: subscriptions.length,
-    needs_attention_subscriptions: attention.length,
+    mrr_cents: monthlyRecurringRevenueCents(subscriptions),
+    needs_attention_subscriptions: needsAttentionSubscriptionCount(attention),
+    account_connected: false,
     to_ship: paid.filter((row) => row.fulfillment_status === "to_ship").length,
     series: [...series.values()],
   };
@@ -142,7 +166,7 @@ export async function hqOverview(input: { from?: unknown; to?: unknown }): Promi
     refunded_cents: refunds.reduce((sum, row) => sum + row.amount_cents, 0),
     disputed_cents: disputes.filter((row) => row.status !== "won").reduce((sum, row) => sum + row.amount_cents, 0),
     orders: paid.length, active_subscriptions: subscriptions.length,
-    needs_attention_subscriptions: attention.length,
+    needs_attention_subscriptions: needsAttentionSubscriptionCount(attention),
     providers_onboarded: accounts.filter((row) => row.charges_enabled && row.payouts_enabled).length,
     providers_pending: accounts.filter((row) => !row.charges_enabled || !row.payouts_enabled).length,
     to_ship: paid.filter((row) => row.fulfillment_status === "to_ship").length,

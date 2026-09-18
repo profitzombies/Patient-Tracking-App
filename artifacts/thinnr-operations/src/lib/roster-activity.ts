@@ -16,6 +16,7 @@
  * seeded LoggingStats untouched.
  */
 import type { MoodKey, OfficePatient, PatientActivitySignals } from '@/lib/office-roster';
+import { isActivatedStatus, toRosterStatus } from '@/lib/roster-filters';
 
 export type RosterActivity =
   | { kind: 'unknown' }
@@ -47,6 +48,34 @@ export function rosterActivityFor(patient: Pick<OfficePatient, 'operational'>): 
     daysSinceLastLog: latestDiary ? dayDiff(asOf, latestDiary) : null,
     lapsed: operational.reasons.includes('logging_lapsed'),
   };
+}
+
+// ─── Roster count predicates ─────────────────────────────────────────────────
+// The Overview tiles, its priority cards and the Patients page filters they
+// link to must agree, so every count is taken from the SAME roster rows with
+// these predicates — never from a second aggregate that can drift.
+
+/** Outreach reason codes the roster flags and the Patients page filters on (`?reason=`). */
+export type RosterReason = 'check_in_overdue' | 'logging_lapsed' | 'no_activity_14d';
+
+/**
+ * The roster's "active" patient: the Patients page `?status=active` view,
+ * i.e. the same operational status the filter model derives for its row
+ * (server verdict, else the legacy status, else invited) with invited,
+ * paused and discharged excluded.
+ */
+export function isActivatedRosterPatient(patient: Pick<OfficePatient, 'operational' | 'status'>): boolean {
+  return isActivatedStatus(toRosterStatus(patient.operational?.status ?? patient.status ?? 'invited'));
+}
+
+/** True when the roster flagged the patient for this reason (the Patients page `?reason=` filter). */
+export function rosterHasReason(patient: Pick<OfficePatient, 'operational'>, reason: RosterReason): boolean {
+  return patient.operational?.reasons?.includes(reason) ?? false;
+}
+
+/** Roster link for one outreach reason; the count shown beside it must be `rosterHasReason` over the same rows. */
+export function rosterReasonHref(reason: RosterReason): string {
+  return `/patients?reason=${reason}`;
 }
 
 /** Lapsed filter: unknown rows are never lapsed — missing data is not silence. */

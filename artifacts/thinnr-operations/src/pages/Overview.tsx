@@ -27,8 +27,13 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useDateRange, type OperationsDateRange, formatRangeLabel, addDaysToKey, keyToDate } from "@/contexts/date-range";
 import { useSession } from "@/contexts/session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
+import { useOfficeDashboard } from "@/hooks/use-billing";
 import { useTimeOfDayGreeting } from "@/hooks/use-local-clock";
 import { formatLocalDate } from "@/lib/local-time";
+import { BillingApiError } from "@/lib/billing-api";
+import { buildLiveRevenueView, liveRevenueWindow, rangeDayCount, type LiveRevenueView } from "@/lib/overview-live-revenue";
+import { isActivatedRosterPatient, rosterActivityFor, rosterHasReason, rosterReasonHref } from "@/lib/roster-activity";
+import { AreaChart, CHART_COLORS } from "@/components/billing/hq/RevenueCharts";
 import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
@@ -140,6 +145,103 @@ function buildRevenueView(range: OperationsDateRange, revenueOf: (dateKey: strin
   const axisMax = niceCeil(Math.max(...buckets.map((bucket) => bucket.total)));
 
   return { buckets, total, deltaPct, dayCount, axisMax };
+}
+
+/** Office subscriptions list filtered to failed renewal payments (past due + unpaid). */
+const FAILED_PAYMENTS_HREF = '/payments/subscriptions?status=needs_attention';
+/** Payments setup for an office that has not connected an account yet. */
+const PAYMENTS_SETUP_HREF = '/payments/get-paid';
+
+// ─── Live Revenue Trend (signed-in office) ───────────────────────────────────
+// Real collected / net-after-refunds series from the office billing dashboard
+// for the shared date range. Shares the payments area's AreaChart: readout
+// only while hovered or focused, signed domain (a refund day can net below
+// zero). The delta is shown only when the prior window has revenue.
+
+function LiveRevenueSection({ range, view, pending, forbidden, error, accountConnected, retry }: {
+  range: OperationsDateRange;
+  view: LiveRevenueView | null;
+  pending: boolean;
+  forbidden: boolean;
+  error: Error | null;
+  accountConnected: boolean | null;
+  retry: () => void;
+}) {
+  const dayCount = view?.dayCount ?? rangeDayCount(range);
+  const priorLabel = dayCount === 1 ? 'day' : `${dayCount} days`;
+  const total = view ? formatMoney(view.totalCents / 100) : pending ? '—' : forbidden ? '—' : 'Error';
+  const empty = view !== null && view.gross.every((value) => value === 0) && view.net.every((value) => value === 0);
+  return (
+    <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft" data-testid="section-revenue-live">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Revenue Trend</p>
+            <span className="rounded-sm border border-accent-border bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">Live billing</span>
+          </div>
+          <div className="mt-1 flex items-end gap-3">
+            <h2 className="font-mono text-2xl font-semibold tracking-[-.05em] text-navy" data-testid="text-revenue-total">
+              {total}
+            </h2>
+            {view && view.deltaPct !== null ? (
+              <span
+                data-testid="text-revenue-delta"
+                className={`mb-1 flex items-center gap-1 text-xs font-semibold ${view.deltaPct >= 0 ? 'text-primary' : 'text-warn'}`}
+              >
+                {view.deltaPct >= 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                {Math.abs(view.deltaPct).toFixed(1)}%
+              </span>
+            ) : view ? (
+              <span data-testid="text-revenue-delta" className="mb-1 text-xs font-semibold text-muted-foreground">
+                No prior period to compare
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground" data-testid="text-revenue-range">
+            {formatRangeLabel(range)} · {view?.deltaPct !== null && view ? `vs prior ${priorLabel}` : 'Gross collected'}
+          </p>
+        </div>
+        <Link href="/payments" className="text-xs font-semibold text-primary transition-colors hover:text-navy" data-testid="link-revenue-payments">
+          Payments <ArrowUpRight size={13} className="inline" />
+        </Link>
+      </div>
+      <div className="mt-5">
+        {pending ? (
+          <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground" data-testid="revenue-loading">Loading revenue…</div>
+        ) : forbidden ? (
+          <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed border-border px-6 text-center text-xs text-muted-foreground" data-testid="revenue-forbidden">
+            Payments reports are available to office owners and admins.
+          </div>
+        ) : error || !view ? (
+          <div className="flex h-[220px] flex-col items-center justify-center gap-2 text-xs text-destructive" role="alert" data-testid="revenue-error">
+            <span>{error instanceof Error && error.message ? error.message : 'Failed to load revenue.'}</span>
+            <button type="button" onClick={retry} className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-foreground transition hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Try again
+            </button>
+          </div>
+        ) : accountConnected === false ? (
+          <div className="flex h-[220px] flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border px-6 text-center text-xs text-muted-foreground" data-testid="revenue-no-account">
+            <span>No payments account is connected yet, so there is no revenue to show.</span>
+            <Link href={PAYMENTS_SETUP_HREF} className="font-semibold text-primary underline underline-offset-4 transition-colors hover:text-navy" data-testid="link-payments-setup">
+              Set up payments
+            </Link>
+          </div>
+        ) : (
+          <AreaChart
+            title="Revenue trend"
+            dates={view.dates}
+            unit="money"
+            testId="chart-revenue-live"
+            emptyLabel={empty ? 'No payments in this range yet' : undefined}
+            series={[
+              { key: 'gross', label: 'Gross collected', color: CHART_COLORS.gross, values: view.gross },
+              { key: 'net', label: 'Net after refunds', color: CHART_COLORS.net, values: view.net },
+            ]}
+          />
+        )}
+      </div>
+    </section>
+  );
 }
 
 function EngagementTrendChart({ points }: { points: EngagementTrendPoint[] }) {
@@ -267,7 +369,7 @@ export default function Overview() {
   // HQ drill-in scope: when present, every read below narrows to one office;
   // unscoped, the scoped hooks return the program-wide singletons unchanged.
   const scope = useProviderScope();
-  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
+  const { data: liveRosterData, dataUpdatedAt: liveRosterUpdatedAt, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
   const { authUser } = useSession();
   const localGreeting = useTimeOfDayGreeting();
 
@@ -289,6 +391,17 @@ export default function Overview() {
         queryKey: [...getGetOfficeEngagementTrendsQueryKey({ start: range.start, end: range.end, office: liveOffice ?? undefined }), authUser?.id]
       }
     }
+  );
+
+  // Live finance: one office billing dashboard request spanning the prior
+  // window and the selected range feeds the MRR tile, the Revenue Trend and
+  // the failed-payments card. Disabled (no request) for the demo persona.
+  const revenueWindow = useMemo(() => liveRevenueWindow(range), [range]);
+  const billing = useOfficeDashboard({ from: revenueWindow.from, to: revenueWindow.to });
+  const billingForbidden = billing.isError && billing.error instanceof BillingApiError && billing.error.status === 403;
+  const liveRevenueView = useMemo(
+    () => (billing.data ? buildLiveRevenueView(range, billing.data.series) : null),
+    [billing.data, range],
   );
 
   const analytics = useScopedAnalytics();
@@ -313,13 +426,26 @@ export default function Overview() {
     [filteredPatients],
   );
   const selectedProvider = providers.find((provider) => provider.id === providerFilter);
+  // Live patient counts come from the SAME roster rows the Patients page
+  // filters, with the shared predicates, so every tile, card and banner here
+  // equals the list its link opens (the office rollup RPC is not used for
+  // these; it can disagree with the roster's evaluator by a patient or two).
+  const rosterRows = liveEnabled ? liveRosterData?.patients ?? null : null;
+  const liveCounts = useMemo(() => rosterRows === null ? null : {
+    active: rosterRows.filter(isActivatedRosterPatient).length,
+    overdue: rosterRows.filter((patient) => rosterHasReason(patient, 'check_in_overdue')).length,
+    lapsed: rosterRows.filter((patient) => rosterHasReason(patient, 'logging_lapsed')).length,
+    inactive: rosterRows.filter((patient) => rosterHasReason(patient, 'no_activity_14d')).length,
+  }, [rosterRows]);
+  const liveCountText = (value: number | undefined) =>
+    liveCounts ? String(value ?? 0) : liveRosterIsLoading ? '—' : 'Error';
   const activePatientsValue = liveEnabled
-    ? (overviewIsLoading ? '—' : overviewIsError ? 'Error' : (overviewData?.metrics.activePatients?.toString() ?? '0'))
+    ? liveCountText(liveCounts?.active)
     : (selectedProvider?.activePatientCount ?? analytics.activePatients).toString();
 
-  const activePatientsChange = liveEnabled ? (overviewData?.asOf ? formatLocalDate(overviewData.asOf) : 'Live roster') : badges.patients;
+  const activePatientsChange = liveEnabled ? (liveRosterData && liveRosterUpdatedAt ? formatLocalDate(new Date(liveRosterUpdatedAt)) : 'Live roster') : badges.patients;
   const activePatientsDetail = liveEnabled
-    ? (overviewIsLoading ? 'Loading…' : overviewIsError ? 'Failed to load' : `${overviewData?.metrics.enrollments30d ?? 0} new this month`)
+    ? (liveRosterData ? `${liveRosterData.summary.newEnrollments30d} new this month` : liveRosterIsLoading ? 'Loading…' : 'Failed to load')
     : `${analytics.newEnrollments} new this month`;
 
   const averagePoundsLostValue = useMemo(() => {
@@ -338,30 +464,29 @@ export default function Overview() {
   const avgLostChange = liveEnabled ? 'Live roster' : badges.avgLost;
 
   const overduePatientsCount = liveEnabled
-    ? (overviewIsLoading || overviewIsError ? '—' : (overviewData?.metrics.checkInsOverdue ?? 0).toString())
+    ? liveCountText(liveCounts?.overdue)
     : overduePatients.length.toString();
 
   const overduePatientsList = useMemo(() => {
     if (liveEnabled) {
       if (!liveRosterData) return [];
-      return liveRosterData.patients.filter(p => p.operational?.reasons?.includes('check_in_overdue'));
+      return liveRosterData.patients.filter((patient) => rosterHasReason(patient, 'check_in_overdue'));
     }
     return overduePatients;
   }, [liveEnabled, liveRosterData, overduePatients]);
 
   const lapsedLoggersList = useMemo(() => {
     if (liveEnabled) {
-      if (!liveRosterData || !overviewData) return [];
-      const asOfTime = Date.parse(`${overviewData.asOf}T00:00:00Z`);
+      if (!liveRosterData) return [];
+      // Days since the last log on the patient's own calendar — the same
+      // figure the roster's logging cell prints.
       return liveRosterData.patients
-        .filter(p => p.operational?.reasons?.includes('logging_lapsed'))
+        .filter((patient) => rosterHasReason(patient, 'logging_lapsed'))
         .map(patient => {
-          const daysSince = patient.operational?.latestDiaryDate
-            ? Math.max(0, Math.floor((asOfTime - new Date(patient.operational.latestDiaryDate).getTime()) / (1000 * 3600 * 24)))
-            : null;
+          const activity = rosterActivityFor(patient);
           return {
             patient: { id: patient.id, initials: shortName(patient), name: patient.name },
-            stats: { daysSinceLastLog: daysSince }
+            stats: { daysSinceLastLog: activity.kind === 'known' ? activity.daysSinceLastLog : null }
           };
         })
         .sort((a, b) => (b.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER) - (a.stats.daysSinceLastLog ?? Number.MAX_SAFE_INTEGER));
@@ -370,14 +495,43 @@ export default function Overview() {
       patient: { id: patient.id, initials: patient.initials, name: patient.name },
       stats: { daysSinceLastLog: stats.daysSinceLastLog }
     }));
-  }, [liveEnabled, liveRosterData, overviewData, lapsedLoggers]);
+  }, [liveEnabled, liveRosterData, lapsedLoggers]);
 
   const lapsedLoggersCount = liveEnabled
-    ? (overviewData?.metrics.loggingLapsed ?? null)
+    ? (liveCounts?.lapsed ?? null)
     : lapsedLoggers.length;
   const filteredMrr = subscriptions
     .filter((subscription) => filteredPatients.some((patient) => patient.id === subscription.patientId))
     .reduce((total, subscription) => total + subscription.monthlyValue, 0);
+
+  // MRR tile: live billing for a signed-in office (dash while loading,
+  // "Error" on failure, never a seeded number); the demo keeps its seeded
+  // projection and labels.
+  const mrrTile = useMemo(() => {
+    if (!liveEnabled) {
+      return {
+        value: providerFilter === 'all' ? `$${(analytics.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`,
+        change: 'Demo projection',
+        detail: 'Synthetic finance · not live',
+      };
+    }
+    const change = 'Live billing';
+    if (billing.data) {
+      const active = billing.data.active_subscriptions;
+      return {
+        value: formatMoney(billing.data.mrr_cents / 100),
+        change,
+        detail: !billing.data.account_connected
+          ? 'Payments not connected yet'
+          : active === 0
+            ? 'No active subscriptions'
+            : `${active} active subscription${active === 1 ? '' : 's'}`,
+      };
+    }
+    if (billing.isPending) return { value: '—', change, detail: 'Loading…' };
+    if (billingForbidden) return { value: '—', change, detail: 'Owners and admins only' };
+    return { value: 'Error', change, detail: 'Failed to load' };
+  }, [liveEnabled, providerFilter, analytics.recurringRevenue, filteredMrr, billing.data, billing.isPending, billingForbidden]);
 
   // Stage mix from the analytics counts: unscoped this reproduces the
   // long-standing 65 / 20 / 15 split exactly; scoped it reflects one office.
@@ -421,38 +575,52 @@ export default function Overview() {
     ? liveRosterData.patients.filter((p) => p.program?.stage === 'maintenance').length
     : patients.filter((patient) => patient.status === 'graduated').length;
 
+  // [title, body, level, tone, href]; an empty href renders the demo's
+  // toast button instead of a link.
   const priorityItems: [string, string, string, string, string][] | null = useMemo(() => {
     if (liveEnabled) {
-      if (!overviewData) return null;
+      if (!liveCounts) return null;
       const items: [string, string, string, string, string][] = [];
-      const overdue = overviewData.metrics.checkInsOverdue ?? 0;
+      // Failed recurring payments from the office's billing tables; the link
+      // opens the subscriptions list filtered to past due + unpaid.
+      const failed = billing.data?.needs_attention_subscriptions ?? 0;
+      if (failed > 0) {
+        items.push([
+          "Failed Subscription Payments",
+          `${failed} subscription${failed === 1 ? ' has' : 's have'} a failed renewal payment`,
+          "High",
+          "risk",
+          FAILED_PAYMENTS_HREF
+        ]);
+      }
+      const overdue = liveCounts.overdue;
       if (overdue > 0) {
         items.push([
           "Missed Check-ins",
           `${overdue} patient${overdue === 1 ? '' : 's'} missed their scheduled protocol check-in`,
           "Watch",
           "watch",
-          "check_in_overdue"
+          rosterReasonHref('check_in_overdue')
         ]);
       }
-      const lapsed = overviewData.metrics.loggingLapsed ?? 0;
+      const lapsed = liveCounts.lapsed;
       if (lapsed > 0) {
         items.push([
           "Logging Lapsed",
           `${lapsed} patient${lapsed === 1 ? ' has' : 's have'} stopped logging in the companion app`,
           "Watch",
           "watch",
-          "logging_lapsed"
+          rosterReasonHref('logging_lapsed')
         ]);
       }
-      const inactive = overviewData.metrics.inactive ?? 0;
+      const inactive = liveCounts.inactive;
       if (inactive > 0) {
         items.push([
           "Inactive Patients",
           `${inactive} patient${inactive === 1 ? ' has' : 's have'} no recent activity`,
           "High",
           "risk",
-          "no_activity_14d"
+          rosterReasonHref('no_activity_14d')
         ]);
       }
       return items;
@@ -488,7 +656,7 @@ export default function Overview() {
         ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch", ""],
         ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy", ""],
       ];
-  }, [liveEnabled, overviewData, scope, failedPayments, overduePatientsCount, graduatedCount]);
+  }, [liveEnabled, liveCounts, billing.data, scope, failedPayments, overduePatientsCount, graduatedCount]);
 
   const scopedProviderLabel = scope ? scope.providerName.split(',')[0] : '';
   const scopedProviderInitials = scope
@@ -642,9 +810,9 @@ export default function Overview() {
         <Metric
           icon={<WalletCards size={14} />}
           label="MRR"
-          value={providerFilter === 'all' ? `$${(analytics.recurringRevenue / 1000).toFixed(1)}k` : `$${filteredMrr.toLocaleString()}`}
-          change="Demo projection"
-          detail="Synthetic finance · not live"
+          value={mrrTile.value}
+          change={mrrTile.change}
+          detail={mrrTile.detail}
         />
         <Metric
           icon={<Users size={14} />}
@@ -690,7 +858,7 @@ export default function Overview() {
         <div data-testid="banner-overdue" className="mt-5 flex items-center gap-3 rounded-lg border border-warn-border bg-warn-bg px-4 py-3 text-sm text-foreground shadow-soft">
           <ShieldAlert size={17} className="shrink-0 text-warn" />
           <span><b className="text-navy">{overduePatientsList.length} patient{overduePatientsList.length === 1 ? ' needs' : 's need'} attention.</b> Check-ins{liveEnabled ? ' are' : ' or subscription renewals are'} past due.</span>
-          <Link href={liveEnabled ? "/patients?reason=check_in_overdue" : "/patients?status=overdue"} className="ml-auto whitespace-nowrap text-xs font-bold text-warn underline underline-offset-4 transition-colors hover:text-navy">
+          <Link href={liveEnabled ? rosterReasonHref("check_in_overdue") : "/patients?status=overdue"} className="ml-auto whitespace-nowrap text-xs font-bold text-warn underline underline-offset-4 transition-colors hover:text-navy">
             Review patients
           </Link>
           <button
@@ -744,6 +912,17 @@ export default function Overview() {
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.4fr_1fr]">
+        {liveEnabled ? (
+          <LiveRevenueSection
+            range={range}
+            view={liveRevenueView}
+            pending={billing.isPending}
+            forbidden={billingForbidden}
+            error={billing.isError && !billingForbidden ? billing.error : null}
+            accountConnected={billing.data?.account_connected ?? null}
+            retry={() => void billing.refetch()}
+          />
+        ) : (
         <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -777,6 +956,7 @@ export default function Overview() {
           </div>
           <TrendChart view={revenueView} />
         </section>
+        )}
 
         <section className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
           <div className="flex items-center justify-between">
@@ -822,18 +1002,18 @@ export default function Overview() {
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Worth a closer look</h2>
             </div>
             <span className="rounded-sm border border-warn-border bg-warn-bg px-2 py-1 text-[10px] font-bold text-warn">
-              {priorityItems === null ? (overviewIsLoading ? "Loading…" : overviewIsError ? "Error" : "...") : `${priorityItems.length} open`}
+              {priorityItems === null ? (liveRosterIsLoading ? "Loading…" : liveRosterIsError ? "Error" : "...") : `${priorityItems.length} open`}
             </span>
           </div>
           {priorityItems === null ? (
             <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
-              {overviewIsLoading ? 'Loading priority items...' : overviewIsError ? 'Failed to load priority items.' : 'Loading priority items...'}
+              {liveRosterIsError && !liveRosterIsLoading ? 'Failed to load priority items.' : 'Loading priority items...'}
             </div>
           ) : priorityItems.length === 0 ? (
             <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
               0 open items.
             </div>
-          ) : priorityItems.map(([title, body, level, tone, reason]) => {
+          ) : priorityItems.map(([title, body, level, tone, href]) => {
             const innerContent = (
               <>
                 <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${tone === "risk" ? "bg-destructive" : tone === "watch" ? "bg-warn" : "bg-primary"}`} />
@@ -849,11 +1029,11 @@ export default function Overview() {
 
             const className = "group flex w-full items-start gap-3 border-t border-border py-3 text-left transition first:border-0 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
-            if (reason) {
+            if (href) {
               return (
                 <Link
                   key={title}
-                  href={`/patients?reason=${reason}`}
+                  href={href}
                   className={className}
                 >
                   {innerContent}
@@ -880,7 +1060,7 @@ export default function Overview() {
               <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">Companion-app logging</h2>
             </div>
             <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
-              {(liveEnabled && (overviewIsLoading || liveRosterIsLoading)) ? "Loading…" : (liveEnabled && (overviewIsError || liveRosterIsError)) ? "Error" : lapsedLoggersCount === null ? "..." : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
+              {(liveEnabled && liveRosterIsLoading) ? "Loading…" : (liveEnabled && liveRosterIsError && !liveRosterData) ? "Error" : lapsedLoggersCount === null ? "..." : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
             </span>
           </div>
           <div className="flex items-center gap-3 rounded-md border border-border bg-secondary p-3">
@@ -888,9 +1068,9 @@ export default function Overview() {
               <ClipboardList size={16} />
             </span>
             <p className="text-[11px] leading-4 text-foreground">
-              {(liveEnabled && (overviewIsLoading || liveRosterIsLoading)) ? (
+              {(liveEnabled && liveRosterIsLoading) ? (
                 <>Loading compliance stats…</>
-              ) : (liveEnabled && (overviewIsError || liveRosterIsError)) ? (
+              ) : (liveEnabled && liveRosterIsError && !liveRosterData) ? (
                 <>Could not load compliance stats.</>
               ) : lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? (
                 <><b className="font-mono text-base text-navy">{lapsedLoggersCount}</b> patient{lapsedLoggersCount === 1 ? " hasn't" : "s haven't"} logged meals in the companion app for {LAPSED_AFTER_DAYS}+ days.</>
@@ -901,7 +1081,7 @@ export default function Overview() {
               )}
             </p>
           </div>
-          {!(liveEnabled && (overviewIsLoading || liveRosterIsLoading || overviewIsError || liveRosterIsError)) && lapsedLoggersList.length > 0 && (
+          {!(liveEnabled && (liveRosterIsLoading || (liveRosterIsError && !liveRosterData))) && lapsedLoggersList.length > 0 && (
             <div className="mt-1">
               {lapsedLoggersList.slice(0, 3).map(({ patient, stats }) => (
                 <Link

@@ -29,6 +29,7 @@
     "test:invite-patients": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-invite-patients.ts",
     "test:roster-activity": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-activity.tsx",
     "test:roster-filters": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-roster-filters.ts",
+    "test:overview-live": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-overview-live.tsx",
     "test:patients-badge": "TZ=UTC tsx --tsconfig tsconfig.patients-badge.json scripts/verify-patients-badge.tsx",
     "test:app-store-qr": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-app-store-qr.tsx",
     "test:notification-timeline": "TZ=UTC tsx --tsconfig tsconfig.roster-activity.json scripts/verify-notification-timeline.tsx",

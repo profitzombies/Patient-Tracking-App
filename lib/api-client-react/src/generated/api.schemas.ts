@@ -606,6 +606,55 @@ export interface OperationalRollupResult {
   metrics: OperationalRollup;
 }
 
+export interface BillingSeriesPoint {
+  date: string;
+  /** Gross collected on this day (paid orders by paid_at) */
+  collected_cents: number;
+  /** Office net after THINNR and card fees */
+  net_cents: number;
+  /** THINNR application fees */
+  fee_cents: number;
+  /** Refunds issued on this day (by refund date, so a day can net negative) */
+  refunded_cents: number;
+  orders: number;
+}
+
+export type OfficeBillingDashboardBalance = {
+  available_cents: number;
+  pending_cents: number;
+};
+
+/**
+ * @nullable
+ */
+export type OfficeBillingDashboardNextPayout = {
+  amount_cents: number;
+  /** @nullable */
+  arrival_date: string | null;
+} | null;
+
+export interface OfficeBillingDashboard {
+  balance: OfficeBillingDashboardBalance;
+  /** @nullable */
+  next_payout: OfficeBillingDashboardNextPayout;
+  collected_cents: number;
+  thinnr_fee_cents: number;
+  stripe_fee_cents: number;
+  refunded_cents: number;
+  net_cents: number;
+  orders: number;
+  /** Subscriptions in status active */
+  active_subscriptions: number;
+  /** Monthly recurring revenue in cents: sum over active subscriptions of unit_price_cents × quantity × (52 / 12) / cadence_weeks, rounded once. Shipping charges excluded. Legacy rows without a plan count as 4 weeks × 1. */
+  mrr_cents: number;
+  /** Subscriptions in past_due or unpaid (failed renewal payments) */
+  needs_attention_subscriptions: number;
+  to_ship: number;
+  /** False until the office has connected a payments account */
+  account_connected: boolean;
+  series: BillingSeriesPoint[];
+}
+
 export interface ConversationAssignee {
   userId: string;
   label: string;
@@ -4194,6 +4243,21 @@ export type GetOfficeOverviewParams = {
 office?: OfficeIdParameter;
 };
 
+export type GetOfficeBillingDashboardParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+/**
+ * First day (YYYY-MM-DD); defaults to 29 days before `to`
+ */
+from?: string;
+/**
+ * Last day (YYYY-MM-DD, inclusive); defaults to today
+ */
+to?: string;
+};
+
 export type GetOfficeConversationsParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped
@@ -4668,4 +4732,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

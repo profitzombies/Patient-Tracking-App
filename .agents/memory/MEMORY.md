@@ -151,3 +151,4 @@
 - [Roster filter model](roster-filter-model.md) — client-side AND stack in the URL; unknown facts match nothing; legacy arriving keys rewrite; RTR suites need Radix stubs + host-only testid lookups.
 - [Coach usage limits store](coach-usage-limits-store.md) — caps reserved via advisory-lock RPC after identity resolves, before paid work; only rapid bucket is process-local; vitest pins memory store; fail closed.
 - [External tick heartbeat](external-tick-heartbeat.md) — production runs no process timers: every worker family must be reachable from the job tick; heartbeat awaited, stale derived server-side; async execFile in vitest.
+- [Office Overview live numbers](overview-live-counts.md) — linked counts come from roster rows + shared predicates (never the rollup RPC); finance rides one prior+current dashboard request; billing 403 = owners-only, not Error.

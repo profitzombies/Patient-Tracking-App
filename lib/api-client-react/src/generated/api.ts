@@ -102,6 +102,7 @@ import type {
   GetOfficeAlertSettingsParams,
   GetOfficeAlertsParams,
   GetOfficeAnalyticsParams,
+  GetOfficeBillingDashboardParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationNotesParams,
   GetOfficeConversationStaffParams,
@@ -171,6 +172,7 @@ import type {
   OfficeAlertSettingsInput,
   OfficeAlertsResult,
   OfficeAnalyticsResult,
+  OfficeBillingDashboard,
   OfficeComparisonResult,
   OfficeConversationStartInput,
   OfficeLeaderboardResult,
@@ -4995,6 +4997,91 @@ export function useGetOfficeOverview<TData = Awaited<ReturnType<typeof getOffice
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficeOverviewQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOfficeBillingDashboardUrl = (params?: GetOfficeBillingDashboardParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/billing/office/dashboard?${stringifiedParams}` : `/api/billing/office/dashboard`
+}
+
+/**
+ * Available to office owners and admins (and HQ readers with financial access). `mrr_cents` is derived from the office's ACTIVE subscriptions only: unit price × quantity, normalized from the plan's cadence in weeks to a calendar month (52 weeks / 12 months); shipping charges are excluded. `needs_attention_subscriptions` counts past_due and unpaid subscriptions (failed renewal payments). No Stripe call is needed for those figures; balance and next payout come from Stripe only when a payments account is connected (`account_connected`).
+ * @summary Office payments dashboard for one date range (daily collected/net series, subscription counts, monthly recurring revenue)
+ */
+export const getOfficeBillingDashboard = async (params?: GetOfficeBillingDashboardParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeBillingDashboard> => {
+
+  return customFetch<OfficeBillingDashboard>(getGetOfficeBillingDashboardUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeBillingDashboardQueryKey = (params?: GetOfficeBillingDashboardParams,) => {
+    return [
+    `/api/billing/office/dashboard`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeBillingDashboardQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeBillingDashboard>>, TError = ErrorType<void>>(params?: GetOfficeBillingDashboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeBillingDashboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeBillingDashboardQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeBillingDashboard>>> = ({ signal }) => getOfficeBillingDashboard(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeBillingDashboard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeBillingDashboardQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeBillingDashboard>>>
+export type GetOfficeBillingDashboardQueryError = ErrorType<void>
+
+
+/**
+ * @summary Office payments dashboard for one date range (daily collected/net series, subscription counts, monthly recurring revenue)
+ */
+
+export function useGetOfficeBillingDashboard<TData = Awaited<ReturnType<typeof getOfficeBillingDashboard>>, TError = ErrorType<void>>(
+ params?: GetOfficeBillingDashboardParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeBillingDashboard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeBillingDashboardQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

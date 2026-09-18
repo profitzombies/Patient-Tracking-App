@@ -47,6 +47,13 @@ tags:
       posture: no sign-in; writes are rate limited per IP.
   - name: bloodwork
     description: Private patient bloodwork reports and unreviewed structured transcription.
+  - name: billing
+    description: >-
+      Provider payments program (Stripe Connect), served from the billing
+      tables mirrored in Supabase. Only the office dashboard read the
+      Overview home page depends on is documented here; the rest of the
+      payments API is described in docs/billing-connect/SPEC.md and consumed
+      through the hand-written billing client.
 paths:
   /support/chat:
     post:
@@ -1545,6 +1552,33 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: Office unavailable }
+  /billing/office/dashboard:
+    get:
+      operationId: getOfficeBillingDashboard
+      tags: [billing]
+      summary: Office payments dashboard for one date range (daily collected/net series, subscription counts, monthly recurring revenue)
+      description: >-
+        Available to office owners and admins (and HQ readers with financial
+        access). `mrr_cents` is derived from the office's ACTIVE subscriptions
+        only: unit price × quantity, normalized from the plan's cadence in
+        weeks to a calendar month (52 weeks / 12 months); shipping charges are
+        excluded. `needs_attention_subscriptions` counts past_due and unpaid
+        subscriptions (failed renewal payments). No Stripe call is needed for
+        those figures; balance and next payout come from Stripe only when a
+        payments account is connected (`account_connected`).
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: from, in: query, schema: { type: string, format: date }, description: "First day (YYYY-MM-DD); defaults to 29 days before `to`" }
+        - { name: to, in: query, schema: { type: string, format: date }, description: "Last day (YYYY-MM-DD, inclusive); defaults to today" }
+      responses:
+        "200":
+          description: Dashboard figures and one series point per calendar day in the range
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeBillingDashboard" } } }
+        "400": { description: The start date is after the end date }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not an office owner or admin (or HQ without financial access) }
+        "404": { description: Office unavailable }
+        "503": { description: Payments temporarily unavailable }
   /office/conversations:
     get:
       operationId: getOfficeConversations
@@ -3168,6 +3202,51 @@ components:
             officeName: { type: ["string", "null"] }
         asOf: { type: string }
         metrics: { $ref: "#/components/schemas/OperationalRollup" }
+    BillingSeriesPoint:
+      type: object
+      required: [date, collected_cents, net_cents, fee_cents, refunded_cents, orders]
+      properties:
+        date: { type: string, format: date }
+        collected_cents: { type: number, description: "Gross collected on this day (paid orders by paid_at)" }
+        net_cents: { type: number, description: "Office net after THINNR and card fees" }
+        fee_cents: { type: number, description: "THINNR application fees" }
+        refunded_cents: { type: number, description: "Refunds issued on this day (by refund date, so a day can net negative)" }
+        orders: { type: number }
+    OfficeBillingDashboard:
+      type: object
+      required: [balance, next_payout, collected_cents, thinnr_fee_cents, stripe_fee_cents, refunded_cents, net_cents, orders, active_subscriptions, mrr_cents, needs_attention_subscriptions, to_ship, account_connected, series]
+      properties:
+        balance:
+          type: object
+          required: [available_cents, pending_cents]
+          properties:
+            available_cents: { type: number }
+            pending_cents: { type: number }
+        next_payout:
+          type: ["object", "null"]
+          required: [amount_cents, arrival_date]
+          properties:
+            amount_cents: { type: number }
+            arrival_date: { type: ["string", "null"], format: date }
+        collected_cents: { type: number }
+        thinnr_fee_cents: { type: number }
+        stripe_fee_cents: { type: number }
+        refunded_cents: { type: number }
+        net_cents: { type: number }
+        orders: { type: number }
+        active_subscriptions: { type: number, description: "Subscriptions in status active" }
+        mrr_cents:
+          type: number
+          description: >-
+            Monthly recurring revenue in cents: sum over active subscriptions of
+            unit_price_cents × quantity × (52 / 12) / cadence_weeks, rounded once.
+            Shipping charges excluded. Legacy rows without a plan count as 4 weeks × 1.
+        needs_attention_subscriptions: { type: number, description: "Subscriptions in past_due or unpaid (failed renewal payments)" }
+        to_ship: { type: number }
+        account_connected: { type: boolean, description: "False until the office has connected a payments account" }
+        series:
+          type: array
+          items: { $ref: "#/components/schemas/BillingSeriesPoint" }
     ConversationAssignee:
       type: object
       required: [userId, label]

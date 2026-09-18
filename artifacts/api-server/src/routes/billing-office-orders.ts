@@ -39,6 +39,7 @@ router.get("/billing/office/dashboard", async (req, res) => {
     const dashboard = await officeDashboard(scope.providerId, req.query);
     const account = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(scope.providerId)}`);
     if (account) {
+      dashboard.account_connected = true;
       const balance = await getBalance(account.stripe_account_id);
       if (balance.balance) dashboard.balance = balance.balance;
       const payouts = await listPayouts(account.stripe_account_id, scope.providerId);
@@ -159,7 +160,9 @@ router.get("/billing/office/patients/:patientId/summary", async (req, res) => {
 router.get("/billing/office/subscriptions", async (req, res) => {
   try {
     const scope = await requireOfficeBillingScope(req, res, { write: false }); if (!scope) return;
-    const status = typeof req.query.status === "string" ? `&status=eq.${encodeURIComponent(req.query.status)}` : "";
+    // `needs_attention` is the Overview's "failed subscription payments" filter: past due OR unpaid.
+    const status = req.query.status === "needs_attention" ? "&status=in.(past_due,unpaid)"
+      : typeof req.query.status === "string" ? `&status=eq.${encodeURIComponent(req.query.status)}` : "";
     const rows = await selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(scope.providerId)}${status}&order=created_at.desc`);
     res.json({ items: await Promise.all(rows.map(toSubscriptionRow)), next_cursor: null });
   } catch (error) { fail(req, res, error); }

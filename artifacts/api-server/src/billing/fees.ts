@@ -18,7 +18,12 @@ export function estimateStripeFee(totalCents: number, settings: Pick<FeeSettings
   return Math.round(totalCents * settings.card_fee_bps / 10_000) + settings.card_fee_fixed_cents;
 }
 
-export function computeOrderFees(lines: FeeLine[], settings: FeeSettings) {
+/**
+ * The platform fee = THINNR's 60% floor share + what THINNR must recover for the
+ * shipment. Legacy flat shipping recovers the flat charge; a rated shipment
+ * recovers carrier cost + pick-and-pack + packaging (whatever the patient paid).
+ */
+export function computeOrderFees(lines: FeeLine[], settings: FeeSettings, shippingRecoveryCents = settings.shipping_charge_cents) {
   const thinnr_share_cents = lines.reduce(
     (sum, line) => sum + thinnrSharePerUnit(line.floor_price_cents) * line.quantity,
     0,
@@ -26,7 +31,7 @@ export function computeOrderFees(lines: FeeLine[], settings: FeeSettings) {
   return {
     thinnr_share_cents,
     shipping_charge_cents: settings.shipping_charge_cents,
-    application_fee_cents: thinnr_share_cents + settings.shipping_charge_cents,
+    application_fee_cents: thinnr_share_cents + shippingRecoveryCents,
   };
 }
 
@@ -57,8 +62,9 @@ export function hqProfit(
   applicationFeeCents: number,
   hardCostCents: number,
   shippingCostCents: number,
+  fulfillmentFeeCents = 0,
 ): number {
-  return applicationFeeCents - hardCostCents - shippingCostCents;
+  return applicationFeeCents - hardCostCents - shippingCostCents - fulfillmentFeeCents;
 }
 
 export function belowMinimum(sellPriceCents: number | null, floorCents: number, settings: FeeSettings): boolean {

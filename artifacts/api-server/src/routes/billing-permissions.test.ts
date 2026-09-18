@@ -44,6 +44,7 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/public/subscriptions/:cancel_token/cancel": "public",
   "GET /billing/oauth/callback": "public",
   "GET /billing/office/status": "office-read",
+  "GET /billing/office/settings": "office-read",
   "GET /billing/office/prices": "office-read",
   "GET /billing/office/links": "office-read",
   "GET /billing/office/patients/search": "office-read",
@@ -63,6 +64,7 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/office/connect/account-session": "office-write",
   "POST /billing/office/connect/sync": "office-write",
   "PUT /billing/office/prices/:product_id": "office-write",
+  "PUT /billing/office/settings": "office-write",
   "POST /billing/office/links": "office-write",
   "PATCH /billing/office/links/:id": "office-write",
   "DELETE /billing/office/links/:id": "office-write",
@@ -74,6 +76,7 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/office/subscriptions/:id/retry-payment": "office-write",
   "POST /billing/office/subscriptions/:id/resend-payment-email": "office-write",
   "GET /billing/hq/health": "hq-read",
+  "GET /billing/hq/ai-costs": "hq-read",
   "GET /billing/hq/catalog": "hq-read",
   "GET /billing/hq/catalog/products/:id": "hq-read",
   "GET /billing/hq/catalog/changes": "hq-read",
@@ -111,6 +114,7 @@ const ROUTES: Record<string, Access> = {
 
 const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manage" | "settings_manage"> = {
   "GET /billing/hq/health": "financial_read",
+  "GET /billing/hq/ai-costs": "financial_read",
   "GET /billing/hq/catalog": "financial_read",
   "GET /billing/hq/catalog/products/:id": "financial_read",
   "GET /billing/hq/catalog/changes": "financial_read",

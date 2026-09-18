@@ -10,6 +10,7 @@ import { resolvePayer, touchLinkUse } from "./links";
 import { sendReceipt } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
+  shipmentTerms,
   insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
   type BillingOrderItemRow, type BillingOrderRow, type BillingPaymentLinkRow,
 } from "./store";
@@ -368,14 +369,17 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
       thinnr_share_cents: item.thinnr_share_cents, hard_cost_cents: item.hard_cost_cents_snapshot })),
     shipping_address: order.shipping_address as unknown as ShippingAddress,
     fees: {
-      subtotal_cents: order.subtotal_cents, shipping_charge_cents: order.shipping_charge_cents, tax_cents: order.tax_cents,
+      subtotal_cents: order.subtotal_cents, shipping_charge_cents: order.shipping_charge_cents, shipping: shipmentTerms(order), tax_cents: order.tax_cents,
       total_cents: order.total_cents, thinnr_share_cents: share, application_fee_cents: order.application_fee_cents,
       application_fee_collected_cents: order.application_fee_collected_cents, stripe_fee_cents: order.stripe_fee_cents,
       stripe_fee_estimate_cents: estimateStripeFee(order.total_cents, settings),
       office_net_cents: order.office_net_cents,
       office_net_estimate_cents: order.total_cents - order.application_fee_cents - estimateStripeFee(order.total_cents, settings),
     },
-    ...(hq ? { profit: { hard_cost_cents: order.hard_cost_cents, shipping_cost_cents: order.shipping_cost_cents, hq_profit_cents: order.hq_profit_cents } } : {}),
+    ...(hq ? { profit: {
+      hard_cost_cents: order.hard_cost_cents, shipping_cost_cents: order.shipping_cost_cents,
+      fulfillment_fee_cents: (order.pick_pack_fee_cents ?? 0) + (order.packaging_cents ?? 0), hq_profit_cents: order.hq_profit_cents,
+    } } : {}),
     subscription_id: order.subscription_id, tracking_number: order.tracking_number, carrier: order.carrier,
     shipped_at: order.shipped_at, shipped_by_name: null, canceled_reason: order.canceled_reason,
     refunds: refunds.map((row) => ({ id: row.id, stripe_refund_id: row.stripe_refund_id, amount_cents: row.amount_cents,

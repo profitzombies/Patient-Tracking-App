@@ -15,6 +15,7 @@ import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { GhostButton, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { useColors } from '@/hooks/useColors';
 import { formatCents } from '@/lib/cart-math';
+import { arrivalWindow } from '@/lib/patient-billing-core';
 
 function list(value: string | string[] | undefined): string[] {
   const raw = Array.isArray(value) ? value.join(',') : value ?? '';
@@ -24,13 +25,31 @@ function list(value: string | string[] | undefined): string[] {
 export default function OrderConfirmationScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ orders?: string; subscriptions?: string; total?: string; office?: string }>();
+  const params = useLocalSearchParams<{
+    orders?: string;
+    subscriptions?: string;
+    total?: string;
+    office?: string;
+    shippingMethod?: string;
+    shippingSource?: string;
+    windowStart?: string;
+    windowEnd?: string;
+  }>();
   const orders = list(params.orders);
   const subscriptions = list(params.subscriptions);
   const total = Number(params.total ?? '');
   const office = typeof params.office === 'string' ? params.office : '';
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const hasResult = orders.length > 0 || subscriptions.length > 0;
+  const shippingLabel = params.shippingSource === 'fallback' || params.shippingMethod !== 'expedited'
+    ? 'Standard shipping'
+    : 'Expedited shipping';
+  const window = params.shippingSource === 'live'
+    ? arrivalWindow(
+        typeof params.windowStart === 'string' ? params.windowStart : null,
+        typeof params.windowEnd === 'string' ? params.windowEnd : null,
+      )
+    : null;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -46,6 +65,11 @@ export default function OrderConfirmationScreen() {
             ? `Your payment to ${office || 'your office'} went through.${Number.isFinite(total) && total > 0 ? ` ${formatCents(total)} charged today.` : ''}`
             : 'Open Payments & orders to see your purchases.'}
         </Text>
+        {hasResult ? (
+          <Text testID="confirmation-shipping" style={[styles.shipping, { color: colors.bodyText }]}>
+            {shippingLabel}{window ? ` · ${window}` : ''}
+          </Text>
+        ) : null}
         {orders.length ? (
           <LedgerCard testID="confirmation-orders" style={{ padding: 14, gap: 6, marginTop: 18 }}>
             <Text style={[styles.label, { color: colors.labelText }]}>{orders.length === 1 ? 'ORDER NUMBER' : 'ORDER NUMBERS'}</Text>
@@ -89,4 +113,5 @@ const styles = StyleSheet.create({
   label: { fontSize: 9.5, letterSpacing: 1.2, fontFamily: 'Inter_700Bold' },
   value: { fontSize: 18, fontFamily: 'PlayfairDisplay_600SemiBold' },
   body: { fontSize: 12.5, lineHeight: 17, fontFamily: 'Inter_400Regular', marginTop: 4 },
+  shipping: { fontSize: 12.5, lineHeight: 17, fontFamily: 'Inter_600SemiBold', textAlign: 'center', marginTop: 8 },
 });

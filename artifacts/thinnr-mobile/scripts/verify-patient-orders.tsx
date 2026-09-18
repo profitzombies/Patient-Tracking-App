@@ -26,7 +26,9 @@ const summary = (over: Record<string, unknown> = {}) => ({
   id: ORDER_ID, order_number: 'TH-1001', kind: 'one_time', status: 'paid', fulfillment_status: 'to_ship',
   total_cents: 8998, refunded_cents: 0, item_count: 2, items_label: 'Protein × 1, Hydrate × 1',
   created_at: '2026-09-01T12:00:00Z', paid_at: '2026-09-01T12:01:00Z', receipt_available: true,
-  shipment: shipment(), subscription_id: null, cart_id: null, ...over,
+  shipment: shipment(), subscription_id: null, cart_id: null,
+  shipping: { method: 'standard', source: 'fallback', carrier_service_name: null, delivery_window_start: null, delivery_window_end: null },
+  ...over,
 });
 const detail = (over: Record<string, unknown> = {}) => ({
   ...summary(),
@@ -77,7 +79,7 @@ async function main() {
   assert('move window is tomorrow through one year out (morning UTC)', window.min === '2026-09-18' && window.max === '2027-09-16');
   const late = moveWindow(new Date(Date.UTC(2026, 8, 17, 15)));
   assert('after noon UTC the earliest day slides so the API never rejects a shown day', late.min === '2026-09-19' && late.max === '2027-09-17');
-  const base = { id: 's', product_name: 'x', unit_price_cents: 1, shipping_charge_cents: 1, status: 'active' as const, paused: false, current_period_end: null, cancel_at_period_end: false, last_hosted_invoice_url: null, last_failure_message: null, product_id: 'p', cadence_weeks: 4, quantity: 1, next_shipment_at: null, shipping_address: detail().shipping_address as never };
+  const base = { id: 's', product_name: 'x', unit_price_cents: 1, shipping_charge_cents: 1, status: 'active' as const, paused: false, current_period_end: null, cancel_at_period_end: false, last_hosted_invoice_url: null, last_failure_message: null, product_id: 'p', cadence_weeks: 4, quantity: 1, next_shipment_at: null, shipping_address: detail().shipping_address as never, shipping: { method: 'standard' as const, source: 'fallback' as const, carrier_service_name: null, delivery_window_start: null, delivery_window_end: null } };
   assert('active subscription offers scheduling, pause, cancel, address, plan, card', (() => { const a = subscriptionActions(base); return a.moveNext && a.skipNext && a.pause && !a.resume && a.cancel && a.address && a.plan && a.card && !a.retryPayment; })());
   assert('paused subscription offers resume, not move/skip', (() => { const a = subscriptionActions({ ...base, paused: true }); return !a.moveNext && !a.skipNext && a.resume && !a.pause && a.cancel; })());
   assert('past due leads with retry', subscriptionActions({ ...base, status: 'past_due' }).retryPayment && !subscriptionActions({ ...base, status: 'past_due' }).moveNext);

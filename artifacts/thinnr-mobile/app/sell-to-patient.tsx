@@ -25,9 +25,11 @@ import type {
   PrebuiltCart,
   PublicLinkProduct,
   ShippingAddress,
+  ShippingMethod,
   TapSaleResponse,
   TapToPayUnavailableReason,
 } from "@/lib/office-billing-types";
+import { arrivalWindow } from "@/lib/patient-billing-core";
 import {
   isTapFailure,
   type TapFailure,
@@ -200,6 +202,7 @@ function SaleFlow({
   const context = useOfficeSaleContext(userId, patientId);
   const [lines, setLines] = useState<CartLineInput[]>([]);
   const [quote, setQuote] = useState<CartQuote | null>(null);
+  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("standard");
   const [step, setStep] = useState<Step>("products");
   const [address, setAddress] = useState<ShippingAddress>(EMPTY_ADDRESS);
   const [contact, setContact] = useState({ name: "", email: "", phone: "" });
@@ -237,7 +240,7 @@ function SaleFlow({
 
   const quoteMutation = useOfficeBillingMutation(
     userId,
-    (body: { patient_id: string; lines: CartLineInput[] }, scope) =>
+    (body: Parameters<typeof officeBilling.saleQuote>[0], scope) =>
       officeBilling.saleQuote(body, scope),
     { invalidate: false },
   );
@@ -315,7 +318,20 @@ function SaleFlow({
     }
     let current = true;
     const timer = setTimeout(() => {
-      quoteMutation.mutateAsync({ patient_id: patientId, lines }).then(
+      const addressComplete = !!contact.name.trim() && !!address.line1.trim() &&
+        !!address.city.trim() && !!address.state.trim() && !!address.postal_code.trim();
+      quoteMutation.mutateAsync({
+        patient_id: patientId,
+        lines,
+        shipping_method: shippingMethod,
+        ...(addressComplete ? {
+          shipping_address: {
+            ...address,
+            name: contact.name,
+            phone: contact.phone || null,
+          },
+        } : {}),
+      }).then(
         (value) => {
           if (current) {
             setQuote(value);
@@ -340,7 +356,7 @@ function SaleFlow({
       current = false;
       clearTimeout(timer);
     };
-  }, [lines, patientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lines, patientId, address, contact.name, contact.phone, shippingMethod]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (
@@ -492,8 +508,10 @@ function SaleFlow({
           name: contact.name,
           phone: contact.phone || null,
         },
+        shipping_method: shippingMethod,
         payment_method_id: id,
         cart_id: key.current,
+        expected_total_cents: quote.total_cents,
       };
       try {
         let response = await checkoutMutation.mutateAsync({
@@ -541,6 +559,7 @@ function SaleFlow({
       lines,
       patientId,
       quote,
+      shippingMethod,
     ],
   );
 
@@ -561,6 +580,7 @@ function SaleFlow({
             name: contact.name,
             phone: contact.phone || null,
           },
+          shipping_method: shippingMethod,
           cart_id: key.current,
           expected_total_cents: quote.total_cents,
         },
@@ -882,7 +902,7 @@ function SaleFlow({
                 {quoteMutation.isPending ? (
                   <LoadingBox label="Updating quote…" testID="sale-quote-loading" />
                 ) : null}
-                {quote ? <QuoteCard quote={quote} /> : null}
+                {quote ? <QuoteCard quote={quote} shippingMethod={shippingMethod} onShippingMethod={setShippingMethod} /> : null}
                 <Button
                   label="Continue"
                   disabled={!quote}
@@ -1239,9 +1259,28 @@ function ProductCard({
   );
 }
 
-function QuoteCard({ quote }: { quote: CartQuote }) {
+function QuoteCard({ quote, shippingMethod, onShippingMethod }: {
+  quote: CartQuote;
+  shippingMethod: ShippingMethod;
+  onShippingMethod: (method: ShippingMethod) => void;
+}) {
   return (
     <Panel title="Order quote" testID="sale-quote">
+      {quote.shipping_options ? (
+        <RadioGroup
+          label="Shipping method"
+          value={shippingMethod}
+          onChange={onShippingMethod}
+          testIDPrefix="sale-shipping"
+          options={quote.shipping_options.map(option => ({
+            value: option.method,
+            label: `${option.label} · ${option.free ? "Free" : `$${(option.amount_cents / 100).toFixed(2)}`}`,
+            hint: option.source === "live"
+              ? arrivalWindow(option.delivery_window_start, option.delivery_window_end) ?? undefined
+              : undefined,
+          }))}
+        />
+      ) : null}
       {quote.lines.map((line) => (
         <View
           key={`${line.product_id}-${line.purchase}`}
@@ -1265,9 +1304,18 @@ function QuoteCard({ quote }: { quote: CartQuote }) {
         </View>
       ) : null}
       <View style={styles.between}>
-        <Body>Shipping</Body>
+        <Body>Shipping & handling</Body>
         <MoneyText cents={quote.shipping_charge_cents} />
       </View>
+      {quote.shipping_note ? <Body>{quote.shipping_note}</Body> : null}
+      {!quote.shipping_note && quote.shipping_options ? (
+        <Body>
+          {arrivalWindow(
+            quote.shipping_options.find(option => option.method === shippingMethod)?.delivery_window_start ?? null,
+            quote.shipping_options.find(option => option.method === shippingMethod)?.delivery_window_end ?? null,
+          )}
+        </Body>
+      ) : null}
       <View style={styles.between}>
         <Text style={styles.bold}>Total today</Text>
         <MoneyText cents={quote.total_cents} />

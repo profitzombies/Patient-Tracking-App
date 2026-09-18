@@ -15,6 +15,36 @@ single-use QR cart. The binding request/response and privacy contract is
 flow is under `/billing/public/carts/:token` (peek, phone, verify, details,
 checkout, and status).
 
+## Live shipping rates and pick-and-pack fees
+
+"Shipping & handling" is no longer a single flat amount. Once the delivery
+address is known, each order group is rated live through WarehouseCraft
+(`POST api/general/ShippingRates`, Basic auth, client in
+`artifacts/api-server/src/shipping/warehousecraft.ts`; Standard = USPS Ground
+Advantage, Expedited = USPS Priority Mail) by the one rater in
+`src/shipping/rating.ts`:
+
+- patient amount (live) = carrier rate + (office pass-through ? pick-and-pack
+  fee + packaging : 0); Standard is free at or above HQ's
+  `free_shipping_over_cents`; Expedited is never free.
+- pick-and-pack fee (NovEx D2C proposal, `computePickPackFee`) = order fee for
+  the HQ-selected weekly-volume tier + $0.25/unit ($0.75 oversized) + $2.00 per
+  unit over 30 lb; packaging allowance is a per-shipment cents amount. All
+  rates live in `billing_settings.pick_pack_schedule` (HQ-editable).
+- fallback (timeout, 5xx, empty rates, missing product weight, no address)
+  charges the flat `shipping_charge_cents` exactly, with no delivery window;
+  a definite bad address is a 422 to the patient. The platform fee always
+  recovers carrier cost + pick-and-pack + packaging whether or not the office
+  passes the fee on (`billing_office_settings.pick_pack_pass_through`, null =
+  inherit HQ's default).
+- the method, source (`live`/`fallback`), carrier cost, fees, and delivery
+  window are locked into the cart claim and persisted on orders and
+  subscriptions (`shipmentColumns`); renewals are re-quoted on
+  `invoice.created` (`src/billing/renewal-shipping.ts`) and the invoice's
+  shipping line adjusted, falling back to the flat charge on failure.
+
+Migration: `supabase/migrations/20261103000000_warehousecraft_shipping.sql`.
+
 ## 1. Product decisions (confirmed with the owner)
 
 - **Money model:** direct charges on each office's connected account with an

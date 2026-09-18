@@ -11,6 +11,7 @@
 import { logger } from "../lib/logger";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
 import { formatCents } from "./money";
+import { quoteRenewalShipping } from "./renewal-shipping";
 import { selectMany } from "./store";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 
@@ -108,11 +109,20 @@ export interface RenewalReminderSummary {
  * One reminder per (subscription, shipment date): a moved or skipped shipment
  * earns a fresh reminder for its new date, a repeated tick does not.
  */
+/** The amount the renewal will actually bill for shipping: a fresh quote, or the row's last amount when quoting is impossible. */
+async function upcomingShippingCents(subscription: BillingSubscriptionRow): Promise<number> {
+  try {
+    const requote = await quoteRenewalShipping(subscription, false);
+    return requote?.quote.patient_amount_cents ?? subscription.shipping_charge_cents;
+  } catch { return subscription.shipping_charge_cents; }
+}
 export async function runRenewalReminderEvaluation(options: {
   store?: NotificationStore;
   now?: () => Date;
   days?: number;
   load?: (now: Date, days: number) => Promise<UpcomingRenewal[]>;
+  /** Today's Shipping & handling for the renewal (the renewal itself is re-quoted the same way). */
+  shipping?: (subscription: BillingSubscriptionRow) => Promise<number>;
 } = {}): Promise<RenewalReminderSummary> {
   const store = options.store ?? supabaseNotificationStore;
   const now = (options.now ?? (() => new Date()))();
@@ -122,7 +132,8 @@ export async function runRenewalReminderEvaluation(options: {
   for (const { subscription, productName } of upcoming) {
     if (!subscription.patient_id || !subscription.next_shipment_at) continue;
     const dateKey = subscription.next_shipment_at.slice(0, 10);
-    const total = subscription.unit_price_cents * Math.max(1, subscription.quantity ?? 1) + subscription.shipping_charge_cents;
+    const shipping = await (options.shipping ?? upcomingShippingCents)(subscription);
+    const total = subscription.unit_price_cents * Math.max(1, subscription.quantity ?? 1) + shipping;
     const created = await queue(store, "renewal reminder", {
       patientId: subscription.patient_id,
       kind: RENEWAL_UPCOMING_KIND,

@@ -73,7 +73,10 @@ type CheckoutAnswer = { status: number; body: unknown } | 'network';
 export const script = {
   shop: liveShop() as PatientShop,
   shopFailure: null as null | { status: number; error: string },
-  quoteFailure: null as null | { status: number; error: string },
+  quoteFailure: null as null | { status: number; error: string; field?: string },
+  shippingMode: 'live' as 'live' | 'fallback',
+  standardFree: false,
+  quoteDelayMs: 0,
   /** Sales-tax rate the fake Stripe Tax applies when the shop collects tax and a quote carries an address. */
   taxRate: 0.0825,
   cards: { cards: [] as { id: string; brand: string; last4: string; exp_month: number; exp_year: number; is_default: boolean }[], default_payment_method_id: null as string | null },
@@ -127,9 +130,30 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (script.shopFailure) { status = script.shopFailure.status; body = { error: script.shopFailure.error }; }
     else body = script.shop;
   } else if (path === 'patient-data/billing/cart/quote') {
-    if (script.quoteFailure) { status = script.quoteFailure.status; body = { error: script.quoteFailure.error }; }
+    if (script.quoteFailure) { status = script.quoteFailure.status; body = { error: script.quoteFailure.error, field: script.quoteFailure.field }; }
     else {
-      const quote = localQuote((call.body?.lines as CartLine[]).map(line => ({ ...line, cadence_weeks: line.cadence_weeks ?? null })), script.shop.products, script.shop.shipping_charge_cents, !!script.shop.tax_enabled);
+      if (script.quoteDelayMs) await new Promise(resolve => setTimeout(resolve, script.quoteDelayMs));
+      let quote = localQuote((call.body?.lines as CartLine[]).map(line => ({ ...line, cadence_weeks: line.cadence_weeks ?? null })), script.shop.products, script.shop.shipping_charge_cents, !!script.shop.tax_enabled);
+      if (call.body?.shipping_address) {
+        const standardAmount = script.standardFree ? 0 : quote.shipping_charge_cents;
+        const expeditedAmount = quote.shipping_charge_cents + 500;
+        const method = call.body?.shipping_method === 'expedited' ? 'expedited' : 'standard';
+        const shipping = method === 'expedited' ? expeditedAmount : standardAmount;
+        const delta = shipping - quote.shipping_charge_cents;
+        const source = script.shippingMode;
+        quote = {
+          ...quote,
+          shipping_charge_cents: shipping,
+          shipping_method: method,
+          shipping_options: [
+            { method: 'standard', label: 'Standard', amount_cents: standardAmount, free: script.standardFree, source, delivery_window_start: source === 'live' ? '2026-09-21' : null, delivery_window_end: source === 'live' ? '2026-09-23' : null },
+            { method: 'expedited', label: 'Expedited', amount_cents: expeditedAmount, free: false, source, delivery_window_start: source === 'live' ? '2026-09-19' : null, delivery_window_end: source === 'live' ? '2026-09-20' : null },
+          ],
+          shipping_note: source === 'fallback' ? "Live shipping rates aren't available right now, so the standard flat shipping charge applies." : null,
+          total_cents: quote.total_cents + delta,
+          total_due_cents: quote.tax_enabled ? null : quote.total_cents + delta,
+        };
+      }
       // Like the server: a tax office's quote is only final once an address is in.
       if (quote.tax_enabled && call.body?.shipping_address) {
         const tax = Math.round(quote.total_cents * script.taxRate);

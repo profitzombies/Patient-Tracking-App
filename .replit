@@ -280,6 +280,18 @@ args = "ai-usage-api"
 task = "workflow.run"
 args = "ai-costs-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shipping-rates-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shipping-rates-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shipping-rates-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2183,6 +2195,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "shipping-rates-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/shipping src/billing/renewal-shipping.test.ts src/billing/fees.test.ts src/billing/subscriptions-controls.test.ts src/billing/patient-notices.test.ts src/routes/patient-shop.test.ts src/routes/billing-office.test.ts src/routes/billing-office-sales.test.ts src/routes/billing-hq.test.ts src/routes/billing-permissions.test.ts src/routes/patient-billing.test.ts src/billing/terminal-sales.test.ts src/billing/prebuilt-carts.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "shipping-rates-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "shipping-rates-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

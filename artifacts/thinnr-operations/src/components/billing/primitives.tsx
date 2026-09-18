@@ -106,9 +106,26 @@ export function FeeBreakdown({
   perspective: 'office' | 'hq';
 }) {
   const stripeActual = fees.stripe_fee_cents !== null;
+  const shipping = fees.shipping ?? {
+    shipping_method: 'standard' as const,
+    shipping_source: 'fallback' as const,
+    carrier_service_name: null,
+    carrier_cost_cents: fees.shipping_charge_cents,
+    pick_pack_fee_cents: 0,
+    packaging_cents: 0,
+    pick_pack_passed_through: false,
+    delivery_window_start: null,
+    delivery_window_end: null,
+  };
   const rows: FeeRow[] = [
     { label: 'Subtotal', cents: fees.subtotal_cents },
     { label: 'Shipping', cents: fees.shipping_charge_cents },
+    { label: 'Carrier cost', cents: shipping.carrier_cost_cents },
+    { label: 'Pick-and-pack fee', cents: shipping.pick_pack_fee_cents },
+    { label: 'Packaging', cents: shipping.packaging_cents },
+    ...(!shipping.pick_pack_passed_through && (shipping.pick_pack_fee_cents + shipping.packaging_cents > 0)
+      ? [{ label: 'Pick-and-pack absorbed by office', cents: -(shipping.pick_pack_fee_cents + shipping.packaging_cents) }]
+      : []),
     { label: 'Sales tax', cents: fees.tax_cents, hint: fees.tax_cents === 0 ? '(none collected)' : undefined },
     { label: 'Total charged', cents: fees.total_cents, emphasis: true },
     { label: 'THINNR share (60% of floor)', cents: -fees.thinnr_share_cents },
@@ -146,6 +163,7 @@ export function FeeBreakdown({
               { label: 'Application fee', cents: fees.application_fee_cents },
               { label: 'Hard cost', cents: -profit.hard_cost_cents },
               { label: 'Shipping cost', cents: -profit.shipping_cost_cents },
+              { label: 'Fulfillment fee', cents: -profit.fulfillment_fee_cents },
               { label: 'THINNR profit', cents: profit.hq_profit_cents, emphasis: true },
             ]}
           />

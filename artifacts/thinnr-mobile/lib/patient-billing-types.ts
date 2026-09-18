@@ -11,6 +11,8 @@ export type OrderKind = 'one_time' | 'subscription_initial' | 'subscription_rene
 export type FulfillmentStatus = 'to_ship' | 'shipped' | 'canceled';
 export type SubscriptionStatus = 'incomplete' | 'active' | 'past_due' | 'canceled' | 'unpaid';
 export type CadenceWeeks = 2 | 4 | 6 | 8 | 10 | 12;
+export type ShippingMethod = 'standard' | 'expedited';
+export type ShippingSource = 'live' | 'fallback';
 
 export interface ShippingAddress {
   name: string;
@@ -55,6 +57,17 @@ export interface PatientBillingOffice {
   payments_available: boolean;
 }
 
+/** The shipping choice the patient sees on an order or upcoming renewal (costs stay staff-only). */
+export interface PatientShippingChoice {
+  method: ShippingMethod;
+  /** "fallback" = the flat charge applied because no live rate was available (no delivery window). */
+  source: ShippingSource;
+  carrier_service_name: string | null;
+  /** Calendar dates (YYYY-MM-DD) from the live rate; null on fallback. */
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+}
+
 export interface PatientBillingOrder {
   id: string;
   order_number: string;
@@ -74,6 +87,7 @@ export interface PatientBillingOrder {
   subscription_id: string | null;
   /** Groups the orders one in-app checkout created together. */
   cart_id: string | null;
+  shipping: PatientShippingChoice;
 }
 
 export interface PatientBillingSubscription {
@@ -94,6 +108,8 @@ export interface PatientBillingSubscription {
   /** When the next box ships (and is charged); moved by skip / move-next. */
   next_shipment_at: string | null;
   shipping_address: ShippingAddress;
+  /** The method and last quote for the next box; the renewal is re-quoted before it bills. */
+  shipping: PatientShippingChoice;
 }
 
 export interface PatientBillingOverview {
@@ -178,8 +194,33 @@ export interface CartLineInput {
 
 export interface CartQuoteRequest {
   lines: CartLineInput[];
-  /** When given, the quote includes the sales-tax estimate for this destination. */
+  /** Defaults to standard. */
+  shipping_method?: ShippingMethod;
   shipping_address?: ShippingAddress;
+}
+
+/** One shipping choice for the whole cart (each group is rated on its own; amounts are summed). */
+export interface CartShippingOption {
+  method: ShippingMethod;
+  label: string;
+  /** Sum of the per-group Shipping & handling lines for this method. */
+  amount_cents: number;
+  /** Free-over applied to every group's standard line. */
+  free: boolean;
+  source: ShippingSource;
+  /** Earliest / latest calendar dates across the cart's shipments (YYYY-MM-DD); null on fallback. */
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+}
+export interface CartGroupShipping {
+  method: ShippingMethod;
+  source: ShippingSource;
+  carrier_service_name: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  free_shipping_applied: boolean;
+  /** Whether this line includes the pick-and-pack fee. */
+  pick_pack_passed_through: boolean;
 }
 
 export interface CartQuoteLine {
@@ -206,6 +247,7 @@ export interface CartQuoteGroup {
   subtotal_cents: number;
   /** Shipping is charged once per group (each subscription ships on its own schedule). */
   shipping_charge_cents: number;
+  shipping: CartGroupShipping;
   total_cents: number;
 }
 
@@ -215,6 +257,12 @@ export interface CartQuote {
   subtotal_cents: number;
   discount_cents: number;
   shipping_charge_cents: number;
+  /** The method these amounts were priced with. */
+  shipping_method: ShippingMethod;
+  /** Every offered method for this cart; null before an address is known (flat charge shown until then). */
+  shipping_options: CartShippingOption[] | null;
+  /** Short patient-facing note when the flat charge is in effect (no live rate). */
+  shipping_note: string | null;
   /** Items plus shipping, before tax. */
   total_cents: number;
   /** Whether this office collects sales tax at payment (Stripe Tax on its account). */

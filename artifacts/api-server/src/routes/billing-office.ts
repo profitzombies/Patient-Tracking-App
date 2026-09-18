@@ -8,6 +8,7 @@ import { publicOrigin } from "../billing/app-origin";
 import { requireOfficeBillingScope, viewerOfficeRole } from "../billing/auth";
 import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients, updateLink } from "../billing/links";
 import { BillingPriceError, listOfficePrices, setOfficePrice } from "../billing/prices";
+import { BillingCatalogError, getOfficeShippingSettings, updateOfficeShippingSettings } from "../billing/catalog";
 import { getConnectClientId, isSandbox, stripeRejection } from "../billing/stripe-client";
 import { selectMany, selectOne } from "../billing/store";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
@@ -22,7 +23,7 @@ function audit(req: Request, scope: BillingOfficeScope, action: string, targetKi
 }
 function answerError(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing office request failed");
-  if (error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError) {
+  if (error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError || error instanceof BillingCatalogError) {
     const field = "field" in error ? error.field : undefined;
     res.status(error.status).json({ error: error.message, ...(field ? { field } : {}),
       ...(error instanceof BillingAccountError && error.unsupported ? { unsupported: error.unsupported } : {}) });
@@ -100,6 +101,23 @@ router.post("/billing/office/connect/sync", async (req, res) => {
     const account = await syncAccount(scope.providerId);
     await audit(req, scope, "billing_connect_completed", "billing_connected_account", account.stripe_account_id, {});
     res.json({ account });
+  } catch (error) { answerError(req, res, error); }
+});
+/** Office shipping overrides (pick-and-pack pass-through); owner/admin write, versioned like other office settings. */
+router.get("/billing/office/settings", async (req, res) => {
+  try { const scope = await scoped(req, res, false); if (!scope) return; res.json(await getOfficeShippingSettings(scope.providerId)); }
+  catch (error) { answerError(req, res, error); }
+});
+const OfficeSettingsSchema = z.object({ pick_pack_pass_through: z.boolean().nullable(), expected_version: z.number().int().nonnegative() });
+router.put("/billing/office/settings", async (req, res) => {
+  try { const scope = await scoped(req, res, true); if (!scope) return;
+    const parsed = OfficeSettingsSchema.safeParse(req.body);
+    if (!parsed.success) { const issue = parsed.error.issues[0]; res.status(400).json({ error: issue.message, field: String(issue.path[0] ?? "") }); return; }
+    const settings = await updateOfficeShippingSettings(scope.providerId, parsed.data, scope.actorUserId);
+    await audit(req, scope, "billing_office_settings_updated", "billing_office_settings", scope.providerId, {
+      pick_pack_pass_through: parsed.data.pick_pack_pass_through,
+    });
+    res.json(settings);
   } catch (error) { answerError(req, res, error); }
 });
 router.get("/billing/office/prices", async (req, res) => {

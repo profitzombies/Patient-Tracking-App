@@ -24,6 +24,13 @@ function daysFromToday(days: number, hour = 14): string {
 export const DEMO_ADDRESS: ShippingAddress = {
   name: 'Demo Patient', line1: '100 Wellness Way', line2: 'Apt 4B', city: 'Austin', state: 'TX', postal_code: '78701', country: 'US', phone: null,
 };
+const DEMO_SHIPPING = {
+  method: 'standard' as const,
+  source: 'fallback' as const,
+  carrier_service_name: null,
+  delivery_window_start: null,
+  delivery_window_end: null,
+};
 
 export const DEMO_CARDS: PatientCard[] = [
   { id: 'demo-card-visa', brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2029, is_default: true },
@@ -40,7 +47,7 @@ export const DEMO_ORDER_DETAILS: PatientOrderDetail[] = [
     id: 'demo-order-processing', order_number: 'TH-D3MO04', kind: 'subscription_renewal', status: 'paid', fulfillment_status: 'to_ship',
     total_cents: 7299, refunded_cents: 0, item_count: 1, items_label: 'Control × 1',
     created_at: daysFromToday(0, 9), paid_at: daysFromToday(0, 9), receipt_available: true,
-    shipment: idle(daysFromToday(0, 9)), subscription_id: 'demo-sub-active', cart_id: null,
+    shipment: idle(daysFromToday(0, 9)), subscription_id: 'demo-sub-active', cart_id: null, shipping: DEMO_SHIPPING,
     items: [{ product_id: 'demo-control', name: 'Control', quantity: 1, unit_price_cents: 6299, line_total_cents: 6299 }],
     subtotal_cents: 6299, shipping_charge_cents: 1000, tax_cents: 0, refunds: [], shipping_address: DEMO_ADDRESS, failure_message: null,
   },
@@ -53,7 +60,7 @@ export const DEMO_ORDER_DETAILS: PatientOrderDetail[] = [
       tracking_url: 'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400111899223197428490',
       shipped_at: daysFromToday(-3, 16), delivered_at: null, canceled_at: null, updated_at: daysFromToday(-3, 16),
     },
-    subscription_id: null, cart_id: 'demo-cart-1',
+    subscription_id: null, cart_id: 'demo-cart-1', shipping: DEMO_SHIPPING,
     items: [
       { product_id: 'demo-protein', name: 'Protein', quantity: 1, unit_price_cents: 4499, line_total_cents: 4499 },
       { product_id: 'demo-hydrate', name: 'Hydrate', quantity: 1, unit_price_cents: 3499, line_total_cents: 3499 },
@@ -69,7 +76,7 @@ export const DEMO_ORDER_DETAILS: PatientOrderDetail[] = [
       tracking_url: 'https://www.ups.com/track?tracknum=1Z999AA10123456784',
       shipped_at: daysFromToday(-27, 17), delivered_at: daysFromToday(-24, 13), canceled_at: null, updated_at: daysFromToday(-24, 13),
     },
-    subscription_id: 'demo-sub-active', cart_id: null,
+    subscription_id: 'demo-sub-active', cart_id: null, shipping: DEMO_SHIPPING,
     items: [{ product_id: 'demo-control', name: 'Control', quantity: 1, unit_price_cents: 6299, line_total_cents: 6299 }],
     subtotal_cents: 6299, shipping_charge_cents: 1000, tax_cents: 0,
     refunds: [{ amount_cents: 1000, status: 'succeeded', created_at: daysFromToday(-22, 10) }],
@@ -83,7 +90,7 @@ export const DEMO_ORDER_DETAILS: PatientOrderDetail[] = [
       status: 'canceled', carrier: null, tracking_number: null, tracking_url: null,
       shipped_at: null, delivered_at: null, canceled_at: daysFromToday(-39, 9), updated_at: daysFromToday(-39, 9),
     },
-    subscription_id: null, cart_id: null,
+    subscription_id: null, cart_id: null, shipping: DEMO_SHIPPING,
     items: [{ product_id: 'demo-protein', name: 'Protein', quantity: 1, unit_price_cents: 4499, line_total_cents: 4499 }],
     subtotal_cents: 4499, shipping_charge_cents: 0, tax_cents: 0,
     refunds: [{ amount_cents: 4499, status: 'succeeded', created_at: daysFromToday(-39, 9) }],
@@ -93,7 +100,7 @@ export const DEMO_ORDER_DETAILS: PatientOrderDetail[] = [
     id: 'demo-order-failed', order_number: 'TH-D3MO05', kind: 'subscription_renewal', status: 'failed', fulfillment_status: 'to_ship',
     total_cents: 4149, refunded_cents: 0, item_count: 1, items_label: 'Hydrate × 1',
     created_at: daysFromToday(-1, 8), paid_at: null, receipt_available: false,
-    shipment: idle(daysFromToday(-1, 8)), subscription_id: 'demo-sub-failed', cart_id: null,
+    shipment: idle(daysFromToday(-1, 8)), subscription_id: 'demo-sub-failed', cart_id: null, shipping: DEMO_SHIPPING,
     items: [{ product_id: 'demo-hydrate', name: 'Hydrate', quantity: 1, unit_price_cents: 3149, line_total_cents: 3149 }],
     subtotal_cents: 3149, shipping_charge_cents: 1000, tax_cents: 0, refunds: [], shipping_address: DEMO_ADDRESS,
     failure_message: 'Your card was declined.',
@@ -109,28 +116,28 @@ export const DEMO_SUBSCRIPTIONS: PatientSubscriptionDetail[] = [
     id: 'demo-sub-active', product_name: 'Control', product_id: 'demo-control', unit_price_cents: 6299, shipping_charge_cents: 1000,
     status: 'active', paused: false, current_period_end: daysFromToday(28, 9), cancel_at_period_end: false,
     last_hosted_invoice_url: null, last_failure_message: null, cadence_weeks: 4, quantity: 1,
-    next_shipment_at: daysFromToday(28, 9), shipping_address: DEMO_ADDRESS,
+    next_shipment_at: daysFromToday(28, 9), shipping_address: DEMO_ADDRESS, shipping: DEMO_SHIPPING,
     card: DEMO_CARDS[0], offered_cadences_weeks: [4, 8],
   },
   {
     id: 'demo-sub-failed', product_name: 'Hydrate', product_id: 'demo-hydrate', unit_price_cents: 3149, shipping_charge_cents: 1000,
     status: 'past_due', paused: false, current_period_end: daysFromToday(-1, 8), cancel_at_period_end: false,
     last_hosted_invoice_url: 'https://invoice.stripe.com/i/demo', last_failure_message: 'Your card was declined.', cadence_weeks: 4, quantity: 1,
-    next_shipment_at: daysFromToday(-1, 8), shipping_address: DEMO_ADDRESS,
+    next_shipment_at: daysFromToday(-1, 8), shipping_address: DEMO_ADDRESS, shipping: DEMO_SHIPPING,
     card: DEMO_CARDS[0], offered_cadences_weeks: [4, 8],
   },
   {
     id: 'demo-sub-paused', product_name: 'Protein', product_id: 'demo-protein', unit_price_cents: 4049, shipping_charge_cents: 1000,
     status: 'active', paused: true, current_period_end: daysFromToday(45, 9), cancel_at_period_end: false,
     last_hosted_invoice_url: null, last_failure_message: null, cadence_weeks: 8, quantity: 2,
-    next_shipment_at: daysFromToday(45, 9), shipping_address: DEMO_ADDRESS,
+    next_shipment_at: daysFromToday(45, 9), shipping_address: DEMO_ADDRESS, shipping: DEMO_SHIPPING,
     card: DEMO_CARDS[1], offered_cadences_weeks: [4, 8],
   },
   {
     id: 'demo-sub-ending', product_name: 'Hydrate', product_id: 'demo-hydrate', unit_price_cents: 3149, shipping_charge_cents: 1000,
     status: 'active', paused: false, current_period_end: daysFromToday(12, 9), cancel_at_period_end: true,
     last_hosted_invoice_url: null, last_failure_message: null, cadence_weeks: 4, quantity: 1,
-    next_shipment_at: daysFromToday(12, 9), shipping_address: DEMO_ADDRESS,
+    next_shipment_at: daysFromToday(12, 9), shipping_address: DEMO_ADDRESS, shipping: DEMO_SHIPPING,
     card: DEMO_CARDS[0], offered_cadences_weeks: [4],
   },
 ];

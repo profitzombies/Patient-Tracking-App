@@ -8,15 +8,19 @@ import { markOrderPaidFromInvoice } from "./orders";
 import { ensureRecurringPrices } from "./prices";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox, isStripeMissing } from "./stripe-client";
 import {
-  insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingCartRow, type BillingConnectedAccountRow,
+  shipmentColumns,insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingCartRow, type BillingConnectedAccountRow,
   type BillingOrderRow, type BillingPaymentLinkRow, type BillingPayerRow, type BillingProductRow, type BillingSettingsRow,
 } from "./store";
 import { markSubscriptionInvoicePaid, nextShipmentAt, periodEnd } from "./subscriptions";
 import type {
-  CartCheckoutItem, CartCheckoutResponse, CartLineInput, CartQuote, CartQuoteGroup, CartQuoteLine, CheckoutStatus,
-  ShippingAddress,
+  CartCheckoutItem, CartCheckoutResponse, CartGroupShipping, CartLineInput, CartQuote, CartQuoteGroup, CartQuoteLine, CartShippingOption,
+  CheckoutStatus, ShippingAddress, ShippingMethod,
 } from "./types";
 import type { StripeEventContext } from "./webhooks";
+import { productFulfillment, shippingRules } from "./catalog";
+import {
+  rateShipment, resolvePassThrough, selectMethod, ShippingAddressError, type FulfillmentLine, type ShipmentOptions, type ShipmentQuote,
+} from "../shipping/rating";
 
 export class BillingCartError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -32,8 +36,40 @@ type InternalLine = CartQuoteLine & {
 export type InternalGroup = CartQuoteGroup & {
   lines: InternalLine[]; application_fee_cents: number; thinnr_share_cents: number;
   hard_cost_cents: number; shipping_cost_cents: number;
+  /** The locked shipment quote for the chosen method (carrier cost, fees, window, source). */
+  shipping_quote: ShipmentQuote;
 };
 export type CartPlan = { quote: CartQuote; groups: InternalGroup[]; settings: BillingSettingsRow };
+/** Where a cart ships and how; address null = flat charge until one is known. */
+export type CartShipping = { address: ShippingAddress | null; method: ShippingMethod };
+export const DEFAULT_CART_SHIPPING: CartShipping = { address: null, method: "standard" };
+export const SHIPPING_FALLBACK_NOTE = "Live shipping rates aren't available right now, so the standard flat shipping charge applies.";
+const METHOD_LABELS: Record<ShippingMethod, string> = { standard: "Standard", expedited: "Expedited" };
+
+/** The columns an order or subscription row stores for a locked shipment quote. */
+function groupShipping(quote: ShipmentQuote): CartGroupShipping {
+  return {
+    method: quote.method, source: quote.source, carrier_service_name: quote.carrier_service_name,
+    delivery_window_start: quote.delivery_window_start, delivery_window_end: quote.delivery_window_end,
+    free_shipping_applied: quote.free_shipping_applied, pick_pack_passed_through: quote.pick_pack_passed_through,
+  };
+}
+/** Whole-cart options: per-group quotes summed per method, window = earliest start to latest end. */
+function cartShippingOptions(perGroup: ShipmentOptions[]): CartShippingOption[] {
+  const option = (method: ShippingMethod, quotes: ShipmentQuote[]): CartShippingOption => {
+    const starts = quotes.map((q) => q.delivery_window_start).filter((d): d is string => !!d).sort();
+    const ends = quotes.map((q) => q.delivery_window_end).filter((d): d is string => !!d).sort();
+    const live = quotes.every((q) => q.source === "live");
+    return {
+      method, label: METHOD_LABELS[method], amount_cents: quotes.reduce((sum, q) => sum + q.patient_amount_cents, 0),
+      free: quotes.every((q) => q.free_shipping_applied), source: live ? "live" : "fallback",
+      delivery_window_start: live && starts.length ? starts[0] : null, delivery_window_end: live && ends.length ? ends[ends.length - 1] : null,
+    };
+  };
+  const options = [option("standard", perGroup.map((o) => o.standard))];
+  if (perGroup.every((o) => o.expedited)) options.push(option("expedited", perGroup.map((o) => o.expedited as ShipmentQuote)));
+  return options;
+}
 
 /**
  * Sales tax the office's own Stripe Tax settings will add at payment, estimated
@@ -92,7 +128,7 @@ function orderNumber(): string {
  * shipping charge); every subscription line becomes its own subscription with
  * its own shipping charge, because each ships on its own schedule.
  */
-export async function planCart(providerId: string, input: CartLineInput[], taxEnabled = false): Promise<CartPlan> {
+export async function planCart(providerId: string, input: CartLineInput[], taxEnabled = false, shipping: CartShipping = DEFAULT_CART_SHIPPING): Promise<CartPlan> {
   if (!Array.isArray(input) || input.length === 0) throw new BillingCartError("Add something to your cart first.", 400, "lines");
   if (input.length > MAX_CART_LINES) throw new BillingCartError(`A cart can hold up to ${MAX_CART_LINES} lines.`, 400, "lines");
   for (const line of input) {
@@ -100,11 +136,14 @@ export async function planCart(providerId: string, input: CartLineInput[], taxEn
       throw new BillingCartError(`Each quantity must be between 1 and ${MAX_LINE_QUANTITY}.`, 400, "lines");
     }
   }
-  const [prices, products, settings] = await Promise.all([
+  const [prices, products, settings, officeSettings] = await Promise.all([
     selectMany("billing_office_prices", `provider_id=eq.${enc(providerId)}`),
     selectMany("billing_products", "active=eq.true"),
     getSettings(),
+    selectOne("billing_office_settings", `provider_id=eq.${enc(providerId)}`),
   ]);
+  const rules = shippingRules(settings);
+  const passThrough = resolvePassThrough(rules, officeSettings?.pick_pack_pass_through);
   const priceMap = new Map(prices.map((row) => [row.product_id, row]));
   const productMap = new Map(products.map((row) => [row.id, row]));
   const percent = subscribeSavePercent(settings);
@@ -146,31 +185,55 @@ export async function planCart(providerId: string, input: CartLineInput[], taxEn
       product, floor_price_cents: product.floor_price_cents, hard_cost_cents: product.hard_cost_cents, stripe_tax_code: product.stripe_tax_code,
     };
   });
-  const group = (kind: "one_time" | "subscription", members: InternalLine[]): InternalGroup => {
-    const fees = computeOrderFees(members.map((line) => ({ floor_price_cents: line.floor_price_cents, quantity: line.quantity })), settings);
+  const perGroupOptions: ShipmentOptions[] = [];
+  // Each group ships on its own, so each is rated on its own (one carrier call
+  // per group; identical lines + ZIP share the rater's short cache).
+  const group = async (kind: "one_time" | "subscription", members: InternalLine[]): Promise<InternalGroup> => {
     const subtotal = members.reduce((sum, line) => sum + line.line_total_cents, 0);
+    const fulfillment: FulfillmentLine[] = members.map((line) => {
+      const data = productFulfillment(line.product);
+      return {
+        product_id: line.product_id, name: line.name, sku: data.warehousecraft_sku, quantity: line.quantity,
+        weight_oz: data.shipping_weight_oz, oversized: data.oversized, unit_price_cents: line.unit_price_cents,
+      };
+    });
+    let options: ShipmentOptions;
+    try {
+      options = await rateShipment({ lines: fulfillment, subtotal_cents: subtotal, settings: rules, pass_through: passThrough, address: shipping.address });
+    } catch (error) {
+      if (error instanceof ShippingAddressError) throw new BillingCartError(error.message, 422, "shipping_address");
+      throw error;
+    }
+    perGroupOptions.push(options);
+    const shipment = selectMethod(options, shipping.method);
+    const fees = computeOrderFees(
+      members.map((line) => ({ floor_price_cents: line.floor_price_cents, quantity: line.quantity })), settings, shipment.thinnr_shipping_cost_cents,
+    );
     return {
       kind, product_id: kind === "subscription" ? members[0].product_id : null,
       cadence_weeks: kind === "subscription" ? members[0].cadence_weeks : null,
       quantity: members.reduce((sum, line) => sum + line.quantity, 0),
-      subtotal_cents: subtotal, shipping_charge_cents: settings.shipping_charge_cents,
-      total_cents: subtotal + settings.shipping_charge_cents, lines: members,
+      subtotal_cents: subtotal, shipping_charge_cents: shipment.patient_amount_cents, shipping: groupShipping(shipment),
+      total_cents: subtotal + shipment.patient_amount_cents, lines: members,
       application_fee_cents: fees.application_fee_cents, thinnr_share_cents: fees.thinnr_share_cents,
       hard_cost_cents: members.reduce((sum, line) => sum + line.hard_cost_cents * line.quantity, 0),
-      shipping_cost_cents: settings.shipping_cost_cents,
+      shipping_cost_cents: shipment.carrier_cost_cents, shipping_quote: shipment,
     };
   };
   const oneTime = lines.filter((line) => line.purchase === "one_time");
-  const groups: InternalGroup[] = [
-    ...(oneTime.length ? [group("one_time", oneTime)] : []),
-    ...lines.filter((line) => line.purchase === "subscription").map((line) => group("subscription", [line])),
-  ];
+  const groups: InternalGroup[] = [];
+  if (oneTime.length) groups.push(await group("one_time", oneTime));
+  for (const line of lines.filter((item) => item.purchase === "subscription")) groups.push(await group("subscription", [line]));
+  const method = groups.every((item) => item.shipping_quote.method === shipping.method) ? shipping.method : "standard";
   const quote: CartQuote = {
     lines: lines.map(({ product: _product, floor_price_cents: _f, hard_cost_cents: _h, stripe_tax_code: _t, ...line }) => line),
-    groups: groups.map(({ lines: _l, application_fee_cents: _a, thinnr_share_cents: _s, hard_cost_cents: _h, shipping_cost_cents: _c, ...rest }) => rest),
+    groups: groups.map(({ lines: _l, application_fee_cents: _a, thinnr_share_cents: _s, hard_cost_cents: _h, shipping_cost_cents: _c, shipping_quote: _q, ...rest }) => rest),
     subtotal_cents: groups.reduce((sum, item) => sum + item.subtotal_cents, 0),
     discount_cents: lines.reduce((sum, line) => sum + line.discount_cents, 0),
     shipping_charge_cents: groups.reduce((sum, item) => sum + item.shipping_charge_cents, 0),
+    shipping_method: method,
+    shipping_options: shipping.address ? cartShippingOptions(perGroupOptions) : null,
+    shipping_note: shipping.address && groups.some((item) => item.shipping_quote.source === "fallback") ? SHIPPING_FALLBACK_NOTE : null,
     total_cents: groups.reduce((sum, item) => sum + item.total_cents, 0),
     tax_enabled: taxEnabled, tax_cents: null, total_due_cents: null,
   };
@@ -185,6 +248,8 @@ export function withTaxEstimate(quote: CartQuote, taxCents: number): CartQuote {
 export type CheckoutInput = {
   patientId: string | null; providerId: string; cartId: string; lines: CartLineInput[];
   shipping_address: ShippingAddress; payment_method_id: string; set_default?: boolean;
+  /** Shipping method the payer chose (defaults to standard). */
+  shipping_method?: ShippingMethod | null;
   /**
    * The amount the payer authorized on the button (the quote's total_due_cents).
    * A fresh cart is refused (422) when today's plan plus tax no longer prices to
@@ -210,8 +275,10 @@ export const TOTAL_CHANGED_MESSAGE = "Your total changed since your cart was pri
 
 export const QUOTE_CHANGED_MESSAGE = "The total changed since this order was quoted. Review the new total before paying.";
 /** Re-prices the lines today and throws 409 when the total the payer saw no longer holds. */
-export async function assertQuoteCurrent(providerId: string, lines: CartLineInput[], expectedTotalCents: number, taxEnabled = false): Promise<CartPlan> {
-  const plan = await planCart(providerId, lines, taxEnabled);
+export async function assertQuoteCurrent(
+  providerId: string, lines: CartLineInput[], expectedTotalCents: number, taxEnabled = false, shipping: CartShipping = DEFAULT_CART_SHIPPING,
+): Promise<CartPlan> {
+  const plan = await planCart(providerId, lines, taxEnabled, shipping);
   if (plan.quote.total_cents !== expectedTotalCents) throw new BillingCartError(QUOTE_CHANGED_MESSAGE, 409, "expected_total_cents");
   return plan;
 }
@@ -260,6 +327,7 @@ function cartFingerprint(input: CheckoutInput): string {
       product_id: line.product_id, quantity: line.quantity, purchase: line.purchase, cadence_weeks: line.cadence_weeks ?? null,
     })),
     address: input.shipping_address, payment_method_id: input.payment_method_id,
+    shipping_method: input.shipping_method ?? "standard",
     expected_total_due_cents: input.expected_total_due_cents ?? null,
     expected_total_cents: input.expected_total_cents ?? null,
   })).digest("hex");
@@ -723,9 +791,10 @@ async function prepareSubscription(
   // must stay pending for the resume / reconcile path, never be marked failed.
   let stripeObjectCreated = false;
   try {
+    const shippingItem = await subscriptionShippingItem(stripe, acct, cadence.shipping_price_id, group.shipping_charge_cents, line.cadence_weeks ?? 4, settings.shipping_charge_cents);
     const subscription: any = await stripe.subscriptions.create({
       customer: customerId,
-      items: [{ price: cadence.price_id, quantity: line.quantity }, { price: cadence.shipping_price_id, quantity: 1 }],
+      items: [{ price: cadence.price_id, quantity: line.quantity }, shippingItem],
       default_payment_method: input.payment_method_id,
       payment_behavior: "default_incomplete",
       payment_settings: { save_default_payment_method: "on_subscription" },
@@ -830,7 +899,7 @@ async function prepareOneTime(
     }
     await stripe.invoiceItems.create({
       customer: customerId, invoice: invoice.id, quantity: 1, currency: "usd",
-      unit_amount_decimal: String(group.shipping_charge_cents), description: "Shipping",
+      unit_amount_decimal: String(group.shipping_charge_cents), description: "Shipping & handling",
     } as any, connectedOpts(acct, `order:${order.id}:shipping`));
     const finalized: any = await stripe.invoices.finalizeInvoice(invoice.id, { expand: ["payments.data.payment.payment_intent"] } as any, connectedOpts(acct, `order:${order.id}:finalize`));
     const intent = intentOf(finalized);
@@ -924,7 +993,7 @@ export async function insertCartRows(
         id: subscriptionId, provider_id: input.providerId, payer_id: payer.id, patient_id: input.patientId,
         product_id: line.product_id, stripe_subscription_id: null, stripe_customer_id: customerId,
         status: "incomplete", unit_price_cents: line.unit_price_cents,
-        shipping_charge_cents: group.shipping_charge_cents, shipping_cost_cents: group.shipping_cost_cents,
+        shipping_charge_cents: group.shipping_charge_cents, shipping_cost_cents: group.shipping_cost_cents, ...shipmentColumns(group.shipping_quote),
         application_fee_cents: group.application_fee_cents, shipping_address: address, current_period_end: null,
         cancel_at_period_end: false, canceled_at: null, cancel_token: crypto.randomBytes(24).toString("base64url"),
         livemode, cadence_weeks: line.cadence_weeks ?? 4, quantity: line.quantity, next_shipment_at: null,
@@ -937,8 +1006,8 @@ export async function insertCartRows(
       shipping_charge_cents: group.shipping_charge_cents, tax_cents: 0, total_cents: group.total_cents,
       application_fee_cents: group.application_fee_cents, application_fee_collected_cents: null,
       stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: group.hard_cost_cents,
-      shipping_cost_cents: group.shipping_cost_cents,
-      hq_profit_cents: hqProfit(group.application_fee_cents, group.hard_cost_cents, group.shipping_cost_cents),
+      shipping_cost_cents: group.shipping_cost_cents, ...shipmentColumns(group.shipping_quote),
+      hq_profit_cents: hqProfit(group.application_fee_cents, group.hard_cost_cents, group.shipping_cost_cents, group.shipping_quote.pick_pack_fee_cents + group.shipping_quote.packaging_cents),
       shipping_address: address, stripe_invoice_id: null, stripe_payment_intent_id: null, livemode,
       fulfillment_status: "to_ship", cart_id: input.cartId,
       metadata: { settings: plan.settings, source, cart: plan.quote },
@@ -953,11 +1022,34 @@ export async function insertCartRows(
         unit_price_cents: line.unit_price_cents, floor_price_cents_snapshot: line.floor_price_cents,
         thinnr_share_cents: Math.floor(line.floor_price_cents * 60 / 100) * line.quantity,
         hard_cost_cents_snapshot: line.hard_cost_cents,
+        warehousecraft_sku_snapshot: productFulfillment(line.product).warehousecraft_sku,
+        shipping_weight_oz_snapshot: productFulfillment(line.product).shipping_weight_oz,
       }, "billing_order_items_pkey");
     }
     pending.push({ group, order, subscriptionId });
   }
   return pending;
+}
+
+/**
+ * The recurring "Shipping & handling" item. The mirrored shipping price carries
+ * the flat HQ charge; a live quote (or free shipping) that differs bills an
+ * inline recurring price on the same Stripe product instead, so the first
+ * invoice matches the quote exactly. Renewals are re-quoted per invoice
+ * (subscriptions.ts prepareRenewal), so the recurring amount is only a base.
+ */
+export async function subscriptionShippingItem(
+  stripe: any, acct: string, shippingPriceId: string, amountCents: number, weeks: number, flatChargeCents: number,
+): Promise<Record<string, unknown>> {
+  // The mirror is kept at HQ's flat charge, so a flat quote needs no lookup.
+  if (amountCents === flatChargeCents) return { price: shippingPriceId, quantity: 1 };
+  const price: any = await stripe.prices.retrieve(shippingPriceId, connectedOpts(acct));
+  if (Number(price?.unit_amount) === amountCents) return { price: shippingPriceId, quantity: 1 };
+  const product = typeof price?.product === "string" ? price.product : price?.product?.id;
+  return {
+    price_data: { currency: "usd", product, unit_amount: amountCents, recurring: { interval: "week", interval_count: weeks } },
+    quantity: 1,
+  };
 }
 
 /**
@@ -998,6 +1090,17 @@ export async function resolveSubscriptionPrices(
  * Pay sale so both obey the same key, ownership, in-flight, and pinned-account
  * rules; the caller decides what "charge" means afterwards.
  */
+/**
+ * A checkout rates live only when its quote did: a request that names a
+ * shipping method was quoted with this address (patient checkout, office sales
+ * that sent the address at quote time). Requests without one were quoted
+ * address-unknown (prebuilt carts, legacy office sales) and stay on the flat
+ * charge, so the total the payer saw is the total that is claimed.
+ */
+export function cartShippingOf(input: Pick<CheckoutInput, "shipping_address" | "shipping_method">): CartShipping {
+  if (!input.shipping_method || !input.shipping_address?.postal_code) return DEFAULT_CART_SHIPPING;
+  return { address: input.shipping_address, method: input.shipping_method };
+}
 export async function resolveCart(input: CheckoutInput): Promise<ResolvedCart> {
   const fingerprint = cartFingerprint(input);
   // An existing key is resolved BEFORE anything is validated against today's
@@ -1015,9 +1118,10 @@ export async function resolveCart(input: CheckoutInput): Promise<ResolvedCart> {
     assertCartOwner(cart, input, fingerprint);
   } else {
     account = await liveAccount(input.providerId);
+    const shipping = cartShippingOf(input);
     plan = input.expected_total_cents == null
-      ? await planCart(input.providerId, input.lines, account.tax_enabled)
-      : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents, account.tax_enabled);
+      ? await planCart(input.providerId, input.lines, account.tax_enabled, shipping)
+      : await assertQuoteCurrent(input.providerId, input.lines, input.expected_total_cents, account.tax_enabled, shipping);
     await assertAuthorizedTotal(account, plan, input);
     const claimed = await claimCart(input, plan, fingerprint, account);
     cart = claimed.cart; fresh = claimed.fresh;

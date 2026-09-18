@@ -235,6 +235,7 @@ export function demoPurchasesSummary(patient: Patient, subscription: Subscriptio
     current_period_end: subscription!.nextShipment, cancel_at_period_end: false,
     last_hosted_invoice_url: null, last_failure_message: failed ? 'Your card was declined.' : null,
     cadence_weeks: 4, quantity: 1, next_shipment_at: subscription!.nextShipment, shipping_address: DEMO_ADDRESS,
+    shipping: { method: 'standard', source: 'fallback', carrier_service_name: null, delivery_window_start: null, delivery_window_end: null },
   }));
   const itemsLabel = lines.map((product) => product.name).join(', ') || 'Protocol';
   const orderTotal = lines.reduce((sum, product) => sum + product.price * 100, 0) + 1000;
@@ -252,6 +253,7 @@ export function demoPurchasesSummary(patient: Patient, subscription: Subscriptio
       canceled_at: null, updated_at: shipment.date,
     },
     subscription_id: subscriptions[0]?.id ?? null, cart_id: null,
+    shipping: { method: 'standard', source: 'fallback', carrier_service_name: null, delivery_window_start: null, delivery_window_end: null },
   }));
   const lifetimePaid = Math.max(patient.revenue * 100, orders.length * orderTotal);
   const failedAt = failed && subscription ? subscription.nextShipment : null;

@@ -130,10 +130,10 @@ export const officeBilling = {
   searchPatients: (q: string, scope: BillingScope) => request<{ items: PatientSearchHit[] }>('GET', `${OFFICE}/patients/search${qs({ q })}`, scope),
   saleContext: (patientId: string, scope: BillingScope) =>
     request<StaffSaleContext>('GET', `${OFFICE}/sales/context${qs({ patient_id: patientId })}`, scope),
-  saleQuote: (body: { patient_id: string; lines: CartLineInput[] }, scope: BillingScope) =>
+  saleQuote: (body: { patient_id: string; lines: CartLineInput[]; shipping_address?: ShippingAddress; shipping_method?: CartQuote['shipping_method'] }, scope: BillingScope) =>
     request<CartQuote>('POST', `${OFFICE}/sales/quote`, scope, body),
   saleCheckout: (
-    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; payment_method_id: string; cart_id: string },
+    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; shipping_method?: CartQuote['shipping_method']; payment_method_id: string; cart_id: string; expected_total_cents?: number },
     scope: BillingScope,
     idempotencyKey?: string,
   ) => request<CartCheckoutResponse>('POST', `${OFFICE}/sales`, scope, body, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),
@@ -147,7 +147,7 @@ export const officeBilling = {
   // per connected account; the sale itself keys on the same cart id as a card sale.
   terminalConnectionToken: (scope: BillingScope) => request<TerminalConnectionToken>('POST', `${OFFICE}/terminal/connection-token`, scope, {}),
   tapSale: (
-    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; cart_id: string; expected_total_cents?: number },
+    body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; shipping_method?: CartQuote['shipping_method']; cart_id: string; expected_total_cents?: number },
     scope: BillingScope,
     idempotencyKey?: string,
   ) => request<TapSaleResponse>('POST', `${OFFICE}/sales/tap`, scope, body, idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined),

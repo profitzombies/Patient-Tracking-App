@@ -1,8 +1,8 @@
 import { shipmentDto } from "./shipments";
-import type {
-  BillingOrderItemRow, BillingOrderRow, BillingRefundRow, BillingShipmentRow, BillingSubscriptionRow,
+import {
+  shipmentTerms, type BillingOrderItemRow, type BillingOrderRow, type BillingRefundRow, type BillingShipmentRow, type BillingSubscriptionRow,
 } from "./store";
-import type { PatientBillingOrder, PatientBillingSubscription, ShippingAddress } from "./types";
+import type { PatientBillingOrder, PatientBillingSubscription, PatientShippingChoice, ShippingAddress } from "./types";
 
 /**
  * Patient-facing order and subscription DTOs. Staff summaries (the patient
@@ -11,6 +11,14 @@ import type { PatientBillingOrder, PatientBillingSubscription, ShippingAddress }
  */
 const enc = encodeURIComponent;
 export const paidStatuses = new Set(["paid", "partially_refunded", "refunded"]);
+
+export function shippingChoice(row: Parameters<typeof shipmentTerms>[0]): PatientShippingChoice {
+  const terms = shipmentTerms(row);
+  return {
+    method: terms.shipping_method, source: terms.shipping_source, carrier_service_name: terms.carrier_service_name,
+    delivery_window_start: terms.delivery_window_start, delivery_window_end: terms.delivery_window_end,
+  };
+}
 
 export function subscriptionDto(row: BillingSubscriptionRow, productName: string): PatientBillingSubscription {
   return {
@@ -29,6 +37,7 @@ export function subscriptionDto(row: BillingSubscriptionRow, productName: string
     quantity: row.quantity ?? 1,
     next_shipment_at: row.next_shipment_at ?? row.current_period_end,
     shipping_address: row.shipping_address as unknown as ShippingAddress,
+    shipping: shippingChoice(row),
   };
 }
 
@@ -52,6 +61,7 @@ export function orderDto(
     shipment: shipmentDto(order, shipment),
     subscription_id: order.subscription_id,
     cart_id: order.cart_id ?? null,
+    shipping: shippingChoice(order),
   };
 }
 

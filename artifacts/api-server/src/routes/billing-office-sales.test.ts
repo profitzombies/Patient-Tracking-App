@@ -120,7 +120,7 @@ describe("office sales routes", () => {
 
   it("passes quote and checkout inputs through with scoped provider and header cart id, then audits", async () => {
     await call("POST", "/billing/office/sales/quote", "staff", { patient_id: patientId, lines });
-    expect(mocks.planCart).toHaveBeenCalledWith("office-1", lines);
+    expect(mocks.planCart).toHaveBeenCalledWith("office-1", lines, false, undefined);
     const result = await call("POST", "/billing/office/sales", "staff", {
       patient_id: patientId, lines, shipping_address: address, payment_method_id: "pm_1", cart_id: bodyCartId,
     }, { "Idempotency-Key": headerCartId });

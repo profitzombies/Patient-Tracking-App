@@ -56,6 +56,7 @@ import {
   formatCents,
   formatDate,
   formatDateTime,
+  formatDeliveryWindow,
   fulfillmentTone,
   FULFILLMENT_LABEL,
   humanizeRequirement,
@@ -721,6 +722,12 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
               <DetailList
                 items={[
                   { label: 'Status', value: <StatusPill tone={fulfillmentTone(order.fulfillment_status)}>{FULFILLMENT_LABEL[order.fulfillment_status]}</StatusPill> },
+                  { label: 'Shipping method', value: `${order.fees.shipping.shipping_method === 'expedited' ? 'Expedited' : 'Standard'}${order.fees.shipping.carrier_service_name ? ` · ${order.fees.shipping.carrier_service_name}` : ''}` },
+                  { label: 'Rate', value: <StatusPill tone={order.fees.shipping.shipping_source === 'live' ? 'good' : 'neutral'}>{order.fees.shipping.shipping_source === 'live' ? 'Live rate' : 'Flat rate'}</StatusPill> },
+                  { label: 'Delivery window', value: order.fees.shipping.shipping_source === 'live' ? formatDeliveryWindow(order.fees.shipping.delivery_window_start, order.fees.shipping.delivery_window_end) ?? '—' : '—' },
+                  { label: 'Carrier cost', value: formatCents(order.fees.shipping.carrier_cost_cents) },
+                  { label: 'Pick-and-pack fee', value: formatCents(order.fees.shipping.pick_pack_fee_cents) },
+                  { label: 'Packaging', value: formatCents(order.fees.shipping.packaging_cents) },
                   { label: 'Carrier', value: order.carrier ?? '—' },
                   { label: 'Tracking', value: order.tracking_number ?? '—' },
                   { label: 'Shipped', value: order.shipped_at ? formatDateTime(order.shipped_at) : '—' },
@@ -1107,6 +1114,17 @@ function SubscriptionsBody({ demo, canWrite }: { demo: boolean; canWrite: boolea
                         <MoneyCell cents={row.unit_price_cents + row.shipping_charge_cents} />
                         {row.shipping_charge_cents > 0 && (
                           <span className="block text-[11px] text-muted-foreground">incl. {formatCents(row.shipping_charge_cents)} shipping</span>
+                        )}
+                        {row.shipping && (
+                          <>
+                            <span className="block text-[11px] text-muted-foreground" data-testid={`subscription-shipping-${row.id}`}>
+                              {row.shipping.shipping_method === 'expedited' ? 'Expedited' : 'Standard'} · {row.shipping.shipping_source === 'live' ? 'Live' : 'Flat'}
+                              {row.shipping.carrier_service_name ? ` · ${row.shipping.carrier_service_name}` : ''}
+                            </span>
+                            <span className="block text-[11px] text-muted-foreground">
+                              Last re-quoted {row.shipping_requoted_at ? formatDateTime(row.shipping_requoted_at) : '—'}
+                            </span>
+                          </>
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-right align-top">

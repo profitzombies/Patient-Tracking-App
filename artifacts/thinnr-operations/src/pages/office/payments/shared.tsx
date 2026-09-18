@@ -140,10 +140,12 @@ export function Header({
 export function Boundary({
   children,
   allowNoAccount = false,
+  allowReadOnly = false,
   demo,
 }: {
   children: (status: OfficeBillingStatus) => ReactNode;
   allowNoAccount?: boolean;
+  allowReadOnly?: boolean;
   demo: ReactNode;
 }) {
   const scope = useOfficeBillingScope();
@@ -166,7 +168,7 @@ export function Boundary({
     );
   if (
     (status.error instanceof BillingApiError && status.error.status === 403) ||
-    status.data?.viewer.can_manage === false
+    (!allowReadOnly && status.data?.viewer.can_manage === false)
   )
     return <PermissionState />;
   if (status.isError || !status.data)

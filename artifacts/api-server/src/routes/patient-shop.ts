@@ -43,7 +43,10 @@ const LineSchema = z.object({
   product_id: z.string().uuid(), quantity: z.number().int().min(1).max(MAX_LINE_QUANTITY),
   purchase: z.enum(["one_time", "subscription"]), cadence_weeks: z.number().int().nullable().optional(),
 });
-const QuoteSchema = z.object({ lines: z.array(LineSchema).min(1).max(MAX_CART_LINES), shipping_address: AddressSchema.optional() });
+const QuoteSchema = z.object({
+  lines: z.array(LineSchema).min(1).max(MAX_CART_LINES), shipping_address: AddressSchema.optional(),
+  shipping_method: z.enum(["standard", "expedited"]).optional(),
+});
 const CheckoutSchema = QuoteSchema.extend({
   shipping_address: AddressSchema, payment_method_id: z.string().trim().min(1).max(200), set_default: z.boolean().optional(),
   expected_total_due_cents: z.number().int().min(0),
@@ -142,10 +145,13 @@ router.post("/patient-data/billing/cart/quote", async (req, res) => {
     if (!ctx) return;
     const account = await requireAccount(ctx, res);
     if (!account) return;
-    const plan = await planCart(ctx.providerId, parsed.data.lines, account.tax_enabled);
     // With an address the quote carries the tax the card will actually be
-    // charged; without one a tax-collecting office's total stays "before tax".
+    // charged and the live shipping options; without one a tax-collecting
+    // office's total stays "before tax" and shipping shows the flat charge.
     const address = parsed.data.shipping_address;
+    const plan = await planCart(ctx.providerId, parsed.data.lines, account.tax_enabled, {
+      address: address ?? null, method: parsed.data.shipping_method ?? "standard",
+    });
     res.json(address ? withTaxEstimate(plan.quote, await estimateCartTax(account, plan, address)) : plan.quote);
   } catch (error) { fail(req, res, error); }
 });
@@ -178,6 +184,7 @@ router.post("/patient-data/billing/cart/checkout", async (req, res) => {
     const result = await checkoutCart({
       patientId: ctx.patientId, providerId: ctx.providerId, cartId, lines: parsed.data.lines,
       shipping_address: parsed.data.shipping_address, payment_method_id: parsed.data.payment_method_id,
+      shipping_method: parsed.data.shipping_method ?? "standard",
       set_default: parsed.data.set_default, expected_total_due_cents: parsed.data.expected_total_due_cents,
     });
     res.status(result.status === "failed" ? 402 : 200).json(result);

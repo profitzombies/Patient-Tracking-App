@@ -35,6 +35,7 @@ import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptio
 import { SellToPatientDialog } from '@/components/billing/SellToPatientDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   useInvalidateOfficeBilling,
   useOfficeBillingScope,
@@ -43,17 +44,20 @@ import {
   useOfficeOrders,
   useOfficePayouts,
   useOfficePrices,
+  useOfficeShippingSettings,
   useOfficeSubscriptions,
   useUpdateOfficePrice,
+  useUpdateOfficeShippingSettings,
 } from '@/hooks/use-billing';
 import { useToast } from '@/hooks/use-toast';
-import { officeBilling } from '@/lib/billing-api';
+import { BillingApiError, officeBilling } from '@/lib/billing-api';
 import {
   accountStatusLabel,
   centsToDollarsInput,
   formatCents,
   formatDate,
   formatDateTime,
+  formatDeliveryWindow,
   fulfillmentTone,
   FULFILLMENT_LABEL,
   humanizeRequirement,
@@ -65,7 +69,7 @@ import {
   subscriptionTone,
   cadenceSummary,
 } from '@/lib/billing-format';
-import type { OfficeBillingStatus, OfficePrice, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
+import type { OfficeBillingStatus, OfficePrice, OfficeShippingSettings, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
 import NotFound from '@/pages/not-found';
 
@@ -986,6 +990,17 @@ function DetailView({
   refundPending: boolean;
   refundError: string | null;
 }) {
+  const shipping = order.fees.shipping ?? {
+    shipping_method: 'standard' as const,
+    shipping_source: 'fallback' as const,
+    carrier_service_name: null,
+    carrier_cost_cents: order.fees.shipping_charge_cents,
+    pick_pack_fee_cents: 0,
+    packaging_cents: 0,
+    pick_pack_passed_through: false,
+    delivery_window_start: null,
+    delivery_window_end: null,
+  };
   return (
     <div className={PAGE}>
       <Header
@@ -1032,6 +1047,16 @@ function DetailView({
                   {order.carrier} {order.tracking_number}
                 </p>
               )}
+            </div>
+            <div className="mt-4 border-t border-border pt-4" data-testid="office-shipping-breakdown">
+              <DetailList items={[
+                { label: 'Shipping method', value: `${shipping.shipping_method === 'expedited' ? 'Expedited' : 'Standard'}${shipping.carrier_service_name ? ` · ${shipping.carrier_service_name}` : ''}` },
+                { label: 'Rate', value: <StatusPill tone={shipping.shipping_source === 'live' ? 'good' : 'neutral'}>{shipping.shipping_source === 'live' ? 'Live rate' : 'Flat rate'}</StatusPill> },
+                { label: 'Delivery window', value: shipping.shipping_source === 'live' ? formatDeliveryWindow(shipping.delivery_window_start, shipping.delivery_window_end) ?? '—' : '—' },
+                { label: 'Carrier cost', value: formatCents(shipping.carrier_cost_cents) },
+                { label: 'Pick-and-pack fee', value: formatCents(shipping.pick_pack_fee_cents) },
+                { label: 'Packaging', value: formatCents(shipping.packaging_cents) },
+              ]} />
             </div>
           </div>
         </SectionCard>
@@ -1302,6 +1327,17 @@ function SubscriptionsView({
                       {row.shipping_charge_cents > 0 && (
                         <span className="block text-[11px] text-muted-foreground">incl. {formatCents(row.shipping_charge_cents)} shipping</span>
                       )}
+                      {row.shipping && (
+                        <>
+                          <span className="block text-[11px] text-muted-foreground" data-testid={`subscription-shipping-${row.id}`}>
+                            {row.shipping.shipping_method === 'expedited' ? 'Expedited' : 'Standard'} · {row.shipping.shipping_source === 'live' ? 'Live' : 'Flat'}
+                            {row.shipping.carrier_service_name ? ` · ${row.shipping.carrier_service_name}` : ''}
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            Last re-quoted {row.shipping_requoted_at ? formatDateTime(row.shipping_requoted_at) : '—'}
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-right align-top">
                       {live && (
@@ -1493,11 +1529,22 @@ function PayoutsQuery({ status }: { status: OfficeBillingStatus }) {
 
 const SETTINGS_TABS = ['bank', 'identity', 'tax', 'documents'] as const;
 function SettingsPage() {
+  const demoSettings: OfficeShippingSettings = {
+    pick_pack_pass_through: null,
+    effective_pick_pack_pass_through: false,
+    hq_default_pick_pack_pass_through: false,
+    version: 1,
+    updated_at: null,
+  };
   return (
     <Boundary
+      allowReadOnly
       demo={demoPage(
         'Payment settings',
-        <p className="text-xs text-muted-foreground">Secure Stripe settings are available after sign in.</p>,
+        <div className="space-y-5">
+          <PickPackSettingsCard settings={demoSettings} canWrite={false} demo />
+          <p className="text-xs text-muted-foreground">Secure Stripe settings are available after sign in.</p>
+        </div>,
       )}
     >
       {(status) => <SettingsView status={status} />}
@@ -1505,6 +1552,7 @@ function SettingsPage() {
   );
 }
 function SettingsView({ status }: { status: OfficeBillingStatus }) {
+  const settings = useOfficeShippingSettings();
   const { office } = useOfficeBillingScope();
   const search = new URLSearchParams(useSearch());
   const [, navigate] = useLocation();
@@ -1520,6 +1568,17 @@ function SettingsView({ status }: { status: OfficeBillingStatus }) {
         sub="Manage sensitive payment details securely through Stripe."
         sandbox={status.sandbox}
       />
+      {settings.isPending ? (
+        <Skeleton className="h-40" />
+      ) : settings.isError || !settings.data ? (
+        <ErrorBox error={settings.error} retry={() => void settings.refetch()} />
+      ) : (
+        <PickPackSettingsCard
+          settings={settings.data}
+          canWrite={status.viewer.can_manage}
+          onReload={() => settings.refetch()}
+        />
+      )}
       <div className="flex flex-wrap gap-2" role="tablist">
         {SETTINGS_TABS.map((key) => (
           <button
@@ -1584,6 +1643,92 @@ function SettingsView({ status }: { status: OfficeBillingStatus }) {
         </div>
       </SectionCard>
     </div>
+  );
+}
+
+export function PickPackSettingsCard({
+  settings,
+  canWrite,
+  demo = false,
+  onReload,
+}: {
+  settings: OfficeShippingSettings;
+  canWrite: boolean;
+  demo?: boolean;
+  onReload?: () => Promise<unknown>;
+}) {
+  const mutation = useUpdateOfficeShippingSettings();
+  const { toast } = useToast();
+  const [value, setValue] = useState<boolean | null>(settings.pick_pack_pass_through);
+  useEffect(() => setValue(settings.pick_pack_pass_through), [settings.version, settings.pick_pack_pass_through]);
+  const save = () => {
+    if (demo) return;
+    mutation.mutate(
+      { pick_pack_pass_through: value, expected_version: settings.version },
+      {
+        onSuccess: () => toast({ variant: 'success', title: 'Shipping setting saved' }),
+        onError: async (error) => {
+          if (error instanceof BillingApiError && error.status === 409) {
+            await onReload?.();
+            toast({
+              variant: 'destructive',
+              title: 'Shipping setting reloaded',
+              description: 'Someone else changed it first. Review the latest choice and try again.',
+            });
+            return;
+          }
+          toast({ variant: 'destructive', title: 'Shipping setting not saved', description: error.message });
+        },
+      },
+    );
+  };
+  return (
+    <SectionCard
+      title="Shipping fees"
+      sub="Choose whether the patient or your office covers NovEx pick-and-pack and packaging."
+    >
+      <fieldset className="space-y-3 p-5" data-testid="office-pick-pack-setting">
+        <legend className="text-sm font-semibold text-navy">Charge patients the pick-and-pack fee</legend>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {([
+            { key: 'inherit', value: null, label: 'Follow HQ default', detail: settings.hq_default_pick_pack_pass_through ? 'HQ default is On' : 'HQ default is Off' },
+            { key: 'on', value: true, label: 'On', detail: 'Patient pays the fee' },
+            { key: 'off', value: false, label: 'Off', detail: 'Your office absorbs the fee' },
+          ] as const).map((option) => (
+            <label key={option.key} className="flex items-start gap-2 rounded-md border border-border p-3 text-xs">
+              <input
+                type="radio"
+                name="pick-pack-pass-through"
+                data-testid={`radio-pick-pack-${option.key}`}
+                checked={value === option.value}
+                disabled={!canWrite}
+                onChange={() => setValue(option.value)}
+              />
+              <span>
+                <b className="block text-navy">{option.label}</b>
+                <span className="text-muted-foreground">{option.detail}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Effective now: {settings.effective_pick_pack_pass_through ? 'patients pay the fee' : 'your office absorbs the fee'}.
+        </p>
+        {canWrite ? (
+          <button
+            type="button"
+            className={`${BTN_PRIMARY} h-9 px-3.5`}
+            data-testid="button-save-pick-pack-setting"
+            disabled={mutation.isPending || value === settings.pick_pack_pass_through}
+            onClick={save}
+          >
+            {mutation.isPending ? 'Saving…' : 'Save shipping setting'}
+          </button>
+        ) : (
+          <p className="text-xs text-muted-foreground">Only office owners and admins can change this setting.</p>
+        )}
+      </fieldset>
+    </SectionCard>
   );
 }
 

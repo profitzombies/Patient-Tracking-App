@@ -102,6 +102,7 @@ export const AUDIT_ACTIONS = [
   "billing_connect_completed",
   "billing_connect_disconnected",
   "billing_settings_updated",
+  "billing_office_settings_updated",
   "billing_sandbox_reset",
   "billing_product_created",
   "billing_product_updated",
@@ -195,6 +196,7 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "billing_connect_completed",
   "billing_connect_disconnected",
   "billing_settings_updated",
+  "billing_office_settings_updated",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);
 

@@ -153,6 +153,24 @@ export function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? '—' : dateTimeFormatter.format(date);
 }
 
+const deliveryDateFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+function localDateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+/** Formats carrier calendar dates in the device timezone without treating them as UTC instants. */
+export function formatDeliveryWindow(start: string | null | undefined, end: string | null | undefined): string | null {
+  if (!start || !end) return null;
+  const from = localDateOnly(start);
+  const to = localDateOnly(end);
+  if (!from || !to) return null;
+  const first = deliveryDateFormatter.format(from);
+  const last = deliveryDateFormatter.format(to);
+  return first === last ? `Arrives ${first}` : `Arrives ${first} – ${last}`;
+}
+
 /** Requirement keys from Stripe ("individual.verification.document") → readable. */
 export function humanizeRequirement(key: string): string {
   return key

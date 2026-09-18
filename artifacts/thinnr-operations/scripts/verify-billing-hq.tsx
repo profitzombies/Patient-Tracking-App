@@ -223,6 +223,8 @@ await check('fulfillment demo rows', '/admin/payments/fulfillment?status=to_ship
 await check('catalog demo rows', '/admin/payments/catalog', PaymentsCatalog, [
   'Control', 'Maintenance + Detox Stack', 'Add product', 'Active products', 'Program settings', 'Card fee rate', '"2.90"', '/admin/payments/catalog/products/new',
   'Metabolic & Appetite Support', 'Supplement · Every 2, 4, 6, 8, 10 or 12 weeks · default 4', 'Drops · Every 4, 8 or 12 weeks · default 4', 'Subscribe and save',
+  'Shipping charged to patients (fallback when live rates are unavailable)', 'Free shipping above', 'Pick-and-pack schedule',
+  'Trailing 7 days:', '<50/wk', 'Patients pay the pick-and-pack fee by default',
 ]);
 await check('catalog history demo rows', '/admin/payments/catalog/history', PaymentsCatalogHistory, [
   'Office price changed', 'Jenkins Wellness', 'Alex Morgan', '/admin/team?member=hq-1', 'floor $109.99 → $119.99', 'price $79.99 → $84.99', ':27',
@@ -234,7 +236,8 @@ await check(
   ['Control', 'Back to product catalog', 'Pictures', 'Fee math', 'Retire', 'Archive', 'Drag pictures here', 'Browse files',
     'Product page', 'Metabolic & Appetite Support', 'Dietary Supplement · 60 Vegetarian Capsules', 'Helps support healthy appetite**',
     'African Mango — Helps support healthy appetite and metabolic function.**', 'Where can I get Control?', 'Subscription plans', 'Every 12 weeks',
-    'Subscribe and save is on: every cadence is quoted 10% under the office price.'],
+    'Subscribe and save is on: every cadence is quoted 10% under the office price.',
+    'Fulfillment', 'WarehouseCraft SKU', 'Shipping weight in oz', 'Live rating needs the weight', 'Package L × W × H in inches', 'Oversized'],
 );
 await check(
   'provider detail back link',
@@ -308,6 +311,21 @@ await check(
   const topicsInitial = String(byId('input-coach-topics').props.value);
   await act(async () => { byId('input-coach-topics').props.onChange({ target: { value: 'Appetite\nlate night snacking' } }); });
   const topicsAfter = String(byId('input-coach-topics').props.value);
+  const fulfillmentInitial = {
+    sku: String(byId('input-catalog-warehousecraft-sku').props.value),
+    weight: String(byId('input-catalog-shipping-weight').props.value),
+    oversized: byId('checkbox-catalog-oversized').props.checked,
+  };
+  await act(async () => { byId('input-catalog-warehousecraft-sku').props.onChange({ target: { value: 'WC-CONTROL' } }); });
+  await act(async () => { byId('input-catalog-shipping-weight').props.onChange({ target: { value: '12' } }); });
+  await act(async () => { byId('input-catalog-package-length').props.onChange({ target: { value: '8.5' } }); });
+  await act(async () => { byId('checkbox-catalog-oversized').props.onChange({ target: { checked: true } }); });
+  const fulfillmentAfter = {
+    sku: String(byId('input-catalog-warehousecraft-sku').props.value),
+    weight: String(byId('input-catalog-shipping-weight').props.value),
+    length: String(byId('input-catalog-package-length').props.value),
+    oversized: byId('checkbox-catalog-oversized').props.checked,
+  };
   // Dropping the default's cadence must be caught before any save.
   await act(async () => { byId('checkbox-cadence-8').props.onChange({ target: { checked: false } }); });
   const saveButton = renderer!.root.find(node => node.type === 'button' && String(node.children.join('')) === 'Save changes');
@@ -324,6 +342,8 @@ await check(
     !coachAfter.lowProtein || !coachAfter.avoid || !coachAfter.covered ? `coach suggestion controls should toggle, got ${JSON.stringify(coachAfter)}` : '',
     topicsInitial.split('\n')[0] !== 'appetite' || !topicsInitial.includes('portion control') ? `coach topics should pre-fill the seeded Control topics one per line, got ${JSON.stringify(topicsInitial)}` : '',
     topicsAfter !== 'Appetite\nlate night snacking' ? `coach topics textarea should be editable, got ${JSON.stringify(topicsAfter)}` : '',
+    fulfillmentInitial.sku !== '' || fulfillmentInitial.weight !== '' || fulfillmentInitial.oversized !== false ? `fulfillment seed should preserve flat fallback, got ${JSON.stringify(fulfillmentInitial)}` : '',
+    fulfillmentAfter.sku !== 'WC-CONTROL' || fulfillmentAfter.weight !== '12' || fulfillmentAfter.length !== '8.5' || fulfillmentAfter.oversized !== true ? `fulfillment controls did not edit, got ${JSON.stringify(fulfillmentAfter)}` : '',
   ].filter(Boolean);
   if (problems.length) { failures += 1; console.error(`FAIL product page editor: ${problems.join('; ')}`); }
   else console.log('ok product page editor');

@@ -53,6 +53,7 @@ export function ProductStatusPill({ status, testId }: { status: ProductStatus; t
 }
 
 export const CHANGE_KIND_LABEL: Record<CatalogChangeKind, string> = {
+  office_shipping_settings_updated: 'Office shipping setting changed',
   product_created: 'Product added',
   product_updated: 'Product edited',
   product_retired: 'Product retired',

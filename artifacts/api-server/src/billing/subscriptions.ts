@@ -8,10 +8,11 @@ import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
 import { ensureRecurringPrices } from "./prices";
+import { invoiceShippingLineAmount, quoteRenewalShipping, subscriptionThinnrShare } from "./renewal-shipping";
 import { sendPaymentFailed } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
-  insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
+  insert, insertIgnore, nowIso, selectMany, selectOne, shipmentColumns, shipmentTerms, update, type BillingConnectedAccountRow,
   type BillingPaymentLinkRow, type BillingSubscriptionRow,
 } from "./store";
 import { getOrderBundle, getProvider, officeName } from "./store-orders";
@@ -190,6 +191,9 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   const quantity = subscription.quantity ?? 1;
   const subtotal = subscription.unit_price_cents * quantity;
   const hard = product.hard_cost_cents * quantity;
+  const terms = shipmentTerms(subscription);
+  const fulfillmentFee = terms.pick_pack_fee_cents + terms.packaging_cents;
+  const share = await subscriptionThinnrShare(subscription);
   const created = await insertIgnore("billing_orders", {
     id, order_number: orderNumber(), provider_id: subscription.provider_id, payer_id: subscription.payer_id,
     patient_id: subscription.patient_id, link_id: null, kind: "subscription_renewal", subscription_id: subscription.id,
@@ -199,7 +203,11 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
     total_cents: Number(invoice.total ?? subtotal + subscription.shipping_charge_cents),
     application_fee_cents: subscription.application_fee_cents, application_fee_collected_cents: null,
     stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: hard, shipping_cost_cents: subscription.shipping_cost_cents,
-    hq_profit_cents: hqProfit(subscription.application_fee_cents, hard, subscription.shipping_cost_cents),
+    hq_profit_cents: hqProfit(subscription.application_fee_cents, hard, subscription.shipping_cost_cents, fulfillmentFee),
+    shipping_method: terms.shipping_method, shipping_source: terms.shipping_source, carrier_service_name: terms.carrier_service_name,
+    pick_pack_fee_cents: terms.pick_pack_fee_cents, packaging_cents: terms.packaging_cents,
+    pick_pack_passed_through: terms.pick_pack_passed_through,
+    delivery_window_start: terms.delivery_window_start, delivery_window_end: terms.delivery_window_end,
     shipping_address: subscription.shipping_address, stripe_invoice_id: invoice.id,
     stripe_payment_intent_id: paymentIntent(invoice)?.id ?? null, livemode: subscription.livemode,
     fulfillment_status: "to_ship", metadata: {},
@@ -210,8 +218,8 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   await insert("billing_order_items", {
     order_id: id, product_id: product.id, product_name_snapshot: product.name, quantity,
     unit_price_cents: subscription.unit_price_cents, floor_price_cents_snapshot: product.floor_price_cents,
-    thinnr_share_cents: subscription.application_fee_cents - subscription.shipping_charge_cents,
-    hard_cost_cents_snapshot: product.hard_cost_cents,
+    thinnr_share_cents: share, hard_cost_cents_snapshot: product.hard_cost_cents,
+    warehousecraft_sku_snapshot: product.warehousecraft_sku ?? null, shipping_weight_oz_snapshot: product.shipping_weight_oz ?? null,
   });
   return id;
 }
@@ -221,12 +229,41 @@ async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<vo
     ? await selectOne("billing_subscriptions", `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}`) : null;
   if (!subscription) return;
   if (!(await eventBelongsToProvider(subscription.provider_id, ctx))) return;
+  const pending = invoiceHasPrice(invoice, subscription.pending_stripe_price_id);
+  let applicationFee = pending
+    ? subscription.pending_application_fee_cents ?? subscription.application_fee_cents
+    : subscription.application_fee_cents;
+  const acct = ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id;
+  const stripe = await getStripe();
   try {
-    await (await getStripe()).invoices.update(invoice.id, {
-      application_fee_amount: invoiceHasPrice(invoice, subscription.pending_stripe_price_id)
-        ? subscription.pending_application_fee_cents ?? subscription.application_fee_cents
-        : subscription.application_fee_cents,
-    } as any, connectedOpts(ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id));
+    // Re-quote the shipment for today's address and method; the recurring
+    // shipping price is only the base, the invoice bills the fresh quote.
+    const requote = await quoteRenewalShipping(subscription, pending);
+    if (requote) {
+      const billed = invoiceShippingLineAmount(invoice, [subscription.stripe_price_id, subscription.pending_stripe_price_id])
+        ?? (pending ? subscription.pending_shipping_charge_cents ?? subscription.shipping_charge_cents : subscription.shipping_charge_cents);
+      const delta = requote.quote.patient_amount_cents - billed;
+      if (delta !== 0) {
+        await stripe.invoiceItems.create({
+          customer: typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id, invoice: invoice.id,
+          amount: delta, currency: "usd", description: "Shipping & handling adjustment",
+          metadata: { thinnr_subscription_id: subscription.id, thinnr_shipping_source: requote.quote.source },
+        } as any, connectedOpts(acct, `renewal:${invoice.id}:shipping`));
+      }
+      applicationFee = requote.application_fee_cents;
+      await update("billing_subscriptions", `id=eq.${encodeURIComponent(subscription.id)}`, {
+        ...(pending
+          ? { pending_shipping_charge_cents: requote.quote.patient_amount_cents, pending_application_fee_cents: applicationFee }
+          : { shipping_charge_cents: requote.quote.patient_amount_cents, application_fee_cents: applicationFee }),
+        shipping_cost_cents: requote.quote.carrier_cost_cents, ...shipmentColumns(requote.quote), shipping_requoted_at: nowIso(),
+      });
+    }
+  } catch (error) {
+    // The invoice keeps its recurring (flat) shipping line; the fee below still lands.
+    logger.warn({ err: error, subscriptionId: subscription.id, invoiceId: invoice.id }, "renewal shipping re-quote failed; flat charge kept");
+  }
+  try {
+    await stripe.invoices.update(invoice.id, { application_fee_amount: applicationFee } as any, connectedOpts(acct));
   } catch (error) {
     await insertIgnore("billing_ledger", {
       provider_id: subscription.provider_id, order_id: null, subscription_id: subscription.id, kind: "fee_discrepancy",
@@ -582,6 +619,7 @@ export async function toSubscriptionRow(row: BillingSubscriptionRow): Promise<Su
       effective_at: row.pending_effective_at,
     } : null,
     livemode: row.livemode, created_at: row.created_at,
+    shipping: shipmentTerms(row), shipping_requoted_at: row.shipping_requoted_at ?? null,
   };
 }
 export async function toPublicSubscription(row: BillingSubscriptionRow): Promise<PublicSubscription> {

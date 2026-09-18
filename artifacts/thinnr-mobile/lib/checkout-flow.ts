@@ -26,7 +26,7 @@
  */
 import type { NextActionOutcome } from '@/components/shop/card-entry-types';
 import { toQuoteRequest, type CartLine } from '@/lib/cart-math';
-import type { CartCheckoutItem, CartCheckoutRequest, CartCheckoutResponse, CartQuote, ShippingAddress } from '@/lib/patient-billing-types';
+import type { CartCheckoutItem, CartCheckoutRequest, CartCheckoutResponse, CartQuote, ShippingAddress, ShippingMethod } from '@/lib/patient-billing-types';
 
 /** Whether a thrown request error leaves the server's side unknown (`ambiguous`) or certainly did nothing (`definite`). */
 export type FailureCertainty = 'ambiguous' | 'definite';
@@ -77,9 +77,11 @@ export function buildCheckoutRequest(
   setDefault: boolean,
   /** The total the Pay button showed (quote.total_due_cents); the server refuses a cart that no longer prices to it. */
   expectedTotalDueCents: number,
+  shippingMethod: ShippingMethod = 'standard',
 ): CartCheckoutRequest {
   return {
     ...toQuoteRequest(lines),
+    shipping_method: shippingMethod,
     shipping_address: normalizeAddress(address),
     payment_method_id: paymentMethodId,
     set_default: setDefault,

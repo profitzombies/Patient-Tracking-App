@@ -112,12 +112,20 @@ const QUOTE: CartQuote = {
       quantity: 1,
       subtotal_cents: 5000,
       shipping_charge_cents: 500,
+      shipping: {
+        method: "standard", source: "fallback", carrier_service_name: null,
+        delivery_window_start: null, delivery_window_end: null,
+        free_shipping_applied: false, pick_pack_passed_through: false,
+      },
       total_cents: 5500,
     },
   ],
   subtotal_cents: 5000,
   discount_cents: 0,
   shipping_charge_cents: 500,
+  shipping_method: "standard",
+  shipping_options: null,
+  shipping_note: null,
   total_cents: 5500,
 };
 const PAID: CartCheckoutResponse = {
@@ -218,7 +226,7 @@ async function main() {
   check(
     "quote POST body is exact",
     JSON.stringify(quoteReq?.body) ===
-      JSON.stringify({ patient_id: "p1", lines: LINES }),
+      JSON.stringify({ patient_id: "p1", lines: LINES, shipping_method: "standard", shipping_address: ADDRESS }),
     JSON.stringify(quoteReq?.body),
   );
   check(
@@ -291,8 +299,10 @@ async function main() {
         patient_id: "p1",
         lines: LINES,
         shipping_address: ADDRESS,
+        shipping_method: "standard",
         payment_method_id: "pm_1",
         cart_id: (first.body as any).cart_id,
+        expected_total_cents: 5500,
       }),
   );
   check(

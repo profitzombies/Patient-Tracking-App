@@ -12,7 +12,8 @@ const state = vi.hoisted(() => ({
   handlers: new Map<string, (event: any, ctx: any) => Promise<void>>(),
 }));
 
-vi.mock("./store", () => {
+vi.mock("./store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./store")>();
   const matches = (row: any, query: string) => {
     for (const match of query.matchAll(/(?:^|&)(id|provider_id|product_id|stripe_subscription_id)=eq\.([^&]+)/g)) {
       if (String(row[match[1]]) !== decodeURIComponent(match[2])) return false;
@@ -28,6 +29,7 @@ vi.mock("./store", () => {
       provider_id: "office-1", stripe_account_id: "acct_1", charges_enabled: true, disconnected_at: null,
     }] : table === "billing_payers" ? [] : [];
   return {
+    shipmentTerms: actual.shipmentTerms, shipmentColumns: actual.shipmentColumns,
     nowIso: () => "2026-10-13T12:00:00.000Z",
     selectOne: vi.fn(async (table: string, query: string) => rows(table).find((row: any) => matches(row, query)) ?? null),
     selectMany: vi.fn(async () => []),

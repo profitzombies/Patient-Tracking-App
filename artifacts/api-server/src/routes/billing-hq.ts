@@ -9,7 +9,8 @@ import {
 import { listOfficePrices } from "../billing/prices";
 import { officeDashboard } from "../billing/reporting";
 import { selectMany, selectOne, toOrderSummary } from "../billing/store";
-import { COACH_SUGGESTION_SIGNALS } from "../billing/types";
+import { COACH_SUGGESTION_SIGNALS, type PickPackTier } from "../billing/types";
+import { PICK_PACK_TIERS } from "../shipping/rating";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -45,6 +46,13 @@ const ProductSchema = z.object({
     bloodwork_covered: z.boolean(),
     topics: z.array(z.string().trim().min(1).max(60)).max(40),
   }).optional(),
+  // Fulfillment data for live shipping rates (WarehouseCraft).
+  warehousecraft_sku: z.string().trim().max(64).nullable().optional(),
+  shipping_weight_oz: z.number().int().positive().nullable().optional(),
+  package_length_in: z.number().positive().nullable().optional(),
+  package_width_in: z.number().positive().nullable().optional(),
+  package_height_in: z.number().positive().nullable().optional(),
+  oversized: z.boolean().optional(),
 });
 const StatusSchema = z.object({ status: z.enum(["draft", "active", "retired", "archived"]) });
 const OrderSchema = z.object({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
@@ -54,6 +62,17 @@ const SettingsSchema = z.object({
   shipping_charge_cents: z.number().int().nonnegative(), shipping_cost_cents: z.number().int().nonnegative(),
   card_fee_bps: z.number().int().min(0).max(10_000), card_fee_fixed_cents: z.number().int().nonnegative(),
   subscribe_save_enabled: z.boolean().optional(), subscribe_save_percent: z.number().int().min(0).max(90).optional(),
+  // Shipping rules (all optional so older clients keep working).
+  free_shipping_over_cents: z.number().int().nonnegative().nullable().optional(),
+  pick_pack_tier: z.enum(["under_50", "from_51", "from_100", "from_250", "from_500", "from_1500"]).optional(),
+  pick_pack_schedule: z.object({
+    order_fee_cents: z.object(Object.fromEntries(PICK_PACK_TIERS.map((tier) => [tier, z.number().int().nonnegative()])) as Record<PickPackTier, z.ZodNumber>),
+    unit_cents: z.number().int().nonnegative(), oversized_unit_cents: z.number().int().nonnegative(),
+    overweight_pick_cents: z.number().int().nonnegative(), overweight_threshold_lb: z.number().positive(),
+    packaging_cents: z.number().int().nonnegative(),
+  }).optional(),
+  pick_pack_pass_through_default: z.boolean().optional(),
+  expedited_enabled: z.boolean().optional(),
   expected_version: z.number().int().nonnegative(),
 });
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }

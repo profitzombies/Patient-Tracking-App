@@ -13,11 +13,13 @@ import { useColors } from '@/hooks/useColors';
 import { getOrder, getOrderReceipt } from '@/lib/patient-billing-api';
 import {
   addressLines,
+  arrivalWindow,
   errorMessage,
   money,
   ORDER_STATUS_LABEL,
   orderKindLabel,
   orderStatusTone,
+  shippingChoiceLabel,
   shortDate,
   shortDateTime,
   subscriptionHref,
@@ -102,6 +104,15 @@ export default function OrderDetailScreen() {
 
           <SectionLabel text="Shipment" />
           <ShipmentPanel order={row} shipment={row.shipment} onTrack={track} />
+          <LedgerCard testID="card-order-shipping-method" style={styles.card}>
+            <Text style={[styles.label, { color: colors.labelText }]}>SHIPPING METHOD</Text>
+            <Text testID="text-order-shipping-method" style={[styles.body, { color: colors.bodyText }]}>{shippingChoiceLabel(row.shipping)}</Text>
+            {row.shipping.source === 'live' && arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end) ? (
+              <Text testID="text-order-arrival" style={[styles.hint, { color: colors.subtleText }]}>
+                {arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)}
+              </Text>
+            ) : null}
+          </LedgerCard>
           <LedgerCard testID="card-order-address" style={styles.card}>
             <Text style={[styles.label, { color: colors.labelText }]}>SHIPS TO</Text>
             {addressLines(row.shipping_address).map((line, index) => (

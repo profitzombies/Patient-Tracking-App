@@ -20,7 +20,7 @@ const PATIENT = "33333333-3333-4333-8333-333333333333";
 const ADDRESS = { name: "Pat Patient", line1: "1 Main St", line2: null, city: "Austin", state: "TX", postal_code: "78701", country: "US", phone: null };
 const TABLES = [
   "patients", "providers", "billing_connected_accounts", "billing_settings", "billing_products", "billing_product_images",
-  "billing_office_prices", "billing_orders", "billing_order_items", "billing_refunds", "billing_subscriptions",
+  "billing_office_prices", "billing_office_settings", "billing_orders", "billing_order_items", "billing_refunds", "billing_subscriptions",
   "billing_payment_links", "billing_payers", "billing_shipments", "billing_ledger", "billing_carts",
 ];
 

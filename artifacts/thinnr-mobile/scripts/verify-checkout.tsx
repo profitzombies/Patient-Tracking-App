@@ -66,6 +66,39 @@ async function main() {
   assert('live quote fetched and shown with sandbox note', shopCalls().some(call => call.path.endsWith('/cart/quote')) && text(tree, 'checkout-total').includes(money(expectedTotal)) && has(tree, 'checkout-sandbox') && !has(tree, 'checkout-demo-note'));
   assert('saved default card preselected; new-card option offered; card entry mounted but hidden for 3DS', hosts(tree, 'checkout-card-pm_saved')[0]?.props.accessibilityState?.checked === true && has(tree, 'checkout-card-new') && cardScript.mounts === 1 && hosts(tree, 'checkout-card-entry')[0]?.props.hidden === true && !has(tree, 'checkout-save-card'));
 
+  section('shipping methods, windows, free standard, fallback, and quote gating');
+  await wait(50);
+  assert('live shipping options render as a radio group with the standard arrival window', has(tree, 'checkout-shipping-methods') && hosts(tree, 'checkout-shipping-standard')[0]?.props.accessibilityState?.checked === true && text(tree, 'checkout-shipping-window') === 'Arrives Mon Sep 21 – Wed Sep 23');
+  script.quoteDelayMs = 100;
+  await press(tree, 'checkout-shipping-expedited');
+  await wait(1);
+  assert('Pay is aria-disabled while the selected method is being quoted', pressable(tree, 'checkout-pay')?.props['aria-disabled'] === true || pressable(tree, 'checkout-pay')?.props.accessibilityState?.disabled === true);
+  await press(tree, 'checkout-pay');
+  assert('a blocked Pay tap explains that pricing is still in progress', text(tree, 'checkout-error').includes('Still pricing'));
+  await wait(110);
+  const expeditedQuote = shopCalls().filter(call => call.path.endsWith('/cart/quote')).at(-1);
+  assert('selecting expedited re-quotes with shipping_method and updates the total', expeditedQuote?.body?.shipping_method === 'expedited' && text(tree, 'checkout-total').includes(money(expectedTotal + 500)) && text(tree, 'checkout-shipping-window') === 'Arrives Sat Sep 19 – Sun Sep 20');
+  script.quoteDelayMs = 0;
+  script.standardFree = true;
+  await press(tree, 'checkout-shipping-standard');
+  await wait(5);
+  assert('standard above the free-shipping threshold is labelled Free', text(tree, 'checkout-shipping-standard').includes('Free'));
+  script.standardFree = false;
+  script.shippingMode = 'fallback';
+  await press(tree, 'checkout-shipping-expedited');
+  await wait(5);
+  assert('fallback shows the short note and no arrival window', has(tree, 'checkout-shipping-note') && !has(tree, 'checkout-shipping-window'));
+  script.shippingMode = 'live';
+  await press(tree, 'checkout-shipping-standard');
+  await wait(5);
+  script.quoteFailure = { status: 422, error: 'Check this shipping address.', field: 'shipping_address' };
+  await type(tree, 'checkout-line2', 'Unit 5');
+  await wait(5);
+  assert('a 422 shipping_address refusal is announced at the address form', text(tree, 'checkout-address-error').includes('Check this shipping address'));
+  script.quoteFailure = null;
+  await type(tree, 'checkout-line2', 'Unit 4');
+  await wait(5);
+
   section('pay with a saved card: request shape');
   script.checkoutAttempts.clear();
   let persistedBeforePost: boolean | null = null;
@@ -83,7 +116,7 @@ async function main() {
   assert('body carries lines, normalized address, saved card, set_default false', JSON.stringify(paidCall?.body?.lines) === JSON.stringify([
     { product_id: control.product_id, quantity: 2, purchase: 'one_time' },
     { product_id: fiber.product_id, quantity: 1, purchase: 'subscription', cadence_weeks: 8 },
-  ]) && JSON.stringify(paidCall?.body?.shipping_address) === JSON.stringify({ name: 'Pat Example', line1: '9 Harbor Rd', line2: 'Unit 4', city: 'Boston', state: 'MA', postal_code: '02110', country: 'US', phone: '+15550001010' }) && paidCall?.body?.payment_method_id === 'pm_saved' && paidCall?.body?.set_default === false && typeof paidCall?.body?.cart_id === 'string');
+  ]) && JSON.stringify(paidCall?.body?.shipping_address) === JSON.stringify({ name: 'Pat Example', line1: '9 Harbor Rd', line2: 'Unit 4', city: 'Boston', state: 'MA', postal_code: '02110', country: 'US', phone: '+15550001010' }) && paidCall?.body?.shipping_method === 'standard' && paidCall?.body?.payment_method_id === 'pm_saved' && paidCall?.body?.set_default === false && typeof paidCall?.body?.cart_id === 'string');
   const confirmation = routerLog.at(-1);
   assert('paid → cart cleared and replaced to the confirmation with order numbers', confirmation?.method === 'replace' && confirmation.target === '/order-confirmation' && storedLines('patient-1').length === 0 && !has(tree, 'checkout-error'));
   assert('confirmation params carry the order, the subscription, the total, and the office', lastParams?.orders === 'TH-101' && lastParams?.subscriptions === 'TH-102' && lastParams?.total === String(expectedTotal) && lastParams?.office === 'Harbor Health');

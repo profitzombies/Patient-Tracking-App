@@ -25,6 +25,8 @@ const Address = z.object({
 });
 const Sale = z.object({
   patient_id: z.string().uuid(), lines: z.array(Line).min(1).max(20), shipping_address: Address,
+  /** Present when the sale was quoted with the address (live rate); absent = flat charge, as quoted. */
+  shipping_method: z.enum(["standard", "expedited"]).optional(),
   payment_method_id: z.string().trim().min(1).max(200), cart_id: z.string().uuid(),
   /** The quoted pre-tax total the staff member confirmed; a changed price is refused with 409. */
   expected_total_cents: z.number().int().nonnegative().optional(),
@@ -90,10 +92,17 @@ router.get("/billing/office/sales/context", async (req, res) => {
 router.post("/billing/office/sales/quote", async (req, res) => {
   try {
     const scoped = await scope(req, res); if (!scoped) return;
-    const parsed = z.object({ patient_id: z.string().uuid(), lines: z.array(Line).min(1).max(20) }).safeParse(req.body);
+    const parsed = z.object({
+      patient_id: z.string().uuid(), lines: z.array(Line).min(1).max(20),
+      shipping_address: Address.optional(), shipping_method: z.enum(["standard", "expedited"]).optional(),
+    }).safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Check the sale." }); return; }
     await patient(scoped, parsed.data.patient_id);
-    res.json((await planCart(scoped.providerId, parsed.data.lines)).quote);
+    // With the patient's address the sale is rated live (same rater as the
+    // patient app); without one the flat charge applies until checkout.
+    const shipping = parsed.data.shipping_address
+      ? { address: parsed.data.shipping_address, method: parsed.data.shipping_method ?? "standard" as const } : undefined;
+    res.json((await planCart(scoped.providerId, parsed.data.lines, false, shipping)).quote);
   } catch (error) { fail(req, res, error); }
 });
 router.post("/billing/office/sales", async (req, res) => {
@@ -107,7 +116,7 @@ router.post("/billing/office/sales", async (req, res) => {
     const result = await checkoutCart({
       patientId: parsed.data.patient_id, providerId: scoped.providerId, cartId, lines: parsed.data.lines,
       shipping_address: parsed.data.shipping_address, payment_method_id: parsed.data.payment_method_id,
-      expected_total_cents: parsed.data.expected_total_cents,
+      shipping_method: parsed.data.shipping_method ?? null, expected_total_cents: parsed.data.expected_total_cents,
     });
     await audit(req, scoped, "billing_office_sale_created", result.cart_id, { patient_id: parsed.data.patient_id, status: result.status });
     res.status(result.status === "failed" ? 402 : 200).json(result);

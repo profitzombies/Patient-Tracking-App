@@ -8,7 +8,7 @@ import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { DateRangeProvider } from '../src/contexts/date-range';
-import OfficePaymentsArea from '../src/pages/office/payments/OfficePaymentsArea';
+import OfficePaymentsArea, { PickPackSettingsCard } from '../src/pages/office/payments/OfficePaymentsArea';
 import { RefundDialog } from '../src/components/billing/RefundDialog';
 import { OFFICE_NAV_ITEMS, OFFICE_PAYMENTS_SECTIONS, isOfficeMenuPathActive } from '../src/components/layout/nav-config';
 
@@ -144,7 +144,8 @@ console.log('office billing: gates and setup');
   );
   check(
     'demo transaction renders its order detail and relative Back link',
-    requests.length === 0 && text(demoDetail.root).includes('TH-D3MO01') && backLink.length === 1,
+    requests.length === 0 && text(demoDetail.root).includes('TH-D3MO01') && backLink.length === 1
+      && ['Shipping method', 'Standard', 'Flat rate', 'Carrier cost', 'Pick-and-pack fee', 'Packaging'].every((value) => text(demoDetail.root).includes(value)),
     `requests=${requests.length}; back=${backLink.length}; text=${text(demoDetail.root).slice(0, 180)}`,
   );
   demoDetail.renderer.unmount();
@@ -172,6 +173,52 @@ console.log('office billing: gates and setup');
   const noOauth = await render('/get-paid');
   check('OAuth choice is replaced by a configuration note', !one(noOauth.root, 'button-oauth-start') && Boolean(one(noOauth.root, 'oauth-unavailable')));
   noOauth.renderer.unmount();
+}
+
+console.log('\noffice billing: pick-and-pack setting');
+{
+  reset();
+  const shippingSettings = {
+    pick_pack_pass_through: null,
+    effective_pick_pack_pass_through: true,
+    hq_default_pick_pack_pass_through: true,
+    version: 7,
+    updated_at: '2026-10-11T00:00:00Z',
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  let reloaded = 0;
+  let owner!: ReactTestRenderer;
+  await act(async () => {
+    owner = create(
+      <QueryClientProvider client={client}>
+        <PickPackSettingsCard settings={shippingSettings} canWrite onReload={async () => { reloaded += 1; }} />
+      </QueryClientProvider>,
+    );
+  });
+  const radios = owner.root.findAll((node) => node.type === 'input' && node.props.type === 'radio');
+  check('control has inherit, on and off radio states with HQ default explained',
+    radios.length === 3 && radios[0].props.checked === true && text(owner.root).includes('HQ default is On'));
+  await act(async () => radios[2].props.onChange());
+  responses = [json(409, { error: 'settings_conflict' })];
+  await act(async () => one(owner.root, 'button-save-pick-pack-setting').props.onClick());
+  await settle();
+  const put = requests.find((request) => request.url === '/api/billing/office/settings' && request.method === 'PUT');
+  check('off choice PUTs null-inherit contract and version', JSON.stringify(put?.body) === JSON.stringify({ pick_pack_pass_through: false, expected_version: 7 }), JSON.stringify(put));
+  check('409 reloads the setting before asking the owner to retry', reloaded === 1, String(reloaded));
+  await act(async () => owner.unmount());
+
+  let staff!: ReactTestRenderer;
+  await act(async () => {
+    staff = create(
+      <QueryClientProvider client={client}>
+        <PickPackSettingsCard settings={shippingSettings} canWrite={false} />
+      </QueryClientProvider>,
+    );
+  });
+  check('staff sees the effective setting read-only', staff.root.findAll((node) => node.type === 'input' && node.props.disabled === true).length === 3
+    && all(staff.root, 'button-save-pick-pack-setting').length === 0
+    && text(staff.root).includes('Only office owners and admins'));
+  await act(async () => staff.unmount());
 }
 
 console.log('\noffice billing: prices');

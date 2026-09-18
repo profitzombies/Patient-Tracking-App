@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
-import type { CadenceWeeks, OrderSummary, Payer, ProductCategory, ProductFactRow, ProductFaq } from "./types";
+import type { ShipmentQuote } from "../shipping/rating";
+import type { CadenceWeeks, OrderSummary, Payer, PickPackTier, ProductCategory, ProductFactRow, ProductFaq, ShipmentTerms, ShippingMethod, ShippingSource } from "./types";
 
 export type BillingTable =
   | "billing_settings" | "billing_products" | "billing_product_images" | "billing_catalog_changes"
@@ -7,13 +8,49 @@ export type BillingTable =
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
-  | "billing_prebuilt_carts";
+  | "billing_prebuilt_carts" | "billing_office_settings";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
   id: number; shipping_charge_cents: number; shipping_cost_cents: number;
   card_fee_bps: number; card_fee_fixed_cents: number; version: number; updated_by: string | null;
   subscribe_save_enabled: boolean; subscribe_save_percent: number;
+  /** Shipping rules (see shipping/rating.ts); the flat charge/cost above is the fallback. */
+  free_shipping_over_cents: number | null; pick_pack_tier: PickPackTier; pick_pack_schedule: Record<string, unknown>;
+  pick_pack_pass_through_default: boolean; expedited_enabled: boolean;
+}
+/** Per-office shipping overrides; null = inherit HQ. */
+export interface BillingOfficeSettingsRow extends TimestampedRow {
+  provider_id: string; pick_pack_pass_through: boolean | null; version: number; updated_by: string | null;
+}
+/** The row columns a shipment quote locks onto an order/subscription. */
+export function shipmentColumns(quote: ShipmentQuote): ShipmentColumns {
+  return {
+    shipping_method: quote.method, shipping_source: quote.source, carrier_service_name: quote.carrier_service_name,
+    pick_pack_fee_cents: quote.pick_pack_fee_cents, packaging_cents: quote.packaging_cents,
+    pick_pack_passed_through: quote.pick_pack_passed_through,
+    delivery_window_start: quote.delivery_window_start, delivery_window_end: quote.delivery_window_end,
+  };
+}
+/** The shipment terms of an order/subscription row with pre-rating defaults filled in. */
+export function shipmentTerms(row: Partial<ShipmentColumns> & { shipping_cost_cents: number }): ShipmentTerms {
+  return {
+    shipping_method: row.shipping_method ?? "standard", shipping_source: row.shipping_source ?? "fallback",
+    carrier_service_name: row.carrier_service_name ?? null, carrier_cost_cents: row.shipping_cost_cents,
+    pick_pack_fee_cents: row.pick_pack_fee_cents ?? 0, packaging_cents: row.packaging_cents ?? 0,
+    pick_pack_passed_through: row.pick_pack_passed_through ?? false,
+    delivery_window_start: row.delivery_window_start ?? null, delivery_window_end: row.delivery_window_end ?? null,
+  };
+}
+/**
+ * Columns shared by orders and subscriptions describing the locked shipment
+ * terms. Rows written before live rating carry the column defaults (standard /
+ * fallback / zero fees); shipmentTerms() applies the same defaults to fixtures.
+ */
+export interface ShipmentColumns {
+  shipping_method: ShippingMethod; shipping_source: ShippingSource; carrier_service_name: string | null;
+  pick_pack_fee_cents: number; packaging_cents: number; pick_pack_passed_through: boolean;
+  delivery_window_start: string | null; delivery_window_end: string | null;
 }
 export type BillingProductStatus = "draft" | "active" | "retired" | "archived";
 export interface BillingProductRow extends TimestampedRow {
@@ -26,6 +63,9 @@ export interface BillingProductRow extends TimestampedRow {
   offered_cadences_weeks: CadenceWeeks[]; default_cadence_weeks: CadenceWeeks;
   /** HQ coach suggestion rule (validated shape lives in billing/catalog.ts coachSuggestionRule). */
   coach_suggestion: Record<string, unknown> | null;
+  warehousecraft_sku: string | null; shipping_weight_oz: number | null;
+  package_length_in: number | string | null; package_width_in: number | string | null; package_height_in: number | string | null;
+  oversized: boolean;
 }
 export interface BillingProductImageRow extends TimestampedRow {
   id: string; product_id: string; object_path: string; content_type: string; size_bytes: number;
@@ -73,7 +113,7 @@ export interface BillingPayerRow extends TimestampedRow {
   id: string; provider_id: string; patient_id: string | null; name: string; email: string | null;
   phone: string | null; stripe_customer_id: string | null;
 }
-export interface BillingOrderRow extends TimestampedRow {
+export interface BillingOrderRow extends TimestampedRow, Partial<ShipmentColumns> {
   id: string; order_number: string; provider_id: string; payer_id: string; patient_id: string | null;
   link_id: string | null; kind: "one_time" | "subscription_initial" | "subscription_renewal";
   subscription_id: string | null; status: string; currency: string; subtotal_cents: number;
@@ -92,9 +132,10 @@ export interface BillingOrderRow extends TimestampedRow {
 export interface BillingOrderItemRow extends TimestampedRow {
   id: string; order_id: string; product_id: string; product_name_snapshot: string; quantity: number;
   unit_price_cents: number; floor_price_cents_snapshot: number; thinnr_share_cents: number;
-  hard_cost_cents_snapshot: number;
+  hard_cost_cents_snapshot: number; warehousecraft_sku_snapshot?: string | null; shipping_weight_oz_snapshot?: number | null;
 }
-export interface BillingSubscriptionRow extends TimestampedRow {
+export interface BillingSubscriptionRow extends TimestampedRow, Partial<ShipmentColumns> {
+  shipping_requoted_at?: string | null;
   id: string; provider_id: string; payer_id: string; patient_id: string | null; product_id: string;
   stripe_subscription_id: string | null; stripe_customer_id: string | null; status: string; unit_price_cents: number;
   shipping_charge_cents: number; shipping_cost_cents: number; application_fee_cents: number; shipping_address: Record<string, unknown>;
@@ -171,7 +212,7 @@ export type BillingRows = {
   billing_payouts: BillingPayoutRow; billing_webhook_endpoints: BillingWebhookEndpointRow;
   billing_webhook_events: BillingWebhookEventRow; billing_shipments: BillingShipmentRow; billing_carts: BillingCartRow;
   billing_customer_emails: BillingCustomerEmailRow;
-  billing_prebuilt_carts: BillingPrebuiltCartRow;
+  billing_prebuilt_carts: BillingPrebuiltCartRow; billing_office_settings: BillingOfficeSettingsRow;
 };
 
 export class BillingStoreError extends Error {

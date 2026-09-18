@@ -34,6 +34,7 @@ import {
 } from '@/lib/patient-billing-api';
 import {
   addressLines,
+  arrivalWindow,
   cadenceLabel,
   cardLabel,
   dateKey,
@@ -42,6 +43,7 @@ import {
   moveWindow,
   quantityLabel,
   shortDate,
+  shippingChoiceLabel,
   subscriptionActions,
   subscriptionStatus,
 } from '@/lib/patient-billing-core';
@@ -179,6 +181,12 @@ export default function SubscriptionDetailScreen() {
               <KeyValue label="Shipping" value={money(row.shipping_charge_cents)} />
               <KeyValue label="Per shipment" value={money(row.unit_price_cents * row.quantity + row.shipping_charge_cents)} testID="text-subscription-total" emphasis />
             </View>
+            <Text testID="text-subscription-shipping-method" style={[styles.hint, { color: colors.subtleText }]}>
+              {shippingChoiceLabel(row.shipping)}
+              {row.shipping.source === 'live' && arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)
+                ? ` · ${arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)}`
+                : ''}
+            </Text>
             {row.status !== 'canceled' ? (
               <Text testID="text-next-shipment" style={[styles.body, styles.gapSm, { color: colors.bodyText }]}>
                 {row.cancel_at_period_end

@@ -1,0 +1,301 @@
+{
+  "rates": [
+    {
+      "service_code": "ISC_77",
+      "service_name": "USPS Ground Advantage",
+      "description": "USPS Ground Advantage",
+      "currency": "USD",
+      "total_price_usd": 8.0700,
+      "total_price": 807,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-22T00:00:00",
+      "max_delivery_date": "2026-09-22T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_215",
+      "service_name": "USPS Priority Mail Flat Rate Envelope",
+      "description": "USPS Priority Mail Flat Rate Envelope",
+      "currency": "USD",
+      "total_price_usd": 9.6200,
+      "total_price": 962,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_216",
+      "service_name": "USPS Priority Mail Flat Rate Legal Envelope",
+      "description": "USPS Priority Mail Flat Rate Legal Envelope",
+      "currency": "USD",
+      "total_price_usd": 10.9100,
+      "total_price": 1091,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_54",
+      "service_name": "USPS Priority Mail Flat Rate Padded Envelope",
+      "description": "USPS Priority Mail Flat Rate Padded Envelope",
+      "currency": "USD",
+      "total_price_usd": 11.0200,
+      "total_price": 1102,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_3",
+      "service_name": "UPS Ground",
+      "description": "UPS Ground",
+      "currency": "USD",
+      "total_price_usd": 15.45,
+      "total_price": 1545,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-24T00:00:00",
+      "max_delivery_date": "2026-09-24T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_2",
+      "service_name": "USPS Priority Mail",
+      "description": "USPS Priority Mail",
+      "currency": "USD",
+      "total_price_usd": 16.7100,
+      "total_price": 1671,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_10",
+      "service_name": "UPS Ground Saver",
+      "description": "UPS Ground Saver",
+      "currency": "USD",
+      "total_price_usd": 18.24,
+      "total_price": 1824,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-28T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_56",
+      "service_name": "USPS Priority Mail Flat Rate Medium Box",
+      "description": "USPS Priority Mail Flat Rate Medium Box",
+      "currency": "USD",
+      "total_price_usd": 19.9800,
+      "total_price": 1998,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_57",
+      "service_name": "USPS Priority Mail Flat Rate Large Box",
+      "description": "USPS Priority Mail Flat Rate Large Box",
+      "currency": "USD",
+      "total_price_usd": 27.7600,
+      "total_price": 2776,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_318",
+      "service_name": "USPS Priority Mail Express Flat Rate Envelope",
+      "description": "USPS Priority Mail Express Flat Rate Envelope",
+      "currency": "USD",
+      "total_price_usd": 31.1100,
+      "total_price": 3111,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_319",
+      "service_name": "USPS Priority Mail Express Flat Rate Legal Envelope",
+      "description": "USPS Priority Mail Express Flat Rate Legal Envelope",
+      "currency": "USD",
+      "total_price_usd": 31.4300,
+      "total_price": 3143,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_70",
+      "service_name": "USPS Priority Mail Express Flat Rate Padded Envelope",
+      "description": "USPS Priority Mail Express Flat Rate Padded Envelope",
+      "currency": "USD",
+      "total_price_usd": 31.7000,
+      "total_price": 3170,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_9",
+      "service_name": "UPS 3 Day Select",
+      "description": "UPS 3 Day Select",
+      "currency": "USD",
+      "total_price_usd": 52.92,
+      "total_price": 5292,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-23T00:00:00",
+      "max_delivery_date": "2026-09-23T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_26",
+      "service_name": "USPS Priority Mail Express",
+      "description": "USPS Priority Mail Express",
+      "currency": "USD",
+      "total_price_usd": 64.32,
+      "total_price": 6432,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_8",
+      "service_name": "UPS 2nd Day Air",
+      "description": "UPS 2nd Day Air",
+      "currency": "USD",
+      "total_price_usd": 67.52,
+      "total_price": 6752,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-22T00:00:00",
+      "max_delivery_date": "2026-09-22T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_7",
+      "service_name": "UPS 2nd Day Air A.M.",
+      "description": "UPS 2nd Day Air A.M.",
+      "currency": "USD",
+      "total_price_usd": 76.08,
+      "total_price": 7608,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-22T00:00:00",
+      "max_delivery_date": "2026-09-22T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_6",
+      "service_name": "UPS Next Day Air Saver",
+      "description": "UPS Next Day Air Saver",
+      "currency": "USD",
+      "total_price_usd": 135.87,
+      "total_price": 13587,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_4",
+      "service_name": "UPS Next Day Air",
+      "description": "UPS Next Day Air",
+      "currency": "USD",
+      "total_price_usd": 154.18,
+      "total_price": 15418,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_4",
+      "service_name": "UPS Next Day Air",
+      "description": "UPS Next Day Air",
+      "currency": "USD",
+      "total_price_usd": 173.65,
+      "total_price": 17365,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_5",
+      "service_name": "UPS Next Day Air Early A.M.",
+      "description": "UPS Next Day Air Early A.M.",
+      "currency": "USD",
+      "total_price_usd": 190.69,
+      "total_price": 19069,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-21T00:00:00",
+      "max_delivery_date": "2026-09-21T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    },
+    {
+      "service_code": "ISC_5",
+      "service_name": "UPS Next Day Air Early A.M.",
+      "description": "UPS Next Day Air Early A.M.",
+      "currency": "USD",
+      "total_price_usd": 210.16,
+      "total_price": 21016,
+      "phone_required": false,
+      "min_delivery_date": "2026-09-19T00:00:00",
+      "max_delivery_date": "2026-09-19T00:00:00",
+      "quote_id": 0,
+      "quote_expiration_date": "0001-01-01T00:00:00"
+    }
+  ],
+  "carrierErrors": [
+    {
+      "Error": "Carrier Message: OrderId must be specified."
+    },
+    {
+      "Error": "Carrier Message: OrderId must be specified."
+    },
+    {
+      "CarrierCode": "GLS",
+      "Error": "GLS Failure: ACCOUNT ON HOLD"
+    },
+    {
+      "CarrierCode": "USPS",
+      "Error": "Shipping Method 'Priority Mail (Cubic)' excluded by a shipping rule."
+    },
+    {
+      "CarrierCode": "USPS",
+      "Error": "Shipping Method 'Ground Advantage (Cubic)' excluded by a shipping rule."
+    },
+    {
+      "CarrierCode": "AMZ",
+      "Error": "{\n  \"errors\": [\n    {\n      \"code\": \"Unauthorized\",\n      \"message\": \"Access to requested resource is denied.\",\n      \"details\": \"The access token you provided has expired.\"\n    }\n  ]\n}"
+    }
+  ]
+}

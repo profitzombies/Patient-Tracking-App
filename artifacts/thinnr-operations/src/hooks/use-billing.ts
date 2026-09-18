@@ -91,6 +91,27 @@ export function useOfficePrices() {
   });
 }
 
+export function useOfficeShippingSettings() {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useQuery({
+    queryKey: [...base, 'settings'],
+    queryFn: () => officeBilling.settings(office),
+    enabled: liveEnabled,
+  });
+}
+
+export function useUpdateOfficeShippingSettings() {
+  const { office, base } = useOfficeBillingScope();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { pick_pack_pass_through: boolean | null; expected_version: number }) =>
+      officeBilling.updateSettings(input, office),
+    onSuccess: (settings) => {
+      client.setQueryData([...base, 'settings'], settings);
+    },
+  });
+}
+
 export function useOfficeSaleContext(patientId: string, enabled = true) {
   const { liveEnabled, office, base } = useOfficeBillingScope();
   return useQuery({
@@ -436,7 +457,7 @@ export function useHqCatalogMutations() {
       onSuccess: settleProduct,
     }),
     settings: useMutation({
-      mutationFn: (body: Omit<BillingSettings, 'updated_at' | 'version'> & { expected_version: number }) => hqBilling.updateSettings(body),
+      mutationFn: (body: Omit<BillingSettings, 'updated_at' | 'version' | 'weekly_paid_orders'> & { expected_version: number }) => hqBilling.updateSettings(body),
       onSuccess: invalidate,
     }),
   };

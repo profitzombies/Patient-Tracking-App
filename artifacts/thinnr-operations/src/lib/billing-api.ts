@@ -30,6 +30,7 @@ import type {
   OfficePrice,
   OfficePricesResponse,
   OfficeRefundRow,
+  OfficeShippingSettings,
   OrderDetail,
   OrderSummary,
   Paged,
@@ -102,6 +103,13 @@ export const officeBilling = {
     officeRequest<OfficeDashboard>(`${OFFICE}/dashboard${qs(range, office)}`, MESSAGES),
   prices: (office?: string | null) =>
     officeRequest<OfficePricesResponse>(`${OFFICE}/prices${qs({}, office)}`, MESSAGES),
+  settings: (office?: string | null) =>
+    officeRequest<OfficeShippingSettings>(`${OFFICE}/settings${qs({}, office)}`, MESSAGES),
+  updateSettings: (body: { pick_pack_pass_through: boolean | null; expected_version: number }, office?: string | null) =>
+    officeRequest<OfficeShippingSettings>(`${OFFICE}/settings${qs({}, office)}`, MESSAGES, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   updatePrice: (
     productId: string,
     body: { sell_price_cents: number | null; subscription_enabled: boolean },
@@ -276,7 +284,7 @@ export const hqBilling = {
       MESSAGES,
       { method: 'POST' },
     ),
-  updateSettings: (body: Omit<BillingSettings, 'updated_at' | 'version'> & { expected_version: number }) =>
+  updateSettings: (body: Omit<BillingSettings, 'updated_at' | 'version' | 'weekly_paid_orders'> & { expected_version: number }) =>
     officeRequest<{ settings: BillingSettings }>(`${HQ}/catalog/settings`, MESSAGES, { method: 'PUT', body: JSON.stringify(body) }),
   changes: (filters: ListFilters) => officeRequest<Paged<CatalogChange>>(`${HQ}/catalog/changes${qs(filters)}`, MESSAGES),
   subscriptions: (filters: ListFilters) => officeRequest<Paged<SubscriptionRow>>(`${HQ}/subscriptions${qs(filters)}`, MESSAGES),

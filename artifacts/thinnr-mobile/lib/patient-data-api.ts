@@ -163,14 +163,14 @@ export async function authedRequest(
   // result; an error envelope on that status is still an error.
   const envelope = json !== null && typeof json === 'object' && typeof (json as { error?: unknown }).error === 'string';
   if (!response.ok && !(opts.acceptStatuses?.includes(response.status) && json !== null && !envelope)) {
-    const failure = json as { error?: unknown; code?: unknown } | null;
+    const failure = json as { error?: unknown; code?: unknown; field?: unknown } | null;
     const message = failure?.error;
     throw new PatientDataError(
       typeof message === 'string' && message.length > 0
         ? message
         : 'The server couldn’t handle that. Please try again.',
       patientDataErrorCode(failure?.code),
-      { kind: 'http', status: response.status },
+      { kind: 'http', status: response.status, field: typeof failure?.field === 'string' ? failure.field : null },
     );
   }
   return json;

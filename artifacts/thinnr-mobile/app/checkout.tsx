@@ -51,7 +51,8 @@ import {
 } from '@/lib/checkout-flow';
 import { checkoutCart, listCards, quoteCart } from '@/lib/patient-billing-api';
 import { missingTokenMessage, supabase } from '@/lib/supabase';
-import type { CartQuote, CartQuoteRequest, PatientCard, ShippingAddress } from '@/lib/patient-billing-types';
+import { arrivalWindow } from '@/lib/patient-billing-core';
+import type { CartQuote, CartQuoteRequest, CartShippingOption, PatientCard, ShippingAddress, ShippingMethod } from '@/lib/patient-billing-types';
 
 type CardChoice = { kind: 'saved'; id: string } | { kind: 'new' };
 
@@ -107,12 +108,16 @@ export default function CheckoutScreen() {
   );
   const [quote, setQuote] = useState<CartQuote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  // A tax-collecting office prices tax for the destination, so the quote
-  // follows the address once it is complete (debounced while typing).
+  const [addressQuoteError, setAddressQuoteError] = useState<string | null>(null);
+  const [shippingMethod, setShippingMethod] = useState<ShippingMethod>('standard');
+  // Live shipping (and tax, when enabled) follows the complete destination,
+  // debounced while the patient types.
   const addressComplete = Object.keys(problems).length === 0;
   const quoteRequest = useMemo<CartQuoteRequest>(
-    () => (taxEnabled && addressComplete ? { ...toQuoteRequest(lines), shipping_address: normalizeAddress(address) } : toQuoteRequest(lines)),
-    [taxEnabled, addressComplete, lines, address],
+    () => (addressComplete
+      ? { ...toQuoteRequest(lines), shipping_address: normalizeAddress(address), shipping_method: shippingMethod }
+      : { ...toQuoteRequest(lines), shipping_method: shippingMethod }),
+    [addressComplete, lines, address, shippingMethod],
   );
   const signature = JSON.stringify(quoteRequest);
   // Bumped when the server refuses a stale total (422): the same request is priced again.
@@ -121,18 +126,33 @@ export default function CheckoutScreen() {
     if (cart.demo || !shop?.available || !lines.length) return;
     let cancelled = false;
     setQuote(null);
-    const delay = quoteRequest.shipping_address ? 350 : 0;
+    // Tax estimates are debounced while the address is typed; live shipping
+    // alone prices at once (the server caches identical lines + ZIP + method
+    // quotes, so edits that keep the ZIP are cheap).
+    const delay = quoteRequest.shipping_address && taxEnabled ? 350 : 0;
     const timer = setTimeout(() => {
       void quoteCart(quoteRequest)
-        .then(result => { if (!cancelled) { setQuote(result); setQuoteError(null); } })
+        .then(result => {
+          if (!cancelled) {
+            setQuote(result);
+            setQuoteError(null);
+            setAddressQuoteError(null);
+          }
+        })
         .catch((caught: unknown) => {
-          if (!cancelled) setQuoteError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t price your cart.');
+          if (!cancelled) {
+            const message = caught instanceof Error && caught.message ? caught.message : 'Couldn’t price your cart.';
+            const field = (caught as { field?: unknown } | null)?.field;
+            setQuoteError(message);
+            setAddressQuoteError(field === 'shipping_address' ? message : null);
+          }
         });
     }, delay);
     return () => { cancelled = true; clearTimeout(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- signature is the request's identity
-  }, [cart.demo, shop?.available, lines.length, signature, requote]);
+  }, [cart.demo, shop?.available, lines.length, signature, requote, taxEnabled]);
   const shown = cart.demo ? estimate : quote ?? estimate;
+  const chosenOption = quote?.shipping_options?.find(option => option.method === shippingMethod) ?? null;
   /** The amount the card is charged today; null until a tax office's estimate is in. */
   const dueCents = shown?.total_due_cents ?? null;
 
@@ -183,7 +203,7 @@ export default function CheckoutScreen() {
   );
   const cardReady = choice.kind === 'saved' || (cardConfig !== null && cardComplete && !cardSdkError);
   const formReady = addressComplete;
-  const quoteFinal = !!quote && !quoteError && quote.total_due_cents !== null;
+  const quoteFinal = !!quote && quote.shipping_method === shippingMethod && !quoteError && quote.total_due_cents !== null;
   // A pending attempt replays as-is: no form, card, or quote is needed to settle it.
   // A pending attempt replays even when the storefront is unavailable: the
   // server settles it from its own rows.
@@ -197,7 +217,7 @@ export default function CheckoutScreen() {
     if (!formReady) setPayError('Complete the shipping address to continue.');
     else if (!cardReady) setPayError(cardSdkError ?? 'Enter your full card details to continue.');
     else if (quoteError) setPayError(quoteError);
-    else if (!quote) setPayError('Still pricing your cart. Try again in a moment.');
+    else if (!quote || quote.shipping_method !== shippingMethod) setPayError('Still pricing your cart. Try again in a moment.');
     else if (quote.total_due_cents === null) setPayError('Still calculating sales tax for your address. Try again in a moment.');
   };
 
@@ -214,7 +234,7 @@ export default function CheckoutScreen() {
   };
 
   const pay = async () => {
-    if (!pendingAttempt && (!shop?.available || !quote || quote.total_due_cents === null || quoteError)) return;
+    if (!pendingAttempt && (!shop?.available || !quote || quote.shipping_method !== shippingMethod || quote.total_due_cents === null || quoteError)) return;
     setTouched(true);
     setPayError(null);
     setPartialNote(null);
@@ -253,7 +273,7 @@ export default function CheckoutScreen() {
         attempt = {
           cartId: newCartId(),
           // The total on the button rides along: the server refuses a cart that no longer prices to it.
-          request: buildCheckoutRequest(lines, normalized, paymentMethodId, choice.kind === 'new' ? saveDefault : false, authorized.total_due_cents as number),
+            request: buildCheckoutRequest(lines, normalized, paymentMethodId, choice.kind === 'new' ? saveDefault : false, authorized.total_due_cents as number, shippingMethod),
           quote: authorized,
         };
         // Written and read back BEFORE the request leaves, so a reload
@@ -292,6 +312,10 @@ export default function CheckoutScreen() {
             subscriptions: summary.subscriptionOrderNumbers.join(','),
             total: String(summary.totalCents),
             office: officeName,
+            shippingMethod,
+            shippingSource: chosenOption?.source ?? 'fallback',
+            windowStart: chosenOption?.delivery_window_start ?? '',
+            windowEnd: chosenOption?.delivery_window_end ?? '',
           },
         });
         return;
@@ -375,6 +399,7 @@ export default function CheckoutScreen() {
 
             <SectionHeader label="Ship to" style={styles.sectionGap} />
             <LedgerCard testID="checkout-address" style={{ padding: 14, gap: 10 }}>
+              {addressQuoteError ? <ErrorBox testID="checkout-address-error" message={addressQuoteError} /> : null}
               <Field label="Full name" testID="checkout-name" value={address.name} onChangeText={value => setField('name', value)} error={showProblem('name')} autoComplete="name" textContentType="name" />
               <Field label="Street address" testID="checkout-line1" value={address.line1} onChangeText={value => setField('line1', value)} error={showProblem('line1')} autoComplete="street-address" textContentType="streetAddressLine1" />
               <Field label="Apt, suite (optional)" testID="checkout-line2" value={address.line2 ?? ''} onChangeText={value => setField('line2', value || null)} textContentType="streetAddressLine2" />
@@ -398,6 +423,24 @@ export default function CheckoutScreen() {
                 </View>
               </View>
             </LedgerCard>
+
+            {quote?.shipping_options ? (
+              <>
+                <SectionHeader label="Shipping method" style={styles.sectionGap} />
+                <LedgerCard testID="checkout-shipping-methods" style={{ padding: 14 }}>
+                  <View accessibilityRole="radiogroup" style={{ gap: 8 }}>
+                    {quote.shipping_options.map(option => (
+                      <ShippingOption
+                        key={option.method}
+                        option={option}
+                        selected={shippingMethod === option.method}
+                        onSelect={() => setShippingMethod(option.method)}
+                      />
+                    ))}
+                  </View>
+                </LedgerCard>
+              </>
+            ) : null}
 
             <SectionHeader label="Contact" style={styles.sectionGap} />
             <LedgerCard testID="checkout-contact" style={{ padding: 14, gap: 10 }}>
@@ -493,7 +536,12 @@ export default function CheckoutScreen() {
               {shown ? (
                 <>
                   {shown.discount_cents > 0 ? <PriceRow label="Subscribe & save" cents={shown.discount_cents} discount /> : null}
-                  <PriceRow label="Shipping" cents={shown.shipping_charge_cents} testID="checkout-shipping" />
+                  <PriceRow label="Shipping & handling" cents={shown.shipping_charge_cents} testID="checkout-shipping" />
+                  {quote?.shipping_note ? (
+                    <Text testID="checkout-shipping-note" style={[styles.note, { color: colors.subtleText, marginTop: 2 }]}>{quote.shipping_note}</Text>
+                  ) : chosenOption ? (
+                    <ShippingWindow option={chosenOption} testID="checkout-shipping-window" />
+                  ) : null}
                   {shown.tax_enabled ? (
                     shown.tax_cents === null ? (
                       <View style={styles.summaryRow} testID="checkout-tax-pending">
@@ -630,6 +678,34 @@ function CardOption({ testID, label, hint, selected, onSelect }: { testID: strin
   );
 }
 
+function ShippingWindow({ option, testID }: { option: CartShippingOption; testID: string }) {
+  const colors = useColors();
+  const window = option.source === 'live'
+    ? arrivalWindow(option.delivery_window_start, option.delivery_window_end)
+    : null;
+  return window ? <Text testID={testID} style={[styles.shippingWindow, { color: colors.subtleText }]}>{window}</Text> : null;
+}
+
+function ShippingOption({ option, selected, onSelect }: {
+  option: CartShippingOption;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const amount = option.free ? 'Free' : formatCents(option.amount_cents);
+  const window = option.source === 'live'
+    ? arrivalWindow(option.delivery_window_start, option.delivery_window_end)
+    : null;
+  return (
+    <CardOption
+      testID={`checkout-shipping-${option.method}`}
+      label={`${option.label} · ${amount}`}
+      hint={window}
+      selected={selected}
+      onSelect={onSelect}
+    />
+  );
+}
+
 type FieldProps = React.ComponentProps<typeof LedgerInput> & { label: string; error?: string; testID: string };
 function Field({ label, error, testID, ...input }: FieldProps) {
   const colors = useColors();
@@ -665,6 +741,7 @@ const styles = StyleSheet.create({
   cardOption: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10 },
   cardOptionLabel: { fontSize: 13.5, fontFamily: 'Inter_600SemiBold' },
   cardOptionHint: { fontSize: 11.5, fontFamily: 'Inter_400Regular', marginTop: 1 },
+  shippingWindow: { fontSize: 11.5, lineHeight: 16, fontFamily: 'Inter_500Medium', marginTop: 1 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 4 },
   summaryName: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular' },
   summaryAmt: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },

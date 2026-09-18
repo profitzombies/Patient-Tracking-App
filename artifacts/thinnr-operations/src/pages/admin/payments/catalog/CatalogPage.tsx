@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useHqCatalog, useHqCatalogMutations } from '@/hooks/use-billing';
 import { BillingApiError } from '@/lib/billing-api';
 import { centsToDollarsInput, formatCents, formatDateTime, parseDollarsToCents } from '@/lib/billing-format';
-import type { CatalogProduct, HqCatalogResponse, ProductStatus } from '@/lib/billing-types';
+import type { CatalogProduct, HqCatalogResponse, PickPackTier, ProductStatus } from '@/lib/billing-types';
 import { DEMO_CATALOG } from '../demo-data';
 import { useBillingSandbox } from '../use-billing-sandbox';
 import { ErrorBox, Gate, Header, Preview } from './../shared';
@@ -388,6 +388,43 @@ function parseWholePercent(raw: string): number | null {
   return value >= 0 && value <= 90 ? value : null;
 }
 
+const PICK_PACK_TIERS: Array<{ id: PickPackTier; label: string }> = [
+  { id: 'under_50', label: '<50/wk' },
+  { id: 'from_51', label: '51–99' },
+  { id: 'from_100', label: '100–249' },
+  { id: 'from_250', label: '250–499' },
+  { id: 'from_500', label: '500–1499' },
+  { id: 'from_1500', label: '1500+' },
+];
+function suggestedTier(orders: number): PickPackTier {
+  if (orders >= 1500) return 'from_1500';
+  if (orders >= 500) return 'from_500';
+  if (orders >= 250) return 'from_250';
+  if (orders >= 100) return 'from_100';
+  if (orders >= 51) return 'from_51';
+  return 'under_50';
+}
+
+function ScheduleMoney({
+  label,
+  testId,
+  input,
+  help,
+}: {
+  label: string;
+  testId: string;
+  input: React.InputHTMLAttributes<HTMLInputElement>;
+  help?: string;
+}) {
+  return (
+    <label>
+      <span className={FIELD_LABEL}>{label}</span>
+      <MoneyInput data-testid={testId} {...input} />
+      {help && <span className="mt-1 block text-[11px] text-muted-foreground">{help}</span>}
+    </label>
+  );
+}
+
 export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse; canWrite: boolean; demo: boolean }) {
   const mutation = useHqCatalogMutations().settings;
   const { toast } = useToast();
@@ -395,6 +432,16 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
   const fromSettings = (settings: typeof s) => ({
     shipping_charge: centsToDollarsInput(settings.shipping_charge_cents),
     shipping_cost: centsToDollarsInput(settings.shipping_cost_cents),
+    free_shipping_over: centsToDollarsInput(settings.free_shipping_over_cents),
+    expedited_enabled: settings.expedited_enabled,
+    pick_pack_tier: settings.pick_pack_tier,
+    order_fees: Object.fromEntries(PICK_PACK_TIERS.map(({ id }) => [id, centsToDollarsInput(settings.pick_pack_schedule.order_fee_cents[id])])) as Record<PickPackTier, string>,
+    unit_fee: centsToDollarsInput(settings.pick_pack_schedule.unit_cents),
+    oversized_unit_fee: centsToDollarsInput(settings.pick_pack_schedule.oversized_unit_cents),
+    overweight_pick_fee: centsToDollarsInput(settings.pick_pack_schedule.overweight_pick_cents),
+    overweight_threshold_lb: String(settings.pick_pack_schedule.overweight_threshold_lb),
+    packaging: centsToDollarsInput(settings.pick_pack_schedule.packaging_cents),
+    pick_pack_pass_through_default: settings.pick_pack_pass_through_default,
     card_fee_percent: bpsToPercentInput(settings.card_fee_bps),
     card_fee_fixed: centsToDollarsInput(settings.card_fee_fixed_cents),
     subscribe_save_enabled: settings.subscribe_save_enabled,
@@ -425,7 +472,8 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     setError(null);
   };
   const [error, setError] = useState<string | null>(null);
-  const field = (key: Exclude<keyof typeof form, 'subscribe_save_enabled'>) => ({
+  type TextKey = 'shipping_charge' | 'shipping_cost' | 'free_shipping_over' | 'unit_fee' | 'oversized_unit_fee' | 'overweight_pick_fee' | 'overweight_threshold_lb' | 'packaging' | 'card_fee_percent' | 'card_fee_fixed' | 'subscribe_save_percent';
+  const field = (key: TextKey) => ({
     value: form[key],
     disabled: !canWrite,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -436,14 +484,32 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
   const save = () => {
     const charge = parseDollarsToCents(form.shipping_charge);
     const cost = parseDollarsToCents(form.shipping_cost);
+    const freeOver = form.free_shipping_over.trim() ? parseDollarsToCents(form.free_shipping_over) : null;
     const percent = parsePercentToBps(form.card_fee_percent);
     const fixed = parseDollarsToCents(form.card_fee_fixed);
     if (!charge.ok) return setError(`Shipping charge: ${charge.error}`);
     if (!cost.ok) return setError(`Shipping cost: ${cost.error}`);
+    if (freeOver && !freeOver.ok) return setError(`Free shipping above: ${freeOver.error}`);
     if (!percent.ok) return setError(`Card fee: ${percent.error}`);
     if (!fixed.ok) return setError(`Card fee fixed amount: ${fixed.error}`);
     const savePercent = parseWholePercent(form.subscribe_save_percent);
     if (savePercent === null) return setError('Subscribe-and-save discount: enter a whole number from 0 to 90.');
+    const scheduleFields = {
+      unit_cents: parseDollarsToCents(form.unit_fee),
+      oversized_unit_cents: parseDollarsToCents(form.oversized_unit_fee),
+      overweight_pick_cents: parseDollarsToCents(form.overweight_pick_fee),
+      packaging_cents: parseDollarsToCents(form.packaging),
+    };
+    const badSchedule = Object.entries(scheduleFields).find(([, value]) => !value.ok);
+    if (badSchedule && !badSchedule[1].ok) return setError(`Pick-and-pack schedule: ${badSchedule[1].error}`);
+    const orderFees = Object.fromEntries(PICK_PACK_TIERS.map(({ id }) => [id, parseDollarsToCents(form.order_fees[id])])) as Record<PickPackTier, ReturnType<typeof parseDollarsToCents>>;
+    const badTier = PICK_PACK_TIERS.find(({ id }) => !orderFees[id].ok);
+    if (badTier) {
+      const badFee = orderFees[badTier.id];
+      if (!badFee.ok) return setError(`${badTier.label} order fee: ${badFee.error}`);
+    }
+    const threshold = Number(form.overweight_threshold_lb);
+    if (!Number.isFinite(threshold) || threshold <= 0) return setError('Overweight threshold: enter a positive number of pounds.');
     if (demo) {
       toast({ title: 'Preview only', description: 'Sign in to change live payment settings.' });
       return;
@@ -452,6 +518,18 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
       {
         shipping_charge_cents: charge.cents,
         shipping_cost_cents: cost.cents,
+        free_shipping_over_cents: freeOver?.ok ? freeOver.cents : null,
+        expedited_enabled: form.expedited_enabled,
+        pick_pack_tier: form.pick_pack_tier,
+        pick_pack_schedule: {
+          order_fee_cents: Object.fromEntries(PICK_PACK_TIERS.map(({ id }) => [id, orderFees[id].ok ? orderFees[id].cents : 0])) as Record<PickPackTier, number>,
+          unit_cents: scheduleFields.unit_cents.ok ? scheduleFields.unit_cents.cents : 0,
+          oversized_unit_cents: scheduleFields.oversized_unit_cents.ok ? scheduleFields.oversized_unit_cents.cents : 0,
+          overweight_pick_cents: scheduleFields.overweight_pick_cents.ok ? scheduleFields.overweight_pick_cents.cents : 0,
+          overweight_threshold_lb: threshold,
+          packaging_cents: scheduleFields.packaging_cents.ok ? scheduleFields.packaging_cents.cents : 0,
+        },
+        pick_pack_pass_through_default: form.pick_pack_pass_through_default,
         card_fee_bps: percent.bps,
         card_fee_fixed_cents: fixed.cents,
         subscribe_save_enabled: form.subscribe_save_enabled,
@@ -477,12 +555,17 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     >
       <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block">
-          <span className={FIELD_LABEL}>Shipping charged to patients</span>
+          <span className={FIELD_LABEL}>Shipping charged to patients (fallback when live rates are unavailable)</span>
           <MoneyInput data-testid="input-settings-shipping-charge" {...field('shipping_charge')} />
         </label>
         <label className="block">
           <span className={FIELD_LABEL}>Shipping cost to THINNR</span>
           <MoneyInput data-testid="input-settings-shipping-cost" {...field('shipping_cost')} />
+        </label>
+        <label className="block">
+          <span className={FIELD_LABEL}>Free shipping above</span>
+          <MoneyInput data-testid="input-settings-free-shipping-over" placeholder="Never" {...field('free_shipping_over')} />
+          <span className="mt-1 block text-[11px] text-muted-foreground">Blank means never.</span>
         </label>
         <label className="block">
           <span className={FIELD_LABEL}>Card fee rate</span>
@@ -491,6 +574,69 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
         <label className="block">
           <span className={FIELD_LABEL}>Card fee per payment</span>
           <MoneyInput data-testid="input-settings-card-fee-fixed" {...field('card_fee_fixed')} />
+        </label>
+      </div>
+      <div className="space-y-5 border-t border-border px-5 py-5" data-testid="settings-shipping-rules">
+        <label className="flex items-center gap-3 text-xs font-semibold text-navy">
+          <input
+            type="checkbox"
+            data-testid="checkbox-settings-expedited"
+            checked={form.expedited_enabled}
+            disabled={!canWrite}
+            onChange={(event) => setForm((current) => ({ ...current, expedited_enabled: event.target.checked }))}
+          />
+          Expedited (USPS Priority Mail) offered
+        </label>
+        <fieldset>
+          <legend className="text-sm font-semibold text-navy">Pick-and-pack schedule</legend>
+          <p className="mt-1 text-[11px] text-muted-foreground" data-testid="text-pick-pack-tier-hint">
+            Trailing 7 days: {s.weekly_paid_orders} paid orders → suggests {PICK_PACK_TIERS.find((tier) => tier.id === suggestedTier(s.weekly_paid_orders))?.label}
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {PICK_PACK_TIERS.map(({ id, label }) => (
+              <label key={id} className="rounded-md border border-border p-3 text-xs">
+                <span className="flex items-center gap-2 font-semibold text-navy">
+                  <input
+                    type="radio"
+                    name="pick-pack-tier"
+                    value={id}
+                    checked={form.pick_pack_tier === id}
+                    disabled={!canWrite}
+                    onChange={() => setForm((current) => ({ ...current, pick_pack_tier: id }))}
+                  />
+                  {label}
+                </span>
+                <MoneyInput
+                  className="mt-2"
+                  aria-label={`${label} order fee`}
+                  data-testid={`input-settings-order-fee-${id}`}
+                  value={form.order_fees[id]}
+                  disabled={!canWrite}
+                  onChange={(event) => setForm((current) => ({ ...current, order_fees: { ...current.order_fees, [id]: event.target.value } }))}
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <ScheduleMoney label="Unit fee" testId="input-settings-unit-fee" input={field('unit_fee')} />
+          <ScheduleMoney label="Oversized unit fee" testId="input-settings-oversized-unit-fee" input={field('oversized_unit_fee')} />
+          <ScheduleMoney label="Overweight pick" testId="input-settings-overweight-pick-fee" input={field('overweight_pick_fee')} />
+          <label>
+            <span className={FIELD_LABEL}>Overweight threshold lb</span>
+            <input type="number" min="1" step="0.1" data-testid="input-settings-overweight-threshold" className="mt-1 h-9 w-full rounded-md border border-border bg-card px-3 text-sm" {...field('overweight_threshold_lb')} />
+          </label>
+          <ScheduleMoney label="Packaging allowance" testId="input-settings-packaging" input={field('packaging')} help="Cost + 10%, TBD" />
+        </div>
+        <label className="flex items-center gap-3 text-xs font-semibold text-navy">
+          <input
+            type="checkbox"
+            data-testid="checkbox-settings-pick-pack-pass-through"
+            checked={form.pick_pack_pass_through_default}
+            disabled={!canWrite}
+            onChange={(event) => setForm((current) => ({ ...current, pick_pack_pass_through_default: event.target.checked }))}
+          />
+          Patients pay the pick-and-pack fee by default
         </label>
       </div>
       <div className="border-t border-border px-5 py-4" data-testid="settings-subscribe-save">

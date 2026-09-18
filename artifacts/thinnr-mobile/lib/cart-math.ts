@@ -170,6 +170,15 @@ export function localQuote(lines: CartLine[], products: PublicLinkProduct[], shi
       quantity: members.reduce((sum, line) => sum + line.quantity, 0),
       subtotal_cents: subtotal,
       shipping_charge_cents: shippingChargeCents,
+      shipping: {
+        method: 'standard',
+        source: 'fallback',
+        carrier_service_name: null,
+        delivery_window_start: null,
+        delivery_window_end: null,
+        free_shipping_applied: false,
+        pick_pack_passed_through: false,
+      },
       total_cents: subtotal + shippingChargeCents,
     };
   };
@@ -185,6 +194,9 @@ export function localQuote(lines: CartLine[], products: PublicLinkProduct[], shi
     subtotal_cents: groups.reduce((sum, item) => sum + item.subtotal_cents, 0),
     discount_cents: quoteLines.reduce((sum, line) => sum + line.discount_cents, 0),
     shipping_charge_cents: groups.reduce((sum, item) => sum + item.shipping_charge_cents, 0),
+    shipping_method: 'standard',
+    shipping_options: null,
+    shipping_note: null,
     total_cents: total,
     tax_enabled: taxEnabled,
     tax_cents: taxEnabled ? null : 0,

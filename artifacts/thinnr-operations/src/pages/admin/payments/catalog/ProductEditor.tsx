@@ -99,6 +99,12 @@ interface Draft {
   description: string;
   floor: string;
   hard: string;
+  warehousecraft_sku: string;
+  shipping_weight_oz: string;
+  package_length_in: string;
+  package_width_in: string;
+  package_height_in: string;
+  oversized: boolean;
   category: ProductCategory;
   tagline: string;
   format: string;
@@ -156,12 +162,25 @@ export function parseLines(text: string): string[] {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
+function optionalNumber(raw: string, integer = false): number | null | undefined {
+  if (!raw.trim()) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0 || (integer && !Number.isInteger(value))) return undefined;
+  return value;
+}
+
 function draftOf(product: CatalogProductDetail | null): Draft {
   return {
     name: product?.name ?? '',
     description: product?.description ?? '',
     floor: centsToDollarsInput(product?.floor_price_cents),
     hard: centsToDollarsInput(product?.hard_cost_cents),
+    warehousecraft_sku: product?.warehousecraft_sku ?? '',
+    shipping_weight_oz: product?.shipping_weight_oz == null ? '' : String(product.shipping_weight_oz),
+    package_length_in: product?.package_length_in == null ? '' : String(product.package_length_in),
+    package_width_in: product?.package_width_in == null ? '' : String(product.package_width_in),
+    package_height_in: product?.package_height_in == null ? '' : String(product.package_height_in),
+    oversized: product?.oversized ?? false,
     category: product?.category ?? 'supplement',
     tagline: product?.tagline ?? '',
     format: product?.format ?? '',
@@ -235,6 +254,12 @@ function Editor({
       setError(`Hard cost: ${parsedHard.error}`);
       return;
     }
+    const weight = optionalNumber(draft.shipping_weight_oz, true);
+    const length = optionalNumber(draft.package_length_in);
+    const width = optionalNumber(draft.package_width_in);
+    const height = optionalNumber(draft.package_height_in);
+    if (weight === undefined) return setError('Shipping weight: enter a whole number of ounces, or leave it blank.');
+    if ([length, width, height].some((value) => value === undefined)) return setError('Package dimensions: enter positive numbers, or leave them blank.');
     if (draft.cadences.length === 0) {
       setError('Offer at least one subscription cadence.');
       return;
@@ -258,6 +283,12 @@ function Editor({
       description: draft.description.trim(),
       floor_price_cents: parsedFloor.cents,
       hard_cost_cents: parsedHard.cents,
+      warehousecraft_sku: draft.warehousecraft_sku.trim() || null,
+      shipping_weight_oz: weight,
+      package_length_in: length,
+      package_width_in: width,
+      package_height_in: height,
+      oversized: draft.oversized,
       category: draft.category,
       tagline: draft.tagline.trim(),
       format: draft.format.trim(),
@@ -505,6 +536,70 @@ function Editor({
                   maxLength={600}
                   onChange={(e) => setDraft((d) => ({ ...d, disclaimer: e.target.value }))}
                 />
+              </label>
+            </div>
+          </SectionCard>
+          <SectionCard title="Fulfillment" sub="WarehouseCraft data used for live shipping rates and NovEx picking fees.">
+            <div className="space-y-4 p-5" data-testid="catalog-fulfillment">
+              <label className="block">
+                <span className={FIELD_LABEL}>WarehouseCraft SKU</span>
+                <input
+                  data-testid="input-catalog-warehousecraft-sku"
+                  className={`${INPUT_CLASS} h-9 w-full`}
+                  value={draft.warehousecraft_sku}
+                  disabled={readOnly}
+                  onChange={(event) => setDraft((current) => ({ ...current, warehousecraft_sku: event.target.value }))}
+                />
+              </label>
+              <label className="block">
+                <span className={FIELD_LABEL}>Shipping weight in oz</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputMode="numeric"
+                  data-testid="input-catalog-shipping-weight"
+                  className={`${INPUT_CLASS} h-9 w-full`}
+                  value={draft.shipping_weight_oz}
+                  disabled={readOnly}
+                  onChange={(event) => setDraft((current) => ({ ...current, shipping_weight_oz: event.target.value }))}
+                />
+                <span className="mt-1 block text-[11px] text-muted-foreground">Live rating needs the weight; without it, checkout uses the flat fallback charge.</span>
+              </label>
+              <fieldset>
+                <legend className={FIELD_LABEL}>Package L × W × H in inches</legend>
+                <div className="grid grid-cols-3 gap-3">
+                  {(['length', 'width', 'height'] as const).map((dimension) => {
+                    const key = `package_${dimension}_in` as const;
+                    return (
+                      <label key={dimension}>
+                        <span className="sr-only">{dimension}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          data-testid={`input-catalog-package-${dimension}`}
+                          aria-label={`Package ${dimension} in inches`}
+                          className={`${INPUT_CLASS} h-9 w-full`}
+                          placeholder={dimension[0].toUpperCase()}
+                          value={draft[key]}
+                          disabled={readOnly}
+                          onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+              <label className="flex items-center gap-2 text-xs font-semibold text-navy">
+                <input
+                  type="checkbox"
+                  data-testid="checkbox-catalog-oversized"
+                  checked={draft.oversized}
+                  disabled={readOnly}
+                  onChange={(event) => setDraft((current) => ({ ...current, oversized: event.target.checked }))}
+                />
+                Oversized
               </label>
             </div>
           </SectionCard>

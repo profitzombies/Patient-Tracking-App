@@ -29,7 +29,9 @@ const row = (over: Record<string, unknown> = {}) => ({
   id: SUB_ID, product_name: 'Control', product_id: 'p1', unit_price_cents: 6299, shipping_charge_cents: 1000,
   status: 'active', paused: false, current_period_end: nextShipment.toISOString(), cancel_at_period_end: false,
   last_hosted_invoice_url: null, last_failure_message: null, cadence_weeks: 4, quantity: 1,
-  next_shipment_at: nextShipment.toISOString(), shipping_address: address, card: cards[0], offered_cadences_weeks: [4, 8], ...over,
+  next_shipment_at: nextShipment.toISOString(), shipping_address: address,
+  shipping: { method: 'standard', source: 'fallback', carrier_service_name: null, delivery_window_start: null, delivery_window_end: null },
+  card: cards[0], offered_cadences_weeks: [4, 8], ...over,
 });
 
 let current: Record<string, unknown> = row();

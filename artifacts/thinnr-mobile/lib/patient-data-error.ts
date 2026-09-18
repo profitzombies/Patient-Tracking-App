@@ -28,16 +28,19 @@ export class PatientDataError extends Error {
   readonly kind: PatientDataFailureKind;
   /** HTTP status when the server answered; null for network/config failures. */
   readonly status: number | null;
+  /** Form field named by a structured server refusal, when present. */
+  readonly field: string | null;
   constructor(
     message: string,
     code: PatientDataErrorCode | null = null,
-    options: { kind?: PatientDataFailureKind; status?: number | null } = {},
+    options: { kind?: PatientDataFailureKind; status?: number | null; field?: string | null } = {},
   ) {
     super(message);
     this.name = 'PatientDataError';
     this.code = code;
     this.kind = options.kind ?? (typeof options.status === 'number' ? 'http' : 'network');
     this.status = typeof options.status === 'number' ? options.status : null;
+    this.field = typeof options.field === 'string' ? options.field : null;
   }
 }
 

@@ -81,7 +81,33 @@ export interface AccountEvent {
   created_at: string;
 }
 
-export interface BillingSettings {
+export type ShippingMethod = 'standard' | 'expedited';
+export type ShippingSource = 'live' | 'fallback';
+export type PickPackTier = 'under_50' | 'from_51' | 'from_100' | 'from_250' | 'from_500' | 'from_1500';
+/** NovEx D2C pick-and-pack schedule (cents); HQ-editable, seeded from the pricing proposal. */
+export interface PickPackSchedule {
+  order_fee_cents: Record<PickPackTier, number>;
+  unit_cents: number;
+  oversized_unit_cents: number;
+  overweight_pick_cents: number;
+  overweight_threshold_lb: number;
+  packaging_cents: number;
+}
+/** HQ shipping rules beyond the flat fallback charge. */
+export interface ShippingRules {
+  /** Standard shipping is free when a shipment's item subtotal reaches this; null = never free. */
+  free_shipping_over_cents: number | null;
+  pick_pack_tier: PickPackTier;
+  pick_pack_schedule: PickPackSchedule;
+  /** Whether patients pay the pick-and-pack fee unless an office overrides it. */
+  pick_pack_pass_through_default: boolean;
+  /** Offer USPS Priority Mail as "Expedited" at checkout. */
+  expedited_enabled: boolean;
+}
+export interface BillingSettings extends ShippingRules {
+  /** Paid one-time orders in the trailing 7 days (hint beside the tier picker; never auto-switches the tier). */
+  weekly_paid_orders: number;
+  /** Fallback "Shipping & handling" carrier component when WarehouseCraft cannot rate. */
   shipping_charge_cents: number;
   shipping_cost_cents: number;
   card_fee_bps: number;
@@ -196,7 +222,19 @@ export interface ProductImage {
   created_at: string;
 }
 
-export interface CatalogProduct extends ProductPageContent, ProductCadences {
+/** Per-product fulfillment data used for live shipping rates and pick-and-pack fees. */
+export interface ProductFulfillment {
+  /** WarehouseCraft SKU (what NovEx picks); null until HQ maps the product. */
+  warehousecraft_sku: string | null;
+  /** Shipping weight per unit in ounces; live rating needs it, otherwise the flat charge applies. */
+  shipping_weight_oz: number | null;
+  package_length_in: number | null;
+  package_width_in: number | null;
+  package_height_in: number | null;
+  /** Oversized units carry the higher NovEx unit fee. */
+  oversized: boolean;
+}
+export interface CatalogProduct extends ProductPageContent, ProductCadences, ProductFulfillment {
   /** Coach suggestion rule (HQ editorial data; never sent to payers). */
   coach_suggestion: CoachSuggestionRule;
   id: string;
@@ -222,6 +260,7 @@ export interface CatalogProduct extends ProductPageContent, ProductCadences {
 }
 
 export type CatalogChangeKind =
+  | 'office_shipping_settings_updated'
   | 'product_created'
   | 'product_updated'
   | 'product_retired'
@@ -333,9 +372,24 @@ export interface OrderItem {
   hard_cost_cents: number;
 }
 
+/** What was quoted and locked for one shipment (order, or a subscription's current period). */
+export interface ShipmentTerms {
+  shipping_method: ShippingMethod;
+  shipping_source: ShippingSource;
+  carrier_service_name: string | null;
+  /** Carrier price THINNR pays (live) or the flat HQ shipping cost (fallback). */
+  carrier_cost_cents: number;
+  pick_pack_fee_cents: number;
+  packaging_cents: number;
+  /** Whether the patient paid the pick-and-pack fee inside Shipping & handling (false = office absorbed it). */
+  pick_pack_passed_through: boolean;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+}
 export interface FeeBreakdown {
   subtotal_cents: number;
   shipping_charge_cents: number;
+  shipping: ShipmentTerms;
   tax_cents: number;
   total_cents: number;
   thinnr_share_cents: number;
@@ -349,7 +403,10 @@ export interface FeeBreakdown {
 
 export interface HqProfit {
   hard_cost_cents: number;
+  /** Carrier cost (live quote) or the flat HQ shipping cost (fallback). */
   shipping_cost_cents: number;
+  /** NovEx pick-and-pack + packaging THINNR paid for this shipment. */
+  fulfillment_fee_cents: number;
   hq_profit_cents: number;
 }
 
@@ -458,6 +515,10 @@ export interface SubscriptionRow {
   paused_at: string | null;
   /** A product/price change already applied in Stripe that takes effect at the next renewal. */
   pending_change: { product_id: string; product_name: string; unit_price_cents: number; effective_at: string | null } | null;
+  /** Locked shipment terms for the current period (re-quoted before each renewal bills). */
+  shipping: ShipmentTerms;
+  /** When the current period's shipping was last re-quoted; null before the first renewal. */
+  shipping_requoted_at: string | null;
 }
 
 export interface SubscriptionChangeInput {
@@ -680,7 +741,7 @@ export interface HqCatalogResponse {
   offices_below_minimum: number;
 }
 
-export interface CatalogProductInput extends Partial<ProductPageContent>, Partial<ProductCadences> {
+export interface CatalogProductInput extends Partial<ProductPageContent>, Partial<ProductCadences>, Partial<ProductFulfillment> {
   coach_suggestion?: CoachSuggestionRule;
   name: string;
   slug?: string;
@@ -816,6 +877,17 @@ export interface PatientBillingOffice {
   payments_available: boolean;
 }
 
+/** The shipping choice the patient sees on an order or upcoming renewal (costs stay staff-only). */
+export interface PatientShippingChoice {
+  method: ShippingMethod;
+  /** "fallback" = the flat charge applied because no live rate was available (no delivery window). */
+  source: ShippingSource;
+  carrier_service_name: string | null;
+  /** Calendar dates (YYYY-MM-DD) from the live rate; null on fallback. */
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+}
+
 export interface PatientBillingOrder {
   id: string;
   order_number: string;
@@ -835,6 +907,7 @@ export interface PatientBillingOrder {
   subscription_id: string | null;
   /** Groups the orders one in-app checkout created together. */
   cart_id: string | null;
+  shipping: PatientShippingChoice;
 }
 
 export interface PatientBillingSubscription {
@@ -855,6 +928,8 @@ export interface PatientBillingSubscription {
   /** When the next box ships (and is charged); moved by skip / move-next. */
   next_shipment_at: string | null;
   shipping_address: ShippingAddress;
+  /** The method and last quote for the next box; the renewal is re-quoted before it bills. */
+  shipping: PatientShippingChoice;
 }
 
 export interface PatientBillingOverview {
@@ -947,6 +1022,32 @@ export interface CartLineInput {
 
 export interface CartQuoteRequest {
   lines: CartLineInput[];
+  /** Defaults to standard. */
+  shipping_method?: ShippingMethod;
+}
+
+/** One shipping choice for the whole cart (each group is rated on its own; amounts are summed). */
+export interface CartShippingOption {
+  method: ShippingMethod;
+  label: string;
+  /** Sum of the per-group Shipping & handling lines for this method. */
+  amount_cents: number;
+  /** Free-over applied to every group's standard line. */
+  free: boolean;
+  source: ShippingSource;
+  /** Earliest / latest calendar dates across the cart's shipments (YYYY-MM-DD); null on fallback. */
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+}
+export interface CartGroupShipping {
+  method: ShippingMethod;
+  source: ShippingSource;
+  carrier_service_name: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
+  free_shipping_applied: boolean;
+  /** Whether this line includes the pick-and-pack fee. */
+  pick_pack_passed_through: boolean;
 }
 
 export interface CartQuoteLine {
@@ -973,6 +1074,7 @@ export interface CartQuoteGroup {
   subtotal_cents: number;
   /** Shipping is charged once per group (each subscription ships on its own schedule). */
   shipping_charge_cents: number;
+  shipping: CartGroupShipping;
   total_cents: number;
 }
 
@@ -982,6 +1084,12 @@ export interface CartQuote {
   subtotal_cents: number;
   discount_cents: number;
   shipping_charge_cents: number;
+  /** The method these amounts were priced with. */
+  shipping_method: ShippingMethod;
+  /** Every offered method for this cart; null before an address is known (flat charge shown until then). */
+  shipping_options: CartShippingOption[] | null;
+  /** Short patient-facing note when the flat charge is in effect (no live rate). */
+  shipping_note: string | null;
   /** Items plus shipping, before tax. */
   total_cents: number;
   /** Whether this office collects sales tax at payment (Stripe Tax on its account). */
@@ -995,6 +1103,15 @@ export interface CartQuote {
   total_due_cents: number | null;
 }
 
+/** Per-office shipping settings; null fields inherit HQ's default. */
+export interface OfficeShippingSettings {
+  pick_pack_pass_through: boolean | null;
+  /** What applies after inheritance. */
+  effective_pick_pack_pass_through: boolean;
+  hq_default_pick_pack_pass_through: boolean;
+  version: number;
+  updated_at: string | null;
+}
 export interface CartCheckoutRequest extends CartQuoteRequest {
   shipping_address: ShippingAddress;
   /** A Stripe PaymentMethod created on the office's connected account (new card) or one already saved to the patient. */

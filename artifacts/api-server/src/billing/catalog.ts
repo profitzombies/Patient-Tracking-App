@@ -3,14 +3,15 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { detectThumbnailContentType, objectStorage, ObjectNotFoundError, THUMBNAIL_CONTENT_TYPES, UPLOAD_URL_TTL_SEC } from "../lib/objectStorage";
 import { belowMinimum, breakEvenMinimum, hqProfit, thinnrSharePerUnit, type FeeSettings } from "./fees";
 import {
-  insert, remove, selectMany, selectOne, update,
-  type BillingProductImageRow, type BillingProductRow, type BillingProductStatus, type BillingSettingsRow,
+  insert, insertIgnore, remove, selectMany, selectOne, update,
+  type BillingOfficeSettingsRow, type BillingProductImageRow, type BillingProductRow, type BillingProductStatus, type BillingSettingsRow,
 } from "./store";
 import type {
   CoachSuggestionRule, CoachSuggestionSignal,
   BillingSettings, CadenceWeeks, CatalogChange, CatalogChangeKind, CatalogProduct, CatalogProductDetail, CatalogProductInput,
-  HqCatalogResponse, ProductCadences, ProductImage, ProductPageContent, PublicLinkProduct,
+  HqCatalogResponse, OfficeShippingSettings, ProductCadences, ProductFulfillment, ProductImage, ProductPageContent, PublicLinkProduct, ShippingRules,
 } from "./types";
+import { isPickPackTier, normalizeSchedule, resolvePassThrough, type ShippingRuleSettings } from "../shipping/rating";
 import { CADENCE_WEEKS, COACH_SUGGESTION_SIGNALS } from "./types";
 
 export class BillingCatalogError extends Error {
@@ -22,8 +23,39 @@ const IMAGE_HEAD_BYTES = 64 * 1024;
 const PRODUCT_STATUSES: BillingProductStatus[] = ["draft", "active", "retired", "archived"];
 const enc = encodeURIComponent;
 
-function settingsDto(row: BillingSettingsRow): BillingSettings {
+/** Product fulfillment data exactly as stored (numeric columns arrive as strings from PostgREST). */
+export function productFulfillment(row: Pick<BillingProductRow, "warehousecraft_sku" | "shipping_weight_oz" | "package_length_in" | "package_width_in" | "package_height_in" | "oversized">): ProductFulfillment {
+  const num = (value: unknown): number | null => {
+    const parsed = typeof value === "string" && value.trim() ? Number(value) : typeof value === "number" ? value : null;
+    return parsed !== null && Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
   return {
+    warehousecraft_sku: row.warehousecraft_sku?.trim() || null, shipping_weight_oz: num(row.shipping_weight_oz),
+    package_length_in: num(row.package_length_in), package_width_in: num(row.package_width_in), package_height_in: num(row.package_height_in),
+    oversized: row.oversized === true,
+  };
+}
+/** The shipping rules a settings row carries, with the schedule normalized to the full shape. */
+export function shippingRules(row: BillingSettingsRow): ShippingRuleSettings {
+  return {
+    shipping_charge_cents: row.shipping_charge_cents, shipping_cost_cents: row.shipping_cost_cents,
+    free_shipping_over_cents: row.free_shipping_over_cents ?? null,
+    pick_pack_tier: isPickPackTier(row.pick_pack_tier) ? row.pick_pack_tier : "under_50",
+    pick_pack_schedule: normalizeSchedule(row.pick_pack_schedule),
+    pick_pack_pass_through_default: row.pick_pack_pass_through_default !== false,
+    expedited_enabled: row.expedited_enabled !== false,
+  };
+}
+/** Paid one-time / first-shipment orders in the trailing 7 days: the volume hint beside the tier picker. */
+export async function weeklyPaidOrders(now = new Date()): Promise<number> {
+  const since = new Date(now.getTime() - 7 * 86400_000).toISOString();
+  const result = await supabaseAdmin("GET", `/rest/v1/billing_orders?select=id&status=eq.paid&paid_at=gte.${enc(since)}&limit=5000`);
+  return Array.isArray(result.json) ? result.json.length : 0;
+}
+export function settingsDto(row: BillingSettingsRow, weeklyOrders = 0): BillingSettings {
+  const { shipping_charge_cents: _c, shipping_cost_cents: _k, ...rules } = shippingRules(row);
+  return {
+    ...rules, weekly_paid_orders: weeklyOrders,
     shipping_charge_cents: row.shipping_charge_cents, shipping_cost_cents: row.shipping_cost_cents,
     card_fee_bps: row.card_fee_bps, card_fee_fixed_cents: row.card_fee_fixed_cents,
     subscribe_save_enabled: row.subscribe_save_enabled, subscribe_save_percent: row.subscribe_save_percent,
@@ -185,11 +217,39 @@ const change = (productId: string | null, kind: CatalogChangeKind, before: Recor
 const snapshot = (row: BillingProductRow): Record<string, unknown> => ({
   slug: row.slug, name: row.name, description: row.description, floor_price_cents: row.floor_price_cents,
   hard_cost_cents: row.hard_cost_cents, status: row.status, sort_order: row.sort_order,
-  ...pageContent(row), ...productCadences(row), coach_suggestion: coachSuggestionRule(row),
+  ...pageContent(row), ...productCadences(row), coach_suggestion: coachSuggestionRule(row), ...productFulfillment(row),
 });
+export const MAX_SHIPPING_WEIGHT_OZ = 150 * 16;
+export const MAX_PACKAGE_DIMENSION_IN = 108;
+/** Validates the fulfillment half of a product write; returns only the keys present. */
+function normalizeFulfillmentInput(input: Partial<ProductFulfillment>): Partial<ProductFulfillment> {
+  const out: Partial<ProductFulfillment> = {};
+  if (input.warehousecraft_sku !== undefined) {
+    const sku = input.warehousecraft_sku === null ? "" : String(input.warehousecraft_sku).trim();
+    if (sku.length > 64) throw new BillingCatalogError("The WarehouseCraft SKU must be 64 characters or fewer.", 400, "warehousecraft_sku");
+    out.warehousecraft_sku = sku || null;
+  }
+  if (input.shipping_weight_oz !== undefined) {
+    const oz = input.shipping_weight_oz;
+    if (oz !== null && (!Number.isInteger(oz) || oz < 1 || oz > MAX_SHIPPING_WEIGHT_OZ)) {
+      throw new BillingCatalogError(`Shipping weight must be a whole number of ounces between 1 and ${MAX_SHIPPING_WEIGHT_OZ}.`, 400, "shipping_weight_oz");
+    }
+    out.shipping_weight_oz = oz;
+  }
+  for (const key of ["package_length_in", "package_width_in", "package_height_in"] as const) {
+    if (input[key] === undefined) continue;
+    const value = input[key];
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > MAX_PACKAGE_DIMENSION_IN)) {
+      throw new BillingCatalogError(`Package dimensions must be between 0 and ${MAX_PACKAGE_DIMENSION_IN} inches.`, 400, key);
+    }
+    out[key] = value === null ? null : Math.round(value * 100) / 100;
+  }
+  if (input.oversized !== undefined) out.oversized = input.oversized === true;
+  return out;
+}
 /** Validates the page-content and cadence half of a product write; returns only the keys present. */
 export function normalizeProductInput(input: Partial<CatalogProductInput>): Partial<CatalogProductInput> {
-  const out: Partial<CatalogProductInput> = { ...input };
+  const out: Partial<CatalogProductInput> = { ...input, ...normalizeFulfillmentInput(input) };
   if (input.coach_suggestion !== undefined) {
     // Re-validate through the same reader the DTO uses so unknown signal ids never land in the row.
     out.coach_suggestion = coachSuggestionRule({ coach_suggestion: input.coach_suggestion as unknown as Record<string, unknown> });
@@ -216,7 +276,7 @@ function productDto(
   const fallback = defaultImages(images).get(product.id);
   return {
     id: product.id, slug: product.slug, name: product.name, description: product.description ?? "",
-    ...pageContent(product), ...productCadences(product), coach_suggestion: coachSuggestionRule(product),
+    ...pageContent(product), ...productCadences(product), coach_suggestion: coachSuggestionRule(product), ...productFulfillment(product),
     floor_price_cents: product.floor_price_cents, hard_cost_cents: product.hard_cost_cents,
     active: product.active, status: product.status, retired_at: product.retired_at, archived_at: product.archived_at ?? null,
     image_url: fallback ? productImageUrl(fallback.id) : null, image_count: images.length, updated_at: product.updated_at ?? product.created_at,
@@ -226,13 +286,14 @@ function productDto(
   };
 }
 export async function listCatalog(): Promise<HqCatalogResponse> {
-  const [settings, products, prices, images] = await Promise.all([
+  const [settings, products, prices, images, weekly] = await Promise.all([
     getSettings(), selectMany("billing_products", "order=sort_order.asc,name.asc"),
     selectMany("billing_office_prices", "select=provider_id,product_id,sell_price_cents"),
     selectMany("billing_product_images", "order=sort_order.asc"),
+    weeklyPaidOrders().catch(() => 0),
   ]);
   const mapped = products.map((product) => productDto(product, settings, prices, images.filter((image) => image.product_id === product.id)));
-  return { products: mapped, settings: settingsDto(settings), offices_below_minimum: mapped.reduce((sum, product) => sum + product.offices_below_minimum, 0) };
+  return { products: mapped, settings: settingsDto(settings, weekly), offices_below_minimum: mapped.reduce((sum, product) => sum + product.offices_below_minimum, 0) };
 }
 async function requireProduct(id: string): Promise<BillingProductRow> {
   const row = await selectOne("billing_products", `id=eq.${enc(id)}`);
@@ -413,19 +474,31 @@ export async function productImageSignedUrl(imageId: string): Promise<string | n
   if (!image) return null;
   return objectStorage.signedDownloadURL(image.object_path, 3600);
 }
-export async function updateSettings(
-  input: Pick<BillingSettingsRow, "shipping_charge_cents" | "shipping_cost_cents" | "card_fee_bps" | "card_fee_fixed_cents">
-    & Partial<Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent">> & { expected_version: number },
-  actor: string,
-): Promise<BillingSettings> {
+export type SettingsUpdateInput = Pick<BillingSettingsRow, "shipping_charge_cents" | "shipping_cost_cents" | "card_fee_bps" | "card_fee_fixed_cents">
+  & Partial<Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent">>
+  & Partial<ShippingRules> & { expected_version: number };
+export async function updateSettings(input: SettingsUpdateInput, actor: string): Promise<BillingSettings> {
   const before = await getSettings();
   if (before.version !== input.expected_version) throw new BillingCatalogError("Billing settings changed. Refresh and try again.", 409);
   const { expected_version, ...rest } = input;
-  // Older clients send only the fee fields; subscribe-and-save keeps its value.
+  if (rest.pick_pack_tier !== undefined && !isPickPackTier(rest.pick_pack_tier)) {
+    throw new BillingCatalogError("Choose a pick-and-pack tier from the schedule.", 400, "pick_pack_tier");
+  }
+  if (rest.free_shipping_over_cents !== undefined && rest.free_shipping_over_cents !== null
+    && (!Number.isInteger(rest.free_shipping_over_cents) || rest.free_shipping_over_cents < 0)) {
+    throw new BillingCatalogError("Free shipping threshold must be a whole number of cents.", 400, "free_shipping_over_cents");
+  }
+  // Older clients send only the fee fields; subscribe-and-save and the shipping rules keep their values.
+  const rules = shippingRules(before);
   const values = {
     ...rest,
     subscribe_save_enabled: rest.subscribe_save_enabled ?? before.subscribe_save_enabled,
     subscribe_save_percent: rest.subscribe_save_percent ?? before.subscribe_save_percent,
+    free_shipping_over_cents: rest.free_shipping_over_cents === undefined ? rules.free_shipping_over_cents : rest.free_shipping_over_cents,
+    pick_pack_tier: rest.pick_pack_tier ?? rules.pick_pack_tier,
+    pick_pack_schedule: rest.pick_pack_schedule === undefined ? rules.pick_pack_schedule : normalizeSchedule(rest.pick_pack_schedule),
+    pick_pack_pass_through_default: rest.pick_pack_pass_through_default ?? rules.pick_pack_pass_through_default,
+    expedited_enabled: rest.expedited_enabled ?? rules.expedited_enabled,
   };
   const result = await supabaseAdmin("PATCH", `/rest/v1/billing_settings?id=eq.1&version=eq.${expected_version}`, {
     ...values, version: expected_version + 1, updated_by: actor,
@@ -433,7 +506,41 @@ export async function updateSettings(
   const after = Array.isArray(result.json) ? result.json[0] as BillingSettingsRow | undefined : undefined;
   if (result.status >= 300 || !after) throw new BillingCatalogError("Billing settings changed. Refresh and try again.", 409);
   await change(null, "settings_updated", before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, actor);
-  return settingsDto(after);
+  return settingsDto(after, await weeklyPaidOrders());
+}
+
+/** Office shipping overrides with HQ inheritance resolved (a missing row = all inherit, version 0). */
+export async function getOfficeShippingSettings(providerId: string): Promise<OfficeShippingSettings> {
+  const [row, settings] = await Promise.all([selectOne("billing_office_settings", `provider_id=eq.${enc(providerId)}`), getSettings()]);
+  const hqDefault = shippingRules(settings).pick_pack_pass_through_default;
+  return {
+    pick_pack_pass_through: row?.pick_pack_pass_through ?? null,
+    effective_pick_pack_pass_through: resolvePassThrough({ pick_pack_pass_through_default: hqDefault }, row?.pick_pack_pass_through),
+    hq_default_pick_pack_pass_through: hqDefault, version: row?.version ?? 0, updated_at: row?.updated_at ?? null,
+  };
+}
+/** Versioned office override write (409 on a stale version); null clears the override back to HQ's default. */
+export async function updateOfficeShippingSettings(
+  providerId: string, input: { pick_pack_pass_through: boolean | null; expected_version: number }, actor: string,
+): Promise<OfficeShippingSettings> {
+  const before = await selectOne("billing_office_settings", `provider_id=eq.${enc(providerId)}`);
+  const currentVersion = before?.version ?? 0;
+  if (currentVersion !== input.expected_version) throw new BillingCatalogError("Office shipping settings changed. Refresh and try again.", 409);
+  const value = input.pick_pack_pass_through === null ? null : input.pick_pack_pass_through === true;
+  let after: BillingOfficeSettingsRow | null;
+  if (!before) {
+    after = await insertIgnore("billing_office_settings", { provider_id: providerId, pick_pack_pass_through: value, version: 1, updated_by: actor }, "billing_office_settings_pkey");
+  } else {
+    after = await update("billing_office_settings", `provider_id=eq.${enc(providerId)}&version=eq.${currentVersion}`, {
+      pick_pack_pass_through: value, version: currentVersion + 1, updated_by: actor,
+    });
+  }
+  if (!after) throw new BillingCatalogError("Office shipping settings changed. Refresh and try again.", 409);
+  await recordCatalogChange({
+    productId: null, kind: "office_shipping_settings_updated", actor, providerId,
+    before: before ? { pick_pack_pass_through: before.pick_pack_pass_through } : null, after: { pick_pack_pass_through: after.pick_pack_pass_through },
+  });
+  return getOfficeShippingSettings(providerId);
 }
 export async function listCatalogChanges(): Promise<CatalogChange[]> {
   const rows = await selectMany("billing_catalog_changes", "order=created_at.desc&limit=300");

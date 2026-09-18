@@ -51,7 +51,7 @@ class Backend {
   reset() {
     this.tables = {
       patients: [], patient_consents: [], providers: [], billing_connected_accounts: [], billing_settings: [],
-      billing_products: [], billing_product_images: [], billing_office_prices: [], billing_orders: [],
+      billing_products: [], billing_product_images: [], billing_office_prices: [], billing_office_settings: [], billing_orders: [],
       billing_order_items: [], billing_refunds: [], billing_subscriptions: [], billing_payment_links: [],
       billing_payers: [], billing_shipments: [], billing_ledger: [], billing_carts: [],
     };

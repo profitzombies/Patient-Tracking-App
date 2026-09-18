@@ -276,8 +276,12 @@ function makeOrder(index: number, kind: OrderKind, status: OrderStatus, fulfillm
     paid_at: status === 'pending' || status === 'failed' ? null : `2026-09-${String(10 + index).padStart(2, '0')}T14:02:00Z`,
     items: [{ id: `item-${index + 1}`, product_id: `product-${index % 7}`, product_name: productNames[index % 7], quantity: 1, unit_price_cents: unit, floor_price_cents: floor, thinnr_share_cents: share, hard_cost_cents: hard }],
     shipping_address: { name: payerNames[index % payerNames.length], line1: `${120 + index} Market Street`, line2: index % 3 === 0 ? 'Suite 200' : null, city: index % 2 ? 'Boston' : 'Austin', state: index % 2 ? 'MA' : 'TX', postal_code: index % 2 ? '02108' : '78701', country: 'US', phone: '(555) 010-2026' },
-    fees: { subtotal_cents: unit, shipping_charge_cents: 1000, tax_cents: 0, total_cents: total, thinnr_share_cents: share, application_fee_cents: fee, application_fee_collected_cents: status === 'pending' ? null : fee, stripe_fee_cents: status === 'pending' ? null : stripe, stripe_fee_estimate_cents: stripe, office_net_cents: status === 'pending' ? null : total - fee - stripe, office_net_estimate_cents: total - fee - stripe },
-    profit: { hard_cost_cents: hard, shipping_cost_cents: 1000, hq_profit_cents: fee - hard - 1000 },
+    fees: {
+      subtotal_cents: unit, shipping_charge_cents: 1000,
+      shipping: { shipping_method: 'standard', shipping_source: 'fallback', carrier_service_name: null, carrier_cost_cents: 1000, pick_pack_fee_cents: 0, packaging_cents: 0, pick_pack_passed_through: false, delivery_window_start: null, delivery_window_end: null },
+      tax_cents: 0, total_cents: total, thinnr_share_cents: share, application_fee_cents: fee, application_fee_collected_cents: status === 'pending' ? null : fee, stripe_fee_cents: status === 'pending' ? null : stripe, stripe_fee_estimate_cents: stripe, office_net_cents: status === 'pending' ? null : total - fee - stripe, office_net_estimate_cents: total - fee - stripe,
+    },
+    profit: { hard_cost_cents: hard, shipping_cost_cents: 1000, fulfillment_fee_cents: 0, hq_profit_cents: fee - hard - 1000 },
     subscription_id: kind === 'one_time' ? null : `demo-sub-${index % 6 + 1}`,
     tracking_number: fulfillment === 'shipped' ? `9400111899223857${String(index).padStart(4, '0')}` : null,
     carrier: fulfillment === 'shipped' ? 'USPS' : null, shipped_at: fulfillment === 'shipped' ? '2026-09-24T17:00:00Z' : null,
@@ -318,6 +322,8 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = Array.from({ length: 7 }, (
   payment_failure_count: index === 4 ? 2 : 0,
   last_payment_failed_at: index === 4 ? '2026-09-24T13:30:00Z' : null,
   last_failure_message: index === 4 ? 'Your card was declined.' : null,
+  shipping: { shipping_method: 'standard', shipping_source: 'fallback', carrier_service_name: null, carrier_cost_cents: 1000, pick_pack_fee_cents: 0, packaging_cents: 0, pick_pack_passed_through: false, delivery_window_start: null, delivery_window_end: null },
+  shipping_requoted_at: null,
 }));
 
 const productSeeds = [
@@ -360,13 +366,23 @@ export const DEMO_CATALOG: HqCatalogResponse = {
     id: `catalog-${index + 1}`, slug, name, description: productBlurbs[slug] ?? '', floor_price_cents: floor, hard_cost_cents: hard,
     ...demoPage(slug), offered_cadences_weeks: index === 6 ? [4, 8, 12] : [2, 4, 6, 8, 10, 12], default_cadence_weeks: 4,
     coach_suggestion: DEMO_COACH_SUGGESTIONS[slug] ?? EMPTY_COACH_SUGGESTION,
+    warehousecraft_sku: null, shipping_weight_oz: null, package_length_in: null, package_width_in: null, package_height_in: null, oversized: false,
     active: index !== 8, status: index === 8 ? 'retired' : 'active', retired_at: index === 8 ? '2026-09-18T12:00:00Z' : null,
     archived_at: null, image_url: null, image_count: 0, updated_at: '2026-09-21T14:00:00Z', sort_order: index + 1,
     thinnr_share_cents: Math.floor(floor * .6), break_even_minimum_cents: minimum,
     hq_profit_per_unit_cents: Math.floor(floor * .6) - hard, offices_offering: 3 + index % 4,
     offices_below_minimum: index === 6 ? 2 : 0,
   })),
-  settings: { shipping_charge_cents: 1000, shipping_cost_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, subscribe_save_enabled: true, subscribe_save_percent: 10, version: 4, updated_at: '2026-09-21T14:00:00Z' },
+  settings: {
+    shipping_charge_cents: 1000, shipping_cost_cents: 1000, free_shipping_over_cents: null,
+    pick_pack_tier: 'under_50',
+    pick_pack_schedule: {
+      order_fee_cents: { under_50: 495, from_51: 425, from_100: 395, from_250: 345, from_500: 295, from_1500: 175 },
+      unit_cents: 25, oversized_unit_cents: 75, overweight_pick_cents: 200, overweight_threshold_lb: 30, packaging_cents: 0,
+    },
+    pick_pack_pass_through_default: false, expedited_enabled: false, weekly_paid_orders: 0,
+    card_fee_bps: 290, card_fee_fixed_cents: 30, subscribe_save_enabled: true, subscribe_save_percent: 10, version: 4, updated_at: '2026-09-21T14:00:00Z',
+  },
   offices_below_minimum: 2,
 };
 

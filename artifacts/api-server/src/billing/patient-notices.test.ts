@@ -83,8 +83,9 @@ describe("renewal reminders", () => {
     const now = () => new Date("2026-09-17T15:00:00.000Z");
     let rows = [{ subscription: subscription(), productName: "Control" }];
     const load = async () => rows;
-    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 1 });
-    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 0 });
+    const shipping = async (row: BillingSubscriptionRow) => row.shipping_charge_cents;
+    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
+    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 0 });
     const [first] = [...store.notifications.values()];
     expect(first).toMatchObject({
       patient_id: PATIENT, kind: RENEWAL_UPCOMING_KIND, category: "account", title: "Control ships Sep 20",
@@ -94,10 +95,20 @@ describe("renewal reminders", () => {
       expires_at: "2026-09-20T12:00:00.000Z",
     });
     rows = [{ subscription: subscription({ next_shipment_at: "2026-09-19T12:00:00.000Z", quantity: 2 }), productName: "Control" }];
-    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 1 });
+    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
     const second = [...store.notifications.values()][1];
     expect(second.body).toContain("$135.98");
     expect(second.dedupe_key).toBe(`${RENEWAL_UPCOMING_KIND}:${SUB}:2026-09-19`);
+  });
+
+  it("quotes the amount the renewal will actually charge for shipping, not the amount frozen at checkout", async () => {
+    const store = new MemoryNotificationStore();
+    const now = () => new Date("2026-09-17T15:00:00.000Z");
+    const load = async () => [{ subscription: subscription({ shipping_charge_cents: 1000 }), productName: "Control" }];
+    // 62.99 + a live 13.77 Shipping & handling quote
+    const shipping = async () => 1377;
+    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
+    expect([...store.notifications.values()][0].body).toContain("$76.76");
   });
 
   it("skips rows without a patient or a shipment date", async () => {

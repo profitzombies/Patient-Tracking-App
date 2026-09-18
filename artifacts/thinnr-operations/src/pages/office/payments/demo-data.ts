@@ -116,6 +116,7 @@ export const DEMO_ORDER_DETAILS: Record<string, OrderDetail> = {
     fees: {
       subtotal_cents: 7999,
       shipping_charge_cents: 1000,
+      shipping: { shipping_method: 'standard', shipping_source: 'fallback', carrier_service_name: null, carrier_cost_cents: 1000, pick_pack_fee_cents: 0, packaging_cents: 0, pick_pack_passed_through: false, delivery_window_start: null, delivery_window_end: null },
       tax_cents: 0,
       total_cents: 8999,
       thinnr_share_cents: 3599,
@@ -230,6 +231,8 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = [
     created_at: '2026-08-15T00:00:00Z',
     paused_at: null,
     pending_change: { product_id: 'fiber', product_name: 'Fiber', unit_price_cents: 4499, effective_at: '2026-11-07T00:00:00Z' },
+    shipping: { shipping_method: 'standard', shipping_source: 'fallback', carrier_service_name: null, carrier_cost_cents: 1000, pick_pack_fee_cents: 0, packaging_cents: 0, pick_pack_passed_through: false, delivery_window_start: null, delivery_window_end: null },
+    shipping_requoted_at: null,
   },
   {
     id: 'demo-sub-2', provider_id: 'demo', office_name: 'Jenkins Wellness',
@@ -239,6 +242,8 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = [
     cancel_at_period_end: false, canceled_at: null, payment_failure_count: 0, last_payment_failed_at: null,
     last_failure_message: null, renewals: 5, livemode: false, created_at: '2026-05-09T00:00:00Z',
     paused_at: '2026-10-10T15:00:00Z', pending_change: null,
+    shipping: { shipping_method: 'standard', shipping_source: 'fallback', carrier_service_name: null, carrier_cost_cents: 1000, pick_pack_fee_cents: 0, packaging_cents: 0, pick_pack_passed_through: false, delivery_window_start: null, delivery_window_end: null },
+    shipping_requoted_at: null,
   },
 ];
 

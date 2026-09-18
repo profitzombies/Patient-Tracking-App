@@ -7,6 +7,7 @@
 import type {
   PatientBillingOrder,
   PatientBillingSubscription,
+  PatientShippingChoice,
   PatientShipment,
   ShippingAddress,
 } from '@/lib/patient-billing-types';
@@ -24,6 +25,34 @@ export function shortDateTime(value: string | null | undefined): string {
   if (!value) return 'Not available';
   const date = new Date(value);
   return `${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function dateOnly(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Formats WarehouseCraft calendar dates in the device timezone without treating them as ISO instants. */
+export function arrivalWindow(start: string | null, end: string | null): string | null {
+  if (!start || !end) return null;
+  const first = dateOnly(start);
+  const last = dateOnly(end);
+  if (!first || !last) return null;
+  const format = (date: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).formatToParts(date);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? '';
+    return `${part('weekday')} ${part('month')} ${part('day')}`;
+  };
+  const firstText = format(first);
+  const lastText = format(last);
+  return firstText === lastText ? `Arrives ${firstText}` : `Arrives ${firstText} – ${lastText}`;
+}
+
+export function shippingChoiceLabel(shipping: PatientShippingChoice): string {
+  if (shipping.source === 'fallback') return 'Standard shipping';
+  return shipping.method === 'expedited' ? 'Expedited shipping' : 'Standard shipping';
 }
 
 export function errorMessage(caught: unknown): string {

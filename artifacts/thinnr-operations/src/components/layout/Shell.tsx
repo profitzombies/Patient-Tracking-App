@@ -10,7 +10,8 @@ import { useToast } from '@/hooks/use-toast';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
-import { useScopedPatients } from '@/data/scoped-data';
+import { usePatientsBadge } from '@/hooks/use-patients-badge';
+import { matchesPhoneQuery } from '@/lib/phone-digits';
 import {
   findActiveOfficeNavItem,
   isOfficeMenuPathActive,
@@ -42,7 +43,9 @@ export function Shell({ children }: { children: ReactNode }) {
   // shell rebrands to the drilled-in office and fits under the HQ banner.
   const scope = useProviderScope();
   const { signOut, authStatus } = useSession();
-  const patients = useScopedPatients();
+  // Patients badge + quick-search source: the live roster summary (same
+  // cached query the Patients page reads) or the seeded roster in the demo.
+  const { badge: patientsBadge, liveEnabled, livePatients, liveRosterReady, demoPatients } = usePatientsBadge();
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeTabRef = useRef<HTMLAnchorElement>(null);
@@ -105,7 +108,12 @@ export function Shell({ children }: { children: ReactNode }) {
       path: item.path,
       label: item.label,
       icon: item.icon,
-      count: item.path === '/patients' ? patients.length : undefined,
+      // Total patients normally; the amber evaluator-flagged count when anyone
+      // needs attention, with the link then opening the roster attention-first.
+      href: item.path === '/patients' ? patientsBadge.href : undefined,
+      count: item.path === '/patients' ? patientsBadge.count : undefined,
+      countTone: item.path === '/patients' ? patientsBadge.tone : undefined,
+      countLabel: item.path === '/patients' ? patientsBadge.label : undefined,
       children: item.children?.map((child) => ({
         path: child.path,
         label: child.label,
@@ -116,15 +124,38 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const handleSearchSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      const normalizedQuery = searchQuery.trim().toLowerCase();
-      const match = patients.find((patient) =>
-        patient.name.toLowerCase().includes(normalizedQuery) ||
-        patient.email.toLowerCase().includes(normalizedQuery) ||
-        patient.id.toLowerCase() === normalizedQuery
-      );
-      if (match && normalizedQuery) {
+      const rawQuery = searchQuery.trim();
+      const normalizedQuery = rawQuery.toLowerCase();
+      // Signed-in offices match their live roster (name, email, phone, id);
+      // only the signed-out persona ever matches the seeded demo roster.
+      const match = !normalizedQuery
+        ? undefined
+        : liveEnabled
+          ? (livePatients ?? []).find((patient) =>
+              patient.name.toLowerCase().includes(normalizedQuery) ||
+              (patient.email ?? '').toLowerCase().includes(normalizedQuery) ||
+              matchesPhoneQuery(rawQuery, patient.phone, patient.phoneDisplay) ||
+              patient.id.toLowerCase() === normalizedQuery
+            )
+          : demoPatients.find((patient) =>
+              patient.name.toLowerCase().includes(normalizedQuery) ||
+              patient.email.toLowerCase().includes(normalizedQuery) ||
+              matchesPhoneQuery(rawQuery, patient.phone) ||
+              patient.id.toLowerCase() === normalizedQuery
+            );
+      if (match) {
         navigate(`/patients/${match.id}`);
-        toast({ title: `${match.name} opened`, description: 'Matched from the synthetic patient roster.' });
+        toast({ title: `${match.name} opened`, description: liveEnabled ? 'Matched from your patient roster.' : 'Matched from the synthetic patient roster.' });
+      } else if (liveEnabled) {
+        navigate('/patients');
+        toast({
+          title: 'Patient roster opened',
+          description: !normalizedQuery
+            ? 'Search the roster by name, email, or phone.'
+            : liveRosterReady
+              ? 'No exact match was found. Use the roster search and filters to continue.'
+              : 'The roster is still loading. Use the roster search once it appears.',
+        });
       } else {
         navigate('/patients');
         toast({ title: 'Patient roster opened', description: normalizedQuery ? 'No exact match was found. Use the roster filters to continue.' : 'Search the full synthetic roster.' });
@@ -173,6 +204,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <input
                 autoFocus
                 placeholder="Search patient or ID..."
+                data-testid="input-quick-search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 className="h-9 w-32 rounded-md border border-border bg-card px-3 text-xs shadow-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring sm:w-48"

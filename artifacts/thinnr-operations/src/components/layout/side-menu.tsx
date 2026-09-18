@@ -60,8 +60,17 @@ export interface SideMenuItem {
   path: string;
   label: string;
   icon: LucideIcon;
+  /**
+   * Link target when it differs from `path` (e.g. carries a query flag).
+   * `path` still decides active state and identity.
+   */
+  href?: string;
   /** Small counter chip (e.g. roster size). */
   count?: number;
+  /** `attention` renders the counter in the warm watch tint. */
+  countTone?: 'default' | 'attention';
+  /** Hover / screen-reader text explaining the counter (e.g. "2 need attention · 48 patients"). */
+  countLabel?: string;
   /** Small uppercase tag chip (e.g. "Preview"). */
   tag?: string;
   testId?: string;
@@ -163,10 +172,16 @@ function MenuRow({
       {item.count !== undefined && (
         <span
           className={`ml-auto rounded-sm px-1.5 py-0.5 text-[10px] font-bold ${
-            active ? 'bg-white/20 text-white' : 'bg-[#eef2f8] text-primary'
+            item.countTone === 'attention'
+              ? 'border border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]'
+              : active ? 'bg-white/20 text-white' : 'bg-[#eef2f8] text-primary'
           }`}
+          title={item.countLabel}
+          data-tone={item.countTone ?? 'default'}
+          data-testid={`menu-count${item.path.replace(/[^a-z0-9]+/gi, '-')}`}
         >
-          {item.count}
+          <span aria-hidden={item.countLabel ? true : undefined}>{item.count}</span>
+          {item.countLabel && <span className="sr-only">{item.countLabel}</span>}
         </span>
       )}
       {item.tag && (
@@ -188,7 +203,7 @@ function MenuRow({
     </button>
   ) : (
     <Link
-      href={item.path}
+      href={item.href ?? item.path}
       data-testid={item.testId}
       aria-current={active ? 'page' : undefined}
       className={className}

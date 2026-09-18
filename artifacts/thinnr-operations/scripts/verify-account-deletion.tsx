@@ -101,7 +101,7 @@ const ROSTER: OfficeRoster = {
     patient('pat-plain', 'Kara Keeps'),
     patient(PENDING_ID, 'Devon Departing', { deletion: { state: 'requested', requestedAt: iso(-2), purgeAfter: iso(5) } }),
   ],
-  summary: { totalPatients: 2, activePatients: 2, newEnrollments30d: 0, needsAttention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 1, deletedAccounts: 1, asOf: AS_OF },
+  summary: { totalPatients: 2, activePatients: 2, newEnrollments30d: 0, needsAttention: 0, attention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 1, deletedAccounts: 1, asOf: AS_OF },
   deletedAccounts: [TOMBSTONE],
 };
 

@@ -74,7 +74,7 @@ function rosterPatient(id: string, name: string, activeSubscription: boolean | n
 const ROSTER: OfficeRoster = {
   office: { providerId: 'office-1', officeName: 'Beacon Hill Aesthetics', providerCode: '483920' },
   patients: [rosterPatient(PURCHASES_PATIENT_ID, 'Devon Subscribed', true), rosterPatient(OTHER_ID, 'Kara Cash', false), rosterPatient(UNKNOWN_ID, 'Uma Unknown', null)],
-  summary: { totalPatients: 3, activePatients: 3, newEnrollments30d: 0, needsAttention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 0, deletedAccounts: 0, asOf: AS_OF },
+  summary: { totalPatients: 3, activePatients: 3, newEnrollments30d: 0, needsAttention: 0, attention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 0, deletedAccounts: 0, asOf: AS_OF },
   deletedAccounts: [],
 } as OfficeRoster;
 const DETAIL: OfficePatientDetail = {

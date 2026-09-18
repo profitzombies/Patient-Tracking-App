@@ -141,6 +141,17 @@ export interface OfficePatient {
 
   } | null;
 
+  /**
+   * Verdict of the shared attention evaluator (the same one behind the
+   * "Needs attention" page and the bell); `flagged` drives the roster's
+   * attention-first ordering and the Patients menu badge.
+   */
+  attention?: {
+    flagged: boolean;
+    reasons: Array<{ code: string; label: string; days: number | null }>;
+    signature: string | null;
+  } | null;
+
   operational?: {
     /** Patient-local calendar day the signals were computed for. */
     asOfDate?: string;
@@ -200,6 +211,8 @@ export interface OfficeRosterSummary {
   activePatients: number;
   newEnrollments30d: number;
   needsAttention: number;
+  /** Patients the shared attention evaluator currently flags (any reason). */
+  attention: number;
   inactive: number;
   invited: number;
   checkInsOverdue: number;

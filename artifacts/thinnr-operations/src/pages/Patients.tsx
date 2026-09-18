@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight, Check, ShoppingBag } from "lucide-react";
+import { Search, Filter, ArrowUpDown, ChevronRight, Check, ShoppingBag, X } from "lucide-react";
 import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
 import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
 import { getNudgeAssessment } from "@/data/stall-nudge";
+import { buildDemoAttentionItems } from "@/data/attention-demo";
+import { isAttentionFirst, pinFlaggedFirst, withoutAttentionFirst } from "@/lib/patients-badge";
+import { matchesPhoneQuery } from "@/lib/phone-digits";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
@@ -222,9 +225,14 @@ export default function Patients() {
   const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
   // Base-aware navigate: resolves against the mount point exactly like the
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const searchParams = useSearch();
   const urlParams = new URLSearchParams(searchParams);
+  // Attention-first ordering lives in the URL only (`?attention=first`, set
+  // by the amber Patients badge): reload and shared links keep it, and the
+  // visible toggle clears it by rewriting the query string.
+  const attentionFirst = isAttentionFirst(searchParams);
+  const clearAttentionFirst = () => navigate(`${location}${withoutAttentionFirst(searchParams)}`, { replace: true });
   const arrivedLapsed = urlParams.get('logging') === 'lapsed';
   const arrivedStatus = urlParams.get('status');
   const arrivedReason = urlParams.get('reason');
@@ -285,6 +293,13 @@ export default function Patients() {
     [demoSubscriptions],
   );
 
+  // Demo persona: the seeded attention rules the bell and the "Needs
+  // attention" page share decide which rows the pin lifts to the top.
+  const demoFlagged = useMemo(
+    () => new Set(liveEnabled ? [] : buildDemoAttentionItems(patients).map((item) => item.patientId)),
+    [liveEnabled, patients],
+  );
+
   const unifiedRows = useMemo(() => {
     if (liveEnabled) {
       if (!liveRosterData) return [];
@@ -311,6 +326,10 @@ export default function Patients() {
           name: p.name,
           initials,
           email: p.email,
+          phone: p.phone,
+          phoneDisplay: p.phoneDisplay,
+          // Shared attention evaluator verdict (the bell / Needs attention set).
+          attentionFlagged: p.attention?.flagged === true,
           status: p.operational?.status ?? p.status ?? 'invited',
           stageDisplay,
           providerName: p.providerName ?? '—',
@@ -342,6 +361,9 @@ export default function Patients() {
         name: p.name,
         initials: p.initials,
         email: p.email,
+        phone: p.phone,
+        phoneDisplay: null as string | null,
+        attentionFlagged: demoFlagged.has(p.id),
         status: p.status,
         stageDisplay: p.stage === 'protocol' ? `Week ${p.protocolWeek}` : 'Maintenance',
         providerName: provider?.name.split(',')[0] ?? '—',
@@ -360,12 +382,15 @@ export default function Patients() {
         rawLive: undefined
       };
     });
-  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive]);
+  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoFlagged]);
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = unifiedRows.filter(p => {
+      // Name and email match the typed text; a query carrying digits also
+      // matches the phone by digit substring, whatever the formatting.
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-                            (p.email ?? '').toLowerCase().includes(search.toLowerCase());
+                            (p.email ?? '').toLowerCase().includes(search.toLowerCase()) ||
+                            matchesPhoneQuery(search, p.phone, p.phoneDisplay);
       // Live rosters carry an operational status (on_track / needs_attention /
       // inactive / invited / paused / discharged); "active" there means an
       // activated account, the same definition the office-analytics rollups
@@ -425,8 +450,11 @@ export default function Patients() {
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-    return result;
-  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, subscriptionFilter, sortField, sortOrder]);
+    // Attention-first: flagged rows lead, each group keeping the sort above.
+    return attentionFirst ? pinFlaggedFirst(result, (row) => row.attentionFlagged) : result;
+  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, subscriptionFilter, sortField, sortOrder, attentionFirst]);
+
+  const pinnedCount = attentionFirst ? filteredAndSortedPatients.filter((row) => row.attentionFlagged).length : 0;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -456,7 +484,7 @@ export default function Patients() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-border p-4 bg-paper-alt">
           <div className="relative w-full sm:w-80">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <label htmlFor="patient-search" className="sr-only">Search patients by name or email</label>
+            <label htmlFor="patient-search" className="sr-only">Search patients by name, email, or phone</label>
             <input
               id="patient-search"
               data-testid="input-patient-search"
@@ -469,6 +497,21 @@ export default function Patients() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+            {attentionFirst && (
+              <button
+                type="button"
+                onClick={clearAttentionFirst}
+                data-testid="button-clear-attention-first"
+                aria-label={`Attention first: ${pinnedCount} flagged patient${pinnedCount === 1 ? '' : 's'} pinned to the top. Turn off`}
+                title="Flagged patients are pinned to the top. Click to return to the normal order."
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-md border border-[#e8b47c] bg-[#fff4e6] px-2.5 text-xs font-semibold text-[#b65c22] shadow-xs transition-colors hover:bg-[#ffe9d1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
+                Attention first
+                <span className="rounded-sm bg-white/70 px-1 font-mono text-[10px]" aria-hidden="true">{pinnedCount}</span>
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
             <div className="flex items-center text-xs font-semibold text-muted-foreground">
               <Filter size={14} className="mr-1.5" /> Filter:
             </div>
@@ -639,7 +682,7 @@ export default function Patients() {
             </div>
           )}
           {(!liveEnabled || liveRosterData) && filteredAndSortedPatients.length === 0 && (
-            <div className="p-10 text-center text-xs text-muted-foreground">No patients found matching your search.</div>
+            <div className="p-10 text-center text-xs text-muted-foreground">No patients found matching your search. Search by name, email, or phone.</div>
           )}
         </div>
 
@@ -790,7 +833,7 @@ export default function Patients() {
               {(!liveEnabled || liveRosterData) && filteredAndSortedPatients.length === 0 && (
                 <tr>
                   <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-muted-foreground">
-                    No patients found matching your search.
+                    No patients found matching your search. Search by name, email, or phone.
                   </td>
                 </tr>
               )}

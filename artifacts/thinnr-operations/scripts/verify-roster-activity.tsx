@@ -117,7 +117,7 @@ const ROSTER: OfficeRoster = {
     patient('pat-unknown', 'Uma Unknown', { ...base, latestActivityDate: null, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: null, status: 'unknown', reasons: [] }),
     patient('pat-lapsed', 'Liam Lapsed', { ...base, latestDiaryDate: day(6), latestCheckInDate: day(20), loggedDays7: 1, checkIns7: 0, activity: LAPSED, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }),
   ],
-  summary: { totalPatients: 4, activePatients: 4, newEnrollments30d: 0, needsAttention: 2, inactive: 0, invited: 0, checkInsOverdue: 2, loggingLapsed: 2, asOf: AS_OF },
+  summary: { totalPatients: 4, activePatients: 4, newEnrollments30d: 0, needsAttention: 2, attention: 2, inactive: 0, invited: 0, checkInsOverdue: 2, loggingLapsed: 2, asOf: AS_OF },
 };
 
 // ─── Pure half ───────────────────────────────────────────────────────────────

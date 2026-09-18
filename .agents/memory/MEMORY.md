@@ -144,3 +144,4 @@
 - [Stripe webhook workspace endpoints](stripe-webhook-workspace-endpoints.md) — throwaway workspaces leave dead .replit.dev endpoints in the shared sandbox; prune by liveness probe + age, never age alone; registration is single-flight.
 - [App presence & HQ active users](app-usage-presence.md) — presence rides identity resolution + a bare heartbeat; now-tiles end today, rows end on range end; demo self-seeds (no account list); failed polls show Error.
 - [Patient session persistence](patient-session-persistence.md) — auth-js reports session:null during retryable refresh failures; storage is truth, only SIGNED_OUT signs out; mgmt-API session timeouts are in HOURS.
+- [Patients menu badge](patients-menu-badge.md) — badge shares the roster query (no new poll); flagged = evaluator verdict; pin is URL-only; Shell-in-Node RTR recipe.

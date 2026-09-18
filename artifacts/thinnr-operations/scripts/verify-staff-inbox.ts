@@ -12,8 +12,15 @@ for (const parameter of ['channel', 'thread', 'status', 'assignee', 'unread', 'q
 }
 assert.match(hq, /patientId/);
 assert.match(hq, /office: accountFilter/);
-assert.match(office, /refetchInterval: 5_000/);
-assert.match(hq, /refetchInterval: 5_000/);
+// Live updates ride one stream per tab; no fixed-interval polling remains.
+assert.doesNotMatch(office, /refetchInterval/);
+assert.doesNotMatch(hq, /refetchInterval/);
+assert.match(office, /useInboxStream\(\{/);
+assert.match(hq, /useInboxStream\(\{/);
+assert.match(office, /path: '\/api\/office\/conversations\/stream'/);
+assert.match(hq, /path: '\/api\/hq\/conversations\/stream'/);
+assert.match(office, /refetchOnWindowFocus: true/);
+assert.match(hq, /refetchOnWindowFocus: true/);
 assert.match(office, /after: fetchedThrough/);
 assert.match(hq, /after: fetchedThrough/);
 assert.match(office, /clientId: attempted\.clientId/);

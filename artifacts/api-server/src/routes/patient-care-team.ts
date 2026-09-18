@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { inboxFeed } from "../lib/inbox-feed";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { suggestionFromCard } from "../billing/product-suggestions";
 
@@ -181,6 +182,8 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
       res.status(409).json({ error: "That message id was already used for different content." }); return;
     }
     if (sent.status >= 300) throw new Error(`care team send failed (${sent.status})`);
+    // Staff inbox streams hear about the new row now, not at the next tick.
+    inboxFeed.poke();
     const payload = sent.json as Row;
     res.json({ message: patientMessage({
       seq: payload.seq, client_id: payload.clientId, role: payload.role,

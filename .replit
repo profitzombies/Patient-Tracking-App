@@ -204,6 +204,10 @@ args = "session-persistence-web"
 task = "workflow.run"
 args = "patients-badge"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "polite-pollers-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1179,23 +1183,23 @@ isValidation = true
 name = "staff-inbox-api"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server exec vitest run src/routes/staff-conversations.test.ts src/routes/staff-inbox.sql.test.ts src/routes/coach-care-team.test.ts src/coach/care-team-history.test.ts"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/staff-conversations.test.ts src/routes/staff-conversations-stream.test.ts src/lib/inbox-feed.test.ts src/routes/staff-inbox.sql.test.ts src/routes/coach-care-team.test.ts src/coach/care-team-history.test.ts src/routes/patient-care-team.test.ts src/routes/patient-chat.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [[workflows.workflow]]
 name = "staff-inbox-web"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/thinnr-operations run test:staff-inbox"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:staff-inbox && pnpm --filter @workspace/thinnr-operations run test:inbox-stream && pnpm --filter @workspace/thinnr-operations run test:care-team-conversations && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [[workflows.workflow]]
 name = "system-jobs-api"
@@ -1886,6 +1890,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:patients-badge && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "polite-pollers-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:exports && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run test:bloodwork"
 
 [workflows.workflow.metadata]
 isValidation = true

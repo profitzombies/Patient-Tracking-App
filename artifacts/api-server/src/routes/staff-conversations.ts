@@ -26,6 +26,8 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
 import { loadOrgPolicy } from "../lib/org-policy";
+import { inboxFeed, inboxStreamMaxMs, type InboxChange } from "../lib/inbox-feed";
+import { keepaliveIntervalMs } from "../coach/upstream";
 import {
   buildProductSuggestion,
   ProductSuggestionError,
@@ -103,6 +105,11 @@ const hqEscalationQuery = z.object({
 const hqConversationQuery = listQuery.extend({ office: z.string().trim().min(1).max(240).optional() });
 const resolveBody = z.object({ note: z.string().max(2000).nullable().optional() }).strict();
 const uuid = z.string().uuid();
+const streamQuery = z.object({
+  office: officeParam,
+  conversation: z.string().uuid().optional(),
+  after: z.coerce.number().int().nonnegative().optional(),
+});
 
 // ── Scope helpers ───────────────────────────────────────────────────────────
 
@@ -461,6 +468,130 @@ export function replyPreview(text: string): string {
   return flat.length <= CARE_TEAM_REPLY_BODY_MAX ? flat : `${flat.slice(0, CARE_TEAM_REPLY_BODY_MAX - 1).trimEnd()}…`;
 }
 
+// ── Inbox event stream ──────────────────────────────────────────────────────
+
+const STREAM_EVENT_PAGE = 100;
+
+/** Newest message seq in a conversation (0 when empty). */
+async function newestSeq(conversationId: string): Promise<number> {
+  const result = await supabaseAdmin("GET",
+    `/rest/v1/patient_chat_messages?conversation_id=eq.${enc(conversationId)}&select=seq&order=seq.desc&limit=1`);
+  if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`newest seq failed (${result.status})`);
+  const row = result.json[0] as Row | undefined;
+  return row ? Number(row.seq) : 0;
+}
+
+/** Messages of one conversation after a seq, oldest first, one page. */
+async function eventsAfter(conversationId: string, after: number) {
+  const result = await supabaseAdmin("GET",
+    `/rest/v1/patient_chat_messages?conversation_id=eq.${enc(conversationId)}` +
+    `&select=seq,client_id,role,text,stopped,sender_user_id,sender_label,created_at,card` +
+    `&seq=gt.${after}&order=seq.asc&limit=${STREAM_EVENT_PAGE + 1}`);
+  if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`stream events failed (${result.status})`);
+  const rows = (result.json as Row[]).slice(0, STREAM_EVENT_PAGE);
+  return { events: rows.map(eventFromRow), more: result.json.length > STREAM_EVENT_PAGE };
+}
+
+interface StreamSubscription {
+  /** Which feed changes this subscriber may hear about (its scope). */
+  allows: (change: InboxChange) => boolean;
+  /** The open thread whose new messages ride the stream, if any. */
+  conversationId: string | null;
+  /** Client's newest known seq; undefined = start from the newest row now. */
+  after: number | undefined;
+}
+
+/**
+ * Serves one staff inbox stream (server-sent events). The caller has already
+ * authenticated the request and checked the subscribed thread's access.
+ *
+ * Wire contract (each `data:` line is one JSON object):
+ *   {type:"ready", conversationId, cursor}   — subscribed; cursor is the seq
+ *                                              new events will follow
+ *   {type:"list", conversations:[{id,thread,updatedAt}]}
+ *                                            — threads in scope changed; the
+ *                                              client refetches its list once
+ *   {type:"events", conversationId, events, nextAfter}
+ *                                            — new messages of the open thread
+ *   {type:"end", reason}                     — explicit close; the client
+ *                                              reconnects and catches up
+ * Comment lines (`: keepalive`) keep idle proxies from dropping the stream.
+ */
+async function serveInboxStream(req: Request, res: Response, subscription: StreamSubscription): Promise<void> {
+  let cursor = subscription.after ?? 0;
+  if (subscription.conversationId && subscription.after === undefined) {
+    cursor = await newestSeq(subscription.conversationId);
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  let open = true;
+  const send = (payload: Record<string, unknown>) => {
+    if (open && !res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const finish = (reason: string) => {
+    if (!open) return;
+    send({ type: "end", reason });
+    close();
+    res.end();
+  };
+
+  const keepalive = setInterval(() => {
+    if (open && !res.writableEnded) res.write(": keepalive\n\n");
+  }, keepaliveIntervalMs());
+  const lifetime = setTimeout(() => finish("expired"), inboxStreamMaxMs());
+
+  // Event fetches for the open thread run one at a time so the cursor only
+  // ever moves forward and pages arrive in order.
+  let pump: Promise<void> = Promise.resolve();
+  const pushEvents = () => {
+    const conversationId = subscription.conversationId;
+    if (!conversationId) return;
+    pump = pump.then(async () => {
+      if (!open) return;
+      try {
+        let more = true;
+        while (more && open) {
+          const page = await eventsAfter(conversationId, cursor);
+          more = page.more;
+          if (page.events.length === 0) break;
+          cursor = Math.max(cursor, ...page.events.map(event => event.seq));
+          send({ type: "events", conversationId, events: page.events, nextAfter: cursor });
+        }
+      } catch (error) {
+        // The client reconnects with backoff and does one catch-up fetch, so
+        // a failed read never silently drops messages.
+        req.log?.warn({ err: error }, "inbox stream event read failed");
+        finish("error");
+      }
+    });
+  };
+
+  const unsubscribe = inboxFeed.subscribe(changes => {
+    const visible = changes.filter(subscription.allows);
+    if (visible.length === 0) return;
+    send({ type: "list", conversations: visible.map(change => ({
+      id: change.conversationId, thread: change.thread, updatedAt: change.updatedAt,
+    })) });
+    if (visible.some(change => change.conversationId === subscription.conversationId)) pushEvents();
+  });
+
+  function close() {
+    if (!open) return;
+    open = false;
+    unsubscribe();
+    clearInterval(keepalive);
+    clearTimeout(lifetime);
+  }
+  res.on("close", close);
+
+  send({ type: "ready", conversationId: subscription.conversationId, cursor });
+}
+
 // ── Router ──────────────────────────────────────────────────────────────────
 
 export function createStaffConversationsRouter(store: NotificationStore = supabaseNotificationStore): IRouter {
@@ -488,6 +619,46 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     }
     return { ...inbox, conversation };
   }
+
+  /** Wakes the shared change feed after a write the database will reflect
+   * (a message row, a workflow mutation) so open streams hear it now. */
+  function announceWrite() {
+    inboxFeed.poke();
+  }
+
+  /** Fans out a change the feed's watcher cannot see (notes, escalations
+   * touch side tables, never the conversation row). */
+  function announceSideChange(scope: OfficeScope, conversation: ConversationSummary) {
+    inboxFeed.notify({
+      conversationId: conversation.id, patientId: conversation.patientId, providerId: scope.providerId,
+      thread: conversation.thread, updatedAt: new Date().toISOString(),
+    });
+  }
+
+  router.get("/office/conversations/stream", async (req, res) => {
+    const parsed = streamQuery.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: "Check the stream request." }); return; }
+    try {
+      const inbox = await scopeForInbox(req, res);
+      if (!inbox) return;
+      const { scope, threads } = inbox;
+      let conversationId: string | null = null;
+      if (parsed.data.conversation) {
+        const conversation = await loadConversation(scope, threads, parsed.data.conversation);
+        if (!conversation) { res.status(404).json({ error: NOT_FOUND }); return; }
+        conversationId = conversation.id;
+      }
+      await serveInboxStream(req, res, {
+        allows: change => change.providerId === scope.providerId && threads.some(thread => thread === change.thread),
+        conversationId,
+        after: parsed.data.after,
+      });
+    } catch (error) {
+      req.log?.error({ err: error }, "office inbox stream failed");
+      if (!res.headersSent) res.status(502).json({ error: "Could not open the inbox stream right now." });
+      else res.end();
+    }
+  });
 
   function officeMutationOnly(found: { scope: OfficeScope; conversation: ConversationSummary }, res: Response): boolean {
     if (found.scope.actorKind !== "hq" || found.conversation.thread !== "care_team") return true;
@@ -610,6 +781,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const id = typeof payload.conversationId === "string" ? payload.conversationId : "";
       const conversation = id ? await loadConversation(resolved.scope, ["care_team"], id) : null;
       if (!conversation) throw new Error("care team start returned no conversation");
+      announceWrite();
       void audit(req, resolved.scope, "care_team_conversation_started", "patient_chat_conversation", id, {
         patientId: body.data.patientId, created: payload.created === true,
       });
@@ -675,6 +847,9 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       if (payload.changed === true) void audit(req, found.scope, "conversation_transcript_read",
         "patient_chat_conversation", found.conversation.id,
         { thread: found.conversation.thread, throughSeq: body.data.throughSeq });
+      // Read markers live in a side table; unread badges on every other open
+      // tab depend on hearing about them.
+      if (payload.changed === true) announceSideChange(found.scope, found.conversation);
       res.json(result.json);
     } catch (error) {
       req.log?.error({ err: error }, "conversation read marker failed");
@@ -712,6 +887,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         assigneeUserId: assignee?.userId ?? "", assigneeLabel: assignee?.label ?? "",
       });
       if (patch.status >= 300) throw new Error(`assignment write failed (${patch.status})`);
+      announceWrite();
       void audit(req, scope, "conversation_assigned", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
         assigneeUserId: assignee?.userId ?? null,
@@ -739,6 +915,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const { scope, conversation } = found;
       const patch = await mutateWorkflow(found, "status", { status: body.data.status });
       if (patch.status >= 300) throw new Error(`status write failed (${patch.status})`);
+      announceWrite();
       void audit(req, scope, "conversation_status_changed", "patient_chat_conversation", conversation.id, {
         thread: conversation.thread,
         from: conversation.status,
@@ -829,6 +1006,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         res.status(409).json({ error: "That message id was already used for different content." }); return;
       }
       if (inserted.status >= 300) throw new Error(`reply write failed (${inserted.status})`);
+      announceWrite();
       const payload = inserted.json as Record<string, unknown>;
       const row = {
         seq: payload.seq, client_id: clientId, role: payload.role, text: payload.text, stopped: false,
@@ -886,6 +1064,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         thread: conversation.thread,
         noteId,
       });
+      announceSideChange(scope, conversation);
       res.json({ note: noteFromRow(row) });
     } catch (error) {
       req.log?.error({ err: error }, "conversation note failed");
@@ -925,6 +1104,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         department: body.data.department,
         escalationId: String(row.id),
       });
+      announceSideChange(scope, conversation);
       res.json({ escalation: escalationFromRow(row) });
     } catch (error) {
       req.log?.error({ err: error }, "conversation escalation failed");
@@ -965,6 +1145,36 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
     if (!clinical && !support) { res.status(403).json({ error: HQ_FORBIDDEN }); return null; }
     return { staff, clinical, support };
   }
+
+  router.get("/hq/conversations/stream", async (req, res) => {
+    const parsed = streamQuery.safeParse(req.query);
+    if (!parsed.success) { res.status(400).json({ error: "Check the stream request." }); return; }
+    try {
+      const hq = await hqConversationIdentity(req, res);
+      if (!hq) return;
+      const office = parsed.data.office ? parsed.data.office.replace(/^acct-/, "") : null;
+      let conversationId: string | null = null;
+      if (parsed.data.conversation) {
+        const result = await supabaseAdmin("GET",
+          `/rest/v1/patient_chat_conversations?id=eq.${enc(parsed.data.conversation)}&select=id,thread&limit=1`);
+        if (result.status >= 300) throw new Error(`HQ stream lookup failed (${result.status})`);
+        const row = Array.isArray(result.json) ? result.json[0] as Row | undefined : undefined;
+        const allowed = row && (row.thread === "support" ? hq.support : hq.clinical);
+        if (!row || !allowed) { res.status(404).json({ error: NOT_FOUND }); return; }
+        conversationId = String(row.id);
+      }
+      await serveInboxStream(req, res, {
+        allows: change => (change.thread === "support" ? hq.support : hq.clinical) &&
+          (office === null || change.providerId === office),
+        conversationId,
+        after: parsed.data.after,
+      });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ inbox stream failed");
+      if (!res.headersSent) res.status(502).json({ error: "Could not open the inbox stream right now." });
+      else res.end();
+    }
+  });
 
   router.get("/hq/conversations", async (req, res) => {
     const parsed = hqConversationQuery.safeParse(req.query);
@@ -1088,6 +1298,13 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         requestId: req.headers["x-request-id"]?.toString() ?? null,
         metadata: { thread: String(found.row.thread), throughSeq: body.data.throughSeq },
       });
+      if (payload.changed === true) {
+        inboxFeed.notify({
+          conversationId: String(found.row.id), patientId: String(found.row.patient_id),
+          providerId: String(found.row.provider_id), thread: String(found.row.thread),
+          updatedAt: new Date().toISOString(),
+        });
+      }
       res.json(result.json);
     } catch (error) {
       req.log?.error({ err: error }, "HQ read marker failed");
@@ -1192,6 +1409,13 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         requestId: req.headers["x-request-id"]?.toString() ?? null,
         metadata: { escalationId: id.data, department: String(current.department), hasNote: note !== null },
       }).catch(error => req.log?.error({ err: error }, "escalation resolve audit failed"));
+      // Resolution touches only the escalation row; open inboxes learn of it here.
+      const joined = current.patient_chat_conversations as { thread?: unknown } | undefined;
+      inboxFeed.notify({
+        conversationId: String(current.conversation_id), patientId: null,
+        providerId: String(current.provider_id), thread: String(joined?.thread ?? ""),
+        updatedAt: new Date().toISOString(),
+      });
       res.json({ escalation: escalationFromRow(row) });
     } catch (error) {
       req.log?.error({ err: error }, "escalation resolve failed");

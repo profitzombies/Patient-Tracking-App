@@ -14,6 +14,7 @@ import {
   type BloodworkReportList,
 } from '@workspace/api-client-react';
 import { useSession } from '@/contexts/session';
+import { politeInterval } from '@/lib/polite-refetch';
 
 export type { BloodworkReport, BloodworkDetail, BloodworkFile, BloodworkResult, BloodworkCorrection };
 
@@ -62,9 +63,10 @@ export function useBloodworkDetailQuery(patientId: string, office: string | null
       query: {
         queryKey: bloodworkKeys.detail(patientId, office, reportId!, authUser?.id),
         enabled: !!reportId && !!authUser?.id,
+        // Pauses while the tab is hidden and slows down once the reader is idle.
         refetchInterval: (query) => {
           const state = query.state.data?.report.extractionStatus;
-          return (state === 'queued' || state === 'processing') ? 5000 : false;
+          return politeInterval((state === 'queued' || state === 'processing') ? 5000 : false);
         },
       }
     }

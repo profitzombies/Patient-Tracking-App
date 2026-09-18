@@ -36,6 +36,7 @@ import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
+import { inboxFeed } from "../lib/inbox-feed";
 import { isOwnPatientMediaPath } from "./patient-media";
 import {
   fetchPatientProfile,
@@ -370,6 +371,8 @@ router.post("/patient-chat/:thread/messages", async (req, res) => {
       p_messages: rows,
     });
     if (applied.status >= 300) throw new Error(`chat apply failed (${applied.status})`);
+    // Staff inbox streams hear about the new rows now, not at the next tick.
+    inboxFeed.poke();
 
     res.json({ ok: true });
   } catch (error) {

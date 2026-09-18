@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { BTN_SECONDARY, CHIP_WARM } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
+import { useInboxStream } from '@/hooks/use-inbox-stream';
 import { useToast } from '@/hooks/use-toast';
 import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesPanel, ThreadNotesToggle, useThreadNotesPanel, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
@@ -161,14 +162,14 @@ export default function OfficeConversations() {
       query: {
         queryKey: [accountKey, ...getGetOfficeConversationsQueryKey(listParams)],
         enabled: live,
-        refetchInterval: 5_000,
+        // No fixed polling: the inbox stream below says when the list changed.
         refetchOnWindowFocus: true,
       }
     }
   );
   
   const summary = useGetOfficeConversationSummary(officeParams, {
-    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationSummaryQueryKey(officeParams)], refetchInterval: 5_000, refetchOnWindowFocus: true },
+    query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationSummaryQueryKey(officeParams)], refetchOnWindowFocus: true },
   });
   const staff = useGetOfficeConversationStaff(officeParams, {
     query: { enabled: live, queryKey: [accountKey, ...getGetOfficeConversationStaffQueryKey(officeParams)] },
@@ -184,6 +185,11 @@ export default function OfficeConversations() {
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [allEvents, setAllEvents] = useState<ConversationEvent[]>([]);
   const [fetchedThrough, setFetchedThrough] = useState<number | undefined>();
+  // Newest seq that arrived over the stream. Kept apart from fetchedThrough
+  // so a pushed message never re-keys the events query (which would turn
+  // every push into an HTTP round trip); the HTTP watermark still advances
+  // on the next fetch, and read markers use the higher of the two.
+  const [streamedThrough, setStreamedThrough] = useState<number | undefined>();
   const [transcriptLoadedFor, setTranscriptLoadedFor] = useState('');
 
   useEffect(() => {
@@ -191,8 +197,14 @@ export default function OfficeConversations() {
     setNextBefore(null);
     setAllEvents([]);
     setFetchedThrough(undefined);
+    setStreamedThrough(undefined);
     setTranscriptLoadedFor('');
   }, [openId, channelFilter, threadFilter, statusFilter]);
+  const knownThrough = fetchedThrough === undefined && streamedThrough === undefined
+    ? undefined
+    : Math.max(fetchedThrough ?? 0, streamedThrough ?? 0);
+  const knownThroughRef = useRef(knownThrough);
+  knownThroughRef.current = knownThrough;
 
   const newestParams = useMemo<GetOfficeConversationEventsParams>(
     () => fetchedThrough ? { ...officeParams, after: fetchedThrough, limit: 30 } : { ...officeParams, limit: 30 },
@@ -205,7 +217,6 @@ export default function OfficeConversations() {
       query: {
         enabled: live && !!openId,
         queryKey: [accountKey, ...getGetOfficeConversationEventsQueryKey(openId ?? '', newestParams)],
-        refetchInterval: 5_000,
         refetchOnWindowFocus: true,
       }
     }
@@ -245,6 +256,39 @@ export default function OfficeConversations() {
     });
     setNextBefore(older.data.nextBefore);
   }, [older.data, accountKey, openId]);
+
+  // One live stream per open inbox tab replaces the old 5-second polls: list
+  // hints refetch the list once, new messages of the open thread land
+  // straight in the transcript, and every (re)connect does one catch-up.
+  useInboxStream({
+    enabled: live,
+    streamKey: `${accountKey}:${openId ?? ''}`,
+    path: '/api/office/conversations/stream',
+    params: () => ({ office: officeParams?.office, conversation: openId ?? undefined, after: openId ? knownThroughRef.current : undefined }),
+    onReady: () => {
+      void queryClient.invalidateQueries({
+        predicate: query => query.queryKey.includes('/api/office/conversations')
+          || query.queryKey.includes('/api/office/conversations/summary')
+          || (!!openId && query.queryKey.includes(`/api/office/conversations/${openId}/events`) && !query.queryKey.includes('older')),
+      }, { cancelRefetch: false });
+    },
+    onList: () => {
+      void queryClient.invalidateQueries({
+        predicate: query => query.queryKey.includes('/api/office/conversations') || query.queryKey.includes('/api/office/conversations/summary'),
+      }, { cancelRefetch: false });
+    },
+    onEvents: frame => {
+      if (frame.conversationId !== openIdRef.current || accountKeyRef.current !== accountKey) return;
+      const events = frame.events as ConversationEvent[];
+      if (events.length === 0) return;
+      setAllEvents(prev => {
+        const bySeq = new Map(prev.map(event => [event.seq, event]));
+        events.forEach(event => bySeq.set(event.seq, event));
+        return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+      });
+      setStreamedThrough(current => Math.max(current ?? 0, frame.nextAfter, ...events.map(event => event.seq)));
+    },
+  });
 
   // Bring the newest message into view when a thread opens and when its
   // newest end grows (poll or sent reply). Keyed on the newest seq so paging
@@ -319,7 +363,7 @@ export default function OfficeConversations() {
   };
 
   useEffect(() => {
-    const highestSeq = fetchedThrough;
+    const highestSeq = knownThrough;
     const readKey = `${accountKey}:${openId}`;
     if (!openId || !highestSeq || transcriptLoadedFor !== readKey) return;
     if (highestSeq <= (readThroughByThreadRef.current.get(readKey) ?? 0)) return;
@@ -337,7 +381,7 @@ export default function OfficeConversations() {
         },
       },
     );
-  }, [openId, fetchedThrough, transcriptLoadedFor, accountKey]);
+  }, [openId, knownThrough, transcriptLoadedFor, accountKey]);
 
   const mutationError = (title: string, error: unknown) => {
     const status = (error as { status?: number })?.status;

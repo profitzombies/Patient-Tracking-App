@@ -20,6 +20,7 @@ import type {
   CadenceWeeks, PatientBillingOrder, PatientBillingSubscription, PatientPurchasesSummary, PatientShipment, ShippingAddress,
 } from '@/lib/billing-types';
 import { OfficeApiError } from '@/lib/office-api';
+import { politeRefetchInterval } from '@/lib/polite-refetch';
 
 export const purchasesQueryKey = (office: string | null, patientId: string) =>
   ['office-patient-purchases', office ?? 'own', patientId] as const;
@@ -175,7 +176,7 @@ export function LivePatientPurchases({ patientId, office }: { patientId: string;
     queryFn: () => officeBilling.patientPurchases(patientId, office),
     // A 403 is a fact about the caller's role, not a transient failure.
     retry: (count, error) => (error instanceof OfficeApiError && error.isForbidden ? false : count < 1),
-    refetchInterval: 30_000,
+    refetchInterval: politeRefetchInterval(30_000),
   });
   if (query.isPending) {
     return (

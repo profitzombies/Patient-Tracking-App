@@ -87,10 +87,44 @@ const startBodies: Array<{ patientId: string }> = [];
 const readRequests: Array<{ url: string; throughSeq: number }> = [];
 let delayedNoteResolve: ((response: Response) => void) | null = null;
 let hqNotes: Array<{ id: string; body: string; authorLabel: string; createdAt: string }> = [];
+
+// Inbox streams: each request opens a controllable server-sent event body.
+// `ready` is pushed right away; the test pushes list/events frames and ends
+// the connection cleanly (explicit end frame) or by dropping it.
+type StubStream = { url: string; closed: boolean; push: (frame: unknown) => void; end: (clean: boolean) => void };
+const streams: StubStream[] = [];
+function openStubStream(url: string): Response {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream: StubStream = {
+    url,
+    closed: false,
+    push: frame => { if (!stream.closed) controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`)); },
+    end: clean => {
+      if (stream.closed) return;
+      if (clean) stream.push({ type: 'end', reason: 'expired' });
+      stream.closed = true;
+      controller.close();
+    },
+  };
+  const body = new ReadableStream<Uint8Array>({
+    start(c) { controller = c; },
+    cancel() { stream.closed = true; },
+  });
+  streams.push(stream);
+  const conversationId = new URL(url, 'http://test').searchParams.get('conversation');
+  setTimeout(() => stream.push({ type: 'ready', conversationId, cursor: 2 }), 1);
+  return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+}
+const listRequests = () => requestUrls.filter(request => request.startsWith('GET ') && new URL(request.slice(4), 'http://test').pathname === '/api/office/conversations');
+const eventRequests = () => requestUrls.filter(request => request.startsWith('GET ') && request.includes('/api/office/conversations/conv-1/events'));
+const waitFor = async (ms: number) => { await act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); }); await settle(); };
+
 globalThis.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   requestUrls.push(`${init?.method ?? 'GET'} ${url}`);
   const pathname = new URL(url, 'http://test').pathname;
+  if (pathname.endsWith('/conversations/stream')) return openStubStream(url);
   if (pathname.endsWith('/api/billing/office/sales/context')) {
     return json({
       patient: { id: 'pat-1', name: 'Ada Patient', email: 'ada@example.com', phone: null },
@@ -412,6 +446,14 @@ for (const fragment of ['office=office-1', 'patientId=pat-1', 'channel=care_team
   assert.ok(hqListRequest.includes(fragment), `HQ request missing ${fragment}`);
 }
 assert.ok(requestUrls.filter(request => request.startsWith('POST ')).every(request => request.includes('/read')), 'HQ rendered view must not expose workflow/message mutations');
+{
+  // The unread badge lives in the list: once the read marker moves, the HQ
+  // list must refresh even with no poll and before any stream hint arrives.
+  const readIndex = requestUrls.findIndex(request => request.startsWith('POST ') && request.includes('/api/hq/conversations/conv-1/read'));
+  assert.ok(readIndex >= 0, 'HQ must record the read marker for the open thread');
+  const listAfterRead = requestUrls.slice(readIndex + 1).some(request => request.startsWith('GET ') && request.includes('/api/hq/conversations?'));
+  assert.ok(listAfterRead, 'HQ list must refetch after the read marker moved');
+}
 assert.equal(renderer!.root.findAll(node => node.props['aria-label'] === 'Add product suggestion').length, 0, 'HQ must not offer product suggestions');
 await act(async () => { renderer!.unmount(); });
 
@@ -470,6 +512,79 @@ await settle();
 assert.equal(startBodies.length, 0, 'HQ drill-in must not auto-start care-team conversations');
 await act(async () => { renderer!.unmount(); });
 __setScope(null);
+
+// Live updates ride ONE stream per tab. With a thread open there is no
+// periodic list or events polling; a pushed `events` frame lands in the
+// transcript without an HTTP round trip and advances the read marker; a
+// pushed `list` hint refetches the list once; a dropped stream reconnects
+// with backoff from the newest known seq and catches up with one fetch; an
+// explicit end reconnects immediately; unmount closes for good.
+__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-live' }, providerAccountCode: 'office-1', claimedWorkspace: null });
+streams.length = 0;
+requestUrls = [];
+readRequests.length = 0;
+listOwner = 'Ada Patient';
+await act(async () => { renderer = create(<Page path="/conversations?channel=care_team&conversation=conv-1" />); });
+await settle();
+assert.equal(streams.length, 1, 'opening the inbox with a thread must open exactly one stream');
+assert.match(streams[0].url, /\/api\/office\/conversations\/stream\?/);
+assert.ok(streams[0].url.includes('conversation=conv-1'), `stream must subscribe to the open thread: ${streams[0].url}`);
+assert.match(textOf(renderer!.root), /Newest message/);
+const quietLists = listRequests().length;
+const quietEvents = eventRequests().length;
+await waitFor(5_500);
+assert.equal(listRequests().length, quietLists, 'no periodic list requests while the stream is open');
+assert.equal(eventRequests().length, quietEvents, 'no periodic events requests while the stream is open');
+assert.equal(streams.length, 1, 'a healthy stream is never reopened');
+
+streams[0].push({ type: 'events', conversationId: 'conv-1', events: [event(3, 'Pushed over the stream')], nextAfter: 3 });
+await waitFor(20);
+assert.match(textOf(renderer!.root), /Pushed over the stream/, 'a streamed message must render in the transcript');
+assert.equal(eventRequests().length, quietEvents, 'a streamed message must not trigger an events request');
+assert.ok(readRequests.some(request => request.url.includes('/conv-1/read') && request.throughSeq === 3), 'the read marker must advance to the streamed seq');
+
+const listsBeforeHint = listRequests().length;
+listOwner = 'Streamed Patient';
+streams[0].push({ type: 'list', conversations: [{ id: 'conv-1', thread: 'care_team', updatedAt: '2026-09-10T13:00:00Z' }] });
+streams[0].push({ type: 'list', conversations: [{ id: 'conv-2', thread: 'care_team', updatedAt: '2026-09-10T13:00:01Z' }] });
+await waitFor(400);
+assert.equal(listRequests().length, listsBeforeHint + 1, 'a burst of list hints must refetch the list exactly once');
+assert.match(textOf(renderer!.root), /Streamed Patient/, 'the refetched list must render');
+
+const eventsBeforeDrop = eventRequests().length;
+streams[0].end(false);
+await waitFor(60);
+assert.equal(streams.length, 1, 'a dropped stream must wait for backoff, not hammer the server');
+await waitFor(1_400);
+assert.equal(streams.length, 2, 'a dropped stream must reconnect after backoff');
+assert.ok(streams[1].url.includes('after=3'), `reconnect must resume from the newest known seq: ${streams[1].url}`);
+assert.ok(eventRequests().length > eventsBeforeDrop, 'reconnecting must do one catch-up events fetch');
+
+streams[1].end(true);
+await waitFor(60);
+assert.equal(streams.length, 3, 'an explicit end must reconnect immediately');
+
+await act(async () => { renderer!.unmount(); });
+await waitFor(1_400);
+assert.equal(streams.length, 3, 'unmounting must close the stream for good');
+
+// HQ inbox: same stream, HQ route, office filter carried on the subscription.
+__setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-live' }, providerAccountCode: null, claimedWorkspace: null });
+streams.length = 0;
+requestUrls = [];
+await act(async () => { renderer = create(<HqPage path="/admin/conversations?office=office-1&conversation=conv-1" />); });
+await settle();
+assert.equal(streams.length, 1, 'the HQ inbox must open exactly one stream');
+assert.match(streams[0].url, /\/api\/hq\/conversations\/stream\?/);
+assert.ok(streams[0].url.includes('office=office-1') && streams[0].url.includes('conversation=conv-1'), streams[0].url);
+const hqEventRequests = () => requestUrls.filter(request => request.startsWith('GET ') && request.includes('/api/hq/conversations/conv-1/events')).length;
+const hqEventsBefore = hqEventRequests();
+streams[0].push({ type: 'events', conversationId: 'conv-1', events: [event(3, 'HQ streamed message')], nextAfter: 3 });
+await waitFor(20);
+assert.match(textOf(renderer!.root), /HQ streamed message/);
+assert.equal(hqEventRequests(), hqEventsBefore, 'HQ streamed messages must not trigger events requests');
+await act(async () => { renderer!.unmount(); });
+__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' }, providerAccountCode: 'office-1', claimedWorkspace: null });
 
 const individualSuggestion = {
   mode: 'individual' as const,

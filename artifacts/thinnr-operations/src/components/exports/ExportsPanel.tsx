@@ -27,6 +27,7 @@ import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
 import { openDownload } from '@/lib/training-media';
 import { expiryLabel } from '@/lib/export-jobs';
+import { politeInterval } from '@/lib/polite-refetch';
 
 export interface ExportOfficeOption {
   /** Provider account id; an empty id means "whatever office the server pins me to". */
@@ -98,9 +99,10 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
     query: {
       enabled: signedIn,
       queryKey: [...getListExportsQueryKey(), authUser?.id],
+      // Pauses while the tab is hidden and slows down once the reader is idle.
       refetchInterval: (query) => {
         const jobs = query.state.data?.jobs ?? [];
-        return jobs.some((job) => PENDING.has(job.status)) ? 3_000 : 60_000;
+        return politeInterval(jobs.some((job) => PENDING.has(job.status)) ? 3_000 : 60_000);
       },
     },
   });

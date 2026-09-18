@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useSearch } from 'wouter';
 import { ArrowLeft, MessagesSquare, Search, Lock } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CHIP_WARM, BTN_SECONDARY } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useHqData } from '@/contexts/hq-data';
+import { useInboxStream } from '@/hooks/use-inbox-stream';
 import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesPanel, ThreadNotesToggle, useThreadNotesPanel, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
   useGetHqConversations,
@@ -34,6 +36,7 @@ export function HqConversations({ role }: { role: HqRole }) {
   const [, navigate] = useLocation();
   const search = useSearch();
   const { authUser } = useSession();
+  const queryClient = useQueryClient();
   const { accounts, findAccount } = useHqData();
 
   const params = new URLSearchParams(search);
@@ -112,7 +115,7 @@ export function HqConversations({ role }: { role: HqRole }) {
     {
       query: {
         queryKey: [scopeKey, ...getGetHqConversationsQueryKey(listParams)],
-        refetchInterval: 5_000,
+        // No fixed polling: the inbox stream below says when the list changed.
         refetchOnWindowFocus: true,
       }
     }
@@ -127,6 +130,9 @@ export function HqConversations({ role }: { role: HqRole }) {
   const [nextBefore, setNextBefore] = useState<number | null>(null);
   const [allEvents, setAllEvents] = useState<ConversationEvent[]>([]);
   const [fetchedThrough, setFetchedThrough] = useState<number | undefined>();
+  // Newest seq that arrived over the stream; kept apart from fetchedThrough
+  // so a pushed message never re-keys the events query (see OfficeConversations).
+  const [streamedThrough, setStreamedThrough] = useState<number | undefined>();
   const [transcriptLoadedFor, setTranscriptLoadedFor] = useState('');
 
   useEffect(() => {
@@ -134,8 +140,14 @@ export function HqConversations({ role }: { role: HqRole }) {
     setNextBefore(null);
     setAllEvents([]);
     setFetchedThrough(undefined);
+    setStreamedThrough(undefined);
     setTranscriptLoadedFor('');
   }, [openId, scopeKey, channelFilter, threadFilter, statusFilter]);
+  const knownThrough = fetchedThrough === undefined && streamedThrough === undefined
+    ? undefined
+    : Math.max(fetchedThrough ?? 0, streamedThrough ?? 0);
+  const knownThroughRef = useRef(knownThrough);
+  knownThroughRef.current = knownThrough;
 
   const newestParams = useMemo<GetHqConversationEventsParams>(() => fetchedThrough ? { after: fetchedThrough, limit: 30 } : { limit: 30 }, [fetchedThrough]);
   const { data: eventsData, isFetching: isEventsFetching, error: eventsError } = useGetHqConversationEvents(
@@ -145,7 +157,6 @@ export function HqConversations({ role }: { role: HqRole }) {
       query: {
         enabled: !!openId,
         queryKey: [scopeKey, ...getGetHqConversationEventsQueryKey(openId ?? '', newestParams)],
-        refetchInterval: 5_000,
         refetchOnWindowFocus: true,
       }
     }
@@ -181,6 +192,38 @@ export function HqConversations({ role }: { role: HqRole }) {
     });
     setNextBefore(older.data.nextBefore);
   }, [older.data, scopeKey, openId]);
+
+  // One live stream per open inbox tab replaces the old 5-second polls.
+  useInboxStream({
+    enabled: true,
+    streamKey: `${scopeKey}:${openId ?? ''}`,
+    path: '/api/hq/conversations/stream',
+    params: () => ({
+      office: accountFilter !== 'all' ? accountFilter : undefined,
+      conversation: openId ?? undefined,
+      after: openId ? knownThroughRef.current : undefined,
+    }),
+    onReady: () => {
+      void queryClient.invalidateQueries({
+        predicate: query => query.queryKey.includes('/api/hq/conversations')
+          || (!!openId && query.queryKey.includes(`/api/hq/conversations/${openId}/events`) && !query.queryKey.includes('older')),
+      }, { cancelRefetch: false });
+    },
+    onList: () => {
+      void queryClient.invalidateQueries({ predicate: query => query.queryKey.includes('/api/hq/conversations') }, { cancelRefetch: false });
+    },
+    onEvents: frame => {
+      if (frame.conversationId !== openRef.current || scopeRef.current !== scopeKey) return;
+      const events = frame.events as ConversationEvent[];
+      if (events.length === 0) return;
+      setAllEvents(prev => {
+        const bySeq = new Map(prev.map(event => [event.seq, event]));
+        events.forEach(event => bySeq.set(event.seq, event));
+        return [...bySeq.values()].sort((left, right) => left.seq - right.seq);
+      });
+      setStreamedThrough(current => Math.max(current ?? 0, frame.nextAfter, ...events.map(event => event.seq)));
+    },
+  });
 
   // Bring the newest message into view when a thread opens and when its
   // newest end grows. Keyed on the newest seq (not list length) so paging
@@ -223,16 +266,23 @@ export function HqConversations({ role }: { role: HqRole }) {
   // Handle read state - idempotent call on open
   useEffect(() => {
     const readKey = `${scopeKey}:${openId}`;
-    if (openId && fetchedThrough && transcriptLoadedFor === readKey) {
-      if (fetchedThrough <= (readThroughByThreadRef.current.get(readKey) ?? 0)) return;
-      readThroughByThreadRef.current.set(readKey, fetchedThrough);
-      readHq.mutate({ conversationId: openId, data: { throughSeq: fetchedThrough } }, {
+    if (openId && knownThrough && transcriptLoadedFor === readKey) {
+      if (knownThrough <= (readThroughByThreadRef.current.get(readKey) ?? 0)) return;
+      readThroughByThreadRef.current.set(readKey, knownThrough);
+      readHq.mutate({ conversationId: openId, data: { throughSeq: knownThrough } }, {
+        onSuccess: (result: { changed?: boolean } | undefined) => {
+          // The unread badge lives in the list; refresh it when the marker moved.
+          if (result?.changed === false) return;
+          void queryClient.invalidateQueries({
+            predicate: query => query.queryKey.includes('/api/hq/conversations'),
+          }, { cancelRefetch: false });
+        },
         onError: () => {
           if (openRef.current === openId) readThroughByThreadRef.current.delete(readKey);
         },
       });
     }
-  }, [openId, fetchedThrough, transcriptLoadedFor, scopeKey]);
+  }, [openId, knownThrough, transcriptLoadedFor, scopeKey]);
 
   const listPane = (
     <aside

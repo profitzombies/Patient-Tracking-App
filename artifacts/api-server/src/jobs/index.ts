@@ -40,9 +40,12 @@ export const patientMediaCleanupJob: JobDefinition = {
     throw new Error("patient-media-cleanup only runs from the patient app");
   },
 };
+import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-events";
 
 export const ALL_JOBS: JobDefinition[] = [
   staffAttentionDigestJob,
+  appEventsRollupJob,
+  appEventsBackfillJob,
   billingReconcileJob,
   billingRenewalRemindersJob,
   coachTitleProcessingJob,

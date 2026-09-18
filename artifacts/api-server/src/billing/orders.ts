@@ -2,6 +2,7 @@ import { notifyOrderConfirmationIfCartComplete } from "./customer-emails";
 import crypto from "node:crypto";
 import type Stripe from "stripe";
 import { logger } from "../lib/logger";
+import { recordPatientEvent } from "../lib/patient-events";
 import { getSettings, resolveOffering } from "./catalog";
 import { breakEvenMinimum, computeOrderFees, estimateStripeFee, hqProfit } from "./fees";
 import { ensureCustomer } from "./customers";
@@ -243,6 +244,9 @@ export async function markOrderPaidFromInvoice(invoice: any, ctx: StripeEventCon
     application_fee_collected_cents: collected, office_net_cents: stripeFee === null ? null : total - collected - stripeFee,
   });
   if (!updated) return;
+  // HQ Insights: a patient-linked order that just became paid is one order
+  // event at the instant Stripe recorded the payment (guest carts have no patient).
+  if (order.patient_id) recordPatientEvent(order.patient_id, "order", { at: new Date(paidAt) });
   // The sale line carries the office's net. With the processing fee unknown
   // it holds the office share BEFORE card fees and says so (fee_pending), so
   // nobody mistakes an assumed $0 fee for a real one; the backfill above

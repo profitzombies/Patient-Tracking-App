@@ -258,3 +258,129 @@ describe("overview inbox block", () => {
     expect((await call("/office/overview")).status).toBe(502);
   });
 });
+
+describe("HQ app usage insights", () => {
+  const RANGE = "start=2026-09-07&end=2026-09-13"; // Mon..Sun
+  const OFFICE = "live-4f2c9a1b0d3e";
+  const bucket = (local_day: string, local_hour: number, events: number, patients = 1) => ({ local_day, local_hour, events, patients });
+
+  it("is denied to Support and Content and validates range + dataset before any RPC", async () => {
+    for (const departmentRole of ["support", "content"]) {
+      mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole });
+      mocks.admin.mockReset();
+      expect((await call(`/hq/app-usage-insights?dataset=food_log&${RANGE}`)).status).toBe(403);
+      expect(mocks.admin).not.toHaveBeenCalled();
+    }
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset();
+    expect((await call(`/hq/app-usage-insights?dataset=food_log&start=2026-09-13&end=2026-09-07`)).status).toBe(400);
+    expect((await call(`/hq/app-usage-insights?dataset=screen_taps&${RANGE}`)).status).toBe(400);
+    expect((await call(`/hq/app-usage-insights?${RANGE}`)).status).toBe(400);
+    expect((await call(`/hq/app-usage-insights?dataset=food_log&${RANGE}&office=${encodeURIComponent("bad id/with spaces")}`)).status).toBe(404);
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("queries the current and the same-length previous period and assembles series, heatmap, tiles and changes", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "clinical" });
+    const calls: Array<Record<string, unknown>> = [];
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.endsWith("patient_app_event_insights")) {
+        calls.push(body);
+        expect(body).toMatchObject({ p_feature: "food_log", p_provider_id: null });
+        if (body.p_start === "2026-09-07") {
+          return response([
+            bucket("2026-09-08", 12, 10, 4), bucket("2026-09-08", 13, 6, 3), bucket("2026-09-08", 14, 2, 1),
+            bucket("2026-09-10", 19, 14, 7), bucket("2026-09-12", -1, 8, 2),
+          ]);
+        }
+        expect(body).toMatchObject({ p_start: "2026-08-31", p_end: "2026-09-06" });
+        return response([bucket("2026-09-01", 12, 20, 5)]);
+      }
+      if (path.endsWith("patient_app_event_bounds")) {
+        expect(body).toEqual({ p_feature: "food_log", p_provider_id: null });
+        return response([{ first_day: "2026-08-01", first_hourly_day: "2026-09-08", first_live_at: "2026-09-08T12:00:00Z" }]);
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    const res = await call(`/hq/app-usage-insights?dataset=food_log&${RANGE}`);
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, any>;
+    expect(calls).toHaveLength(2);
+    expect(json.range).toEqual({ start: "2026-09-07", end: "2026-09-13" });
+    expect(json.previousRange).toEqual({ start: "2026-08-31", end: "2026-09-06" });
+    expect(json.office).toBeNull();
+    expect(json.totals).toEqual({ current: 40, previous: 20, changePct: 100, patientDays: 17 });
+    expect(json.current).toHaveLength(7);
+    expect(json.current[1]).toEqual({ date: "2026-09-08", count: 18 });
+    expect(json.current[5]).toEqual({ date: "2026-09-12", count: 8 });
+    expect(json.previous).toHaveLength(7);
+    expect(json.previous[1]).toEqual({ date: "2026-09-01", count: 20 });
+    expect(json.heatmap).toHaveLength(168);
+    // Thursday 7pm is the single busiest cell; the day-only Saturday row is not in the heatmap.
+    expect(json.peak).toEqual({ weekday: 4, hour: 19, count: 14 });
+    expect(json.heatmap.filter((c: { count: number }) => c.count > 0).map((c: { weekday: number; hour: number }) => `${c.weekday}:${c.hour}`)).toEqual(["2:12", "2:13", "2:14", "4:19"]);
+    expect(json.tiles.peakWindow).toEqual({ weekday: 2, startHour: 12, endHour: 14, count: 18 });
+    expect(json.tiles.bestDay).toEqual({ weekday: 2, count: 18, sharePct: 45 });
+    expect(json.tiles.busiestHour).toEqual({ hour: 19, count: 14, sharePct: 44 });
+    expect(json.tiles.weekendSharePct).toBe(20);
+    expect(json.hourly.since).toBe("2026-09-08");
+    expect(json.hourly.complete).toBe(false);
+    const kinds = json.changes.map((c: { kind: string }) => c.kind);
+    expect(kinds).toEqual(["trend", "day", "window", "tracking"]);
+    expect(json.changes[0].text).toBe("Food logs are up 100% vs the previous 7 days (40 vs 20).");
+    expect(json.changes[1].text).toBe("Tuesdays are the strongest day with 45% of food logs.");
+    expect(json.changes[2].text).toBe("Busiest window: Tue 12–3pm in patients' local time (18 food logs).");
+    expect(json.changes[3].text).toContain("started Sep 8, 2026");
+  });
+
+  it("scopes every RPC to an enabled office and answers 404 for unknown or disabled ones", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.startsWith("/rest/v1/providers?")) {
+        expect(path).toContain(`provider_id=eq.${OFFICE}`);
+        expect(path).toContain("access_disabled=is.false");
+        return response(path.includes(OFFICE) && !disabled ? [{ provider_id: OFFICE, office_name: "Lakeside", provider_name: "Dr L" }] : []);
+      }
+      expect(body.p_provider_id).toBe(OFFICE);
+      if (path.endsWith("patient_app_event_bounds")) return response([{ first_day: null, first_hourly_day: null, first_live_at: null }]);
+      return response([]);
+    });
+    let disabled = true;
+    expect((await call(`/hq/app-usage-insights?dataset=order&${RANGE}&office=${OFFICE}`)).status).toBe(404);
+    disabled = false;
+    const res = await call(`/hq/app-usage-insights?dataset=order&${RANGE}&office=${OFFICE}`);
+    expect(res.status).toBe(200);
+    const json = await res.json() as Record<string, any>;
+    expect(json.office).toEqual({ id: OFFICE, name: "Lakeside" });
+    expect(json.totals).toEqual({ current: 0, previous: 0, changePct: null, patientDays: 0 });
+    expect(json.peak).toBeNull();
+    expect(json.tiles).toEqual({ peakWindow: null, bestDay: null, busiestHour: null, weekendSharePct: null });
+    expect(json.changes.map((c: { kind: string }) => c.kind)).toEqual(["quiet", "tracking"]);
+    expect(json.changes[0].text).toBe("No orders were recorded in this range for Lakeside.");
+  });
+
+  it("accepts legacy text provider ids and looks them up exactly", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    const LEGACY = "acct-p1";
+    const providerLookups: string[] = [];
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      if (path.startsWith("/rest/v1/providers?")) {
+        providerLookups.push(path);
+        return response([{ provider_id: LEGACY, office_name: "Legacy Clinic", provider_name: "Dr P" }]);
+      }
+      expect(body.p_provider_id).toBe(LEGACY);
+      if (path.endsWith("patient_app_event_bounds")) return response([{ first_day: null, first_hourly_day: null, first_live_at: null }]);
+      return response([]);
+    });
+    const res = await call(`/hq/app-usage-insights?dataset=weigh_in&${RANGE}&office=${LEGACY}`);
+    expect(res.status).toBe(200);
+    expect(providerLookups).toEqual([expect.stringContaining(`provider_id=eq.${LEGACY}&access_disabled=is.false`)]);
+    expect(((await res.json()) as Record<string, any>).office).toEqual({ id: LEGACY, name: "Legacy Clinic" });
+  });
+
+  it("answers 502 when the database refuses instead of showing zeroes", async () => {
+    mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
+    mocks.admin.mockReset().mockResolvedValue(response({}, 500));
+    expect((await call(`/hq/app-usage-insights?dataset=app_open&${RANGE}`)).status).toBe(502);
+  });
+});

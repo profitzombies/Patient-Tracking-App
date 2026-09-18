@@ -9,6 +9,7 @@ import { z } from "zod";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { resolvePatient } from "../lib/patient-auth";
+import { recordPatientEvent } from "../lib/patient-events";
 import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { objectStorage } from "../lib/objectStorage";
 import { fetchPatientProfile, firstNameOf, isDateKey, programDayFor } from "../coach/real-patient";
@@ -293,6 +294,9 @@ router.post("/patient-coach/conversations/:conversationId/messages", async (req,
     if (result.json === "missing") { res.status(404).json({ error: "Conversation not found." }); return; }
     if (result.json === "archived") { res.status(403).json({ error: "Restore this conversation before continuing." }); return; }
     if (result.json !== "ok") throw new Error("unexpected coach append result");
+    // HQ Insights: each patient-authored row in the batch is one coach_message
+    // event (assistant rows are the coach's; a replayed batch may recount).
+    recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, count: rows.filter((row) => row.role === "user").length });
     res.json({ ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient coach conversation append failed");

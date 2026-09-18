@@ -18,6 +18,7 @@ import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { resolvePatient } from "../lib/patient-auth";
+import { recordPatientEvent } from "../lib/patient-events";
 import { createLimiter, envLimit } from "../coach/limits";
 import { openIdempotentWrite } from "../lib/idempotency";
 import { clientIp } from "../auth/ledger";
@@ -224,6 +225,8 @@ router.post("/patient-data/medication-doses", async (req, res) => {
       status: body.status,
       source,
     });
+    // HQ Insights: every saved dose answer (taken, skipped, or corrected) is one medication_log event.
+    recordPatientEvent(auth.patientId, "medication_log", { headers: req.headers });
     await idem.finish(res, 200, { log });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data dose log write failed");

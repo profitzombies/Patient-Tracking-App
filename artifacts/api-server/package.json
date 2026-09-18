@@ -19,6 +19,7 @@
     "@google-cloud/storage": "^8.0.1",
     "@napi-rs/canvas": "^0.1.80",
     "@workspace/api-zod": "workspace:*",
+    "@workspace/app-usage-insights": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/email-templates": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",

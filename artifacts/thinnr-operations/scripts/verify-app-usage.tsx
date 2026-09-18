@@ -24,6 +24,16 @@
  *   - a range with no activated patient shows the unavailable notice, not 0;
  *   - a 502 renders the error notices and "Error" tiles; Try again refetches;
  *   - Support / Content / Clinical lack the page permission; Admin has it.
+ *
+ * Insights section (demo + live):
+ *   - nine dataset chips, App opens pressed by default, switching re-renders
+ *     (demo: no request; live: a new dataset= request);
+ *   - the 7 × 24 heatmap carries the assembled counts, nothing is pinned at
+ *     rest, hover / arrow keys show the shared "Thu · 2pm — 14 …" readout;
+ *   - previous period drawn dashed behind the solid current series;
+ *   - food/water show the "tracked since" note until 7 hourly days exist;
+ *   - practice filter scopes the figures (live: office= on the request);
+ *   - an insights failure reports Error without touching the usage tiles.
  */
 import * as React from 'react';
 import { act } from 'react';
@@ -42,6 +52,8 @@ import HqOverview from '../src/pages/admin/HqOverview';
 import { canHq, permissionForAdminPath } from '../src/data/hq/team';
 import { DEFAULT_DATE_RANGE, DEMO_TODAY_KEY } from '../src/lib/date-range-keys';
 import { DEMO_APP_USAGE_OFFICES, demoAppUsage } from '../src/data/hq/app-usage-demo';
+import { DEMO_INSIGHTS_OFFICES, demoAppUsageInsights } from '../src/data/hq/app-usage-insights-demo';
+import { WEEKDAY_LONG, assembleInsights, formatHourWindow, formatWindowLabel, heatmapTooltip, previousRangeOf, type DayHourBucket, type InsightsDataset } from '@workspace/app-usage-insights';
 import {
   APP_USAGE_COLUMNS,
   APP_USAGE_REFRESH_MS,
@@ -219,6 +231,29 @@ function liveResult(rangeStart: string, rangeEnd: string, overrides: Partial<App
 }
 
 const requests: string[] = [];
+const usageRequests = () => requests.filter((r) => r.includes('/api/hq/app-usage?'));
+const insightsRequests = () => requests.filter((r) => r.includes('/api/hq/app-usage-insights?'));
+let insightsStatus = 200;
+/** Live insights fixture: Tue 12-2pm block, a Thu 7pm spike, a day-only Saturday row; previous period half the volume. */
+function liveInsights(dataset: InsightsDataset, start: string, end: string, office: string | null) {
+  const range = { start, end };
+  const previous = previousRangeOf(range);
+  const day = (offset: number, from = start) => {
+    const [y, m, d] = from.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + offset)).toISOString().slice(0, 10);
+  };
+  const current: DayHourBucket[] = [
+    { day: day(1), hour: 12, events: 10, patients: 4 }, { day: day(1), hour: 13, events: 6, patients: 3 }, { day: day(1), hour: 14, events: 2, patients: 1 },
+    { day: day(3), hour: 19, events: 14, patients: 7 }, { day: day(5), hour: -1, events: 8, patients: 2 },
+  ];
+  const prior: DayHourBucket[] = [{ day: day(1, previous.start), hour: 12, events: 20, patients: 5 }];
+  return assembleInsights({
+    dataset, range, asOf: new Date().toISOString(),
+    office: office ? { id: office, name: LIVE_ROWS.find((r) => r.providerId === office)?.officeName ?? office } : null,
+    bounds: { firstDay: '2026-03-01', firstHourlyDay: dataset === 'food_log' || dataset === 'water_log' ? end : '2026-03-01' },
+    current, previous: prior,
+  });
+}
 let usageStatus = 200;
 let usageOverrides: Partial<AppUsageResult['network']> = {};
 let holdUsage: (() => void) | null = null;
@@ -227,6 +262,11 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const method = (init?.method ?? 'GET').toUpperCase();
   requests.push(`${method} ${url}`);
   const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
+  if (url.includes('/api/hq/app-usage-insights')) {
+    if (insightsStatus !== 200) return json({ error: 'Insights are unavailable right now.' }, insightsStatus);
+    const params = new URL(url, 'http://test.local').searchParams;
+    return json(liveInsights(params.get('dataset') as InsightsDataset, params.get('start') ?? '', params.get('end') ?? '', params.get('office')));
+  }
   if (url.includes('/api/hq/app-usage')) {
     if (holdUsage) await new Promise<void>((resolve) => { holdUsage = resolve; });
     if (usageStatus !== 200) return json({ error: 'App usage is unavailable right now.' }, usageStatus);
@@ -317,7 +357,7 @@ console.log('live page');
       && byTestId(root, 'text-app-usage-updated').length === 0);
   const release = holdUsage; holdUsage = null; release();
   await settle();
-  check('one live request with the shared range', requests.length === 1 && /GET \/api\/hq\/app-usage\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/.test(requests[0]), requests.join('\n'));
+  check('one live request with the shared range', usageRequests().length === 1 && /GET \/api\/hq\/app-usage\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/.test(usageRequests()[0]), requests.join('\n'));
   check('ready: network tiles with shares',
     textOf(byTestId(root, 'text-usage-active-now')[0]) === '7' && textOf(byTestId(root, 'text-usage-active-today')[0]) === '63'
       && textOf(byTestId(root, 'text-usage-weekly')[0]) === '108' && textOf(byTestId(root, 'text-usage-monthly')[0]) === '164'
@@ -366,17 +406,153 @@ console.log('live page — failure');
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_300)); });
   await settle();
   const root = renderer.root;
-  check('the failed read was retried exactly once before reporting', requests.length === 2, String(requests.length));
+  check('the failed read was retried exactly once before reporting', usageRequests().length === 2, String(usageRequests().length));
   const alerts = root.findAll((n) => n.props.role === 'alert' && typeof n.type === 'string');
   check('a 502 renders error notices and Error tiles, never seeded figures',
     alerts.length === 2 && textOf(byTestId(root, 'text-usage-weekly')[0]) === 'Error' && byTestId(root, 'table-app-usage').length === 0
       && JSON.stringify(renderer.toJSON()).includes('Failed to load'));
   usageStatus = 200;
-  const before = requests.length;
+  const before = usageRequests().length;
   const retry = byTestId(root, 'text-app-usage-chart-error')[0].findAll((n) => n.type === 'button')[0];
   await act(async () => { retry.props.onClick(); });
   await settle();
-  check('Try again refetches and recovers', requests.length === before + 1 && textOf(byTestId(root, 'text-usage-weekly')[0]) === '108' && byTestId(root, 'table-app-usage').length === 1);
+  check('Try again refetches and recovers', usageRequests().length === before + 1 && textOf(byTestId(root, 'text-usage-weekly')[0]) === '108' && byTestId(root, 'table-app-usage').length === 1);
+  await unmount();
+}
+
+// ─── Insights section ────────────────────────────────────────────────────────
+
+const pressedChip = (root: ReactTestInstance) =>
+  root.findAll((n) => typeof n.props['data-testid'] === 'string' && n.props['data-testid'].startsWith('chip-insights-') && n.props['aria-pressed'] === true).map((n) => n.props['data-testid']);
+const heatCells = (root: ReactTestInstance) => root.findAll((n) => typeof n.props['data-testid'] === 'string' && n.props['data-testid'].startsWith('cell-insights-') && n.type === 'rect');
+const dashedPaths = (root: ReactTestInstance, chartId: string) => byTestId(root, chartId)[0]?.findAll((n) => n.type === 'path' && n.props.strokeDasharray === '5 4') ?? [];
+
+console.log('insights — demo');
+{
+  __setSession({ authStatus: 'signed-out', authRole: null, authUser: null, hqRole: null });
+  requests.length = 0;
+  const { renderer, unmount } = await mount(AppUsage, '/admin/app-usage');
+  await settle();
+  const root = renderer.root;
+  const expected = demoAppUsageInsights('app_open', DEFAULT_DATE_RANGE, null);
+  check('demo insights make no request', requests.length === 0, requests.join('\n'));
+  check('section renders nine dataset chips with App opens pressed by default',
+    byTestId(root, 'section-app-usage-insights').length === 1
+      && root.findAll((n) => typeof n.props['data-testid'] === 'string' && n.props['data-testid'].startsWith('chip-insights-') && n.type === 'button').length === 9
+      && pressedChip(root).join() === 'chip-insights-app_open', pressedChip(root).join());
+  check('heatmap draws 7 × 24 cells with data-count matching the seed',
+    heatCells(root).length === 168 && heatCells(root).every((cell) => {
+      const [, , w, h] = cell.props['data-testid'].split('-');
+      return cell.props['data-count'] === expected.heatmap.find((c) => c.weekday === Number(w) && c.hour === Number(h))?.count;
+    }));
+  check('demo seed is deterministic (second assembly is byte-identical)',
+    JSON.stringify(demoAppUsageInsights('app_open', DEFAULT_DATE_RANGE, null)) === JSON.stringify(expected));
+  check('tiles show the seeded peak window, best day, busiest hour and weekend share',
+    textOf(byTestId(root, 'text-insights-peak-window')[0]) !== '—' && textOf(byTestId(root, 'text-insights-best-day')[0]).endsWith('day')
+      && /^\d{1,2}(am|pm)?–\d{1,2}(am|pm)$/.test(textOf(byTestId(root, 'text-insights-busiest-hour')[0]))
+      && textOf(byTestId(root, 'text-insights-weekend-share')[0]) === `${expected.tiles.weekendSharePct}%`,
+    [textOf(byTestId(root, 'text-insights-peak-window')[0]), textOf(byTestId(root, 'text-insights-best-day')[0]), textOf(byTestId(root, 'text-insights-busiest-hour')[0])].join(' | '));
+  const changes = byTestId(root, 'list-insights-changes')[0]?.findAll((n) => n.type === 'li') ?? [];
+  check('what-changed lists the rule-based items in order (trend, day, window)',
+    changes.length >= 3 && changes.map((li) => li.props['data-testid']).slice(0, 3).join() === 'text-insights-change-trend,text-insights-change-day,text-insights-change-window'
+      && textOf(changes[0]) === expected.changes[0].text, changes.map((li) => textOf(li)).join('\n'));
+  check('nothing is pinned at rest: no heatmap readout, no chart readout, empty live region',
+    byTestId(root, 'chart-insights-heatmap-readout').length === 0 && byTestId(root, 'chart-insights-trend-readout').length === 0 && textOf(byTestId(root, 'text-insights-heatmap-live')[0]) === '');
+  check('the previous period is drawn dashed behind the solid current series',
+    dashedPaths(root, 'chart-insights-trend').length === 1 && byTestId(root, 'chart-insights-trend')[0].findAll((n) => n.type === 'path' && n.props.strokeWidth === 2).length === 1);
+
+  // Hover a cell → tooltip text in the shared "Thu · 2pm — 14 food logs" shape, in the card and the live region.
+  const peak = expected.peak!;
+  const peakCell = byTestId(root, `cell-insights-${peak.weekday}-${peak.hour}`)[0];
+  await act(async () => { peakCell.props.onMouseEnter(); });
+  const tip = heatmapTooltip(peak, 'app_open');
+  check('hovering the peak cell shows its tooltip and announces it',
+    textOf(byTestId(root, 'chart-insights-heatmap-readout')[0]) === tip && textOf(byTestId(root, 'text-insights-heatmap-live')[0]) === tip
+      && /^[A-Z][a-z]{2} · \d{1,2}(am|pm) — [\d,]+ app opens?$/.test(tip), tip);
+  check('legend names the peak with the same wording', textOf(byTestId(root, 'text-insights-heatmap-peak')[0]) === `Peak: ${tip}`);
+  const svg = byTestId(root, 'chart-insights-heatmap')[0].findAll((n) => n.type === 'svg')[0];
+  await act(async () => { svg.props.onKeyDown({ key: 'ArrowRight', preventDefault() {} }); });
+  const next = expected.heatmap.find((c) => c.weekday === peak.weekday && c.hour === Math.min(23, peak.hour + 1))!;
+  check('arrow keys move the readout one cell', textOf(byTestId(root, 'text-insights-heatmap-live')[0]) === heatmapTooltip(next, 'app_open'));
+  await act(async () => { svg.props.onMouseLeave(); });
+  check('leaving clears the readout', byTestId(root, 'chart-insights-heatmap-readout').length === 0 && textOf(byTestId(root, 'text-insights-heatmap-live')[0]) === '');
+
+  // Chip switch: food logs are tracked hourly only from the demo launch date → the tracked-since note shows.
+  await act(async () => { byTestId(root, 'chip-insights-food_log')[0].props.onClick(); });
+  const food = demoAppUsageInsights('food_log', DEFAULT_DATE_RANGE, null);
+  check('switching chips re-renders the section for food logs with the tracked-since note',
+    pressedChip(root).join() === 'chip-insights-food_log' && food.hourly.complete === false
+      && textOf(byTestId(root, 'text-insights-tracked-since')[0]).startsWith('Time of day tracked since Sep 14, 2026')
+      && textOf(byTestId(root, 'text-insights-change-tracking')[0]).includes('Sep 14, 2026')
+      && textOf(byTestId(root, 'text-insights-weekend-share')[0]) === `${food.tiles.weekendSharePct}%`
+      && JSON.stringify(renderer.toJSON()).includes('Food logs over time'),
+    textOf(byTestId(root, 'text-insights-tracked-since')[0]));
+  check('demo still made no request after switching', requests.length === 0);
+
+  // Practice filter narrows to one seeded office; the demo seed differs per office.
+  const select = byTestId(root, 'select-insights-office')[0];
+  check('practice select lists the four seeded offices', select.findAll((n) => n.type === 'option').length === 5 && DEMO_INSIGHTS_OFFICES.length === 4);
+  await act(async () => { select.props.onChange({ target: { value: 'acct-p2' } }); });
+  const chen = demoAppUsageInsights('food_log', DEFAULT_DATE_RANGE, 'acct-p2');
+  check('choosing a practice scopes the figures and names it',
+    select.props.value === 'acct-p2' && chen.office?.name === 'Chen Metabolic Health' && chen.totals.current !== food.totals.current
+      && JSON.stringify(renderer.toJSON()).includes('at Chen Metabolic Health')
+      && textOf(byTestId(root, 'text-insights-weekend-share')[0]) === `${chen.tiles.weekendSharePct}%`);
+  await unmount();
+}
+
+console.log('insights — live');
+{
+  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1', displayName: 'Ada Admin' }, hqRole: 'Admin' });
+  __setSupabaseSession('token');
+  requests.length = 0;
+  const { renderer, client, unmount } = await mount(AppUsage, '/admin/app-usage');
+  await settle();
+  const root = renderer.root;
+  check('live page asks for insights with the default dataset and the shared range',
+    insightsRequests().length === 1 && /GET \/api\/hq\/app-usage-insights\?dataset=app_open&start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/.test(insightsRequests()[0]), requests.join('\n'));
+  const url = new URL(insightsRequests()[0].split(' ')[1], 'http://test.local');
+  const expected = liveInsights('app_open', url.searchParams.get('start')!, url.searchParams.get('end')!, null);
+  const bestDay = WEEKDAY_LONG[expected.tiles.bestDay!.weekday];
+  check('live tiles reflect the served figures',
+    textOf(byTestId(root, 'text-insights-best-day')[0]) === bestDay && textOf(byTestId(root, 'text-insights-peak-window')[0]) === formatWindowLabel(expected.tiles.peakWindow!)
+      && /12–3pm$/.test(formatWindowLabel(expected.tiles.peakWindow!)) && expected.tiles.peakWindow!.count === 18
+      && textOf(byTestId(root, 'text-insights-busiest-hour')[0]) === formatHourWindow(19, 19) && formatHourWindow(19, 19) === '7–8pm'
+      && textOf(byTestId(root, 'text-insights-weekend-share')[0]) === `${expected.tiles.weekendSharePct}%`,
+    [textOf(byTestId(root, 'text-insights-best-day')[0]), textOf(byTestId(root, 'text-insights-peak-window')[0]), textOf(byTestId(root, 'text-insights-busiest-hour')[0])].join(' | '));
+  check('trend line and previous period carry the served daily totals',
+    textOf(byTestId(root, 'text-insights-change-trend')[0]) === expected.changes[0].text && expected.changes[0].text === 'App opens are up 100% vs the previous 30 days (40 vs 20).'
+      && dashedPaths(root, 'chart-insights-trend').length === 1, expected.changes[0].text);
+  const query = client.getQueryCache().findAll().find((q) => JSON.stringify(q.queryKey).includes('/api/hq/app-usage-insights'));
+  const observer = query?.observers[0] as { options?: { refetchInterval?: number } } | undefined;
+  check('insights poll on the same cadence with an identity-scoped key',
+    observer?.options?.refetchInterval === APP_USAGE_REFRESH_MS && JSON.stringify(query?.queryKey).includes('"hq-1"'), JSON.stringify(query?.queryKey));
+
+  await act(async () => { byTestId(root, 'chip-insights-food_log')[0].props.onClick(); });
+  await settle();
+  check('switching chips requests the new dataset', insightsRequests().length === 2 && insightsRequests()[1].includes('dataset=food_log&'), requests.join('\n'));
+  check('food logs show the tracked-since note from the served bounds', byTestId(root, 'text-insights-tracked-since').length === 1 && textOf(byTestId(root, 'text-insights-tracked-since')[0]).includes('1 of 7 days'));
+
+  const select = byTestId(root, 'select-insights-office')[0];
+  check('practice options come from the served enabled offices', select.findAll((n) => n.type === 'option').map((o) => o.props.value).join() === ',office-a,office-b,office-c');
+  await act(async () => { select.props.onChange({ target: { value: 'office-b' } }); });
+  await settle();
+  check('choosing a practice adds office= to the request and names it',
+    insightsRequests().length === 3 && insightsRequests()[2].endsWith('&office=office-b') && JSON.stringify(renderer.toJSON()).includes('at Summit Health'), requests.join('\n'));
+
+  insightsStatus = 502;
+  await act(async () => { byTestId(root, 'chip-insights-order')[0].props.onClick(); });
+  await settle();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_300)); });
+  await settle();
+  check('an insights failure shows Error tiles and notices while the usage tiles stay live',
+    textOf(byTestId(root, 'text-insights-best-day')[0]) === 'Error' && byTestId(root, 'text-insights-heatmap-error').length === 1
+      && byTestId(root, 'text-insights-chart-error').length === 1 && textOf(byTestId(root, 'text-usage-weekly')[0]) === '108');
+  insightsStatus = 200;
+  const before = insightsRequests().length;
+  await act(async () => { byTestId(root, 'text-insights-heatmap-error')[0].findAll((n) => n.type === 'button')[0].props.onClick(); });
+  await settle();
+  check('Try again refetches insights and recovers', insightsRequests().length === before + 1 && byTestId(root, 'chart-insights-heatmap').length === 1 && textOf(byTestId(root, 'text-insights-best-day')[0]) === bestDay);
   await unmount();
 }
 

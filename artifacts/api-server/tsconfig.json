@@ -19,6 +19,9 @@
     },
     {
       "path": "../../lib/email-templates"
+    },
+    {
+      "path": "../../lib/app-usage-insights"
     }
   ]
 }

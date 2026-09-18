@@ -256,6 +256,14 @@ args = "overview-live-api"
 task = "workflow.run"
 args = "ledger-retention"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-usage-insights-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-usage-insights-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2082,6 +2090,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/reporting-mrr.test.ts src/billing/reporting.test.ts src/routes/billing-office-sales.test.ts src/routes/billing-office-orders.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-usage-insights-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/app-events.sql.test.ts src/lib/patient-events.test.ts src/jobs/definitions/app-events.test.ts src/routes/operational-rollups.test.ts src/routes/app-usage.sql.test.ts src/privacy/purge.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-usage-insights-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:app-usage && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

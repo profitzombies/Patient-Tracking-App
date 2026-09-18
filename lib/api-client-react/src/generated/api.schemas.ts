@@ -450,6 +450,115 @@ export interface AppUsageResult {
   offices: AppUsageOfficeRow[];
 }
 
+export type AppUsageInsightsDataset = typeof AppUsageInsightsDataset[keyof typeof AppUsageInsightsDataset];
+
+
+export const AppUsageInsightsDataset = {
+  app_open: 'app_open',
+  food_log: 'food_log',
+  water_log: 'water_log',
+  weigh_in: 'weigh_in',
+  progress_photo: 'progress_photo',
+  coach_message: 'coach_message',
+  care_team_message: 'care_team_message',
+  medication_log: 'medication_log',
+  order: 'order',
+} as const;
+
+export interface AppUsageInsightsPoint {
+  date: string;
+  count: number;
+}
+
+export interface AppUsageInsightsCell {
+  /** 0 = Sunday … 6 = Saturday */
+  weekday: number;
+  /** Patient-local hour 0-23 */
+  hour: number;
+  count: number;
+}
+
+export interface AppUsageInsightsWindow {
+  weekday: number;
+  startHour: number;
+  /** Inclusive last hour of the window */
+  endHour: number;
+  count: number;
+}
+
+export type AppUsageInsightsChangeKind = typeof AppUsageInsightsChangeKind[keyof typeof AppUsageInsightsChangeKind];
+
+
+export const AppUsageInsightsChangeKind = {
+  trend: 'trend',
+  day: 'day',
+  window: 'window',
+  tracking: 'tracking',
+  quiet: 'quiet',
+} as const;
+
+export interface AppUsageInsightsChange {
+  kind: AppUsageInsightsChangeKind;
+  text: string;
+}
+
+export type AppUsageInsightsOffice = {
+  id: string;
+  name: string;
+} | null;
+
+export type AppUsageInsightsHourly = {
+  /** First local day with hour-of-day data */
+  since: string | null;
+  days: number;
+  /** True once 7 days of hourly data exist */
+  complete: boolean;
+};
+
+export type AppUsageInsightsTotals = {
+  current: number;
+  previous: number;
+  changePct: number | null;
+  patientDays: number;
+};
+
+export type AppUsageInsightsTilesBestDay = {
+  weekday: number;
+  count: number;
+  sharePct: number;
+} | null;
+
+export type AppUsageInsightsTilesBusiestHour = {
+  hour: number;
+  count: number;
+  sharePct: number;
+} | null;
+
+export type AppUsageInsightsTiles = {
+  peakWindow: AppUsageInsightsWindow | null;
+  bestDay: AppUsageInsightsTilesBestDay;
+  busiestHour: AppUsageInsightsTilesBusiestHour;
+  weekendSharePct: number | null;
+};
+
+export interface AppUsageInsights {
+  dataset: AppUsageInsightsDataset;
+  label: string;
+  range: DateRangeKeys;
+  previousRange: DateRangeKeys;
+  asOf: string;
+  office: AppUsageInsightsOffice;
+  hourly: AppUsageInsightsHourly;
+  totals: AppUsageInsightsTotals;
+  current: AppUsageInsightsPoint[];
+  previous: AppUsageInsightsPoint[];
+  /** 168 cells, weekday-major, hourly events only */
+  heatmap: AppUsageInsightsCell[];
+  peak: AppUsageInsightsCell | null;
+  tiles: AppUsageInsightsTiles;
+  changes: AppUsageInsightsChange[];
+}
+
 export type OfficeAnalyticsResultOffice = {
   providerId: string;
   officeName: string;
@@ -4580,6 +4689,13 @@ end: string;
 export type GetHqAppUsageParams = {
 start: string;
 end: string;
+};
+
+export type GetHqAppUsageInsightsParams = {
+dataset: AppUsageInsightsDataset;
+start: string;
+end: string;
+office?: string;
 };
 
 export type GetOfficeSettingsParams = {

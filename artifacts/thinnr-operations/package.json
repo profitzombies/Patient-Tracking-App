@@ -102,6 +102,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/app-usage-insights": "workspace:*",
     "@workspace/email-templates": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",

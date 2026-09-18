@@ -34,6 +34,7 @@ import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { resolvePatient } from "../lib/patient-auth";
+import { recordPatientEvent } from "../lib/patient-events";
 import { createLimiter, envLimit } from "../coach/limits";
 import { clientIp } from "../auth/ledger";
 import { inboxFeed } from "../lib/inbox-feed";
@@ -373,6 +374,11 @@ router.post("/patient-chat/:thread/messages", async (req, res) => {
     if (applied.status >= 300) throw new Error(`chat apply failed (${applied.status})`);
     // Staff inbox streams hear about the new rows now, not at the next tick.
     inboxFeed.poke();
+    // HQ Insights: patient-authored coach rows are coach_message events
+    // (support thread messages are not tracked).
+    if (thread === "coach") {
+      recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, count: rows.filter((row) => row.role === "user").length });
+    }
 
     res.json({ ok: true });
   } catch (error) {

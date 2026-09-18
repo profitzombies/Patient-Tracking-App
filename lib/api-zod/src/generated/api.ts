@@ -3338,6 +3338,88 @@ export const GetHqAppUsageResponse = zod.object({
 
 
 /**
+ * Counts patient app events for one feature across the range and the same-length period immediately before it. Heatmap cells are in each patient's local time; day-only history (water, app-open days before hourly tracking) counts toward totals and the series but not the heatmap. `office` narrows every figure to one enabled practice.
+ * @summary One app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
+ */
+export const GetHqAppUsageInsightsQueryParams = zod.object({
+  "dataset": zod.enum(['app_open', 'food_log', 'water_log', 'weigh_in', 'progress_photo', 'coach_message', 'care_team_message', 'medication_log', 'order']),
+  "start": zod.date(),
+  "end": zod.date(),
+  "office": zod.coerce.string().optional()
+})
+
+export const GetHqAppUsageInsightsResponse = zod.object({
+  "dataset": zod.enum(['app_open', 'food_log', 'water_log', 'weigh_in', 'progress_photo', 'coach_message', 'care_team_message', 'medication_log', 'order']),
+  "label": zod.string(),
+  "range": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "previousRange": zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),
+  "asOf": zod.string(),
+  "office": zod.object({
+  "id": zod.string(),
+  "name": zod.string()
+}).nullable(),
+  "hourly": zod.object({
+  "since": zod.string().nullable().describe('First local day with hour-of-day data'),
+  "days": zod.number(),
+  "complete": zod.boolean().describe('True once 7 days of hourly data exist')
+}),
+  "totals": zod.object({
+  "current": zod.number(),
+  "previous": zod.number(),
+  "changePct": zod.number().nullable(),
+  "patientDays": zod.number()
+}),
+  "current": zod.array(zod.object({
+  "date": zod.string(),
+  "count": zod.number()
+})),
+  "previous": zod.array(zod.object({
+  "date": zod.string(),
+  "count": zod.number()
+})),
+  "heatmap": zod.array(zod.object({
+  "weekday": zod.number().describe('0 = Sunday … 6 = Saturday'),
+  "hour": zod.number().describe('Patient-local hour 0-23'),
+  "count": zod.number()
+})).describe('168 cells, weekday-major, hourly events only'),
+  "peak": zod.object({
+  "weekday": zod.number().describe('0 = Sunday … 6 = Saturday'),
+  "hour": zod.number().describe('Patient-local hour 0-23'),
+  "count": zod.number()
+}).nullable(),
+  "tiles": zod.object({
+  "peakWindow": zod.object({
+  "weekday": zod.number(),
+  "startHour": zod.number(),
+  "endHour": zod.number().describe('Inclusive last hour of the window'),
+  "count": zod.number()
+}).nullable(),
+  "bestDay": zod.object({
+  "weekday": zod.number(),
+  "count": zod.number(),
+  "sharePct": zod.number()
+}).nullable(),
+  "busiestHour": zod.object({
+  "hour": zod.number(),
+  "count": zod.number(),
+  "sharePct": zod.number()
+}).nullable(),
+  "weekendSharePct": zod.number().nullable()
+}),
+  "changes": zod.array(zod.object({
+  "kind": zod.enum(['trend', 'day', 'window', 'tracking', 'quiet']),
+  "text": zod.string()
+}))
+})
+
+
+/**
  * @summary The caller's recent export jobs and the kinds they may request
  */
 export const ListExportsResponse = zod.object({

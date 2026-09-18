@@ -3,6 +3,14 @@ import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-sco
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { inboxMetrics } from "./staff-conversations";
+import {
+  assembleInsights,
+  isInsightsDataset,
+  previousRangeOf,
+  type DayHourBucket,
+  type InsightsBounds,
+  type InsightsDataset,
+} from "@workspace/app-usage-insights";
 
 const router: IRouter = Router();
 
@@ -480,6 +488,111 @@ router.get("/office/analytics", async (req, res) => {
   } catch (error) {
     req.log?.error({ err: error }, "office analytics failed");
     res.status(502).json({ error: "Could not load office analytics right now." });
+  }
+});
+
+
+/* --------------------------------------------------------- app insights */
+
+// Provider ids are text (`live-…` for real offices, `acct-p1`-style legacy
+// seeds), not UUIDs: accept any bounded, printable id and let the exact
+// (URL-encoded) lookup decide whether the office exists.
+const PROVIDER_ID_RE = /^[A-Za-z0-9._:-]{1,120}$/;
+const INSIGHTS_DATASET_ERROR = "Use one of the app usage datasets.";
+
+function insightBucketDto(row: Record<string, unknown>): DayHourBucket {
+  const n = (value: unknown) => {
+    const number = Number(value ?? 0);
+    return Number.isFinite(number) ? number : 0;
+  };
+  return {
+    day: String(row.local_day ?? "").slice(0, 10),
+    hour: n(row.local_hour),
+    events: n(row.events),
+    patients: n(row.patients),
+  };
+}
+
+async function loadInsightBuckets(dataset: InsightsDataset, range: DateRangeKeys, providerId: string | null): Promise<DayHourBucket[]> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_event_insights", {
+    p_feature: dataset,
+    p_start: range.start,
+    p_end: range.end,
+    p_provider_id: providerId,
+  });
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`app usage insights failed (${result.status})`);
+  }
+  return (result.json as Record<string, unknown>[]).map(insightBucketDto);
+}
+
+async function loadInsightBounds(dataset: InsightsDataset, providerId: string | null): Promise<InsightsBounds> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_event_bounds", {
+    p_feature: dataset,
+    p_provider_id: providerId,
+  });
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`app usage insight bounds failed (${result.status})`);
+  }
+  const row = (result.json[0] ?? {}) as { first_day?: unknown; first_hourly_day?: unknown };
+  const day = (value: unknown) => (typeof value === "string" && value.length >= 10 ? value.slice(0, 10) : null);
+  return { firstDay: day(row.first_day), firstHourlyDay: day(row.first_hourly_day) };
+}
+
+/** Enabled office by id, or null when unknown / disabled (mirrors the app-usage office rows). */
+async function loadInsightOffice(providerId: string): Promise<{ id: string; name: string } | null> {
+  const result = await supabaseAdmin(
+    "GET",
+    `/rest/v1/providers?provider_id=eq.${encodeURIComponent(providerId)}&access_disabled=is.false&select=provider_id,provider_name,office_name&limit=1`,
+  );
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`app usage insight office failed (${result.status})`);
+  }
+  const row = result.json[0] as { provider_id?: unknown; provider_name?: unknown; office_name?: unknown } | undefined;
+  if (!row) return null;
+  return { id: String(row.provider_id), name: String(row.office_name ?? row.provider_name ?? "Unnamed office") };
+}
+
+/**
+ * HQ Insights: one dataset over a range (current + same-length previous
+ * period), the local-time weekday × hour heatmap, tiles and what-changed —
+ * all assembled by the shared rule engine. Optional `office` narrows every
+ * figure to one enabled practice (404 when unknown or disabled).
+ */
+router.get("/hq/app-usage-insights", requireHqPermission("analytics_read"), async (req, res) => {
+  const query = req.query as Record<string, unknown>;
+  const range = parseRange(query);
+  if (!range) {
+    res.status(400).json({ error: RANGE_ERROR });
+    return;
+  }
+  if (!isInsightsDataset(query.dataset)) {
+    res.status(400).json({ error: INSIGHTS_DATASET_ERROR });
+    return;
+  }
+  const dataset = query.dataset;
+  const officeParam = typeof query.office === "string" && query.office.trim() !== "" ? query.office.trim() : null;
+  if (officeParam !== null && !PROVIDER_ID_RE.test(officeParam)) {
+    res.status(404).json({ error: "Office not found." });
+    return;
+  }
+  try {
+    const office = officeParam ? await loadInsightOffice(officeParam) : null;
+    if (officeParam && !office) {
+      res.status(404).json({ error: "Office not found." });
+      return;
+    }
+    const providerId = office?.id ?? null;
+    const previous = previousRangeOf(range);
+    const [current, prior, bounds] = await Promise.all([
+      loadInsightBuckets(dataset, range, providerId),
+      loadInsightBuckets(dataset, previous, providerId),
+      loadInsightBounds(dataset, providerId),
+    ]);
+    res.json(assembleInsights({ dataset, range, asOf: new Date().toISOString(), office, bounds, current, previous: prior }));
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ app usage insights failed");
+    res.status(502).json({ error: "Could not load app usage insights right now." });
   }
 });
 

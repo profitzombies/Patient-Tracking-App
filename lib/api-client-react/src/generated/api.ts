@@ -21,6 +21,7 @@ import type {
 
 import type {
   AddOfficeConversationNoteParams,
+  AppUsageInsights,
   AppUsageResult,
   AssignOfficeConversationParams,
   BarcodeLookupResult,
@@ -88,6 +89,7 @@ import type {
   GetBloodworkFilePageParams,
   GetBloodworkFileSourceParams,
   GetBloodworkReportParams,
+  GetHqAppUsageInsightsParams,
   GetHqAppUsageParams,
   GetHqAuditEventsParams,
   GetHqConversationEventsParams,
@@ -7181,6 +7183,91 @@ export function useGetHqAppUsage<TData = Awaited<ReturnType<typeof getHqAppUsage
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqAppUsageQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqAppUsageInsightsUrl = (params: GetHqAppUsageInsightsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/app-usage-insights?${stringifiedParams}` : `/api/hq/app-usage-insights`
+}
+
+/**
+ * Counts patient app events for one feature across the range and the same-length period immediately before it. Heatmap cells are in each patient's local time; day-only history (water, app-open days before hourly tracking) counts toward totals and the series but not the heatmap. `office` narrows every figure to one enabled practice.
+ * @summary One app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
+ */
+export const getHqAppUsageInsights = async (params: GetHqAppUsageInsightsParams, options?: Parameters<typeof customFetch>[1]): Promise<AppUsageInsights> => {
+
+  return customFetch<AppUsageInsights>(getGetHqAppUsageInsightsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqAppUsageInsightsQueryKey = (params?: GetHqAppUsageInsightsParams,) => {
+    return [
+    `/api/hq/app-usage-insights`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqAppUsageInsightsQueryOptions = <TData = Awaited<ReturnType<typeof getHqAppUsageInsights>>, TError = ErrorType<void>>(params: GetHqAppUsageInsightsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsageInsights>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqAppUsageInsightsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqAppUsageInsights>>> = ({ signal }) => getHqAppUsageInsights(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsageInsights>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqAppUsageInsightsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqAppUsageInsights>>>
+export type GetHqAppUsageInsightsQueryError = ErrorType<void>
+
+
+/**
+ * @summary One app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
+ */
+
+export function useGetHqAppUsageInsights<TData = Awaited<ReturnType<typeof getHqAppUsageInsights>>, TError = ErrorType<void>>(
+ params: GetHqAppUsageInsightsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqAppUsageInsights>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqAppUsageInsightsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

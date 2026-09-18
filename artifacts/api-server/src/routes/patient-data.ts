@@ -59,6 +59,7 @@ import { validateNotificationPrefsInput } from "../notifications/policy";
 import { supabaseNotificationStore } from "../notifications/store";
 import { OUTREACH_KIND } from "../notifications/stall-outreach";
 import { loadPrivacyState } from "./patient-privacy";
+import { recordPatientEvent } from "../lib/patient-events";
 import { seedMedicationsFromOnboarding } from "../medications/seed";
 import { loadMedicationState } from "../medications/store";
 import {
@@ -1591,6 +1592,9 @@ router.post("/patient-data/entries", async (req, res) => {
       p_recents: recents ?? null,
     });
     if (applied.status >= 300) throw new Error(`diary apply failed (${applied.status})`);
+    // HQ Insights: one food_log event per saved entry (edits included — the
+    // apply RPC does not report which rows were new). Deletes are not logs.
+    recordPatientEvent(auth.patientId, "food_log", { headers: req.headers, count: rows.length });
 
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
@@ -1638,6 +1642,8 @@ router.put("/patient-data/water", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`water upsert failed (${upsert.status})`);
+    // HQ Insights: each save with water on the day is one water_log event.
+    if ((body.oz as number) > 0) recordPatientEvent(auth.patientId, "water_log", { headers: req.headers });
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data water write failed");
@@ -1925,6 +1931,8 @@ router.post("/patient-data/check-ins", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`check-in upsert failed (${upsert.status})`);
+    // HQ Insights: a check-in that carries a weight is one weigh_in event.
+    if (parsed.row.weight != null) recordPatientEvent(auth.patientId, "weigh_in", { headers: req.headers });
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data check-in write failed");
@@ -2098,6 +2106,8 @@ router.post("/patient-data/photos", async (req, res) => {
         return;
       }
       if (upsert.status >= 300) throw new Error(`photo upsert failed (${upsert.status})`);
+      // HQ Insights: one progress_photo event per saved photo.
+      recordPatientEvent(auth.patientId, "progress_photo", { headers: req.headers, count: photoRows.length });
     }
 
     if (deleteIds.length > 0) {

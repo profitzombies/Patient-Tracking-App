@@ -7,6 +7,19 @@
  */
 
 export * from './addOfficeConversationNoteParams';
+export * from './appUsageInsights';
+export * from './appUsageInsightsCell';
+export * from './appUsageInsightsChange';
+export * from './appUsageInsightsChangeKind';
+export * from './appUsageInsightsDataset';
+export * from './appUsageInsightsHourly';
+export * from './appUsageInsightsOffice';
+export * from './appUsageInsightsPoint';
+export * from './appUsageInsightsTiles';
+export * from './appUsageInsightsTilesBestDay';
+export * from './appUsageInsightsTilesBusiestHour';
+export * from './appUsageInsightsTotals';
+export * from './appUsageInsightsWindow';
 export * from './appUsageNetwork';
 export * from './appUsageOfficeMetrics';
 export * from './appUsageOfficeRow';
@@ -179,6 +192,7 @@ export * from './foodNutritionVariantDimensions';
 export * from './getBloodworkFilePageParams';
 export * from './getBloodworkFileSourceParams';
 export * from './getBloodworkReportParams';
+export * from './getHqAppUsageInsightsParams';
 export * from './getHqAppUsageParams';
 export * from './getHqAuditEventsParams';
 export * from './getHqConversationEventsParams';

@@ -14,18 +14,21 @@
  * The signed-out guided demo renders the same screen from the deterministic
  * seeded dataset (anchored to the demo date) and issues no live request.
  */
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import type { AppUsageResult } from '@workspace/api-client-react';
-import { getGetHqAppUsageQueryKey, useGetHqAppUsage } from '@workspace/api-client-react';
+import { getGetHqAppUsageInsightsQueryKey, getGetHqAppUsageQueryKey, useGetHqAppUsage, useGetHqAppUsageInsights } from '@workspace/api-client-react';
+import type { InsightsDataset } from '@workspace/app-usage-insights';
 import { SectionCard } from '@/components/patient/heritage';
 import { AdminPage, MetricTile, PageHeader } from '@/components/admin/primitives';
 import { AppUsageTable } from '@/components/admin/AppUsageTable';
+import { AppUsageInsightsSection, type InsightsOfficeOption } from '@/components/admin/AppUsageInsights';
 import { AreaChart, CHART_COLORS } from '@/components/billing/hq/RevenueCharts';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useSession } from '@/contexts/session';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { demoAppUsage } from '@/data/hq/app-usage-demo';
+import { DEMO_INSIGHTS_OFFICES, demoAppUsageInsights } from '@/data/hq/app-usage-insights-demo';
 import { formatDateKey } from '@/data/nutrition-data';
 import { DEMO_TODAY_KEY, type OperationsDateRange } from '@/lib/date-range-keys';
 import { formatLocalDate } from '@/lib/local-time';
@@ -38,6 +41,8 @@ export const ACTIVE_USER_DEFINITION =
 
 export type AppUsageViewState = 'loading' | 'error' | 'ready';
 
+export const DEFAULT_INSIGHTS_DATASET: InsightsDataset = 'app_open';
+
 interface AppUsageViewProps {
   state: AppUsageViewState;
   data: AppUsageResult | undefined;
@@ -49,10 +54,12 @@ interface AppUsageViewProps {
   /** A refresh is in flight behind already-shown figures. */
   refreshing?: boolean;
   onRetry?: () => void;
+  /** The Insights section (live or demo), rendered under the by-practice table. */
+  insights?: ReactNode;
 }
 
 /** Shared presentation for the live and demo branches — the data source is the only difference. */
-export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refreshing = false, onRetry }: AppUsageViewProps) {
+export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refreshing = false, onRetry, insights }: AppUsageViewProps) {
   const rangeLabel = formatRangeLabel(range);
   const loading = state === 'loading';
   const failed = state === 'error';
@@ -179,8 +186,18 @@ export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refr
           )}
         </SectionCard>
       </div>
+
+      {insights}
     </AdminPage>
   );
+}
+
+/** Insights filters shared by the live and demo branches: dataset chip + practice, reset to "all" when the chosen office disappears. */
+function useInsightsFilters(offices: InsightsOfficeOption[]) {
+  const [dataset, setDataset] = useState<InsightsDataset>(DEFAULT_INSIGHTS_DATASET);
+  const [office, setOffice] = useState<string | null>(null);
+  const known = office !== null && offices.some((candidate) => candidate.id === office) ? office : null;
+  return { dataset, setDataset, office: known, setOffice };
 }
 
 function ErrorNotice({ testId, onRetry }: { testId: string; onRetry?: () => void }) {
@@ -212,6 +229,23 @@ function LiveAppUsage() {
   // A failed poll is reported, never papered over with the previous figures.
   const state: AppUsageViewState = usage.isPending ? 'loading' : usage.isError ? 'error' : 'ready';
   const asOfLabel = usage.data?.asOf ? formatLocalDate(usage.data.asOf) : 'Live';
+
+  // Practice options come from the same rollup the table shows (enabled offices only).
+  const offices = useMemo<InsightsOfficeOption[]>(
+    () => (usage.data?.offices ?? []).map((row) => ({ id: row.providerId, name: row.officeName })),
+    [usage.data?.offices],
+  );
+  const filters = useInsightsFilters(offices);
+  const insightsParams = { dataset: filters.dataset, start: range.start, end: range.end, ...(filters.office ? { office: filters.office } : {}) };
+  const insights = useGetHqAppUsageInsights(insightsParams, {
+    query: {
+      queryKey: [...getGetHqAppUsageInsightsQueryKey(insightsParams), authUser?.id],
+      retry: 1,
+      refetchInterval: APP_USAGE_REFRESH_MS,
+      placeholderData: (previous) => previous,
+    },
+  });
+  const insightsState = insights.isPending ? 'loading' : insights.isError ? 'error' : 'ready';
   return (
     <AppUsageView
       state={state}
@@ -221,6 +255,19 @@ function LiveAppUsage() {
       updatedLabel={formatUpdatedAt(usage.dataUpdatedAt)}
       refreshing={usage.isFetching && !usage.isPending}
       onRetry={() => usage.refetch()}
+      insights={
+        <AppUsageInsightsSection
+          state={insightsState}
+          data={insights.data}
+          dataset={filters.dataset}
+          onDataset={filters.setDataset}
+          offices={offices}
+          office={filters.office}
+          onOffice={filters.setOffice}
+          rangeLabel={formatRangeLabel(range)}
+          onRetry={() => insights.refetch()}
+        />
+      }
     />
   );
 }
@@ -228,6 +275,8 @@ function LiveAppUsage() {
 function DemoAppUsage() {
   const { range } = useDateRange();
   const data = useMemo(() => demoAppUsage(range), [range]);
+  const filters = useInsightsFilters(DEMO_INSIGHTS_OFFICES);
+  const insights = useMemo(() => demoAppUsageInsights(filters.dataset, range, filters.office), [filters.dataset, filters.office, range]);
   return (
     <AppUsageView
       state="ready"
@@ -235,6 +284,18 @@ function DemoAppUsage() {
       range={range}
       asOfLabel={formatDateKey(DEMO_TODAY_KEY, true)}
       updatedLabel="Demo figures"
+      insights={
+        <AppUsageInsightsSection
+          state="ready"
+          data={insights}
+          dataset={filters.dataset}
+          onDataset={filters.setDataset}
+          offices={DEMO_INSIGHTS_OFFICES}
+          office={filters.office}
+          onOffice={filters.setOffice}
+          rangeLabel={formatRangeLabel(range)}
+        />
+      }
     />
   );
 }

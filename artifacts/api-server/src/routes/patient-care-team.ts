@@ -5,6 +5,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { inboxFeed } from "../lib/inbox-feed";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { suggestionFromCard } from "../billing/product-suggestions";
+import { recordPatientEvent } from "../lib/patient-events";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -185,6 +186,8 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
     // Staff inbox streams hear about the new row now, not at the next tick.
     inboxFeed.poke();
     const payload = sent.json as Row;
+    // HQ Insights: a newly created patient message is one care_team_message event.
+    if (payload.created === true) recordPatientEvent(found.auth.patientId, "care_team_message", { headers: req.headers });
     res.json({ message: patientMessage({
       seq: payload.seq, client_id: payload.clientId, role: payload.role,
       text: payload.text, created_at: payload.createdAt, card: null,

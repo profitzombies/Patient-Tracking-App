@@ -2003,6 +2003,30 @@ paths:
           description: Network totals plus one row per enabled office (aggregate only)
           content: { application/json: { schema: { $ref: "#/components/schemas/AppUsageResult" } } }
         "400": { description: Invalid range }
+  /hq/app-usage-insights:
+    get:
+      operationId: getHqAppUsageInsights
+      tags: [hq]
+      summary: One app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
+      description: >-
+        Counts patient app events for one feature across the range and the same-length period
+        immediately before it. Heatmap cells are in each patient's local time; day-only history
+        (water, app-open days before hourly tracking) counts toward totals and the series but not
+        the heatmap. `office` narrows every figure to one enabled practice.
+      parameters:
+        - name: dataset
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/AppUsageInsightsDataset" }
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+        - { name: office, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Series, heatmap, tiles and rule-based changes for the dataset
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppUsageInsights" } } }
+        "400": { description: Invalid range or dataset }
+        "404": { description: Unknown or disabled office }
   /exports:
     get:
       operationId: listExports
@@ -3082,6 +3106,107 @@ components:
         offices:
           type: array
           items: { $ref: "#/components/schemas/AppUsageOfficeRow" }
+    AppUsageInsightsDataset:
+      type: string
+      enum: [app_open, food_log, water_log, weigh_in, progress_photo, coach_message, care_team_message, medication_log, order]
+    AppUsageInsightsPoint:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string }
+        count: { type: number }
+    AppUsageInsightsCell:
+      type: object
+      required: [weekday, hour, count]
+      properties:
+        weekday: { type: number, description: "0 = Sunday … 6 = Saturday" }
+        hour: { type: number, description: "Patient-local hour 0-23" }
+        count: { type: number }
+    AppUsageInsightsWindow:
+      type: object
+      required: [weekday, startHour, endHour, count]
+      properties:
+        weekday: { type: number }
+        startHour: { type: number }
+        endHour: { type: number, description: "Inclusive last hour of the window" }
+        count: { type: number }
+    AppUsageInsightsChange:
+      type: object
+      required: [kind, text]
+      properties:
+        kind: { type: string, enum: [trend, day, window, tracking, quiet] }
+        text: { type: string }
+    AppUsageInsights:
+      type: object
+      required: [dataset, label, range, previousRange, asOf, office, hourly, totals, current, previous, heatmap, peak, tiles, changes]
+      properties:
+        dataset: { $ref: "#/components/schemas/AppUsageInsightsDataset" }
+        label: { type: string }
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        previousRange: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        office:
+          type: object
+          nullable: true
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        hourly:
+          type: object
+          required: [since, days, complete]
+          properties:
+            since: { type: string, nullable: true, description: "First local day with hour-of-day data" }
+            days: { type: number }
+            complete: { type: boolean, description: "True once 7 days of hourly data exist" }
+        totals:
+          type: object
+          required: [current, previous, changePct, patientDays]
+          properties:
+            current: { type: number }
+            previous: { type: number }
+            changePct: { type: number, nullable: true }
+            patientDays: { type: number }
+        current:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsageInsightsPoint" }
+        previous:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsageInsightsPoint" }
+        heatmap:
+          type: array
+          description: 168 cells, weekday-major, hourly events only
+          items: { $ref: "#/components/schemas/AppUsageInsightsCell" }
+        peak:
+          allOf: [{ $ref: "#/components/schemas/AppUsageInsightsCell" }]
+          nullable: true
+        tiles:
+          type: object
+          required: [peakWindow, bestDay, busiestHour, weekendSharePct]
+          properties:
+            peakWindow:
+              allOf: [{ $ref: "#/components/schemas/AppUsageInsightsWindow" }]
+              nullable: true
+            bestDay:
+              type: object
+              nullable: true
+              required: [weekday, count, sharePct]
+              properties:
+                weekday: { type: number }
+                count: { type: number }
+                sharePct: { type: number }
+            busiestHour:
+              type: object
+              nullable: true
+              required: [hour, count, sharePct]
+              properties:
+                hour: { type: number }
+                count: { type: number }
+                sharePct: { type: number }
+            weekendSharePct: { type: number, nullable: true }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/AppUsageInsightsChange" }
     OfficeAnalyticsResult:
       type: object
       required: [office, range, asOf, firstPatientDate, available, metrics, series]

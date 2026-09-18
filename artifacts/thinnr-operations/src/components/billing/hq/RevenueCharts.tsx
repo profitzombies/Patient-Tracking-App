@@ -18,6 +18,8 @@ export interface ChartSeries {
   /** CSS color for the stroke and the (translucent) fill. */
   color: string;
   values: number[];
+  /** Comparison series: dashed stroke, no fill, hollow legend dot (the previous period behind the current one). */
+  dashed?: boolean;
 }
 
 /** Width used before the container has been measured (and under test renderers with no DOM). */
@@ -235,8 +237,8 @@ export function AreaChart({
             const area = `${line} L${x(n - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`;
             return (
               <g key={s.key}>
-                <path d={area} fill={`url(#${gradientId}-${s.key})`} />
-                <path d={line} fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+                {!s.dashed && <path d={area} fill={`url(#${gradientId}-${s.key})`} />}
+                <path d={line} fill="none" stroke={s.color} strokeWidth={s.dashed ? 1.5 : 2} strokeDasharray={s.dashed ? '5 4' : undefined} strokeOpacity={s.dashed ? 0.7 : 1} strokeLinejoin="round" strokeLinecap="round" />
               </g>
             );
           })}
@@ -264,7 +266,7 @@ export function AreaChart({
               {series.map((s) => (
                 <div key={s.key} className="contents">
                   <dt className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted-foreground">
-                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+                    <span aria-hidden className="h-2 w-2 rounded-full" style={s.dashed ? { border: `1.5px dashed ${s.color}` } : { background: s.color }} />
                     {s.label}
                   </dt>
                   <dd className="m-0 text-right font-semibold tabular-nums text-navy">{fmt(s.values[active] ?? 0, unit)}</dd>
@@ -281,7 +283,7 @@ export function AreaChart({
             {series.map((s) => (
               <div key={s.key} className="contents">
                 <dt className="inline-flex items-center gap-1.5 text-muted-foreground">
-                  <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+                  <span aria-hidden className="h-2 w-2 rounded-full" style={s.dashed ? { border: `1.5px dashed ${s.color}` } : { background: s.color }} />
                   {s.label}
                 </dt>
                 <dd className="m-0 text-right font-semibold tabular-nums text-navy">{fmt(s.values[active] ?? 0, unit)}</dd>
@@ -294,7 +296,7 @@ export function AreaChart({
         <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           {series.map((s) => (
             <span key={s.key} className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+              <span aria-hidden className="h-2 w-2 rounded-full" style={s.dashed ? { border: `1.5px dashed ${s.color}` } : { background: s.color }} />
               {s.label}
             </span>
           ))}

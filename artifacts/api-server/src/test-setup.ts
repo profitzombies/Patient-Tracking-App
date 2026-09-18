@@ -9,3 +9,6 @@
  * it explicitly.
  */
 if (!process.env.COACH_LIMITS_STORE) process.env.COACH_LIMITS_STORE = "memory";
+// The AI usage ledger would likewise batch every mocked model call into the
+// live ai_usage_events table; keep rows in memory under vitest.
+if (!process.env.AI_USAGE_LEDGER) process.env.AI_USAGE_LEDGER = "memory";

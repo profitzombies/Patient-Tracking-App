@@ -3,9 +3,10 @@
  *
  * Runs the production plate-read code path (generateMealPhotoAnalysis, same
  * prompt, same validator, same retries) over EVERY fixture plate in
- * ./fixtures at each requested reasoning effort, and writes a markdown
- * report comparing every candidate against the shipped default: item sets,
- * per-item portions/calories, totals, latency, and reasoning tokens.
+ * ./fixtures at each requested reasoning effort and model tier, and writes
+ * a markdown report comparing every candidate against the shipped default:
+ * item sets, per-item portions/calories, totals, latency, and reasoning
+ * tokens.
  *
  * Why this exists: a 2026-08 latency pass shipped reasoning_effort:"none"
  * for the plate read after ONE clean probe plate, and real-world reads
@@ -27,9 +28,15 @@
  *   pnpm --filter @workspace/api-server run harness:meal-read
  *   pnpm --filter @workspace/api-server run harness:meal-read -- \
  *     --efforts default,none,low --trials 1 --out results/2026-08-27.md
+ *   pnpm --filter @workspace/api-server run harness:meal-read -- \
+ *     --models default,gpt-5.4-mini --out results/2026-09-18-tiers.md
  *
  * "default" means the knob is OMITTED from the request — the model's own
- * default effort, the production setting.
+ * default effort, the production setting — and, for --models, the
+ * production model for coach.meal_photo (src/ai/models.ts). A non-default
+ * model is pinned through that surface's environment knob for the read, so
+ * the candidate runs the identical code path. Candidates are labelled
+ * "<effort>" on the default model and "<effort>@<model>" otherwise.
  */
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -41,9 +48,26 @@ import {
 } from "../../src/coach/meal-photo";
 import { createPhotoUsageLog } from "../../src/coach/usage";
 import type { PatientContext } from "../../src/coach/prompt";
+import { DEFAULT_MODELS, modelKnobName } from "../../src/ai/models";
 
 /** "default" = knob omitted (production). Anything else pins the effort. */
 type EffortName = "default" | MealReadReasoningEffort;
+
+/** "default" = the production model for coach.meal_photo. */
+type ModelName = string;
+
+interface Candidate {
+  effort: EffortName;
+  model: ModelName;
+  /** Report label: "default", "none", "default@gpt-5.4-mini", ... */
+  label: string;
+}
+
+const MEAL_PHOTO_KNOB = modelKnobName("coach.meal_photo");
+
+function candidateLabel(effort: EffortName, model: ModelName): string {
+  return model === "default" ? effort : `${effort}@${model}`;
+}
 
 /** ESM package — no __dirname; everything is relative to this script. */
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -57,6 +81,8 @@ const SLOT = { timeDefault: "dinner" as const, localTime: "18:30" };
 
 interface ReadResult {
   effort: EffortName;
+  model: ModelName;
+  label: string;
   trial: number;
   latencyMs: number;
   reasoningTokens: number;
@@ -70,7 +96,7 @@ interface ReadResult {
   error?: string;
 }
 
-function parseArgs(): { efforts: EffortName[]; trials: number; out: string | undefined } {
+function parseArgs(): { candidates: Candidate[]; efforts: EffortName[]; models: ModelName[]; trials: number; out: string | undefined } {
   const argv = process.argv.slice(2);
   const get = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -84,7 +110,17 @@ function parseArgs(): { efforts: EffortName[]; trials: number; out: string | und
   if (!efforts.includes("default")) {
     throw new Error("the efforts list must include \"default\" — it is the comparison baseline");
   }
-  return { efforts, trials: Number(get("--trials") ?? "1"), out: get("--out") };
+  const models = (get("--models") ?? "default").split(",").map((m) => m.trim()).filter(Boolean);
+  if (!models.includes("default")) {
+    throw new Error("the models list must include \"default\" — it is the comparison baseline");
+  }
+  const candidates: Candidate[] = [];
+  for (const model of models) {
+    for (const effort of efforts) {
+      candidates.push({ effort, model, label: candidateLabel(effort, model) });
+    }
+  }
+  return { candidates, efforts, models, trials: Number(get("--trials") ?? "1"), out: get("--out") };
 }
 
 function loadFixtures(): { name: string; dataUri: string }[] {
@@ -106,12 +142,18 @@ function loadFixtures(): { name: string; dataUri: string }[] {
 
 async function readPlate(
   fixture: { name: string; dataUri: string },
-  effort: EffortName,
+  candidate: Candidate,
   trial: number,
 ): Promise<ReadResult> {
+  const { effort, model, label } = candidate;
   const usage = createPhotoUsageLog();
   const startedAt = Date.now();
-  const base = { effort, trial };
+  const base = { effort, model, label, trial };
+  // Pin the model through the surface knob for this read only (the harness
+  // is sequential), so production code decides everything else.
+  const previousKnob = process.env[MEAL_PHOTO_KNOB];
+  if (model === "default") delete process.env[MEAL_PHOTO_KNOB];
+  else process.env[MEAL_PHOTO_KNOB] = model;
   try {
     const analysis = await generateMealPhotoAnalysis({
       image: fixture.dataUri,
@@ -157,6 +199,9 @@ async function readPlate(
       items: [],
       error: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    if (previousKnob === undefined) delete process.env[MEAL_PHOTO_KNOB];
+    else process.env[MEAL_PHOTO_KNOB] = previousKnob;
   }
 }
 
@@ -227,10 +272,10 @@ function formatRead(r: ReadResult): string {
 }
 
 async function main() {
-  const { efforts, trials, out } = parseArgs();
+  const { candidates, efforts, models, trials, out } = parseArgs();
   const fixtures = loadFixtures();
   console.log(
-    `meal-read harness: ${fixtures.length} plates x ${efforts.join("/")} x ${trials} trial(s)`,
+    `meal-read harness: ${fixtures.length} plates x ${candidates.map((c) => c.label).join("/")} x ${trials} trial(s)`,
   );
 
   // Sequential on purpose: parallel vision calls would contend for upstream
@@ -239,9 +284,9 @@ async function main() {
   for (const fixture of fixtures) {
     const reads: ReadResult[] = [];
     for (let trial = 1; trial <= trials; trial++) {
-      for (const effort of efforts) {
-        process.stdout.write(`  ${fixture.name} @ ${effort} (trial ${trial})... `);
-        const read = await readPlate(fixture, effort, trial);
+      for (const candidate of candidates) {
+        process.stdout.write(`  ${fixture.name} @ ${candidate.label} (trial ${trial})... `);
+        const read = await readPlate(fixture, candidate, trial);
         console.log(
           read.error
             ? `FAILED ${read.error}`
@@ -260,29 +305,30 @@ async function main() {
     "",
     `Production code path (generateMealPhotoAnalysis), ${fixtures.length} fixture plates, ` +
       `efforts: ${efforts.join(", ")} ("default" = knob omitted, the production setting), ` +
+      `models: ${models.map((m) => (m === "default" ? `default (${DEFAULT_MODELS["coach.meal_photo"]})` : m)).join(", ")}, ` +
       `${trials} trial(s) per pair. Parity rule: same item name sets AND per-item calories ` +
       `within ±${PARITY_ITEM_CAL_TOLERANCE * 100}% AND total within ±${PARITY_TOTAL_CAL_TOLERANCE * 100}% ` +
       `of the default read, on EVERY plate. A candidate that misses parity anywhere does not ship.`,
     "",
   ];
 
-  const parityByEffort = new Map<EffortName, { parity: number; different: number }>();
+  const parityByCandidate = new Map<string, { parity: number; different: number }>();
   for (const fixture of fixtures) {
     const reads = results.get(fixture.name) ?? [];
     report.push(`## ${fixture.name}`, "");
     for (const read of reads) {
-      report.push(`### ${read.effort} (trial ${read.trial})`, formatRead(read), "");
+      report.push(`### ${read.label} (trial ${read.trial})`, formatRead(read), "");
     }
     for (const read of reads) {
-      if (read.effort === "default") continue;
-      const baseline = reads.find((r) => r.effort === "default" && r.trial === read.trial);
+      if (read.label === "default") continue;
+      const baseline = reads.find((r) => r.label === "default" && r.trial === read.trial);
       if (!baseline) continue;
       const { parity, notes } = compareToDefault(read, baseline);
-      const tally = parityByEffort.get(read.effort) ?? { parity: 0, different: 0 };
+      const tally = parityByCandidate.get(read.label) ?? { parity: 0, different: 0 };
       parity ? (tally.parity += 1) : (tally.different += 1);
-      parityByEffort.set(read.effort, tally);
+      parityByCandidate.set(read.label, tally);
       report.push(
-        `**${read.effort} vs default (trial ${read.trial}):** ${parity ? "PARITY" : "DIFFERENT"}` +
+        `**${read.label} vs default (trial ${read.trial}):** ${parity ? "PARITY" : "DIFFERENT"}` +
           (notes.length > 0 ? ` — ${notes.join("; ")}` : ""),
         "",
       );
@@ -290,10 +336,10 @@ async function main() {
   }
 
   report.push("## Verdict", "");
-  for (const [effort, tally] of parityByEffort) {
+  for (const [label, tally] of parityByCandidate) {
     const total = tally.parity + tally.different;
     report.push(
-      `- **${effort}**: parity on ${tally.parity}/${total} plate-trials — ` +
+      `- **${label}**: parity on ${tally.parity}/${total} plate-trials — ` +
         (tally.different === 0
           ? "matches the default read across the whole set."
           : "NOT parity; per the gate rule this setting must not ship for the plate read."),

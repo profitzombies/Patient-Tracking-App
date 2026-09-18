@@ -36,6 +36,8 @@ import {
 import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import type { UsageRecorder } from "./usage";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { DEFAULT_MODELS, modelFor } from "../ai/models";
 
 /**
  * Mid-tier by the user's explicit cost decision: the nano tier misread real
@@ -45,7 +47,7 @@ import type { UsageRecorder } from "./usage";
  * under half a cent per photo. Do NOT move this to a top-tier model
  * (gpt-5.6-terra / gpt-5.6-sol) without the user's sign-off.
  */
-export const MEAL_PHOTO_MODEL = "gpt-5.6-luna";
+export const MEAL_PHOTO_MODEL = DEFAULT_MODELS["coach.meal_photo"];
 
 /**
  * The gpt-5.6 fleet's reasoning-effort vocabulary on this gateway
@@ -153,8 +155,6 @@ function buildSystemPrompt(
 ): string {
   return `You are the THINNR meal logger, an AI helper inside the THINNR patient app. The patient photographed food they are about to eat — a plate, bowl, container, or packaged item — so the app can log it to their food diary. Identify what is visible and commit to portion estimates.
 
-${patientContextLine(patient)}
-
 Respond with a single JSON object and nothing else — no markdown, no code fences:
 {
   "result": "ok" | "not_food" | "unreadable",
@@ -193,7 +193,9 @@ Judging items against the THINNR approved list (when "result" is "ok"):
 APPROVED FOODS CATALOG (id — official name):
 ${catalogPromptLines()}
 
-"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.${correctionRule(correction)}`;
+"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just looked at their plate, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never say you cannot determine the portions and never ask the patient to weigh or measure anything — your best estimates are already in "items" and the patient can adjust them.
+
+${patientContextLine(patient)}${correctionRule(correction)}`;
 }
 
 /**
@@ -277,9 +279,9 @@ async function callModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.meal_photo", () => openai.chat.completions.create(
         {
-          model: MEAL_PHOTO_MODEL,
+          model: modelFor("coach.meal_photo"),
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
@@ -301,7 +303,7 @@ async function callModel(
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       options.onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {

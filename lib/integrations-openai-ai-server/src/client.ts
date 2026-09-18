@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { instrumentOpenAI } from "./usage";
 
 if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
   throw new Error(
@@ -44,8 +45,17 @@ const observedFetch: typeof fetch = (input, init) => {
   return fetch(input, init);
 };
 
-export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  fetch: observedFetch,
-});
+/**
+ * The one OpenAI client the app uses. Its billable methods are metered (see
+ * ./usage): every call reports its model, tokens, and latency to the
+ * installed usage sink, attributed to whatever usage context the caller is
+ * running in. The observed fetch underneath marks each HTTP request for the
+ * API server's request log and latency metrics.
+ */
+export const openai: OpenAI = instrumentOpenAI(
+  new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    fetch: observedFetch,
+  }),
+);

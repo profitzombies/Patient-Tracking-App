@@ -1,4 +1,3 @@
-// hint: Structural and logic conflict. Both design and behavior differ.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -158,3 +157,4 @@
 - [System performance metrics](system-performance-metrics.md) — latency flush needs a request after the minute rolls; pg_stat_statements is since-reset; unlistable storage prefix withholds the total; HQ alerts have provider_id null.
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
 - [As-of-date billing state](as-of-date-billing-state.md) — judge past-date subscribed/buying by lifetime columns, never today's status; test before/on/after boundaries; RPC shape holes → 502, not zeros.
+- [AI usage ledger & prompt cache](ai-usage-ledger-and-prompt-cache.md) — meter at the client seam; one system message in canonical source order caches ~99%; tier switches only via recorded harnesses.

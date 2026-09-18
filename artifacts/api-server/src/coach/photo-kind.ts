@@ -27,8 +27,10 @@ import { openai } from "@workspace/integrations-openai-ai-server";
 import { extractModelJson } from "./model-json";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import type { UsageRecorder } from "./usage";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { DEFAULT_MODELS, modelFor } from "../ai/models";
 
-export const PHOTO_TRIAGE_MODEL = "gpt-5-nano";
+export const PHOTO_TRIAGE_MODEL = DEFAULT_MODELS["coach.photo_classify"];
 
 /** The pipelines a chat photo can route to. */
 export type ResolvedPhotoKind = "menu" | "meal" | "label";
@@ -69,9 +71,9 @@ export async function resolvePhotoKind(args: {
 }): Promise<ResolvedPhotoKind> {
   const deadline = createUpstreamDeadline(args.signal);
   try {
-    const completion = await openai.chat.completions.create(
+    const completion = await withModelUsageSurface("coach.photo_classify", () => openai.chat.completions.create(
       {
-        model: PHOTO_TRIAGE_MODEL,
+        model: modelFor("coach.photo_classify"),
         // Reasoning models spend part of this budget internally before
         // emitting text; smaller caps come back empty.
         max_completion_tokens: 8192,
@@ -88,7 +90,7 @@ export async function resolvePhotoKind(args: {
         ],
       },
       { signal: deadline.signal },
-    );
+    ));
     args.onUsage?.(completion.usage);
     const raw = completion.choices[0]?.message?.content ?? "";
     const parsed = TriageSchema.safeParse(extractModelJson(raw));

@@ -10,6 +10,7 @@ import { logger } from "./lib/logger";
 import { createRequestTiming } from "./lib/request-timing";
 import { markRequestDependency } from "./lib/request-context";
 import * as openaiServer from "@workspace/integrations-openai-ai-server";
+import { modelUsageContextMiddleware } from "./ai-usage/context";
 
 const app: Express = express();
 
@@ -91,6 +92,11 @@ app.use((req, res, next) => {
   jsonParser(req, res, next);
 });
 app.use(express.urlencoded({ extended: true }));
+
+// Every request runs inside an AI usage context (request id now, surface
+// and account once a route names them) so each model call it makes lands
+// in the usage ledger attributed, not as an anonymous line item.
+app.use(modelUsageContextMiddleware);
 
 app.use("/api", router);
 

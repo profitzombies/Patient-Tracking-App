@@ -53,6 +53,8 @@ import { BrandSpellingSmoother } from "../lib/brand-spelling";
 import { EmojiSmoother } from "../support/text-guards";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { resolveSecurityActor } from "../security/actor";
+import { modelFor } from "../ai/models";
+import { attributeModelUsage } from "../ai-usage/context";
 
 const router: IRouter = Router();
 
@@ -126,7 +128,7 @@ async function streamSupportTurn(options: {
     writeStage(res, "thinking");
     const stream = await openai.chat.completions.create(
       {
-        model: "gpt-5.6-terra",
+        model: modelFor("support.chat"),
         // Reasoning models spend part of this budget internally, and the
         // persona's contract is "do not shorten": comprehensive markdown
         // answers get more headroom than the texting-style coach.
@@ -183,6 +185,11 @@ router.post("/support/chat", async (req, res) => {
     return;
   }
   const actor = auth.actor;
+  attributeModelUsage({
+    surface: "support.chat",
+    patientId: actor.realm === "patient" ? actor.patientId : null,
+    providerId: actor.providerId,
+  });
 
   // Limit first: this endpoint spends paid model credits, so even invalid
   // authenticated spam should burn the caller's budget, not the server's CPU.

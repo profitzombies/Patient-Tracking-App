@@ -9,6 +9,7 @@
 import { officeRequest, officeQuery, OfficeApiError, type OfficeRequestMessages } from '@/lib/office-api';
 import type {
   AccountSessionResponse,
+  AiCostSummary,
   BillingSettings,
   CatalogChange,
   CatalogProduct,
@@ -210,6 +211,7 @@ export const officeBilling = {
 export const hqBilling = {
   health: () => officeRequest<PaymentsHealth>(`${HQ}/health`, MESSAGES),
   overview: (range: { from?: string; to?: string }) => officeRequest<HqOverview>(`${HQ}/overview${qs(range)}`, MESSAGES),
+  aiCosts: (range: { from?: string; to?: string }) => officeRequest<AiCostSummary>(`${HQ}/ai-costs${qs(range)}`, MESSAGES),
   today: (tz: string) => officeRequest<HqTodayOverview>(`${HQ}/overview/today${qs({ tz })}`, MESSAGES),
   activity: (filters: ListFilters) => officeRequest<Paged<HqActivityRow>>(`${HQ}/activity${qs(filters)}`, MESSAGES),
   providers: () => officeRequest<{ items: HqProviderRow[] }>(`${HQ}/providers`, MESSAGES),

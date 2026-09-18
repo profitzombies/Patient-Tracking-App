@@ -28,8 +28,10 @@ function cleanCoachText(text: string): string {
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import type { UsageRecorder } from "./usage";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { DEFAULT_MODELS, modelFor } from "../ai/models";
 
-export const MENU_SCAN_MODEL = "gpt-5-nano";
+export const MENU_SCAN_MODEL = DEFAULT_MODELS["coach.menu_scan"];
 
 /** One corrective retry when the model's JSON fails validation. */
 const RETRY_LIMIT = 1;
@@ -91,8 +93,6 @@ function buildSystemPrompt(patient: PatientContext): string {
 
   return `You are the THINNR menu scanner, an AI helper inside the THINNR patient app. The patient is at a restaurant and photographed the menu. Work out what they can order under the THINNR program and exactly how to ask for it.
 
-${patientContextLine(patient)}
-
 Respond with a single JSON object and nothing else — no markdown, no code fences:
 {
   "result": "ok" | "not_menu" | "unreadable",
@@ -124,7 +124,9 @@ You are AI guidance, not the official program materials. Keep every suggestion c
 
 THINNR program materials:
 
-${sourcesBlock(compartments)}`;
+${sourcesBlock(compartments)}
+
+${patientContextLine(patient)}`;
 }
 
 // ─── Model call ──────────────────────────────────────────────────────────────
@@ -177,9 +179,9 @@ async function callModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.menu_scan", () => openai.chat.completions.create(
         {
-          model: MENU_SCAN_MODEL,
+          model: modelFor("coach.menu_scan"),
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
@@ -187,7 +189,7 @@ async function callModel(
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {

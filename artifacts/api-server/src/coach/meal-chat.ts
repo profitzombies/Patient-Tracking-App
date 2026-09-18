@@ -42,6 +42,8 @@ import { ensureApprovedFoodsCompartment, type RecipeCardPayload } from "./recipe
 import { stripDashes } from "./text-style";
 import { createUpstreamDeadline, UpstreamTimeoutError } from "./upstream";
 import type { UsageRecorder } from "./usage";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { modelFor } from "../ai/models";
 
 /**
  * Closer under the item list. Must not end with a question mark — on a fully
@@ -179,7 +181,6 @@ interface MinimalLog {
  * the swaps must be grounded and specific, and this turn is rare enough that
  * the mid-tier price is fine.
  */
-const MAKEOVER_MODEL = "gpt-5.6-terra";
 
 /**
  * The swaps reply after they said yes to the makeover offer: model-written
@@ -266,9 +267,9 @@ export function detectMealVersionChoice(history: HistoryEntry[]): MealVersionCho
 }
 
 function buildMakeoverSystemPrompt(patient: PatientContext, compartments: Compartment[]): string {
+  // Static persona, voice, task and rules first (cacheable); the patient
+  // line and this turn's sources follow.
   return `${COACH_PERSONA_LINE}
-
-${patientContextLine(patient)}
 
 ${COACH_VOICE_RULES}
 
@@ -282,6 +283,8 @@ Rules for the swaps:
 
 APPROVED FOODS CATALOG (id — official name):
 ${catalogPromptLines()}
+
+${patientContextLine(patient)}
 
 THINNR program materials for this question:
 
@@ -308,16 +311,16 @@ async function callMakeoverModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.meal_makeover", () => openai.chat.completions.create(
         {
-          model: MAKEOVER_MODEL,
+          model: modelFor("coach.meal_makeover"),
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       if (deadline.expired) {

@@ -22,6 +22,7 @@ import {
   decodedPhotoBytes,
 } from "../lib/photo-guards";
 import { gatePhotoAnalysis } from "../lib/patient-auth";
+import { attributeModelUsage } from "../ai-usage/context";
 
 const router: IRouter = Router();
 
@@ -51,6 +52,7 @@ router.post("/coach/menu-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async
   // Limit before any model work: every scan is a paid vision call with a
   // photo attached. The slot is reserved in the shared usage store, so the
   // cap holds across every server copy.
+  attributeModelUsage({ surface: "coach.menu_scan", patientId: gate.patientId ?? null, providerId: gate.providerId ?? null });
   const slot = await acquireMenuScanSlot(
     { ip: req.ip, patientId: gate.patientId, officeId: gate.providerId },
     req.log,

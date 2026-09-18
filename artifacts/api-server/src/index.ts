@@ -7,6 +7,8 @@ import { registerAllJobs } from "./jobs";
 import { startJobScheduler } from "./jobs/scheduler";
 import { ensureBillingWebhookEndpoints } from "./billing/webhook-endpoints";
 import { usageStore } from "./coach/usage-store";
+import { installModelUsageLedger } from "./ai-usage/ledger";
+import { modelAssignments } from "./ai/models";
 
 const rawPort = process.env["PORT"];
 
@@ -38,6 +40,23 @@ app.listen(port, (err) => {
   } else {
     logger.warn({ store: limits.mode }, "coach usage limits are process-local: caps will not hold across server copies or restarts");
   }
+  // Every model call is metered at the shared client and batched into the
+  // usage ledger; memory mode means the rows die with this process.
+  const ledger = installModelUsageLedger();
+  if (ledger.mode === "database") {
+    logger.info({ ledger: ledger.mode }, "ai usage ledger");
+  } else {
+    logger.warn({ ledger: ledger.mode }, "ai usage ledger is not persisted: model calls will not appear in HQ AI costs");
+  }
+  const overridden = modelAssignments().filter((entry) => entry.overridden);
+  if (overridden.length > 0) {
+    logger.warn({ models: overridden }, "ai model knobs override production defaults");
+  }
+  // A restart gives the buffered rows one bounded chance to land.
+  process.once("SIGTERM", () => {
+    const flush = ledger.ledger?.close() ?? Promise.resolve();
+    void Promise.race([flush, new Promise((resolve) => setTimeout(resolve, 3_000).unref())]).finally(() => process.exit(0));
+  });
   // In-process background timers. Production runs as an autoscale deployment
   // where no process is guaranteed to be alive, so it sets JOBS_DISABLED=1 and
   // NOTIFICATIONS_DISABLED=1 and an external scheduled trigger POSTs

@@ -34,6 +34,8 @@ import {
 import { ensureApprovedFoodsCompartment } from "./recipe";
 import { stripDashes } from "./text-style";
 import { createUpstreamDeadline, UpstreamTimeoutError } from "./upstream";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { modelFor } from "../ai/models";
 
 /**
  * The outreach offer's closing question, byte-identical to
@@ -59,9 +61,6 @@ export const OUTREACH_ACCEPT_LABEL = "Yes, set me up";
  */
 export const BACK_ON_TRACK_UNAVAILABLE =
   "I can't pull your reset plan together right this second. Give me a little while and ask me again, the offer stands.";
-
-/** Same tier as the other non-streaming grounded coach turns. */
-const BACK_ON_TRACK_MODEL = "gpt-5.6-terra";
 
 const TRANSIENT_RETRY_LIMIT = 1;
 const TRANSIENT_RETRY_DELAY_MS = 400;
@@ -136,9 +135,9 @@ function buildBackOnTrackSystemPrompt(
   patient: PatientContext,
   compartments: Compartment[],
 ): string {
+  // Static persona, voice, task and rules first (cacheable); the patient
+  // line and this turn's sources follow.
   return `${COACH_PERSONA_LINE}
-
-${patientContextLine(patient)}
 
 ${COACH_VOICE_RULES}
 
@@ -155,6 +154,8 @@ Rules for the plan:
 
 APPROVED FOODS CATALOG (id — official name):
 ${catalogPromptLines()}
+
+${patientContextLine(patient)}
 
 THINNR program materials for this question:
 
@@ -173,16 +174,16 @@ async function callBackOnTrackModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.back_on_track", () => openai.chat.completions.create(
         {
-          model: BACK_ON_TRACK_MODEL,
+          model: modelFor("coach.back_on_track"),
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       if (deadline.expired) {

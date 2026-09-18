@@ -1,5 +1,6 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { z } from "zod";
+import { withModelUsageContext } from "@workspace/integrations-openai-ai-server/usage";
 
 export const BLOODWORK_TRANSCRIPTION_MODEL = "gpt-5.6-terra";
 export const BLOODWORK_TRANSCRIPTION_TIMEOUT_MS = 90_000;
@@ -199,7 +200,7 @@ async function transcribeBloodworkPageWithOptions(
     });
     let completion;
     try {
-      completion = await openai.chat.completions.create(
+      completion = await withModelUsageContext({ surface: "bloodwork.extraction", scope: "system" }, () => openai.chat.completions.create(
         {
           model: options.model,
           max_completion_tokens: 8192,
@@ -224,7 +225,7 @@ async function transcribeBloodworkPageWithOptions(
         options.disableSdkRetries
           ? { signal: requestSignal, maxRetries: 0 }
           : { signal: requestSignal },
-      );
+      ));
     } catch (cause) {
       const timeoutError = requestSignal.aborted;
       if (timeoutError && (signal?.aborted || Date.now() >= deadlineAt)) {

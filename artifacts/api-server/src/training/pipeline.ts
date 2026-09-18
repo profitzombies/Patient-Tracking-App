@@ -23,6 +23,7 @@ import { upstreamTimeoutMs, UpstreamTimeoutError } from "../coach/upstream";
 import { cleanModelText, extractModelJson } from "../coach/model-json";
 import { normalizeSpokenBrandMentions } from "../lib/brand-spelling";
 import type { TranscriptSegment } from "./videos-store";
+import { withModelUsageContext } from "@workspace/integrations-openai-ai-server/usage";
 
 /** Transcription slice length; also the chapter timestamp grid. */
 export const SEGMENT_SECONDS = 60;
@@ -188,7 +189,7 @@ export async function transcribeSegments(
   const transcribeOne = async (index: number): Promise<string> => {
     const attempt = async (): Promise<string> => {
       // The SDK accepts a fs.ReadStream directly; the .wav name rides along.
-      const response = await openai.audio.transcriptions.create(
+      const response = await withModelUsageContext({ surface: "training.transcribe", scope: "system" }, () => openai.audio.transcriptions.create(
         {
           file: createReadStream(files[index]),
           model: TRANSCRIBE_MODEL,
@@ -196,7 +197,7 @@ export async function transcribeSegments(
           prompt: TRANSCRIBE_PROMPT,
         },
         { signal: withClientAbort(options.signal, upstreamTimeoutMs()) },
-      );
+      ));
       // cleanModelText fixes capitalized brand misspellings; the spoken-
       // mention rewrite catches the lowercase form transcription actually
       // produces ("the thinner program") while genuine phrases like "blood
@@ -261,7 +262,7 @@ function transcriptForPrompt(segments: TranscriptSegment[]): string {
 async function jsonModelTurn(system: string, user: string, signal?: AbortSignal): Promise<unknown> {
   let response;
   try {
-    response = await openai.chat.completions.create(
+    response = await withModelUsageContext({ surface: "training.text", scope: "system" }, () => openai.chat.completions.create(
       {
         model: TEXT_MODEL,
         // Reasoning models spend part of this budget internally; the AI
@@ -274,7 +275,7 @@ async function jsonModelTurn(system: string, user: string, signal?: AbortSignal)
         ],
       },
       { signal: withClientAbort(signal, upstreamTimeoutMs()) },
-    );
+    ));
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new UpstreamTimeoutError("training model turn", upstreamTimeoutMs(), { cause: error });

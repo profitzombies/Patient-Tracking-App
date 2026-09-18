@@ -11,6 +11,7 @@ import {
   PaymentsProviders, PaymentsSubscriptions, PaymentsTransactions,
 } from '../src/pages/admin/payments/HqPaymentsPages';
 import { PaymentsActivity } from '../src/pages/admin/payments/PaymentsActivity';
+import { PaymentsAiCosts } from '../src/pages/admin/payments/PaymentsAiCosts';
 import { PaymentsCatalog, SettingsCard } from '../src/pages/admin/payments/catalog/CatalogPage';
 import { DEMO_CATALOG, DEMO_SUBSCRIPTIONS } from '../src/pages/admin/payments/demo-data';
 import { PaymentsCatalogHistory } from '../src/pages/admin/payments/catalog/CatalogHistory';
@@ -91,6 +92,10 @@ await check('overview demo', '/admin/payments', PaymentsOverview, [
   'Daily revenue', 'Payments per day', 'Refunds per day', 'View all activity', 'Payment received', 'TH-D3MO01',
   "Today's revenue", 'Sep 24 so far, running total by hour', 'THINNR fees', '4 PM',
   'Subscriptions needing attention',
+]);
+await check('ai costs demo', '/admin/payments/ai-costs', PaymentsAiCosts, [
+  'AI costs', 'Total spend', 'Per active patient', 'Prompt cache share', 'Spend per day', 'By office', 'By surface',
+  'By model', 'Jenkins Wellness', 'Coach chat', 'Meal photo reads', 'gpt-5.6-terra',
 ]);
 await check('subscription dunning demo', '/admin/payments/subscriptions', PaymentsSubscriptions, [
   'Payment failed', 'Card declined ', 'Retry payment', 'Email patient a payment link',

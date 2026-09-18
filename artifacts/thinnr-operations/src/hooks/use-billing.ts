@@ -229,6 +229,15 @@ export function useHqOverview(range: { from?: string; to?: string }) {
   });
 }
 
+export function useHqAiCosts(range: { from?: string; to?: string }) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'ai-costs', range.from ?? null, range.to ?? null],
+    queryFn: () => hqBilling.aiCosts(range),
+    enabled: liveEnabled,
+  });
+}
+
 /** Browser time zone, so "today" on the overview matches the viewer's clock. */
 export function viewerTimeZone(): string {
   try {

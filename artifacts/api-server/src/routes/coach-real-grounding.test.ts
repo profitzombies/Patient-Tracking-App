@@ -52,10 +52,10 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
             stream?: boolean;
             messages: Array<{ role: string; content: unknown }>;
           }) => {
-            const system =
-              typeof params.messages[0]?.content === "string"
-                ? (params.messages[0].content as string)
-                : "";
+            const system = params.messages
+              .filter((m) => m.role === "system" && typeof m.content === "string")
+              .map((m) => m.content as string)
+              .join("\n\n");
             modelState.calls.push({ stream: params.stream === true, system });
             if (params.stream === true) {
               return {

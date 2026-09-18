@@ -20,6 +20,7 @@ export const PAYMENT_SECTIONS = [
   { path: '/fulfillment', label: 'Fulfillment' },
   { path: '/subscriptions', label: 'Subscriptions' },
   { path: '/providers', label: 'Providers' },
+  { path: '/ai-costs', label: 'AI costs' },
   { path: '/catalog', label: 'Product catalog' },
 ] as const;
 

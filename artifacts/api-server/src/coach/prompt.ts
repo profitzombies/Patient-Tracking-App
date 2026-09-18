@@ -1,4 +1,4 @@
-import type { Compartment } from "./compartments";
+import { COMPARTMENTS, type Compartment } from "./compartments";
 import type { OfferProduct } from "./products";
 import { QUICK_REPLY_SETS } from "./quick-replies";
 
@@ -46,9 +46,17 @@ export function sanitizeInline(value: string, maxLength: number): string {
     .slice(0, maxLength);
 }
 
-/** Verbatim grounding sources wrapped in <source> blocks. */
+/**
+ * Verbatim grounding sources wrapped in <source> blocks, always in registry
+ * order. Selection can surface the same set in a different order from one
+ * turn to the next (which compartment matched first); the model reads all
+ * of them either way, and identical bytes for an identical set are what let
+ * the provider's prompt cache reuse the previous turn's sources.
+ */
 export function sourcesBlock(compartments: Compartment[]): string {
-  return compartments
+  const rank = new Map(COMPARTMENTS.map((c, index) => [c.id, index]));
+  return [...compartments]
+    .sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER))
     .map(
       (c) =>
         `<source id="${c.id}" title="${c.title}">\n${c.load()}\n</source>`,
@@ -86,6 +94,35 @@ export function toModelMessages(
       ? { role: m.role, content: `${m.content}\n\n${STOPPED_REPLY_NOTE}` }
       : { role: m.role, content: m.content },
   );
+}
+
+export type ChatModelMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/**
+ * Assembles the chat request: ONE system prompt (static prefix, patient
+ * line, this question's sources, product block, recalled memories) followed
+ * by the conversation so far, ending with the latest patient message.
+ *
+ * Why one system message and not "stable prefix first, per-turn sources
+ * after the history": the chat model's prompt cache reuses a stored prefix
+ * only through a patient-message boundary and never a per-turn block placed
+ * after one. Measured live on the same six-turn conversation (2026-09-18):
+ * with the sources trailing, follow-ups reused ~1k tokens (the prefix and
+ * history) and never the 2.5-7k tokens of sources; with one system prompt,
+ * every follow-up whose source set repeats the previous turn's reused ~99%
+ * of the prompt (8,010 of 8,087 tokens on turn three). Focused threads keep
+ * the same set for turns at a time, so the single prompt wins as long as
+ * the same set always produces the same bytes — hence the canonical source
+ * order in sourcesBlock. A per-turn block after the question also cost the
+ * optional one-tap reply marker (7/24 replies vs 13/24 with this layout).
+ */
+export function buildChatMessages(
+  systemPrompt: string,
+  recalledContext: string | null | undefined,
+  history: { role: "user" | "assistant"; content: string }[],
+): ChatModelMessage[] {
+  const content = recalledContext ? `${systemPrompt}\n\n${recalledContext}` : systemPrompt;
+  return [{ role: "system", content }, ...history];
 }
 
 /** One-line patient framing shared by the plain chat and recipe prompts. */
@@ -245,11 +282,30 @@ export function buildSystemPrompt(
   offeredProducts: PromptProductOffer[] = [],
   options: { suggestionsPaused?: boolean } = {},
 ): string {
+  // Same wording and order as before the cache work, so replies and the
+  // one-tap marker behave exactly as measured then. The only per-turn bytes
+  // are the sources and product block at the end; the patient line ahead of
+  // the rules is constant for a patient's day, so within one conversation
+  // the whole text before the sources is a byte-identical prefix. (A head
+  // shared across patients would be ~200 tokens, far under the provider's
+  // 1024-token minimum, so ordering it first would buy nothing.)
   return `${COACH_PERSONA_LINE}
 
 ${patientContextLine(patient)}
 
-${COACH_VOICE_RULES}
+${COACH_STATIC_RULES}
+
+THINNR program materials for this question:
+
+${sourcesBlock(compartments)}${buildProductBlock(offeredProducts, options.suggestionsPaused === true)}`;
+}
+
+/**
+ * The rules text every chat system prompt carries, unchanged between turns
+ * and patients. One constant (evaluated once) so it is byte-identical on
+ * every call, which is what prompt caching keys on.
+ */
+export const COACH_STATIC_RULES = `${COACH_VOICE_RULES}
 
 Message shape:
 - Shape the reply like real text messages: 2 to 4 short blocks separated by blank lines. One thought per block, a sentence or two each — never one dense paragraph.
@@ -262,9 +318,4 @@ Grounding rules:
 - When you state a program rule, amount, or allowed food, quote the source's exact wording for the rule itself. Your own voice wraps around the quote — it never rewrites it.
 - If the materials below do not answer the question, be straight with them the way a good coach would: briefly acknowledge what they're after, say you don't have that in the THINNR materials, and point them to their care team. Warm and honest, never a canned refusal — and never guess or use outside knowledge.
 - If asked about a THINNR product whose details are not in the materials below, say you do not have details on that product and point the patient to getthinnr.com.
-- You are informational only, not medical advice. Never suggest changing doses or medications. For medical concerns, refer to the care team.
-
-THINNR program materials for this question:
-
-${sourcesBlock(compartments)}${buildProductBlock(offeredProducts, options.suggestionsPaused === true)}`;
-}
+- You are informational only, not medical advice. Never suggest changing doses or medications. For medical concerns, refer to the care team.`;

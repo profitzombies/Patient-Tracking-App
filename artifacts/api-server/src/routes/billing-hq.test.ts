@@ -51,6 +51,8 @@ let second: Row;
 let images: Row[];
 let extra: Row[];
 let changes: Row[];
+let aiSummaryCalls: Row[] = [];
+let aiSummaryStatus = 200;
 const order: Row = {
   id: "0a1b2c3d-0000-4000-8000-000000000001", order_number: "TH-TEST01", provider_id: "live-office", payer_id: "payer-1",
   kind: "one_time", status: "paid", fulfillment_status: "to_ship", total_cents: 12998, application_fee_cents: 7198,
@@ -86,6 +88,8 @@ beforeEach(() => {
   images = [];
   extra = [];
   changes = [];
+  aiSummaryCalls = [];
+  aiSummaryStatus = 200;
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     const method = init?.method ?? "GET";
@@ -132,6 +136,23 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/profiles") return response([]);
     if (url.pathname === "/rest/v1/providers") {
       return response([{ provider_id: "live-office", office_name: "Cassandra's Med Spa", provider_name: "Cassandra MacMillan", email: null, phone: null }]);
+    }
+    if (url.pathname === "/rest/v1/rpc/ai_usage_summary") {
+      aiSummaryCalls.push(body);
+      if (aiSummaryStatus !== 200) return response({ message: "boom" }, aiSummaryStatus);
+      return response({
+        from: body.p_from, to: body.p_to,
+        totals: { calls: 12, ok_calls: 11, error_calls: 1, aborted_calls: 0, prompt_tokens: 100000, cached_tokens: 60000,
+          completion_tokens: 20000, reasoning_tokens: 8000, cost_micros: 2_500_000, unpriced_calls: 0, ai_patients: 4, active_patients: 10 },
+        unattributed: { calls: 2, cost_micros: 10_000 },
+        by_day: [{ day: "2026-09-17", calls: 12, prompt_tokens: 100000, cached_tokens: 60000, completion_tokens: 20000, cost_micros: 2_500_000, ai_patients: 4 }],
+        by_office: [{ provider_id: "live-office", office_name: "Cassandra's Med Spa", provider_name: "Cassandra MacMillan", calls: 10,
+          prompt_tokens: 90000, cached_tokens: 60000, completion_tokens: 18000, cost_micros: 2_400_000, ai_patients: 4, active_patients: 8 }],
+        by_surface: [{ surface: "coach.chat", calls: 10, error_calls: 1, prompt_tokens: 90000, cached_tokens: 60000, completion_tokens: 18000,
+          reasoning_tokens: 8000, cost_micros: 2_400_000, avg_latency_ms: 4000, p95_latency_ms: 9000 }],
+        by_model: [{ model: "gpt-5.6-terra", calls: 10, prompt_tokens: 90000, cached_tokens: 60000, completion_tokens: 18000, cost_micros: 2_400_000, unpriced: false },
+          { model: "mystery-model", calls: 2, prompt_tokens: 10000, cached_tokens: 0, completion_tokens: 2000, cost_micros: 0, unpriced: true }],
+      });
     }
     if (url.pathname === "/rest/v1/billing_orders") return response([order]);
     if (url.pathname === "/rest/v1/billing_order_items") return response([{ id: "item-1", order_id: order.id, product_name_snapshot: "Control", quantity: 2 }]);
@@ -342,5 +363,38 @@ describe("billing HQ provider detail", () => {
   it("404s for an unknown office", async () => {
     const result = await call("GET", "/billing/hq/providers/nope", "reader");
     expect(result.status).toBe(404);
+  });
+});
+
+describe("billing HQ AI costs", () => {
+  it("summarizes the usage ledger for a range with cache share and per-patient cost", async () => {
+    const result = await call("GET", "/billing/hq/ai-costs?from=2026-09-01&to=2026-09-18", "reader");
+    expect(result.status).toBe(200);
+    expect(aiSummaryCalls).toEqual([{ p_from: "2026-09-01", p_to: "2026-09-18" }]);
+    const json = result.json as Record<string, any>;
+    expect(json.totals).toMatchObject({
+      calls: 12, cost_usd: 2.5, cached_share: 0.6, active_patients: 10, ai_patients: 4,
+      cost_per_active_patient_usd: 0.25, cost_per_ai_patient_usd: 0.625,
+    });
+    expect(json.unattributed).toEqual({ calls: 2, cost_usd: 0.01 });
+    expect(json.by_office[0]).toMatchObject({ provider_id: "live-office", office_name: "Cassandra's Med Spa", cost_usd: 2.4, active_patients: 8, cost_per_active_patient_usd: 0.3 });
+    expect(json.by_surface[0]).toMatchObject({ surface: "coach.chat", model: "gpt-5.6-terra", cached_share: 60000 / 90000, p95_latency_ms: 9000 });
+    expect(json.by_model[1]).toMatchObject({ model: "mystery-model", unpriced: true, rate: null });
+    expect(json.by_model[0].rate).toEqual({ input: 1.25, cached: 0.125, output: 10 });
+    expect(json.models).toEqual(expect.arrayContaining([{ surface: "coach.chat", model: "gpt-5.6-terra", overridden: false }]));
+    expect(typeof json.pricing_version).toBe("string");
+  });
+  it("defaults to the last 30 days and rejects malformed or oversized ranges", async () => {
+    const result = await call("GET", "/billing/hq/ai-costs", "reader");
+    expect(result.status).toBe(200);
+    const [{ p_from, p_to }] = aiSummaryCalls as { p_from: string; p_to: string }[];
+    expect(Math.round((Date.parse(`${p_to}T00:00:00Z`) - Date.parse(`${p_from}T00:00:00Z`)) / 86_400_000)).toBe(29);
+    expect((await call("GET", "/billing/hq/ai-costs?from=2026-09-18&to=2026-09-01", "reader")).status).toBe(400);
+    expect((await call("GET", "/billing/hq/ai-costs?from=yesterday", "reader")).status).toBe(400);
+    expect((await call("GET", "/billing/hq/ai-costs?from=2024-01-01&to=2026-09-18", "reader")).status).toBe(400);
+  });
+  it("answers 503 when the summary RPC fails", async () => {
+    aiSummaryStatus = 500;
+    expect((await call("GET", "/billing/hq/ai-costs", "reader")).status).toBe(503);
   });
 });

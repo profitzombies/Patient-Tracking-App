@@ -17,6 +17,7 @@ import { getBillingWebhookHealth } from "../billing/webhook-endpoints";
 import { publicOrigin } from "../billing/app-origin";
 import { getConnectClientId, getStripeCredentials, isSandbox } from "../billing/stripe-client";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
+import { AiCostSummaryError, loadAiCostSummary } from "../ai-usage/summary";
 
 const router: IRouter = Router();
 const Cadence = z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]);
@@ -71,6 +72,36 @@ function fail(req: Request, res: Response, error: unknown): void {
   if (rejected) { res.status(rejected.status).json({ error: rejected.message }); return; }
   res.status(503).json({ error: "Payments are temporarily unavailable." });
 }
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const AI_COSTS_MAX_DAYS = 400;
+const utcDay = (date: Date) => date.toISOString().slice(0, 10);
+/**
+ * AI spend for HQ: totals and by day / office / surface / model over a
+ * range of UTC days (default: the last 30 days including today), with the
+ * prompt-cache share and cost per active patient. Reads the usage ledger's
+ * summary RPC; the ledger itself is written by the shared model client.
+ */
+router.get("/billing/hq/ai-costs", requireHqPermission("financial_read"), async (req, res) => {
+  const today = utcDay(new Date());
+  const to = typeof req.query.to === "string" && req.query.to ? req.query.to : today;
+  const from = typeof req.query.from === "string" && req.query.from
+    ? req.query.from
+    : utcDay(new Date(Date.parse(`${to}T00:00:00Z`) - 29 * 86_400_000));
+  if (!ISO_DAY.test(from) || !ISO_DAY.test(to) || Number.isNaN(Date.parse(`${from}T00:00:00Z`)) || Number.isNaN(Date.parse(`${to}T00:00:00Z`))) {
+    res.status(400).json({ error: "from and to must be YYYY-MM-DD dates" }); return;
+  }
+  const spanDays = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+  if (spanDays < 0 || spanDays > AI_COSTS_MAX_DAYS) {
+    res.status(400).json({ error: `from must not be after to, and the range is capped at ${AI_COSTS_MAX_DAYS} days` }); return;
+  }
+  try {
+    res.json(await loadAiCostSummary(from, to));
+  } catch (error) {
+    req.log?.error({ err: error }, "billing HQ ai-costs failed");
+    if (error instanceof AiCostSummaryError) { res.status(error.status).json({ error: "AI cost data is temporarily unavailable." }); return; }
+    res.status(503).json({ error: "AI cost data is temporarily unavailable." });
+  }
+});
 router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_req, res) => {
   const hourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
   const dayAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();

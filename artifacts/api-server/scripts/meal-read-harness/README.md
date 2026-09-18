@@ -39,6 +39,20 @@ pnpm --filter @workspace/api-server run harness:meal-read -- \
 `experimentReasoningEffort`, the harness-only hook on
 `generateMealPhotoAnalysis` — nothing request-reachable can set it.
 
+Model tiers go through the same gate:
+
+```sh
+pnpm --filter @workspace/api-server run harness:meal-read -- \
+  --efforts default --models default,gpt-5.4-mini --out results/2026-09-18-tiers.md
+```
+
+`--models default` is the production model for `coach.meal_photo`
+(`src/ai/models.ts`); any other name is pinned through that surface's
+environment knob (`AI_MODEL_COACH_MEAL_PHOTO`) for the read, so the candidate
+runs the identical code path. Candidates are labelled `<effort>` on the
+default model and `<effort>@<model>` otherwise. The recorded tier decision
+lives in `docs/ai-model-tiers.md`.
+
 ## Reading the report
 
 Per plate: each read's outcome, meal name, item list with portions and

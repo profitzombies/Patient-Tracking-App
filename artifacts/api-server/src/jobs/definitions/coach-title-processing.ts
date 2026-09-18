@@ -1,4 +1,5 @@
 import { generateCoachTitle } from "../../coach/title";
+import { withModelUsageContext } from "@workspace/integrations-openai-ai-server/usage";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import type { JobContext, JobDefinition } from "../types";
 
@@ -20,12 +21,13 @@ export async function runCoachTitleProcessing(ctx: JobContext): Promise<void> {
     const row = claim.json[0] as { work_id?: unknown; conversation_id?: unknown; patient_id?: unknown; text?: unknown; claim_token?: unknown };
     if (typeof row.work_id !== "string" || typeof row.conversation_id !== "string" || typeof row.patient_id !== "string" ||
       typeof row.text !== "string" || typeof row.claim_token !== "string") return;
+    const { text: firstMessage, patient_id: patientId } = row;
     try {
-      const named = await generateCoachTitle({
-        firstMessage: row.text,
+      const named = await withModelUsageContext({ surface: "coach.title", patientId, scope: "system" }, () => generateCoachTitle({
+        firstMessage,
         signal: AbortSignal.timeout(TITLE_CALL_TIMEOUT_MS),
         log: { warn: (detail, message) => ctx.log(message, { conversationId: row.conversation_id, ...detail }) },
-      });
+      }));
       const completed = await supabaseAdmin("POST", "/rest/v1/rpc/coach_title_complete_processing", {
         p_work_id: row.work_id, p_patient_id: row.patient_id, p_conversation_id: row.conversation_id,
         p_claim_token: row.claim_token, p_title: named.title,

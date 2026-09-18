@@ -35,6 +35,8 @@ import {
   isApprovedItemId,
 } from "./approved-catalog";
 import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { modelFor } from "../ai/models";
 
 export type RecipeMode = "recipe" | "cravings";
 
@@ -211,16 +213,7 @@ const RECIPE_JSON_CONTRACT = `Respond with a single JSON object and nothing else
 const STRICT_APPROVED_INGREDIENT_RULES = `- Every ingredient must be an item from the APPROVED FOODS CATALOG below. Each ingredient object MUST also include "approvedItemId" copied exactly from the catalog.
 - Do not use any food that is not in the catalog — no exceptions, not even pantry basics. If it is not in the catalog, leave it out.
 - Each ingredient's "name" may add simple preparation words to its catalog item (for example an id whose catalog name is "Skinless White Meat Chicken Breast" may be written "grilled chicken breast"), but every food word in the name must come from the cited catalog item's own name. The server rejects any name containing a food word that is not part of that catalog entry — never name a different food, and never a food the patient craved that is off the list.`;
-function buildRecipeSystemPrompt(
-  mode: RecipeMode,
-  compartments: Compartment[],
-  patient: PatientContext,
-  inspiration: RecipeTurnArgs["inspiration"],
-  slot: MealSlotContext,
-): string {
-  const shared = `${COACH_PERSONA_LINE}
-
-${patientContextLine(patient)}
+const RECIPE_STATIC_PREFIX = `${COACH_PERSONA_LINE}
 
 ${COACH_VOICE_RULES}
 
@@ -230,6 +223,19 @@ Grounding rules:
 - Keep the suggestion consistent with the THINNR program materials inside the <source> blocks below. When your reply states a program rule, amount, or allowed food, use the source's exact wording for the rule itself.
 - If you cannot propose something that fits the program, set "recipe" to null and say so plainly in "reply". Never invent program rules.
 - You are informational only, not medical advice. Never suggest changing doses or medications.`;
+
+function buildRecipeSystemPrompt(
+  mode: RecipeMode,
+  compartments: Compartment[],
+  patient: PatientContext,
+  inspiration: RecipeTurnArgs["inspiration"],
+  slot: MealSlotContext,
+): string {
+  // Static rules first (byte-stable, cacheable), then the patient line,
+  // then this turn's task, catalog and sources.
+  const shared = `${RECIPE_STATIC_PREFIX}
+
+${patientContextLine(patient)}`;
 
   if (mode === "recipe") {
     const task =
@@ -548,9 +554,9 @@ async function callModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.recipe", () => openai.chat.completions.create(
         {
-          model: "gpt-5.6-terra",
+          model: modelFor("coach.recipe"),
           // Reasoning models spend part of this budget internally; the AI
           // integration requires >= 8192 to avoid empty replies.
           max_completion_tokens: 8192,
@@ -558,7 +564,7 @@ async function callModel(
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {
       // A deadline expiry already consumed the full idle budget; a transient

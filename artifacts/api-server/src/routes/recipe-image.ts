@@ -26,6 +26,9 @@ import { sanitizeInline } from "../coach/prompt";
 import { acquireImageSlot, type UsageSubject } from "../coach/limits";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "../coach/upstream";
 import { bearerToken, resolvePatientIdentity } from "../lib/patient-auth";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { modelFor } from "../ai/models";
+import { attributeModelUsage } from "../ai-usage/context";
 
 const router: IRouter = Router();
 
@@ -48,7 +51,9 @@ router.post("/coach/recipe-image", async (req, res) => {
   // Limit first: image calls are the priciest AI spend in this demo. The
   // slot is reserved in the shared usage store, so the cap holds across
   // every server copy.
-  const slot = await acquireImageSlot(await imageSubject(req), req.log);
+  const subject = await imageSubject(req);
+  attributeModelUsage({ surface: "coach.recipe_image", patientId: subject.patientId ?? null, providerId: subject.officeId ?? null });
+  const slot = await acquireImageSlot(subject, req.log);
   if (!slot.ok) {
     res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
     return;
@@ -89,16 +94,16 @@ router.post("/coach/recipe-image", async (req, res) => {
       "digital illustration, not photorealistic, no photo textures. " +
       "No people, no hands, no text, no logos.";
 
-    const response = await openai.images.generate(
+    const response = await withModelUsageSurface("coach.recipe_image", () => openai.images.generate(
       {
-        model: "gpt-image-1",
+        model: modelFor("coach.recipe_image"),
         prompt,
         size: "1024x1024",
         quality: "low",
         output_format: "jpeg",
       },
       { signal: deadline.signal },
-    );
+    ));
 
     const b64 = response.data?.[0]?.b64_json;
     if (!b64) throw new Error("image response contained no data");

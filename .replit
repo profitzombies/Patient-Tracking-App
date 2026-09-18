@@ -272,6 +272,14 @@ args = "patient-retention-web"
 task = "workflow.run"
 args = "patient-retention-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-usage-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "ai-costs-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2153,6 +2161,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-retention.test.ts src/routes/patient-retention.sql.test.ts src/routes/operational-rollups.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "ai-usage-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/ai-usage src/coach/prompt-order.test.ts src/coach/recipe.test.ts src/coach/meal-chat.test.ts src/routes/billing-hq.test.ts src/routes/coach.test.ts src/routes/coach-real-grounding.test.ts src/routes/coach-photo.test.ts src/routes/label-scan.test.ts src/support && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "ai-costs-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

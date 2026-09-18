@@ -1,6 +1,6 @@
 import { EMPTY_COACH_SUGGESTION } from '@/lib/billing-types';
 import type {
-  CatalogChange, CoachSuggestionRule, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
+  AiCostModel, AiCostSummary, AiCostSurface, CatalogChange, CoachSuggestionRule, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
   HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, ProductPageContent, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
 import { DEMO_PRODUCT_PAGES } from './demo-product-pages';
@@ -42,6 +42,160 @@ export const DEMO_OVERVIEW: HqOverview = {
 };
 
 export const DEMO_ACTIVITY: HqActivityRow[] = DEMO_OVERVIEW.recent;
+
+const AI_RATES: Record<string, { input: number; cached: number; output: number }> = {
+  'gpt-5.6-terra': { input: 1.25, cached: 0.125, output: 10 },
+  'gpt-5.6-luna': { input: 1.25, cached: 0.125, output: 10 },
+  'gpt-5-nano': { input: 0.05, cached: 0.005, output: 0.4 },
+};
+
+function aiCost(model: string, prompt: number, cached: number, completion: number): number {
+  const rate = AI_RATES[model];
+  return ((prompt - cached) * rate.input + cached * rate.cached + completion * rate.output) / 1_000_000;
+}
+
+function demoAiCosts(): AiCostSummary {
+  const surfaceSeeds = [
+    ['coach.chat', 'gpt-5.6-terra', 1840, 12, 2760000, 1680000, 428000, 96000, 1480, 3100],
+    ['coach.meal_photo', 'gpt-5.6-luna', 430, 8, 688000, 0, 172000, 28000, 2280, 5100],
+    ['coach.menu_scan', 'gpt-5-nano', 215, 3, 344000, 31000, 91000, 12000, 1890, 4200],
+    ['coach.label_scan', 'gpt-5-nano', 168, 2, 252000, 18000, 68000, 9000, 1710, 3900],
+    ['support.chat', 'gpt-5.6-terra', 276, 4, 386000, 236000, 72000, 14000, 1320, 2800],
+    ['coach.title', 'gpt-5-nano', 1260, 1, 184000, 112000, 32000, 0, 240, 520],
+  ] as const;
+  const by_surface: AiCostSurface[] = surfaceSeeds.map(
+    ([surface, model, calls, error_calls, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, avg_latency_ms, p95_latency_ms]) => ({
+      surface,
+      model,
+      calls,
+      error_calls,
+      prompt_tokens,
+      cached_tokens,
+      completion_tokens,
+      reasoning_tokens,
+      cached_share: cached_tokens / prompt_tokens,
+      cost_usd: aiCost(model, prompt_tokens, cached_tokens, completion_tokens),
+      avg_latency_ms,
+      p95_latency_ms,
+    }),
+  );
+  const sumSurface = (key: 'calls' | 'error_calls' | 'prompt_tokens' | 'cached_tokens' | 'completion_tokens' | 'reasoning_tokens' | 'cost_usd') =>
+    by_surface.reduce((total, row) => total + row[key], 0);
+  const modelNames = Object.keys(AI_RATES);
+  const by_model: AiCostModel[] = modelNames.map((model) => {
+    const rows = by_surface.filter((row) => row.model === model);
+    const sum = (key: 'calls' | 'prompt_tokens' | 'cached_tokens' | 'completion_tokens' | 'cost_usd') =>
+      rows.reduce((total, row) => total + row[key], 0);
+    const prompt_tokens = sum('prompt_tokens');
+    const cached_tokens = sum('cached_tokens');
+    return {
+      model,
+      calls: sum('calls'),
+      prompt_tokens,
+      cached_tokens,
+      completion_tokens: sum('completion_tokens'),
+      cached_share: cached_tokens / prompt_tokens,
+      cost_usd: sum('cost_usd'),
+      unpriced: false,
+      rate: AI_RATES[model],
+    };
+  });
+  const calls = sumSurface('calls');
+  const prompt_tokens = sumSurface('prompt_tokens');
+  const cached_tokens = sumSurface('cached_tokens');
+  const completion_tokens = sumSurface('completion_tokens');
+  const cost_usd = sumSurface('cost_usd');
+  const officeSeeds = [
+    ['jenkins', 'Jenkins Wellness', 'Dr. Jordan Jenkins', 0.42, 86, 114],
+    ['beacon', 'Beacon Hill Aesthetics', 'Dr. Priya Raman', 0.31, 64, 91],
+    ['northstar', 'Northstar Health Studio', 'Dr. Elena Torres', 0.17, 39, 58],
+    ['harbor', 'Harbor Integrative Care', 'Dr. Marcus Lee', 0.1, 23, 41],
+  ] as const;
+  const allocate = (total: number) => {
+    const values = officeSeeds.map((row) => Math.round(total * row[3]));
+    values[values.length - 1] = total - values.slice(0, -1).reduce((sum, value) => sum + value, 0);
+    return values;
+  };
+  const officeCalls = allocate(calls);
+  const officePrompts = allocate(prompt_tokens);
+  const officeCached = allocate(cached_tokens);
+  const officeCompletions = allocate(completion_tokens);
+  const by_office = officeSeeds.map(([provider_id, office_name, provider_name, share, ai_patients, active_patients], index) => {
+    const officeCost = cost_usd * share;
+    return {
+      provider_id,
+      office_name,
+      provider_name,
+      calls: officeCalls[index],
+      prompt_tokens: officePrompts[index],
+      cached_tokens: officeCached[index],
+      completion_tokens: officeCompletions[index],
+      cached_share: officeCached[index] / officePrompts[index],
+      cost_usd: officeCost,
+      ai_patients,
+      active_patients,
+      cost_per_active_patient_usd: officeCost / active_patients,
+    };
+  });
+  const dayWeights = [0.055, 0.064, 0.071, 0.048, 0.076, 0.081, 0.069, 0.073, 0.079, 0.062, 0.084, 0.074, 0.082, 0.082];
+  const allocateDays = (total: number) => {
+    const values = dayWeights.map((weight) => Math.round(total * weight));
+    values[values.length - 1] = total - values.slice(0, -1).reduce((sum, value) => sum + value, 0);
+    return values;
+  };
+  const dailyCalls = allocateDays(calls);
+  const dailyPrompts = allocateDays(prompt_tokens);
+  const dailyCached = allocateDays(cached_tokens);
+  const dailyCompletions = allocateDays(completion_tokens);
+  const dailyCosts = dayWeights.map((weight) => cost_usd * weight);
+  dailyCosts[dailyCosts.length - 1] = cost_usd - dailyCosts.slice(0, -1).reduce((sum, value) => sum + value, 0);
+  const by_day = dayWeights.map((_, index) => {
+    const day = new Date(Date.UTC(2026, 8, 11 + index)).toISOString().slice(0, 10);
+    return {
+      day,
+      calls: dailyCalls[index],
+      prompt_tokens: dailyPrompts[index],
+      cached_tokens: dailyCached[index],
+      completion_tokens: dailyCompletions[index],
+      cached_share: dailyCached[index] / dailyPrompts[index],
+      cost_usd: dailyCosts[index],
+      ai_patients: 38 + index % 9,
+    };
+  });
+  const error_calls = sumSurface('error_calls');
+  const active_patients = officeSeeds.reduce((total, row) => total + row[5], 0);
+  const ai_patients = officeSeeds.reduce((total, row) => total + row[4], 0);
+  return {
+    from: '2026-09-11',
+    to: '2026-09-24',
+    pricing_version: '2026-09-01',
+    totals: {
+      calls,
+      ok_calls: calls - error_calls,
+      error_calls,
+      aborted_calls: 0,
+      prompt_tokens,
+      cached_tokens,
+      completion_tokens,
+      reasoning_tokens: sumSurface('reasoning_tokens'),
+      cached_share: cached_tokens / prompt_tokens,
+      cost_usd,
+      unpriced_calls: 0,
+      active_patients,
+      ai_patients,
+      cost_per_active_patient_usd: cost_usd / active_patients,
+      cost_per_ai_patient_usd: cost_usd / ai_patients,
+    },
+    unattributed: { calls: 0, cost_usd: 0 },
+    by_day,
+    by_office,
+    by_surface,
+    by_model,
+    models: by_surface.map((row) => ({ surface: row.surface, model: row.model!, overridden: false })),
+  };
+}
+
+export const DEMO_AI_COSTS: AiCostSummary = demoAiCosts();
 
 /**
  * Fixed hourly points for the demo anchor day (Sept 24, 2026), shown through

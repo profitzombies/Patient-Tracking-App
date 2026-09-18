@@ -5,7 +5,7 @@ import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { DEMO_PRODUCT_COMPARTMENT_ID, type Compartment } from "../coach/compartments";
 import { liveStorefrontCompartment } from "../coach/products";
-import { buildSystemPrompt, toModelMessages } from "../coach/prompt";
+import { buildChatMessages, buildSystemPrompt, toModelMessages } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { realPatientContext } from "../coach/real-patient";
 import { bearerToken, resolvePatient } from "../lib/patient-auth";
@@ -49,6 +49,8 @@ import {
 import { authorizeCoachGeneration, recallCoachMemories } from "../coach/memory-recall";
 import { memoryPrompt, type RecallMemory } from "../coach/memory";
 import { recallHistoricalExcerpts } from "../coach/historical-excerpts";
+import { modelFor } from "../ai/models";
+import { attributeModelUsage } from "../ai-usage/context";
 
 const router: IRouter = Router();
 
@@ -238,6 +240,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     // store, keyed to the account (or the demo IP) with the office ceiling
     // riding along, so the caps hold across every server copy.
     const subject = { ip: req.ip, patientId: signedIn?.patientId, officeId: signedIn?.providerId };
+    attributeModelUsage({ surface: "coach.chat", patientId: signedIn?.patientId ?? null, providerId: signedIn?.providerId ?? null });
     const slot = await acquireChatSlot(subject, req.log);
     if (!slot.ok) {
       // `retryable: false` marks denials that cannot clear soon (daily budget
@@ -916,7 +919,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       try {
         const stream = await openai.chat.completions.create(
           {
-            model: "gpt-5.6-terra",
+            model: modelFor("coach.chat"),
             // Reasoning models spend part of this budget on internal reasoning
             // tokens; the AI integration requires >= 8192 to avoid empty replies.
             max_completion_tokens: 8192,
@@ -927,16 +930,11 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
             // 2/2 runs). The typed-out reveal in the app covers the wait
             // instead; don't lower effort without re-checking marker emission.
             stream: true,
-            messages: [
-              {
-                role: "system",
-                content: [
-                  buildSystemPrompt(compartments, patientContext, offeredProducts, { suggestionsPaused: productSuggestionsPaused }),
-                  recalledContext || null,
-                ].filter((part): part is string => Boolean(part)).join("\n\n"),
-              },
-              ...modelHistory,
-            ],
+            messages: buildChatMessages(
+              buildSystemPrompt(compartments, patientContext, offeredProducts, { suggestionsPaused: productSuggestionsPaused }),
+              recalledContext,
+              modelHistory,
+            ),
           },
           { signal: deadline.signal },
         );

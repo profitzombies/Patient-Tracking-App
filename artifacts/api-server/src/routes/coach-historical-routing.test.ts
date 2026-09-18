@@ -65,6 +65,10 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
+/** Every system message the request carried (stable prefix + per-turn block). */
+const systemText = (request: { messages?: Array<{ role: string; content: string }> } | undefined) =>
+  (request?.messages ?? []).filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+
 beforeEach(() => {
   state.modelRequests.length = 0;
   state.resolve.mockReset().mockResolvedValue({ ok: true, patientId: "00000000-0000-4000-8000-000000000001" });
@@ -88,7 +92,7 @@ describe("Coach earlier-chat routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("You previously mentioned vegan recipes.");
     expect(state.recipe).not.toHaveBeenCalled();
-    expect(state.modelRequests[0]?.messages?.[0]?.content).toContain("I asked for vegan recipes with chickpeas.");
+    expect(systemText(state.modelRequests[0])).toContain("I asked for vegan recipes with chickpeas.");
   });
 
   it("asks for an earlier-chat topic clarification before any specialized pipeline", async () => {
@@ -104,6 +108,6 @@ describe("Coach earlier-chat routing", () => {
     expect(response.status).toBe(200);
     await response.text();
     expect(state.recipe).not.toHaveBeenCalled();
-    expect(state.modelRequests[0]?.messages?.[0]?.content).toContain("referred ambiguously to an earlier conversation");
+    expect(systemText(state.modelRequests[0])).toContain("referred ambiguously to an earlier conversation");
   });
 });

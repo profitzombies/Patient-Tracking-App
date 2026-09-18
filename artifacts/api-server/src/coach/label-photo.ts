@@ -34,8 +34,10 @@ import { patientContextLine, type PatientContext } from "./prompt";
 import { type MealSlotContext, MEAL_SLOTS } from "./meal-slot";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import type { UsageRecorder } from "./usage";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { DEFAULT_MODELS, modelFor } from "../ai/models";
 
-export const LABEL_PHOTO_MODEL = "gpt-5-nano";
+export const LABEL_PHOTO_MODEL = DEFAULT_MODELS["coach.label_scan"];
 
 /** One corrective retry when the model's JSON fails validation. */
 const RETRY_LIMIT = 1;
@@ -115,8 +117,6 @@ interface MinimalLog {
 function buildSystemPrompt(patient: PatientContext): string {
   return `You are the THINNR label reader, an AI helper inside the THINNR patient app. The patient photographed a packaged food's Nutrition Facts label so the app can turn it into a food they log. Transcribe what the label prints. Never estimate: a value you cannot read clearly is null, never a guess.
 
-${patientContextLine(patient)}
-
 Respond with a single JSON object and nothing else — no markdown, no code fences:
 {
   "result": "ok" | "not_label" | "unreadable",
@@ -147,7 +147,9 @@ Filling "label" (when "result" is "ok"):
 - "fiber", "sugar", "sodium": per-serving dietary fiber in grams, total sugars in grams, sodium in milligrams. Null for any that is not printed or not legible — these three are optional, the required five are not.
 - A per-100g table with no serving column: treat 100 g as the serving, with "100 g" as servingSize.
 
-"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just read their label, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never ask a question and never mention the numbers themselves; the app prints the values and asks its own follow-up after your message.`;
+"message" is 1-2 short sentences in the patient's coach's own texting voice — react like you really just read their label, specific and warm, contractions and plain words, never gushing. Plain text, never emojis, and never an em dash or en dash; punctuate with commas and periods. Never ask a question and never mention the numbers themselves; the app prints the values and asks its own follow-up after your message.
+
+${patientContextLine(patient)}`;
 }
 
 // ─── Model call ──────────────────────────────────────────────────────────────
@@ -201,9 +203,9 @@ async function callModel(
     const deadline = createUpstreamDeadline(signal);
     const attemptStartedAt = Date.now();
     try {
-      const completion = await openai.chat.completions.create(
+      const completion = await withModelUsageSurface("coach.label_scan", () => openai.chat.completions.create(
         {
-          model: LABEL_PHOTO_MODEL,
+          model: modelFor("coach.label_scan"),
           // Reasoning models spend part of this budget internally before
           // emitting text; smaller caps come back empty.
           max_completion_tokens: 8192,
@@ -211,7 +213,7 @@ async function callModel(
           messages,
         },
         { signal: deadline.signal },
-      );
+      ));
       onUsage?.(completion.usage);
       return completion.choices[0]?.message?.content ?? "";
     } catch (error) {

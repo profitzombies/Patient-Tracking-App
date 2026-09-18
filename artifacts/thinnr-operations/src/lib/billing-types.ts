@@ -20,6 +20,23 @@ export type AccountOrigin = 'created' | 'oauth';
 export type DashboardType = 'none' | 'full' | 'express';
 export type OfficeRole = 'owner' | 'admin' | 'staff';
 
+export interface AiCostTotals {
+  calls: number;
+  ok_calls: number;
+  error_calls: number;
+  aborted_calls: number;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  cached_share: number;
+  cost_usd: number;
+  unpriced_calls: number;
+  active_patients: number;
+  ai_patients: number;
+  cost_per_active_patient_usd: number | null;
+  cost_per_ai_patient_usd: number | null;
+}
 export interface ShippingAddress {
   name: string;
   line1: string;
@@ -1283,4 +1300,70 @@ export interface TapCaptureResponse {
   item: CartCheckoutItem;
   card_on_file: TapCardOnFile;
   checkout: CartCheckoutResponse;
+}
+
+export interface AiCostDay {
+  day: string;
+  calls: number;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  cached_share: number;
+  cost_usd: number;
+  ai_patients: number;
+}
+
+export interface AiCostModel {
+  model: string;
+  calls: number;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  cached_share: number;
+  cost_usd: number;
+  unpriced: boolean;
+  rate: { input: number; cached: number; output: number } | null;
+}
+
+export interface AiCostOffice {
+  provider_id: string;
+  office_name: string | null;
+  provider_name: string | null;
+  calls: number;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  cached_share: number;
+  cost_usd: number;
+  ai_patients: number;
+  active_patients: number;
+  cost_per_active_patient_usd: number | null;
+}
+
+export interface AiCostSurface {
+  surface: string;
+  calls: number;
+  error_calls: number;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  cached_share: number;
+  cost_usd: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  model: string | null;
+}
+
+export interface AiCostSummary {
+  from: string;
+  to: string;
+  pricing_version: string;
+  totals: AiCostTotals;
+  unattributed: { calls: number; cost_usd: number };
+  by_day: AiCostDay[];
+  by_office: AiCostOffice[];
+  by_surface: AiCostSurface[];
+  by_model: AiCostModel[];
+  models: { surface: string; model: string; overridden: boolean }[];
 }

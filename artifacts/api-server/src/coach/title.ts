@@ -12,8 +12,10 @@
 import { z } from "zod";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { cleanModelText, extractModelJson } from "./model-json";
+import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
+import { DEFAULT_MODELS, modelFor } from "../ai/models";
 
-export const COACH_TITLE_MODEL = "gpt-5-nano";
+export const COACH_TITLE_MODEL = DEFAULT_MODELS["coach.title"];
 export const COACH_TITLE_MAX_CHARS = 40;
 
 export const COACH_TITLE_PROMPT = `You name chat conversations for the history list in the THINNR patient app. The patient is chatting with their weight-loss coach; you get the patient's first message and reply with a short title for that conversation.
@@ -93,9 +95,9 @@ export async function generateCoachTitle(args: {
   const firstMessage = args.firstMessage.trim().slice(0, 1200);
   if (!firstMessage) return fallback;
   try {
-    const completion = await openai.chat.completions.create(
+    const completion = await withModelUsageSurface("coach.title", () => openai.chat.completions.create(
       {
-        model: COACH_TITLE_MODEL,
+        model: modelFor("coach.title"),
         // Reasoning models spend part of this budget internally before
         // emitting text; smaller caps come back empty.
         max_completion_tokens: 4096,
@@ -106,7 +108,7 @@ export async function generateCoachTitle(args: {
         ],
       },
       { signal: args.signal },
-    );
+    ));
     const raw = completion.choices[0]?.message?.content ?? "";
     const parsed = TitleSchema.safeParse(extractModelJson(raw));
     const title = parsed.success ? shapeCoachTitle(parsed.data.title) : "";

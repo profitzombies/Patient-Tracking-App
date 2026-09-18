@@ -20,8 +20,9 @@ import { normalizeBrandSpelling } from "../lib/brand-spelling";
 import { extractModelJson } from "../coach/model-json";
 import { upstreamTimeoutMs } from "../coach/upstream";
 import { logger } from "../lib/logger";
+import { withModelUsageContext } from "@workspace/integrations-openai-ai-server/usage";
+import { modelFor } from "../ai/models";
 
-const TEXT_MODEL = "gpt-5-nano";
 
 /** How much document text rides along in the prompt. */
 const HEAD_CHARS = 7000;
@@ -61,9 +62,9 @@ function cleanKeywords(value: unknown): string[] {
 
 async function aiRoutingAids(title: string, text: string): Promise<RoutingAids> {
   const { excerpt, truncated } = excerptOf(text);
-  const response = await openai.chat.completions.create(
+  const response = await withModelUsageContext({ surface: "knowledge.summary", scope: "system" }, () => openai.chat.completions.create(
     {
-      model: TEXT_MODEL,
+      model: modelFor("knowledge.summary"),
       // Reasoning models spend part of this budget internally; the AI
       // integration requires >= 8192 to avoid empty replies.
       max_completion_tokens: 8192,
@@ -85,7 +86,7 @@ async function aiRoutingAids(title: string, text: string): Promise<RoutingAids> 
       ],
     },
     { signal: AbortSignal.timeout(upstreamTimeoutMs()) },
-  );
+  ));
   const raw = response.choices[0]?.message?.content ?? "";
   const parsed = extractModelJson(raw) as { summary?: unknown; keywords?: unknown } | null;
   if (parsed === null || typeof parsed !== "object") {

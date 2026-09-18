@@ -19,7 +19,11 @@
  *     - the recent-runs table lists runs newest first with trigger + counts;
  *     - a 502 from the ledger renders the error notice, never an empty
  *       healthy-looking board;
- *     - the demo persona sees the unavailable note and makes no request.
+ *     - the demo persona sees the unavailable note and makes no request;
+ *     - the External trigger card: a fresh tick reads Ticking, a stale
+ *       tick on a server with no timers of its own raises the red warning,
+ *       the same gap with timers running is only a note, and a missing
+ *       tick reads Never reached.
  *     - the patient push outbox tiles show backlog size, oldest due age, and
  *       in-flight rows; an unreadable outbox shows dashes and a notice, never
  *       zeros.
@@ -44,7 +48,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { __setSession } from './a11y-stubs/session';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
-import SystemHealth, { STATUS_LABEL, formatAge, formatCounts, monthLabel, ratioLabel, statusClass } from '../src/pages/admin/SystemHealth';
+import SystemHealth, { STATUS_LABEL, externalTriggerSeverity, formatAge, formatCounts, monthLabel, ratioLabel, statusClass } from '../src/pages/admin/SystemHealth';
 import { useToast } from '../src/hooks/use-toast';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -126,6 +130,23 @@ const recentRuns = [
   { id: 'run-1', jobName: 'abandoned-uploads', trigger: 'manual', dryRun: true, status: 'succeeded', owner: 'api:1', startedAt: hoursAgo(3), finishedAt: hoursAgo(3), counts: {}, failureCount: 0, error: null },
 ];
 
+const tickAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
+const tick = (kind: 'jobs' | 'notifications', minutes: number | null, extra: Record<string, unknown> = {}) => ({
+  kind,
+  status: minutes === null ? 'never' : minutes > 5 ? 'stale' : 'ok',
+  lastAt: minutes === null ? null : tickAgo(minutes),
+  owner: minutes === null ? null : 'api-1:42:abcd',
+  lastResult: minutes === null ? null : 'succeeded',
+  summary: minutes === null ? null : kind === 'jobs' ? { jobsDue: 2, jobsRan: 2, officeExports: 1, patientExports: 0, purges: 0, drainFailures: 0 } : { outboxSent: 3, outboxClaimed: 3 },
+  error: null,
+  ...extra,
+});
+let externalTrigger: Record<string, unknown> = {
+  staleAfterMs: 300_000,
+  inProcessTimers: { jobs: false, notifications: false },
+  ticks: [tick('jobs', 1), tick('notifications', 2)],
+};
+
 let healthStatus = 200;
 type OutboxFixture = { due: number; oldestDueAt: string | null; oldestDueAgeMs: number | null; inFlight: number } | null;
 let outbox: OutboxFixture = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
@@ -148,7 +169,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -192,6 +213,13 @@ console.log('status mapping and counts formatter');
   check('stale and never_ran share the warning chip', statusClass('stale') === statusClass('never_ran'));
   check('counts sort by key and read in words', formatCounts({ scanned: 12, deleted: 4, missing_flagged: 1, rowsRemoved: 2 }) === 'deleted 4 · missing flagged 1 · rows removed 2 · scanned 12');
   check('empty counts read as nothing to do; null as a dash', formatCounts({}) === 'nothing to do' && formatCounts(null) === '—');
+  const sev = (timers: { jobs: boolean; notifications: boolean }, ticks: Array<ReturnType<typeof tick>>) =>
+    externalTriggerSeverity({ staleAfterMs: 300_000, inProcessTimers: timers, ticks } as never);
+  check('fresh ticks are ok whatever the timers', sev({ jobs: false, notifications: false }, [tick('jobs', 1), tick('notifications', 4)]) === 'ok');
+  check('a stale tick with no in-process timers is a warning', sev({ jobs: false, notifications: false }, [tick('jobs', 9), tick('notifications', 1)]) === 'warning');
+  check('a never tick with no in-process timers is a warning', sev({ jobs: true, notifications: false }, [tick('jobs', 1), tick('notifications', null)]) === 'warning');
+  check('a stale tick while that timer still runs is only a note', sev({ jobs: true, notifications: true }, [tick('jobs', 9), tick('notifications', null)]) === 'note');
+  check('missing health reads ok', externalTriggerSeverity(null) === 'ok' && externalTriggerSeverity(undefined) === 'ok');
 }
 
 // ─── System health ───────────────────────────────────────────────────────────
@@ -303,12 +331,52 @@ console.log('\nsystem health: sign-in ledger unreadable');
   patientSignIns = signInMonths;
 }
 
+console.log('\nsystem health: external trigger fresh');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('external trigger card shows both fresh ticks as Ticking with their last time and counts',
+    byTestId(root, 'system-health-external-trigger').length === 1
+      && textOf(byTestId(root, 'chip-tick-status-jobs')[0]) === 'Ticking' && textOf(byTestId(root, 'chip-tick-status-notifications')[0]) === 'Ticking'
+      && textOf(byTestId(root, 'text-tick-last-jobs')[0]).includes('1 minute ago') && textOf(byTestId(root, 'text-tick-detail-jobs')[0]).includes('jobs ran 2')
+      && textOf(byTestId(root, 'text-tick-detail-jobs')[0]).includes('office exports 1') && textOf(byTestId(root, 'text-tick-detail-notifications')[0]).includes('outbox sent 3'),
+    `${textOf(byTestId(root, 'text-tick-last-jobs')[0])} | ${textOf(byTestId(root, 'text-tick-detail-jobs')[0])}`);
+  check('no warning or note while the trigger is fresh', byTestId(root, 'text-external-trigger-warning').length === 0 && byTestId(root, 'text-external-trigger-note').length === 0);
+}
+
+console.log('\nsystem health: external trigger stale on autoscale (no in-process timers)');
+{
+  externalTrigger = { staleAfterMs: 300_000, inProcessTimers: { jobs: false, notifications: false }, ticks: [tick('jobs', 12, { lastResult: 'failed', error: 'ledger unreachable' }), tick('notifications', null)] };
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  const warning = byTestId(root, 'text-external-trigger-warning');
+  check('a stale jobs tick and a never notifications tick raise the red warning',
+    warning.length === 1 && warning[0].props.role === 'alert' && textOf(warning[0]).includes('more than 5 minutes') && byTestId(root, 'text-external-trigger-note').length === 0,
+    warning[0] ? textOf(warning[0]) : 'no warning');
+  check('chips read Stale and Never reached in the destructive style',
+    textOf(byTestId(root, 'chip-tick-status-jobs')[0]) === 'Stale' && textOf(byTestId(root, 'chip-tick-status-notifications')[0]) === 'Never reached'
+      && String(byTestId(root, 'chip-tick-status-jobs')[0].props.className).includes('text-destructive'));
+  check('a failed last tick shows its error; a never tick reads as not recorded',
+    textOf(byTestId(root, 'text-tick-detail-jobs')[0]).includes('Last tick failed') && textOf(byTestId(root, 'text-tick-detail-jobs')[0]).includes('ledger unreachable')
+      && textOf(byTestId(root, 'text-tick-last-notifications')[0]) === 'No external tick recorded');
+}
+
+console.log('\nsystem health: external trigger stale in development (timers still running)');
+{
+  externalTrigger = { staleAfterMs: 300_000, inProcessTimers: { jobs: true, notifications: true }, ticks: [tick('jobs', 45), tick('notifications', null)] };
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('the same gap with in-process timers is a note, not a warning',
+    byTestId(root, 'text-external-trigger-warning').length === 0 && byTestId(root, 'text-external-trigger-note').length === 1 && textOf(byTestId(root, 'text-external-trigger-note')[0]).includes('runs its own timers'));
+  check('chips use the amber style, not destructive', !String(byTestId(root, 'chip-tick-status-jobs')[0].props.className).includes('text-destructive'));
+  externalTrigger = { staleAfterMs: 300_000, inProcessTimers: { jobs: false, notifications: false }, ticks: [tick('jobs', 1), tick('notifications', 2)] };
+}
+
 console.log('\nsystem health: ledger unavailable');
 {
   healthStatus = 502;
   const { root } = await render('/admin/system-health', <SystemHealth />);
   check('a 502 renders the error notice and no job cards', byTestId(root, 'text-system-health-error').length === 1 && root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('job-')).length === 0);
   check('tiles show dashes rather than zeros', textOf(byTestId(root, 'metric-jobs-failing')[0]) === '—' && textOf(byTestId(root, 'metric-jobs-healthy')[0]) === '—' && textOf(byTestId(root, 'metric-outbox-due')[0]) === '—');
+  check('the trigger card shows dashes and no chips or warning without data',
+    byTestId(root, 'system-health-external-trigger').length === 1 && textOf(byTestId(root, 'text-tick-last-jobs')[0]) === '—' && byTestId(root, 'chip-tick-status-jobs').length === 0 && byTestId(root, 'text-external-trigger-warning').length === 0);
   healthStatus = 200;
 }
 

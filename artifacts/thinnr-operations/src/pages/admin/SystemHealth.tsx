@@ -10,17 +10,27 @@
  * for real. Runs that outlast the request keep going server-side and the
  * panel polls until they land.
  *
+ * The "External trigger" card shows when the production scheduler (a
+ * Scheduled Deployment that POSTs the internal tick routes every minute) last
+ * reached the server. On autoscale the server's own timers are off, so a
+ * trigger that has been quiet for more than five minutes means reminders,
+ * exports, and clean-up have stopped — that reads as a red warning. When the
+ * server still runs its own timers (development) the same gap is only a note.
+ *
  * Live-only: the guided demo has no job ledger, so signed-out visitors see a
  * note rather than a fabricated healthy board.
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNowStrict } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Clock3, Loader2, PauseCircle, Play, RotateCcw, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Loader2, PauseCircle, Play, Radio, RotateCcw, ShieldAlert } from 'lucide-react';
 import {
   getGetHqSystemHealthQueryKey,
   useGetHqSystemHealth,
   useRunHqSystemJob,
+  type ExternalTickHealth,
+  type ExternalTickHealthStatus,
+  type ExternalTriggerHealth,
   type PatientSignInMonth,
   type SystemHealthResult,
   type SystemJobHealth,
@@ -107,6 +117,99 @@ export function outboxAgeDetail(outbox: SystemHealthResult['outbox'] | undefined
   if (outbox.oldestDueAgeMs >= OUTBOX_AGE_ALERT_MS) return 'Drain is behind';
   if (outbox.oldestDueAgeMs >= OUTBOX_AGE_WARN_MS) return 'Older than one tick';
   return 'Within one tick';
+}
+
+export const TICK_KIND_LABEL: Record<ExternalTickHealth['kind'], string> = {
+  jobs: 'Jobs, exports, and purges',
+  notifications: 'Reminders and staff alerts',
+};
+
+export const TICK_STATUS_LABEL: Record<ExternalTickHealthStatus, string> = {
+  ok: 'Ticking',
+  stale: 'Stale',
+  never: 'Never reached',
+};
+
+/**
+ * How loudly a quiet trigger should read. Red only when this server has no
+ * timers of its own for that tick kind (production autoscale): then a stale
+ * trigger means the work has stopped. With timers still running (development)
+ * the gap is informational.
+ */
+export function externalTriggerSeverity(health: ExternalTriggerHealth | null | undefined): 'ok' | 'note' | 'warning' {
+  if (!health) return 'ok';
+  const quiet = health.ticks.filter((t) => t.status !== 'ok');
+  if (quiet.length === 0) return 'ok';
+  const timers = health.inProcessTimers;
+  return quiet.some((t) => (t.kind === 'jobs' ? !timers.jobs : !timers.notifications)) ? 'warning' : 'note';
+}
+
+export function tickStatusClass(status: ExternalTickHealthStatus, severity: 'ok' | 'note' | 'warning'): string {
+  if (status === 'ok') return 'border-accent-border bg-accent text-primary';
+  if (severity === 'warning') return 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
+  return 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]';
+}
+
+function ExternalTriggerCard({ health, loaded }: { health: ExternalTriggerHealth | null | undefined; loaded: boolean }) {
+  const severity = externalTriggerSeverity(health);
+  const staleMinutes = Math.round((health?.staleAfterMs ?? 300_000) / 60_000);
+  return (
+    <section
+      className={`mt-6 rounded-lg border bg-card shadow-soft ${severity === 'warning' ? 'border-[#d5a7a7]' : 'border-border'}`}
+      aria-label="External trigger"
+      data-testid="system-health-external-trigger"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 p-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-serif text-base font-bold text-navy">External trigger</h2>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+              <Radio size={11} aria-hidden="true" />Every minute
+            </span>
+          </div>
+          <p className="mt-1 max-w-[80ch] text-xs leading-relaxed text-muted-foreground">
+            In production the server sleeps between requests, so a scheduled trigger calls it every minute to send reminders, finish exports and purges, and run clean-up. Stale after {staleMinutes} minutes without a tick.
+          </p>
+          {health && severity === 'warning' && (
+            <div role="alert" className="mt-3 rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-3 py-2 text-xs text-destructive" data-testid="text-external-trigger-warning">
+              The external trigger has not reached this server for more than {staleMinutes} minutes and this server runs no timers of its own. Reminders, exports, purges, and clean-up are not running until the scheduled trigger is restored.
+            </div>
+          )}
+          {health && severity === 'note' && (
+            <p className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-3 py-2 text-xs text-[#b65c22]" data-testid="text-external-trigger-note">
+              No recent external tick, but this server runs its own timers, so background work continues. Expected in development.
+            </p>
+          )}
+          <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-xs sm:grid-cols-2">
+            {(health?.ticks ?? (['jobs', 'notifications'] as const).map((kind) => ({ kind, status: 'never' as const, lastAt: null, owner: null, lastResult: null, summary: null, error: null }))).map((tick) => (
+              <div key={tick.kind} data-testid={`tick-${tick.kind}`}>
+                <dt className="flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground">
+                  {TICK_KIND_LABEL[tick.kind]}
+                  {loaded && (
+                    <span
+                      className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.05em] ${tickStatusClass(tick.status, severity)}`}
+                      data-testid={`chip-tick-status-${tick.kind}`}
+                    >
+                      {TICK_STATUS_LABEL[tick.status]}
+                    </span>
+                  )}
+                </dt>
+                <dd className="mt-0.5 text-foreground" data-testid={`text-tick-last-${tick.kind}`}>
+                  {!loaded ? '—' : tick.lastAt ? `Last tick ${when(tick.lastAt)} (${ago(tick.lastAt)})` : 'No external tick recorded'}
+                </dd>
+                {loaded && tick.lastAt && (
+                  <dd className="text-[11px] text-muted-foreground" data-testid={`text-tick-detail-${tick.kind}`}>
+                    {tick.lastResult === 'failed' ? `Last tick failed${tick.error ? ` — ${tick.error}` : ''}` : formatCounts(tick.summary)}
+                    {tick.owner ? ` · ${tick.owner}` : ''}
+                  </dd>
+                )}
+              </div>
+            ))}
+          </dl>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 const TRIGGER_LABEL: Record<SystemJobRun['trigger'], string> = {
@@ -305,6 +408,8 @@ export default function SystemHealth() {
               {(error as { data?: { error?: string } })?.data?.error ?? 'System health could not be loaded. The job ledger may be unreachable.'}
             </div>
           )}
+
+          <ExternalTriggerCard health={data?.externalTrigger} loaded={Boolean(data)} />
 
           <VerificationCostPanel months={data?.patientSignIns} loaded={!!data} />
 

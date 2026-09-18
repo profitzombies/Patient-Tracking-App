@@ -13,7 +13,8 @@ vi.mock("../lib/patient-auth", () => ({ resolvePatient: mocks.resolvePatient }))
 vi.mock("../notifications/worker", () => ({ runScheduledTick: mocks.tick }));
 
 import { MemoryNotificationStore } from "../notifications/memory-store";
-import { createPatientNotificationsRouter } from "./patient-notifications";
+import { createMemoryExternalTickStore } from "../jobs/external-ticks";
+import { createPatientNotificationsRouter, tickHeartbeatSummary } from "./patient-notifications";
 
 const P1 = "11111111-1111-4111-8111-111111111111";
 const P2 = "22222222-2222-4222-8222-222222222222";
@@ -24,12 +25,13 @@ const DEVICE = "install-0001-abcdef";
 let server: http.Server;
 let base = "";
 let store: MemoryNotificationStore;
+const tickStore = createMemoryExternalTickStore();
 
 beforeAll(async () => {
   store = new MemoryNotificationStore();
   const app = express();
   app.use(express.json());
-  app.use(createPatientNotificationsRouter(store));
+  app.use(createPatientNotificationsRouter(store, { tickStore }));
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());
   });
@@ -38,6 +40,7 @@ beforeAll(async () => {
 afterAll(() => server.close());
 beforeEach(() => {
   store.reset();
+  tickStore.reset();
   store.addPatient({ patientId: P1, providerId: "prov-1" });
   store.addPatient({ patientId: P2, providerId: "prov-1" });
   mocks.resolvePatient.mockReset().mockResolvedValue({ ok: true, patientId: P1, authUserId: "u1" });
@@ -145,11 +148,58 @@ describe("internal tick trigger", () => {
     expect(mocks.tick).toHaveBeenCalledWith(expect.objectContaining({ outreach: true, store }));
   });
 
-  it("answers 500 without leaking when the tick throws", async () => {
+  it("records a notifications heartbeat with a numeric summary after a successful tick", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "scheduler-secret";
+    mocks.tick.mockResolvedValueOnce({
+      owner: "api-7:1:abcd",
+      outbox: { claimed: 3, sent: 2, failed: 1 },
+      staffOutbox: { claimed: 1, sent: 1 },
+      outreach: { sent: 1, evaluated: 9 },
+      missedDoses: { sent: 0 },
+      renewals: { queued: 2 },
+    });
+    expect((await call("/internal/notifications/tick", "POST", {}, "scheduler-secret")).status).toBe(200);
+    const row = tickStore.rows.get("notifications");
+    expect(row).toMatchObject({
+      kind: "notifications",
+      owner: "api-7:1:abcd",
+      lastResult: "succeeded",
+      error: null,
+      summary: { outboxClaimed: 3, outboxSent: 2, staffClaimed: 1, outreachSent: 1, missedDoseSent: 0, renewalsQueued: 2 },
+    });
+    expect(Number.isNaN(Date.parse(row!.lastAt))).toBe(false);
+    // Unauthenticated and rejected calls never touch the heartbeat.
+    tickStore.reset();
+    await call("/internal/notifications/tick", "POST", {}, "wrong");
+    expect(tickStore.rows.size).toBe(0);
+  });
+
+  it("answers 500 without leaking when the tick throws, and records the failed heartbeat", async () => {
     process.env.NOTIFICATIONS_INTERNAL_TOKEN = "scheduler-secret";
     mocks.tick.mockRejectedValueOnce(new Error("db down"));
     const res = await call("/internal/notifications/tick", "POST", {}, "scheduler-secret");
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Tick failed." });
+    expect(tickStore.rows.get("notifications")).toMatchObject({ lastResult: "failed", error: "db down", summary: {} });
+  });
+
+  it("keeps the tick successful when the heartbeat write itself fails", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "scheduler-secret";
+    const failing = express();
+    failing.use(express.json());
+    failing.use(createPatientNotificationsRouter(store, { tickStore: { record: async () => { throw new Error("ledger down"); }, list: async () => [] } }));
+    const srv = await new Promise<http.Server>((resolve) => { const s = failing.listen(0, () => resolve(s)); });
+    try {
+      const port = (srv.address() as AddressInfo).port;
+      const res = await fetch(`http://127.0.0.1:${port}/internal/notifications/tick`, { method: "POST", headers: { authorization: "Bearer scheduler-secret", "content-type": "application/json" }, body: "{}" });
+      expect(res.status).toBe(200);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("summarizes a tick result as numbers only, tolerating missing families", () => {
+    expect(tickHeartbeatSummary(null)).toEqual({ outboxClaimed: 0, outboxSent: 0, staffClaimed: 0, outreachSent: 0, missedDoseSent: 0, renewalsQueued: 0 });
+    expect(tickHeartbeatSummary({ outbox: { claimed: 2, sent: "x" } } as never)).toMatchObject({ outboxClaimed: 2, outboxSent: 0 });
   });
 });

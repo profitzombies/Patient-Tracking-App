@@ -4007,9 +4007,36 @@ components:
         lastFailureAt: { type: ["string", "null"] }
         lastError: { type: ["string", "null"] }
         recentFailures: { type: array, items: { $ref: "#/components/schemas/SystemJobItemFailure" } }
+    ExternalTickHealth:
+      type: object
+      description: Last heartbeat from the external scheduled trigger for one tick kind
+      required: [kind, status, lastAt, owner, lastResult, summary, error]
+      properties:
+        kind: { type: string, enum: [jobs, notifications] }
+        status: { type: string, enum: [ok, stale, never], description: "stale once the last tick is older than staleAfterMs; never when no tick has landed" }
+        lastAt: { type: ["string", "null"] }
+        owner: { type: ["string", "null"], description: The server instance that answered the last tick }
+        lastResult: { type: ["string", "null"], enum: [succeeded, failed, null] }
+        summary:
+          type: ["object", "null"]
+          additionalProperties: { type: number }
+        error: { type: ["string", "null"] }
+    ExternalTriggerHealth:
+      type: object
+      required: [staleAfterMs, inProcessTimers, ticks]
+      properties:
+        staleAfterMs: { type: number, description: "Age after which a tick counts as stale (300000 = 5 minutes)" }
+        inProcessTimers:
+          type: object
+          description: Whether this server still runs its own timers (development) or relies on the external trigger (production)
+          required: [jobs, notifications]
+          properties:
+            jobs: { type: boolean }
+            notifications: { type: boolean }
+        ticks: { type: array, items: { $ref: "#/components/schemas/ExternalTickHealth" } }
     SystemHealthResult:
       type: object
-      required: [asOf, jobs, recentRuns, outbox, patientSignIns]
+      required: [asOf, jobs, recentRuns, outbox, patientSignIns, externalTrigger]
       properties:
         asOf: { type: string }
         jobs: { type: array, items: { $ref: "#/components/schemas/SystemJobHealth" } }
@@ -4024,6 +4051,7 @@ components:
         patientSignIns:
           type: ["array", "null"]
           items: { $ref: "#/components/schemas/PatientSignInMonth" }
+        externalTrigger: { $ref: "#/components/schemas/ExternalTriggerHealth" }
     PushOutboxBacklog:
       type: object
       required: [due, oldestDueAt, oldestDueAgeMs, inFlight]

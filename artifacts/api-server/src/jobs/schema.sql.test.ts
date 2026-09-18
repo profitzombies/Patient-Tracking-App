@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260929000000_system_jobs_and_storage_hygiene.sql");
 const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261014000000_staff_attention_alerts_privacy.sql");
+const EXTERNAL_TICKS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261027000000_system_external_ticks.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -129,7 +130,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION, EXTERNAL_TICKS_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
     psql(`insert into public.patients (id, provider_id) values ('${P1}', 'prov'), ('${P2}', 'prov')`);
@@ -140,8 +141,21 @@ describe.skipIf(!POSTGRES_AVAILABLE)("system jobs + storage hygiene SQL (real Po
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
+  it("keeps one heartbeat row per external tick kind and rejects unknown kinds or states", () => {
+    psql(`insert into public.system_external_ticks (kind, last_at, owner, status, summary) values ('jobs', now() - interval '3 minutes', 'api-1', 'succeeded', '{"jobsRan": 1}')`);
+    // The upsert the API uses: same kind overwrites, never a second row.
+    psql(`insert into public.system_external_ticks (kind, last_at, owner, status, summary, error) values ('jobs', now(), 'api-2', 'failed', '{}', 'db down')
+          on conflict (kind) do update set last_at = excluded.last_at, owner = excluded.owner, status = excluded.status, summary = excluded.summary, error = excluded.error, updated_at = now()`);
+    expect(scalar<number>(`count(*) from public.system_external_ticks`)).toBe(1);
+    expect(rows<{ owner: string; status: string; error: string }>(`select owner, status, error from public.system_external_ticks`)[0]).toEqual({ owner: "api-2", status: "failed", error: "db down" });
+    expect(fails(`insert into public.system_external_ticks (kind, last_at, status) values ('mail', now(), 'succeeded')`)).toContain("check");
+    expect(fails(`insert into public.system_external_ticks (kind, last_at, status) values ('notifications', now(), 'running')`)).toContain("check");
+    expect(fails(`insert into public.system_external_ticks (kind, last_at, status, summary) values ('notifications', now(), 'succeeded', '[]')`)).toContain("check");
+    psql(`delete from public.system_external_ticks`);
+  });
+
   it("keeps every new table and function service-role only", () => {
-    const tables = ["system_job_leases", "system_job_runs", "system_job_item_failures", "storage_upload_intents", "admin_audit_event_archives"];
+    const tables = ["system_job_leases", "system_job_runs", "system_job_item_failures", "storage_upload_intents", "admin_audit_event_archives", "system_external_ticks"];
     const grants = rows<{ grantee: string; table_name: string }>(
       `select grantee, table_name from information_schema.role_table_grants
        where table_schema = 'public' and table_name in (${tables.map((t) => `'${t}'`).join(",")}) and grantee in ('anon','authenticated')`,

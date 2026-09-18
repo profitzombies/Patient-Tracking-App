@@ -20,6 +20,7 @@
 import { csvBuffer } from "./csv";
 import { GENERATORS, MAX_EXPORT_ROWS } from "./generators";
 import { isExportKind, type ExportKind, type ExportScope } from "./kinds";
+import { jobsDisabled } from "../jobs/scheduler";
 import { logger } from "../lib/logger";
 import { objectStorage } from "../lib/objectStorage";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -175,14 +176,21 @@ export async function sweepExpiredExports(now = new Date()): Promise<{ expired: 
 
 let timers: { drain: NodeJS.Timeout } | null = null;
 
-/** Start the periodic drain + sweep loops (once per process). */
 /**
- * Drains queued exports on a timer. Expiry of finished archives is NOT on a
- * timer here any more: the `retention-exports` job (src/jobs) runs
- * `sweepExpiredExports` under a lease so overlapping processes never race.
+ * Drains queued exports on a timer (once per process). Expiry of finished
+ * archives is NOT on a timer here any more: the `retention-exports` job
+ * (src/jobs) runs `sweepExpiredExports` under a lease so overlapping
+ * processes never race.
+ *
+ * JOBS_DISABLED=1 (production autoscale) leaves the loop off: the external
+ * job tick runs `drainQueuedExports` instead (src/jobs/worker-drains.ts).
  */
 export function startExportWorker(input: { drainEveryMs?: number } = {}): void {
   if (timers) return;
+  if (jobsDisabled()) {
+    logger.info("export worker disabled (JOBS_DISABLED); the internal job tick drains exports");
+    return;
+  }
   const drainEveryMs = input.drainEveryMs ?? 15_000;
   const drain = setInterval(() => {
     void drainQueuedExports();

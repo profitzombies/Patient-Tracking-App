@@ -4,16 +4,21 @@
  *   GET  /hq/system-health                 every job with its health state,
  *                                          last success/failure, counts,
  *                                          recent item failures + recent runs,
- *                                          and the patient push outbox backlog
- *                                          (due rows, oldest due age, in flight)
+ *                                          the patient push outbox backlog
+ *                                          (due rows, oldest due age, in flight),
+ *                                          patient sign-in metrics, and the
+ *                                          last external tick per kind
  *   POST /hq/system-health/jobs/:name/run  run one job now (`{ dryRun }`);
  *                                          waits briefly, then 202 with the
  *                                          run id if it is still going
  *   POST /internal/jobs/tick               authenticated scheduler trigger:
- *                                          runs every due job, or one named
- *                                          job (`{ job, dryRun }`)
+ *                                          drains queued exports + due purges,
+ *                                          then runs every due job — or one
+ *                                          named job (`{ job, dryRun }`)
  *
- * The HQ routes need `settings_manage`; manual runs are audited.
+ * The HQ routes need `settings_manage`; manual runs are audited. Every
+ * authenticated tick records a heartbeat (src/jobs/external-ticks.ts) that the
+ * health route reports as "last external tick", stale after five minutes.
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createLimiter } from "../coach/limits";
@@ -21,8 +26,15 @@ import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { authorizeInternalTrigger } from "../lib/internal-trigger";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { registerAllJobs } from "../jobs";
-import { getJob, listJobs, runDueJobs, runJob } from "../jobs/scheduler";
+import {
+  recordExternalTick,
+  supabaseExternalTickStore,
+  toExternalTriggerHealth,
+  type ExternalTickStore,
+} from "../jobs/external-ticks";
+import { JOB_OWNER, getJob, listJobs, runDueJobs, runJob } from "../jobs/scheduler";
 import { supabaseJobStore, type JobStore } from "../jobs/store";
+import { defaultWorkerDrains, runWorkerDrains, type WorkerDrains } from "../jobs/worker-drains";
 import { supabaseNotificationStore, type OutboxBacklog } from "../notifications/store";
 import type { JobDefinition, JobItemFailureRecord, JobRunRecord, JobStateRecord } from "../jobs/types";
 import { readPatientSignInMetrics, type PatientSignInMonth } from "../security/sign-in-metrics";
@@ -119,6 +131,16 @@ function runDto(run: JobRunRecord) {
   return run;
 }
 
+export interface SystemJobsRouterOptions {
+  manualWaitMs?: number;
+  /** Heartbeat ledger for external ticks (memory store in tests). */
+  tickStore?: ExternalTickStore;
+  /** Export / purge drains the tick runs (stubbed in tests). */
+  drains?: WorkerDrains;
+  /** Push outbox backlog reader (fake in tests). */
+  outboxBacklog?: (now: Date) => Promise<OutboxBacklog>;
+}
+
 export interface OutboxBacklogDto extends OutboxBacklog {
   /** How long the oldest due row has waited, or null when nothing is due. */
   oldestDueAgeMs: number | null;
@@ -132,13 +154,12 @@ export function outboxBacklogDto(backlog: OutboxBacklog, now: Date): OutboxBackl
   };
 }
 
-export function createSystemJobsRouter(
-  store: JobStore = supabaseJobStore,
-  options: { manualWaitMs?: number; outboxBacklog?: (now: Date) => Promise<OutboxBacklog> } = {},
-): IRouter {
+export function createSystemJobsRouter(store: JobStore = supabaseJobStore, options: SystemJobsRouterOptions = {}): IRouter {
   registerAllJobs();
   const r: IRouter = Router();
   const manualWaitMs = options.manualWaitMs ?? MANUAL_RUN_WAIT_MS;
+  const tickStore = options.tickStore ?? supabaseExternalTickStore;
+  const drains = options.drains ?? defaultWorkerDrains;
   const readOutbox = options.outboxBacklog ?? ((now: Date) => supabaseNotificationStore.outboxBacklog(now));
 
   r.get("/hq/system-health", requireHqPermission("settings_manage"), async (req: Request, res: Response) => {
@@ -147,9 +168,10 @@ export function createSystemJobsRouter(
       // The outbox read is separate from the job ledger: when it fails the
       // page still shows the jobs, and the outbox tiles read as unavailable
       // rather than an empty, healthy-looking queue.
-      const [states, recentRuns, outbox] = await Promise.all([
+      const [states, recentRuns, ticks, outbox] = await Promise.all([
         store.listStates(),
         store.listRecentRuns(25),
+        tickStore.list(),
         readOutbox(now).then(
           (backlog) => outboxBacklogDto(backlog, now),
           (error: unknown) => {
@@ -179,7 +201,14 @@ export function createSystemJobsRouter(
       } catch (error) {
         req.log?.error({ err: error }, "patient sign-in metrics read failed");
       }
-      res.json({ asOf: now.toISOString(), jobs, recentRuns: recentRuns.map(runDto), outbox, patientSignIns });
+      res.json({
+        asOf: now.toISOString(),
+        jobs,
+        recentRuns: recentRuns.map(runDto),
+        outbox,
+        patientSignIns,
+        externalTrigger: toExternalTriggerHealth(ticks, now),
+      });
     } catch (error) {
       req.log?.error({ err: error }, "system health read failed");
       res.status(502).json({ error: "Could not load system health right now." });
@@ -277,6 +306,10 @@ export function createSystemJobsRouter(
       res.status(429).json({ error: slot.message });
       return;
     }
+    // The heartbeat is written before the response goes out: on autoscale the
+    // process may be paused as soon as the request ends.
+    const heartbeat = (result: "succeeded" | "failed", summary: Record<string, number>, error: string | null) =>
+      recordExternalTick(tickStore, { kind: "jobs", at: new Date(), owner: JOB_OWNER, result, summary, error });
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const dryRun = body.dryRun === true;
@@ -286,13 +319,28 @@ export function createSystemJobsRouter(
           res.status(404).json({ error: "Unknown job." });
           return;
         }
-        res.json({ results: [{ name: body.job, outcome }] });
+        await heartbeat("succeeded", { jobsDue: 1, jobsRan: outcome.kind === "ran" ? 1 : 0 }, null);
+        res.json({ results: [{ name: body.job, outcome }], drains: null });
         return;
       }
+      // Queued exports and due purges first (user-visible latency), then the
+      // scheduled jobs. `drains: false` keeps a tick to the job ledger only.
+      const drained = body.drains === false || dryRun ? null : await runWorkerDrains(drains);
       const results = await runDueJobs({ trigger: "internal", store, dryRun });
-      res.json({ results });
+      const summary: Record<string, number> = {
+        jobsDue: results.length,
+        jobsRan: results.filter((r) => r.outcome.kind === "ran").length,
+        ...(drained ? { ...drained.counts, drainFailures: drained.failed.length } : {}),
+      };
+      await heartbeat(
+        "succeeded",
+        summary,
+        drained && drained.failed.length > 0 ? drained.failed.map((f) => `${f.drain}: ${f.error}`).join("; ") : null,
+      );
+      res.json({ results, drains: drained ? { ...drained.counts, failed: drained.failed } : null });
     } catch (error) {
       req.log?.error({ err: error }, "internal jobs tick failed");
+      await heartbeat("failed", {}, error instanceof Error ? error.message || error.name : String(error));
       res.status(500).json({ error: "Tick failed." });
     } finally {
       slot.release();

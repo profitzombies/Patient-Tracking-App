@@ -1942,6 +1942,80 @@ export interface SystemJobHealth {
   recentFailures: SystemJobItemFailure[];
 }
 
+export type ExternalTickHealthKind = typeof ExternalTickHealthKind[keyof typeof ExternalTickHealthKind];
+
+
+export const ExternalTickHealthKind = {
+  jobs: 'jobs',
+  notifications: 'notifications',
+} as const;
+
+/**
+ * stale once the last tick is older than staleAfterMs; never when no tick has landed
+ */
+export type ExternalTickHealthStatus = typeof ExternalTickHealthStatus[keyof typeof ExternalTickHealthStatus];
+
+
+export const ExternalTickHealthStatus = {
+  ok: 'ok',
+  stale: 'stale',
+  never: 'never',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ExternalTickHealthLastResult = typeof ExternalTickHealthLastResult[keyof typeof ExternalTickHealthLastResult] | null;
+
+
+export const ExternalTickHealthLastResult = {
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ExternalTickHealthSummary = {[key: string]: number} | null;
+
+/**
+ * Last heartbeat from the external scheduled trigger for one tick kind
+ */
+export interface ExternalTickHealth {
+  kind: ExternalTickHealthKind;
+  /** stale once the last tick is older than staleAfterMs; never when no tick has landed */
+  status: ExternalTickHealthStatus;
+  /** @nullable */
+  lastAt: string | null;
+  /**
+     * The server instance that answered the last tick
+     * @nullable
+     */
+  owner: string | null;
+  /** @nullable */
+  lastResult: ExternalTickHealthLastResult;
+  /** @nullable */
+  summary: ExternalTickHealthSummary;
+  /** @nullable */
+  error: string | null;
+}
+
+/**
+ * Whether this server still runs its own timers (development) or relies on the external trigger (production)
+ */
+export type ExternalTriggerHealthInProcessTimers = {
+  jobs: boolean;
+  notifications: boolean;
+};
+
+export interface ExternalTriggerHealth {
+  /** Age after which a tick counts as stale (300000 = 5 minutes) */
+  staleAfterMs: number;
+  /** Whether this server still runs its own timers (development) or relies on the external trigger (production) */
+  inProcessTimers: ExternalTriggerHealthInProcessTimers;
+  ticks: ExternalTickHealth[];
+}
+
 export interface PushOutboxBacklog {
   /** Queued rows whose next attempt is due now. */
   due: number;
@@ -1976,6 +2050,7 @@ export interface SystemHealthResult {
   outbox: PushOutboxBacklog | null;
   /** @nullable */
   patientSignIns: PatientSignInMonth[] | null;
+  externalTrigger: ExternalTriggerHealth;
 }
 
 export interface SystemJobRunResult {

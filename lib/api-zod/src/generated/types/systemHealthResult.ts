@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ExternalTriggerHealth } from './externalTriggerHealth';
 import type { PatientSignInMonth } from './patientSignInMonth';
 import type { PushOutboxBacklog } from './pushOutboxBacklog';
 import type { SystemJobHealth } from './systemJobHealth';
@@ -18,4 +19,5 @@ export interface SystemHealthResult {
   outbox: PushOutboxBacklog | null;
   /** @nullable */
   patientSignIns: PatientSignInMonth[] | null;
+  externalTrigger: ExternalTriggerHealth;
 }

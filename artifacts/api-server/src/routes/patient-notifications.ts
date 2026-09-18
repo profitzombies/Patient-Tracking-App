@@ -8,7 +8,9 @@
  *   POST   /internal/notifications/tick        run one scheduler tick (bearer NOTIFICATIONS_INTERNAL_TOKEN)
  *
  * The internal trigger answers 404 when no token is configured so the route
- * is invisible rather than merely locked; comparisons are constant-time.
+ * is invisible rather than merely locked; comparisons are constant-time. Each
+ * authenticated tick records a heartbeat (src/jobs/external-ticks.ts) so HQ
+ * System health can show when the external scheduler last reached us.
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createLimiter } from "../coach/limits";
@@ -16,7 +18,8 @@ import { authorizeInternalTrigger } from "../lib/internal-trigger";
 import { resolvePatient } from "../lib/patient-auth";
 import { isExpoPushToken } from "../notifications/expo-push";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
-import { runScheduledTick } from "../notifications/worker";
+import { runScheduledTick, type ScheduledTickResult } from "../notifications/worker";
+import { recordExternalTick, supabaseExternalTickStore, type ExternalTickStore } from "../jobs/external-ticks";
 
 const router: IRouter = Router();
 
@@ -32,8 +35,27 @@ const acquireInternalSlot = createLimiter({
   rapidMessage: "Tick requests are arriving too quickly.",
 });
 
-export function createPatientNotificationsRouter(store: NotificationStore = supabaseNotificationStore): IRouter {
+/** Compact, numeric-only heartbeat summary of one notification tick. */
+export function tickHeartbeatSummary(result: Partial<ScheduledTickResult> | null | undefined): Record<string, number> {
+  const n = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const outbox = (result?.outbox ?? {}) as Partial<Record<string, unknown>>;
+  const staff = (result?.staffOutbox ?? {}) as Partial<Record<string, unknown>>;
+  return {
+    outboxClaimed: n(outbox.claimed),
+    outboxSent: n(outbox.sent),
+    staffClaimed: n(staff.claimed),
+    outreachSent: n((result?.outreach as Partial<Record<string, unknown>> | null | undefined)?.sent),
+    missedDoseSent: n((result?.missedDoses as Partial<Record<string, unknown>> | null | undefined)?.sent),
+    renewalsQueued: n((result?.renewals as Partial<Record<string, unknown>> | null | undefined)?.queued),
+  };
+}
+
+export function createPatientNotificationsRouter(
+  store: NotificationStore = supabaseNotificationStore,
+  options: { tickStore?: ExternalTickStore } = {},
+): IRouter {
   const r: IRouter = Router();
+  const tickStore = options.tickStore ?? supabaseExternalTickStore;
 
   r.put("/patient-notifications/device", async (req: Request, res: Response) => {
     try {
@@ -153,9 +175,26 @@ export function createPatientNotificationsRouter(store: NotificationStore = supa
         outreach: body.outreach === true ? true : body.outreach === false ? false : undefined,
         store,
       });
+      // Heartbeat before the response: an autoscale instance may pause right after.
+      await recordExternalTick(tickStore, {
+        kind: "notifications",
+        at: new Date(),
+        owner: typeof result?.owner === "string" ? result.owner : "unknown",
+        result: "succeeded",
+        summary: tickHeartbeatSummary(result),
+        error: null,
+      });
       res.json(result);
     } catch (error) {
       req.log?.error({ err: error }, "internal notification tick failed");
+      await recordExternalTick(tickStore, {
+        kind: "notifications",
+        at: new Date(),
+        owner: "unknown",
+        result: "failed",
+        summary: {},
+        error: error instanceof Error ? error.message || error.name : String(error),
+      });
       res.status(500).json({ error: "Tick failed." });
     } finally {
       slot.release();

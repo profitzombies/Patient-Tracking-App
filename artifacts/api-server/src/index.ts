@@ -38,15 +38,20 @@ app.listen(port, (err) => {
   } else {
     logger.warn({ store: limits.mode }, "coach usage limits are process-local: caps will not hold across server copies or restarts");
   }
-  // CSV export jobs are generated in-process; the worker is idle otherwise.
+  // In-process background timers. Production runs as an autoscale deployment
+  // where no process is guaranteed to be alive, so it sets JOBS_DISABLED=1 and
+  // NOTIFICATIONS_DISABLED=1 and an external scheduled trigger POSTs
+  // /api/internal/jobs/tick and /api/internal/notifications/tick every minute
+  // (see replit.md → Production background work). Development keeps the timers.
+  //
+  // CSV export jobs (off under JOBS_DISABLED; the job tick drains them).
   startExportWorker();
-  // Push outbox + coach outreach evaluation; NOTIFICATIONS_DISABLED=1 leaves it
-  // to the external scheduler trigger.
+  // Push outbox + coach outreach evaluation (off under NOTIFICATIONS_DISABLED).
   startNotificationWorker();
-  // Patient data exports + due account purges.
+  // Patient data exports + due account purges (off under JOBS_DISABLED; the job tick drains them).
   startPrivacyWorker();
-  // Scheduled clean-up: abandoned uploads, storage reconciliation, retention.
-  // JOBS_DISABLED=1 leaves it to the internal trigger (POST /internal/jobs/tick).
+  // Scheduled clean-up: abandoned uploads, storage reconciliation, retention
+  // (off under JOBS_DISABLED; POST /internal/jobs/tick runs due jobs).
   registerAllJobs();
   startJobScheduler();
   void ensureBillingWebhookEndpoints();

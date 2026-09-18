@@ -4511,7 +4511,23 @@ export const GetHqSystemHealthResponse = zod.object({
   "signups": zod.number(),
   "activePatients": zod.number(),
   "smsPerActivePatient": zod.number().nullable()
-})).nullable()
+})).nullable(),
+  "externalTrigger": zod.object({
+  "staleAfterMs": zod.number().describe('Age after which a tick counts as stale (300000 = 5 minutes)'),
+  "inProcessTimers": zod.object({
+  "jobs": zod.boolean(),
+  "notifications": zod.boolean()
+}).describe('Whether this server still runs its own timers (development) or relies on the external trigger (production)'),
+  "ticks": zod.array(zod.object({
+  "kind": zod.enum(['jobs', 'notifications']),
+  "status": zod.enum(['ok', 'stale', 'never']).describe('stale once the last tick is older than staleAfterMs; never when no tick has landed'),
+  "lastAt": zod.string().nullable(),
+  "owner": zod.string().nullable().describe('The server instance that answered the last tick'),
+  "lastResult": zod.union([zod.literal('succeeded'),zod.literal('failed'),zod.literal(null)]).nullable(),
+  "summary": zod.record(zod.string(), zod.number()).nullable(),
+  "error": zod.string().nullable()
+}).describe('Last heartbeat from the external scheduled trigger for one tick kind'))
+})
 })
 
 

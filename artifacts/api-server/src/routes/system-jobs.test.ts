@@ -21,13 +21,27 @@ vi.mock("../lib/staff-auth", () => ({
 // The router registers the real job catalogue on construction; tests register their own.
 vi.mock("../jobs", () => ({ registerAllJobs: mocks.registerAllJobs }));
 
+import { createMemoryExternalTickStore, type ExternalTriggerHealth } from "../jobs/external-ticks";
 import { registerJob, resetJobRegistry } from "../jobs/scheduler";
 import { createMemoryJobStore } from "../jobs/store";
 import type { JobDefinition } from "../jobs/types";
+import type { WorkerDrains } from "../jobs/worker-drains";
 import { createSystemJobsRouter, describeInterval, jobHealthStatus, type JobHealthDto } from "./system-jobs";
 
 let clock = new Date("2026-09-07T12:00:00Z");
 const store = createMemoryJobStore(() => clock);
+const tickStore = createMemoryExternalTickStore();
+const drainCalls: string[] = [];
+const drainReturns: Record<keyof WorkerDrains, () => Promise<number>> = {
+  officeExports: async () => 0,
+  patientExports: async () => 0,
+  purges: async () => 0,
+};
+const drains: WorkerDrains = {
+  officeExports: () => { drainCalls.push("officeExports"); return drainReturns.officeExports(); },
+  patientExports: () => { drainCalls.push("patientExports"); return drainReturns.patientExports(); },
+  purges: () => { drainCalls.push("purges"); return drainReturns.purges(); },
+};
 let outbox: (now: Date) => Promise<{ due: number; oldestDueAt: string | null; inFlight: number }> = async () => ({
   due: 0,
   oldestDueAt: null,
@@ -43,7 +57,7 @@ function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinit
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, outboxBacklog: (now) => outbox(now) }));
+  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now) }));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -55,12 +69,19 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(clock);
   store.reset();
+  tickStore.reset();
+  drainCalls.length = 0;
+  drainReturns.officeExports = async () => 0;
+  drainReturns.patientExports = async () => 0;
+  drainReturns.purges = async () => 0;
   resetJobRegistry();
   outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
   mocks.audit.mockReset().mockResolvedValue(undefined);
   // No ledger by default: the sign-in metric degrades to null.
   mocks.admin.mockReset().mockResolvedValue({ status: 503, json: null });
   delete process.env.NOTIFICATIONS_INTERNAL_TOKEN;
+  delete process.env.JOBS_DISABLED;
+  delete process.env.NOTIFICATIONS_DISABLED;
 });
 afterEach(() => {
   resetJobRegistry();
@@ -257,6 +278,9 @@ describe("POST /internal/jobs/tick", () => {
     process.env.NOTIFICATIONS_INTERNAL_TOKEN = "secret-token";
     expect((await fetch(`${base}/internal/jobs/tick`, { method: "POST" })).status).toBe(401);
     expect((await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers: { authorization: "Bearer wrong-token1" } })).status).toBe(401);
+    // Rejected calls neither drain nor leave a heartbeat.
+    expect(drainCalls).toEqual([]);
+    expect(tickStore.rows.size).toBe(0);
   });
 
   it("runs every due job on a bare tick and one forced job when named", async () => {
@@ -274,5 +298,120 @@ describe("POST /internal/jobs/tick", () => {
     expect(ran).toEqual(["due", "on-demand"]);
     expect(store.runs.at(-1)).toMatchObject({ jobName: "on-demand", trigger: "internal", dryRun: true });
     expect((await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: JSON.stringify({ job: "ghost" }) })).status).toBe(404);
+  });
+
+  it("drains every worker family (office exports, patient exports, purges) before the due jobs on a bare tick", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "secret-token";
+    const headers = { authorization: "Bearer secret-token", "content-type": "application/json" };
+    const order: string[] = [];
+    registerJob(def({ name: "due", run: async () => { order.push("job:due"); } }));
+    drainReturns.officeExports = async () => { order.push("drain:office"); return 2; };
+    drainReturns.patientExports = async () => { order.push("drain:patient"); return 1; };
+    drainReturns.purges = async () => { order.push("drain:purges"); return 0; };
+    const res = await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: "{}" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { results: Array<{ name: string }>; drains: { officeExports: number; patientExports: number; purges: number; failed: unknown[] } };
+    expect(body.drains).toEqual({ officeExports: 2, patientExports: 1, purges: 0, failed: [] });
+    expect(order).toEqual(["drain:office", "drain:patient", "drain:purges", "job:due"]);
+    // A named-job tick and a dry run touch only the job ledger.
+    drainCalls.length = 0;
+    await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: JSON.stringify({ job: "due" }) });
+    await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: JSON.stringify({ dryRun: true }) });
+    await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: JSON.stringify({ drains: false }) });
+    expect(drainCalls).toEqual([]);
+  });
+
+  it("isolates a failing drain: the others and the jobs still run, and the heartbeat carries the error", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "secret-token";
+    const headers = { authorization: "Bearer secret-token", "content-type": "application/json" };
+    const ran: string[] = [];
+    registerJob(def({ name: "due", run: async () => { ran.push("due"); } }));
+    drainReturns.patientExports = async () => { throw new Error("storage 503"); };
+    drainReturns.purges = async () => 3;
+    const res = await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: "{}" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { drains: { purges: number; failed: Array<{ drain: string; error: string }> } };
+    expect(body.drains.purges).toBe(3);
+    expect(body.drains.failed).toEqual([{ drain: "patientExports", error: "storage 503" }]);
+    expect(ran).toEqual(["due"]);
+    expect(tickStore.rows.get("jobs")).toMatchObject({
+      lastResult: "succeeded",
+      summary: { jobsDue: 1, jobsRan: 1, officeExports: 0, patientExports: 0, purges: 3, drainFailures: 1 },
+      error: "patientExports: storage 503",
+    });
+  });
+
+  it("records the jobs heartbeat with the tick's owner and counts, and never fails the tick when the heartbeat write fails", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "secret-token";
+    const headers = { authorization: "Bearer secret-token", "content-type": "application/json" };
+    registerJob(def({ name: "due", run: async () => undefined }));
+    const res = await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: "{}" });
+    expect(res.status).toBe(200);
+    const row = tickStore.rows.get("jobs");
+    expect(row).toMatchObject({ kind: "jobs", lastResult: "succeeded", error: null, summary: { jobsDue: 1, jobsRan: 1, officeExports: 0, patientExports: 0, purges: 0, drainFailures: 0 } });
+    expect(row!.lastAt).toBe(clock.toISOString());
+    expect(row!.owner).toMatch(/:\d+:[0-9a-f]{8}$/);
+
+    const failing = express();
+    failing.use(express.json());
+    failing.use(createSystemJobsRouter(store, { manualWaitMs: 150, drains, tickStore: { record: async () => { throw new Error("ledger down"); }, list: async () => [] } }));
+    const srv = await new Promise<http.Server>((resolve) => { const s = failing.listen(0, () => resolve(s)); });
+    try {
+      const port = (srv.address() as AddressInfo).port;
+      const again = await fetch(`http://127.0.0.1:${port}/internal/jobs/tick`, { method: "POST", headers, body: "{}" });
+      expect(again.status).toBe(200);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("records a failed heartbeat and answers 500 when the tick itself throws", async () => {
+    process.env.NOTIFICATIONS_INTERNAL_TOKEN = "secret-token";
+    const headers = { authorization: "Bearer secret-token", "content-type": "application/json" };
+    registerJob(def({ name: "on-demand", intervalMs: null, run: async () => undefined }));
+    const acquireLease = store.acquireLease;
+    store.acquireLease = async () => { throw new Error("ledger write failed"); };
+    try {
+      const res = await fetch(`${base}/internal/jobs/tick`, { method: "POST", headers, body: JSON.stringify({ job: "on-demand" }) });
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "Tick failed." });
+    } finally {
+      store.acquireLease = acquireLease;
+    }
+    expect(tickStore.rows.get("jobs")).toMatchObject({ lastResult: "failed", error: "ledger write failed", summary: {} });
+  });
+});
+
+describe("GET /hq/system-health external trigger", () => {
+  it("reports never/stale/ok per tick kind, the 5 minute threshold, and whether this process runs its own timers", async () => {
+    let res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    let body = (await res.json()) as { externalTrigger: ExternalTriggerHealth };
+    expect(body.externalTrigger.staleAfterMs).toBe(300_000);
+    expect(body.externalTrigger.inProcessTimers).toEqual({ jobs: true, notifications: true });
+    expect(body.externalTrigger.ticks.map((t) => [t.kind, t.status, t.lastAt])).toEqual([["jobs", "never", null], ["notifications", "never", null]]);
+
+    process.env.JOBS_DISABLED = "1";
+    process.env.NOTIFICATIONS_DISABLED = "true";
+    await tickStore.record({ kind: "jobs", at: new Date(clock.getTime() - 4 * 60_000), owner: "api-1", result: "succeeded", summary: { jobsRan: 1 }, error: null });
+    await tickStore.record({ kind: "notifications", at: new Date(clock.getTime() - 5 * 60_000 - 1), owner: "api-2", result: "failed", summary: {}, error: "db down" });
+    res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    body = (await res.json()) as { externalTrigger: ExternalTriggerHealth };
+    expect(body.externalTrigger.inProcessTimers).toEqual({ jobs: false, notifications: false });
+    const byKind = Object.fromEntries(body.externalTrigger.ticks.map((t) => [t.kind, t]));
+    expect(byKind.jobs).toMatchObject({ status: "ok", owner: "api-1", lastResult: "succeeded", summary: { jobsRan: 1 }, error: null });
+    expect(byKind.notifications).toMatchObject({ status: "stale", owner: "api-2", lastResult: "failed", error: "db down" });
+  });
+
+  it("answers 502 when the heartbeat ledger cannot be read", async () => {
+    const broken = express();
+    broken.use(express.json());
+    broken.use(createSystemJobsRouter(store, { manualWaitMs: 150, drains, tickStore: { record: async () => undefined, list: async () => { throw new Error("ledger down"); } } }));
+    const srv = await new Promise<http.Server>((resolve) => { const s = broken.listen(0, () => resolve(s)); });
+    try {
+      const port = (srv.address() as AddressInfo).port;
+      expect((await fetch(`http://127.0.0.1:${port}/hq/system-health`, { headers: admin })).status).toBe(502);
+    } finally {
+      srv.close();
+    }
   });
 });

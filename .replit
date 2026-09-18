@@ -236,6 +236,10 @@ args = "roster-spend-api"
 task = "workflow.run"
 args = "coach-usage-limits"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "external-trigger-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1244,12 +1248,12 @@ isValidation = true
 name = "system-health-web"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/thinnr-operations run test:system-health"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [[workflows.workflow]]
 name = "offline-queue"
@@ -2010,6 +2014,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/coach/limits.test.ts src/coach/usage-store.test.ts src/coach/usage-limits.sql.test.ts src/routes/coach.test.ts src/routes/coach-photo.test.ts src/routes/coach-real-grounding.test.ts src/routes/coach-recipe.test.ts src/routes/label-scan.test.ts && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "external-trigger-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/jobs/external-trigger.test.ts src/jobs/external-tick-script.test.ts src/jobs/external-ticks.test.ts src/jobs/schema.sql.test.ts src/routes/system-jobs.test.ts src/routes/patient-notifications.test.ts src/jobs/scheduler.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

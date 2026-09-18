@@ -1,0 +1,57 @@
+Hello Andrew,
+
+Good questions, and the answers are below in color.
+
+Your ShippingMethod field takes a specific carrier code (UPS_Ground, USPS_Priority, FEDEX_HomeDelivery, etc.). Which code should we send for our standard orders? Is there a second one you'd recommend for expedited? For standard orders I'd recommend USPS_GroundAdvantage, and then for expedited orders I'd recommend USPS_PriorityMail.
+ 
+Should all THINNR orders go to Memphis (MEM), or will some ship from Salt Lake City (SLC)? This is a good question for Kelsey.
+ 
+What are the possible values of OrderStatus, and which one means the order has shipped? Do you ever report "delivered", or does the status stop at shipped with a tracking number? See table below for order statuses. Shipped and Closed status both indicate an order has been shipped. We do not report delivered in this API (but there is a separate optional shipping API which does)
+ 
+Order Status
+Description
+Imported
+An order that has been imported.
+Created
+A manually created order.
+On Hold
+The order has been set aside and is not currently being fulfilled. The items are also not included in the reserved inventory amount.
+Editing
+A newly created or cloned order that has not yet been released for fulfillment.
+Modified
+An imported order that has been manually modified.
+Reset
+An order which has been reset back to a pre-printed status.
+Back Order
+Orders calling for an item quantity that would put the reserved inventory amount below zero.
+Released Back Order
+An order on back order that has been released so it can be committed.
+Committed
+An order which has inventory committed to it and is ready to be fulfilled.
+Being Fulfilled
+Packing slip has been printed and the order has been sent to the warehouse floor.
+Fulfilled
+Order has been picked and the inventory has been deducted.
+Shipped
+The tracking number has been uploaded to the order.
+Closed
+The tracking information for the order has been exported and sent to the client.
+Cancelled
+The order is no longer being fulfilled and the items have been returned to inventory.
+
+
+Will you set up our products as items on your side, or would you like us to create them through /api/ItemDatas? Either way, please send the SKU for each THINNR product so we can map them. For now we'll test with Test01–Test05. This is a good question for Kelsey, based on how she'd like these managed.
+ 
+If a customer changes their address or cancels before the order ships, can we update or cancel it through PUT /api/OrderDatas? Up to what point (e.g. before it's picked, before the label prints)? Yes, you can update the order through PUT /api/OrderDatas.
+The following statuses can be updated: Imported,On Hold,Back Order,Cancelled,Created,Modified,Reset,Released Back Order,Editing
+For editing an address: the Committed status is also added to the list above
+ 
+If an order can't be fulfilled (bad address, item out of stock), how does that show up? A specific OrderStatus, or do we hear from your team? If the item is out of stock, then the order will go onto Back Order status. If there is a bad address, you'll most likely hear from the team, but Kelsey will need to confirm that.
+ 
+We plan to check /api/OrderStatusDatas about every 15 minutes for orders from the last few days. Is that fine, or do you have a rate limit or preferred frequency? Do you offer any kind of webhook or callback we should use instead? Thank you for asking and there are not webhooks in this system and so checking every 15 minutes will be just fine.
+ 
+Are the username and password sent as HTTP Basic auth on every request, or is there a login call that returns a token? Yes, credentials are basic auth.
+ 
+We'll send our order number (format TH-XXXXXX) as ClientOrderId. Are there any character or length restrictions beyond the 1–100 shown in the docs, and are ClientOrderIds required to be unique on your side? No character restrictions beyond the limit. However, the USPS system has issues with #, so I'd avoid that symbol if you can. Also, you are correct, the ClientOrderIds need to be unique in our system. That way we can catch and reject duplicate submissions.
+
+As you have follow up questions, please let me know.

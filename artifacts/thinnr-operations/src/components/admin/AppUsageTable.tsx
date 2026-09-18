@@ -68,7 +68,11 @@ export function AppUsagePracticeFilter({ rows, value, onChange }: AppUsagePracti
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[min(400px,calc(100vw-2rem))] p-0">
         <Command>
-          <CommandInput placeholder="Search office or provider…" className="h-9 text-xs" />
+          <CommandInput
+            placeholder="Search office or provider…"
+            className="h-9 text-xs"
+            data-testid="input-app-usage-practice-search"
+          />
           <CommandList>
             <CommandEmpty>No practice found.</CommandEmpty>
             <CommandGroup>
@@ -84,7 +88,7 @@ export function AppUsagePracticeFilter({ rows, value, onChange }: AppUsagePracti
                 <CommandItem
                   key={row.providerId}
                   value={`${row.officeName} ${row.providerName}`}
-                data-value={row.providerId}
+                  data-value={row.providerId}
                   onSelect={() => { onChange(row.providerId); setOpen(false); }}
                   className="items-start text-xs"
                 >

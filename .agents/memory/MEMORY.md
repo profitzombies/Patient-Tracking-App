@@ -141,7 +141,6 @@
 - [Tap to Pay on the provider phone](tap-to-pay.md) — one tap per order group; never retry a declined intent; only an explicit not_charged unlocks; settle fails closed (cancel-first); persist the unsettled key.
 - [Recreating RPCs drops later ALTERs](recreated-rpc-security-definer.md) — signature-extending drop+recreate loses a later `security definer`; live sends 403 while SQL-text tests stay green; prove with one real RPC call.
 - [Coach product suggestions](coach-product-suggestions.md) — real accounts: offers AND product prose only from the live office storefront (branch on auth, not data); persist opt-out first; export new cols.
-- [Stripe webhook workspace endpoints](stripe-webhook-workspace-endpoints.md) — throwaway workspaces leave dead .replit.dev endpoints in the shared sandbox; prune by liveness probe + age, never age alone; registration is single-flight.
 - [App presence & HQ active users](app-usage-presence.md) — presence rides identity resolution + a bare heartbeat; now-tiles end today, rows end on range end; demo self-seeds (no account list); failed polls show Error.
 - [Local JWT verification](local-jwt-verification.md) — local by default, one route-policy module for remote; sign-outs list+end sessions in ONE SQL RPC (GoTrue has no admin logout).
 - [Patient session persistence](patient-session-persistence.md) — auth-js reports session:null during retryable refresh failures; storage is truth, only SIGNED_OUT signs out; mgmt-API session timeouts are in HOURS.

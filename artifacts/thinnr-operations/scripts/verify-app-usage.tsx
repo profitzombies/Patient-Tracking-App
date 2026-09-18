@@ -23,6 +23,7 @@
  *     links to the account page, 30-second polling on an identity-scoped key;
  *   - a range with no activated patient shows the unavailable notice, not 0;
  *   - a 502 renders the error notices and "Error" tiles; Try again refetches;
+ *   - the By practice header has a wide searchable office/provider picker;
  *   - Support / Content / Clinical lack the page permission; Admin has it.
  *
  * Insights section (demo + live):
@@ -317,6 +318,11 @@ console.log('demo page');
       && byTestId(root, 'text-app-usage-unavailable-note').length === 0);
   const link = byTestId(root, 'link-usage-office-acct-p1')[0];
   check('office name links to the account page', link?.props.href === '/admin/accounts/acct-p1');
+  const practicePicker = byTestId(root, 'select-app-usage-practice')[0];
+  check('By practice header has a searchable office/provider picker',
+    practicePicker?.props.role === 'combobox'
+      && practicePicker?.props['aria-label'] === 'Search practices'
+      && practicePicker?.props.className.includes('w-full'));
   const chartFigure = byTestId(root, 'chart-app-usage')[0];
   const spoken = chartFigure?.findAll((n) => n.props.role === 'img' && typeof n.props['aria-label'] === 'string')[0]?.props['aria-label'] as string | undefined;
   check('trend chart renders with a spoken summary', byTestId(root, 'chart-app-usage').length === 1 && !!spoken && spoken.includes('Weekly active') && spoken.includes('Monthly active'), spoken);

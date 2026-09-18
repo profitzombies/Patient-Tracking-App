@@ -413,14 +413,32 @@ export async function streamCoachChat(
  * with a saved recipe. Throws on any failure — callers handle it silently;
  * the preview screen never shows generation states.
  */
-export async function fetchRecipeImage(name: string, description: string): Promise<string> {
+export async function fetchRecipeImage(
+  name: string,
+  description: string,
+  options: { getAuthToken?: () => Promise<string | null> } = {},
+): Promise<string> {
   const doFetch =
     Platform.OS === 'web'
       ? globalThis.fetch.bind(globalThis)
       : (expoFetch as unknown as typeof globalThis.fetch);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  // Signed-in accounts identify themselves so the server charges the image
+  // to the account's usage allowance (and their office's) rather than the
+  // device's IP. The image is optional, so a token hiccup falls back to an
+  // anonymous request instead of failing the illustration.
+  if (options.getAuthToken) {
+    let token: string | null = null;
+    try {
+      token = await options.getAuthToken();
+    } catch {
+      token = null;
+    }
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
   const response = await doFetch(`${apiBase()}/coach/recipe-image`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ name, description }),
   });
   if (!response.ok) {

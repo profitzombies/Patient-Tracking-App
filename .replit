@@ -232,6 +232,10 @@ args = "roster-filters-dependents"
 task = "workflow.run"
 args = "roster-spend-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "coach-usage-limits"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1995,6 +1999,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-roster.test.ts src/billing/office-spend.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "coach-usage-limits"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/coach/limits.test.ts src/coach/usage-store.test.ts src/coach/usage-limits.sql.test.ts src/routes/coach.test.ts src/routes/coach-photo.test.ts src/routes/coach-real-grounding.test.ts src/routes/coach-recipe.test.ts src/routes/label-scan.test.ts && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

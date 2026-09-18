@@ -6,6 +6,7 @@ import { startPrivacyWorker } from "./privacy/worker";
 import { registerAllJobs } from "./jobs";
 import { startJobScheduler } from "./jobs/scheduler";
 import { ensureBillingWebhookEndpoints } from "./billing/webhook-endpoints";
+import { usageStore } from "./coach/usage-store";
 
 const rawPort = process.env["PORT"];
 
@@ -28,6 +29,15 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  // Coach usage caps are reserved in Supabase so they hold across every
+  // server copy; the memory twin only guards a single process, so running
+  // on it is called out loudly rather than discovered from an AI bill.
+  const limits = usageStore();
+  if (limits.mode === "database") {
+    logger.info({ store: limits.mode }, "coach usage limits store");
+  } else {
+    logger.warn({ store: limits.mode }, "coach usage limits are process-local: caps will not hold across server copies or restarts");
+  }
   // CSV export jobs are generated in-process; the worker is idle otherwise.
   startExportWorker();
   // Push outbox + coach outreach evaluation; NOTIFICATIONS_DISABLED=1 leaves it

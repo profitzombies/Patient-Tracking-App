@@ -52,7 +52,7 @@ export interface PatientAuthFailureDetails {
 }
 
 export type ResolvedPatient =
-  | { ok: true; patientId: string; authUserId: string; consent: ConsentDto }
+  | { ok: true; patientId: string; authUserId: string; providerId: string | null; consent: ConsentDto }
   | { ok: false; status: number; error: string; code?: PatientAuthCode; details?: PatientAuthFailureDetails };
 
 export interface ResolvePatientOptions {
@@ -101,7 +101,13 @@ export async function resolvePatient(
 }
 
 type ResolvedIdentity =
-  | { ok: true; patientId: string; authUserId: string }
+  | {
+      ok: true;
+      patientId: string;
+      authUserId: string;
+      /** The patient's practice — the office tier of the coach usage limits keys on it. */
+      providerId: string | null;
+    }
   | { ok: false; status: number; error: string };
 
 /**
@@ -136,7 +142,7 @@ async function resolvePatientIdentityInternal(
   try {
     lookup = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id&limit=2`,
+      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id,provider_id&limit=2`,
     );
   } catch (error) {
     if (lookupFailure === "throw") throw error;
@@ -150,11 +156,12 @@ async function resolvePatientIdentityInternal(
     if (lookupFailure === "throw") throw new Error("patient lookup is ambiguous");
     return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
   }
-  const row = lookup.json[0] as { id?: unknown } | undefined;
+  const row = lookup.json[0] as { id?: unknown; provider_id?: unknown } | undefined;
   if (!row || typeof row.id !== "string" || row.id.length === 0) {
     return { ok: false, status: 403, error: "This account is not linked to a patient record." };
   }
-  return { ok: true, patientId: row.id, authUserId: user.id };
+  const providerId = typeof row.provider_id === "string" && row.provider_id.length > 0 ? row.provider_id : null;
+  return { ok: true, patientId: row.id, authUserId: user.id, providerId };
 }
 
 /**
@@ -163,17 +170,23 @@ async function resolvePatientIdentityInternal(
  * behavior; when a bearer IS present the caller is a real patient and must
  * have consented to photo analysis before the image reaches a model.
  *
- *   { ok: true }                  — proceed (anonymous demo, staff persona, or a consented patient)
+ *   { ok: true, patientId, providerId } — proceed (anonymous demo, staff
+ *                                  persona, or a consented patient; the ids
+ *                                  are null unless a real patient resolved,
+ *                                  so the usage limiter can key on them)
  *   { ok: false, status, body }   — answer with this status/body and stop
  */
 export async function gatePhotoAnalysis(req: {
   headers: Record<string, unknown>;
-}): Promise<{ ok: true } | { ok: false; status: number; body: Record<string, unknown> }> {
-  if (bearerToken(req) === null) return { ok: true };
+}): Promise<
+  | { ok: true; patientId: string | null; providerId: string | null }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  if (bearerToken(req) === null) return { ok: true, patientId: null, providerId: null };
   const auth = await resolvePatient(req, { consent: "photo-analysis" });
-  if (auth.ok) return { ok: true };
+  if (auth.ok) return { ok: true, patientId: auth.patientId, providerId: auth.providerId };
   // A real session that is not a patient (staff browsing the persona) keeps
   // the demo behavior; every other refusal is answered honestly.
-  if (auth.status === 403 && auth.code === undefined) return { ok: true };
+  if (auth.status === 403 && auth.code === undefined) return { ok: true, patientId: null, providerId: null };
   return { ok: false, status: auth.status, body: { error: auth.error, ...auth.details } };
 }

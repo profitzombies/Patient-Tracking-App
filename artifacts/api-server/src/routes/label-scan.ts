@@ -52,23 +52,36 @@ function labelPayload(draft: LabelDraft): Omit<LabelDraft, "servingsPerContainer
 }
 
 router.post("/coach/label-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
-  // Limit first: every scan is a paid vision call with a photo attached.
-  const slot = acquireMenuScanSlot(req.ip ?? "unknown");
+  // Consent gate: a signed-in patient who declined photo analysis (or has
+  // not accepted the current policy) never gets a photo to the model. It
+  // also names the patient (and their office) so the usage slot below is
+  // keyed to the account rather than the IP.
+  let gate: Awaited<ReturnType<typeof gatePhotoAnalysis>>;
+  try {
+    gate = await gatePhotoAnalysis(req);
+  } catch (error) {
+    req.log.error({ err: error }, "label scan patient resolution failed");
+    res.status(502).json({ error: SCAN_FAILED_MESSAGE });
+    return;
+  }
+  if (!gate.ok) {
+    res.status(gate.status).json(gate.body);
+    return;
+  }
+
+  // Limit before any model work: every scan is a paid vision call with a
+  // photo attached. The slot is reserved in the shared usage store, so the
+  // cap holds across every server copy.
+  const slot = await acquireMenuScanSlot(
+    { ip: req.ip, patientId: gate.patientId, officeId: gate.providerId },
+    req.log,
+  );
   if (!slot.ok) {
-    res.status(slot.status).json({ error: slot.message });
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
     return;
   }
 
   try {
-    // Consent gate: a signed-in patient who declined photo analysis (or has
-    // not accepted the current policy) never gets a photo to the model.
-    // The lookup can throw when the patients table is unreachable; that
-    // falls through to the route's generic failure answer below.
-    const gate = await gatePhotoAnalysis(req);
-    if (!gate.ok) {
-      res.status(gate.status).json(gate.body);
-      return;
-    }
     const parsed = CoachLabelScanBody.safeParse(req.body);
     if (!parsed.success || !PHOTO_DATA_URI_PATTERN.test(parsed.data.image)) {
       res.status(400).json({ error: INVALID_PHOTO_MESSAGE });

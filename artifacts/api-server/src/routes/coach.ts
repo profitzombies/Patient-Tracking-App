@@ -110,18 +110,11 @@ router.get("/coach/availability", async (req, res) => {
 
 router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req, res) => {
   const startedAt = Date.now();
-  // Limit first: this endpoint spends paid model credits, so even invalid
-  // spam should burn the caller's budget, not the server's CPU.
-  const slot = acquireChatSlot(req.ip ?? "unknown");
-  if (!slot.ok) {
-    // `retryable: false` marks denials that cannot clear soon (daily budget
-    // spent) so the client can drop its Retry control; busy/rapid denials
-    // stay retryable. Absent means retryable — older bodies default that way.
-    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
-    return;
-  }
-
-  let releaseVisionSlot: (() => void) | null = null;
+  // Usage slots are reserved once the caller is known (below): they are
+  // keyed to the signed-in account, so identity has to resolve first. Both
+  // releases are wired here so the finally block frees whatever was held.
+  let releaseChatSlot: (() => Promise<void>) | null = null;
+  let releaseVisionSlot: (() => Promise<void>) | null = null;
   try {
     const parsed = CoachChatBody.safeParse(req.body);
     if (!parsed.success) {
@@ -158,16 +151,6 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         res.status(413).json({ error: PHOTO_TOO_LARGE_MESSAGE });
         return;
       }
-      // Photo turns are vision calls priced like menu scans, so they consume
-      // the scanner's shared budget on top of the chat slot already held.
-      const visionSlot = acquireMenuScanSlot(req.ip ?? "unknown");
-      if (!visionSlot.ok) {
-        res
-          .status(visionSlot.status)
-          .json({ error: visionSlot.message, retryable: visionSlot.retryable });
-        return;
-      }
-      releaseVisionSlot = visionSlot.release;
     }
 
     const earlierUserMessages = history
@@ -221,6 +204,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     let recalledMemories: RecallMemory[] = [];
     let historicalExcerpts: string[] = [];
     let historicalClarification = false;
+    let signedIn: { patientId: string; providerId: string | null } | null = null;
     if (bearerToken(req) !== null) {
       let auth;
       try {
@@ -237,26 +221,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         return;
       }
       if (auth.ok) {
-        // Organization policy: the care team can pause the coach for real
-        // patients. Checked before any model call so a paused coach costs
-        // nothing and answers the same honest JSON the app renders as its
-        // "paused by your care team" state. The demo persona is never paused.
-        if (!(await coachAvailable(req))) {
-          res.status(503).json({ error: COACH_PAUSED_MESSAGE, retryable: false, coachPaused: true });
-          return;
-        }
-        try {
-          patientContext = await realPatientContext(auth.patientId, parsed.data.localDate);
-          realPatient = true;
-          authenticatedPatientId = auth.patientId;
-        } catch (error) {
-          req.log.error({ err: error }, "coach chat real patient context failed");
-          res.status(502).json({
-            error: "Couldn't load your account right now. Please try again.",
-            retryable: true,
-          });
-          return;
-        }
+        signedIn = { patientId: auth.patientId, providerId: auth.providerId };
       } else if (auth.status !== 403 || auth.code !== undefined) {
         // 401/503 are retryable session problems; a consent refusal is a
         // real patient who must act first (never the staff→demo fallback).
@@ -264,6 +229,55 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           error: auth.error,
           ...auth.details,
           retryable: auth.code === undefined,
+        });
+        return;
+      }
+    }
+
+    // Limit before any paid work: the slot is reserved in the shared usage
+    // store, keyed to the account (or the demo IP) with the office ceiling
+    // riding along, so the caps hold across every server copy.
+    const subject = { ip: req.ip, patientId: signedIn?.patientId, officeId: signedIn?.providerId };
+    const slot = await acquireChatSlot(subject, req.log);
+    if (!slot.ok) {
+      // `retryable: false` marks denials that cannot clear soon (daily budget
+      // spent) so the client can drop its Retry control; busy/rapid denials
+      // stay retryable. Absent means retryable — older bodies default that way.
+      res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
+      return;
+    }
+    releaseChatSlot = slot.release;
+    if (image !== undefined) {
+      // Photo turns are vision calls priced like menu scans, so they consume
+      // the scanner's shared budget on top of the chat slot already held.
+      const visionSlot = await acquireMenuScanSlot(subject, req.log);
+      if (!visionSlot.ok) {
+        res
+          .status(visionSlot.status)
+          .json({ error: visionSlot.message, retryable: visionSlot.retryable });
+        return;
+      }
+      releaseVisionSlot = visionSlot.release;
+    }
+
+    if (signedIn !== null) {
+      // Organization policy: the care team can pause the coach for real
+      // patients. Checked before any model call so a paused coach costs
+      // nothing and answers the same honest JSON the app renders as its
+      // "paused by your care team" state. The demo persona is never paused.
+      if (!(await coachAvailable(req))) {
+        res.status(503).json({ error: COACH_PAUSED_MESSAGE, retryable: false, coachPaused: true });
+        return;
+      }
+      try {
+        patientContext = await realPatientContext(signedIn.patientId, parsed.data.localDate);
+        realPatient = true;
+        authenticatedPatientId = signedIn.patientId;
+      } catch (error) {
+        req.log.error({ err: error }, "coach chat real patient context failed");
+        res.status(502).json({
+          error: "Couldn't load your account right now. Please try again.",
+          retryable: true,
         });
         return;
       }
@@ -1023,8 +1037,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       res.end();
     }
   } finally {
-    releaseVisionSlot?.();
-    slot.release();
+    // Releases never reject (the limiter logs a failed release and lets the
+    // lease lapse), so neither needs awaiting on the response path.
+    void releaseVisionSlot?.();
+    void releaseChatSlot?.();
   }
 });
 

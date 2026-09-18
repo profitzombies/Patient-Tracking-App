@@ -1,3 +1,4 @@
+// hint: Structural and logic conflict. Both design and behavior differ.
 // hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
@@ -149,3 +150,4 @@
 - [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
 - [Photo variants & pages](photo-variants-pages.md) — display is a resolver (page URL else per-photo route at same size); server reports actual signed size; medium signed only on viewer open; set media token after provider mount in suites.
 - [Roster filter model](roster-filter-model.md) — client-side AND stack in the URL; unknown facts match nothing; legacy arriving keys rewrite; RTR suites need Radix stubs + host-only testid lookups.
+- [Coach usage limits store](coach-usage-limits-store.md) — caps reserved via advisory-lock RPC after identity resolves, before paid work; only rapid bucket is process-local; vitest pins memory store; fail closed.

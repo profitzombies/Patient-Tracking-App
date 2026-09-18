@@ -23,16 +23,34 @@ import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { CoachRecipeImageBody } from "@workspace/api-zod";
 import { sanitizeInline } from "../coach/prompt";
-import { acquireImageSlot } from "../coach/limits";
+import { acquireImageSlot, type UsageSubject } from "../coach/limits";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "../coach/upstream";
+import { bearerToken, resolvePatientIdentity } from "../lib/patient-auth";
 
 const router: IRouter = Router();
 
+/**
+ * Who the image slot is charged to. Images carry no consent gate (the
+ * prompt holds recipe text only), so the route stays open: a signed-in
+ * patient's bearer keys the slot to the account and their office, and
+ * anything else — the demo, a staff persona, a session the auth service
+ * cannot resolve right now — falls back to the IP key rather than refusing
+ * an optional illustration.
+ */
+async function imageSubject(req: Parameters<typeof resolvePatientIdentity>[0] & { ip?: string }): Promise<UsageSubject> {
+  if (bearerToken(req) === null) return { ip: req.ip };
+  const identity = await resolvePatientIdentity(req);
+  if (!identity.ok) return { ip: req.ip };
+  return { ip: req.ip, patientId: identity.patientId, officeId: identity.providerId };
+}
+
 router.post("/coach/recipe-image", async (req, res) => {
-  // Limit first: image calls are the priciest AI spend in this demo.
-  const slot = acquireImageSlot(req.ip ?? "unknown");
+  // Limit first: image calls are the priciest AI spend in this demo. The
+  // slot is reserved in the shared usage store, so the cap holds across
+  // every server copy.
+  const slot = await acquireImageSlot(await imageSubject(req), req.log);
   if (!slot.ok) {
-    res.status(slot.status).json({ error: slot.message });
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
     return;
   }
 

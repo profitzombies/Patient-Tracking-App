@@ -14,7 +14,7 @@
  * placeholder. All nutrition numbers are labeled as estimates — this screen
  * never presents them as measured facts.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,6 +26,7 @@ import { Divider, LedgerCard, PillSelector, SectionHeader } from '@/components/u
 import { useAppMode } from '@/context/AppModeContext';
 import { useCoachChat } from '@/context/CoachChatContext';
 import { usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { fetchRecipeImage } from '@/lib/coach-api';
 import type { AiRecipeSuggestion } from '@/lib/ai-recipe';
 import { previewMealSlot } from '@/lib/meal-slot';
@@ -52,8 +53,17 @@ export default function AiRecipePreviewScreen() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const patient = usePatient();
+  const patientAccount = usePatientAccount();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { getRecipeSuggestion, setSuggestionPhoto } = useCoachChat();
+  // Signed-in accounts authenticate the image request so its usage counts
+  // against the account, not the IP; the demo stays tokenless.
+  const accountKind = patientAccount.account.kind;
+  const getAccessToken = patientAccount.getAccessToken;
+  const imageAuth = useMemo(
+    () => (accountKind === 'demo' ? {} : { getAuthToken: getAccessToken ?? (async () => null) }),
+    [accountKind, getAccessToken],
+  );
   const { id } = useLocalSearchParams<{ id: string }>();
   const suggestion = getRecipeSuggestion(id ?? '');
 
@@ -99,7 +109,7 @@ export default function AiRecipePreviewScreen() {
     async (target: AiRecipeSuggestion) => {
       photoStatusRef.current = 'loading';
       try {
-        const uri = await fetchRecipeImage(target.name, target.description);
+        const uri = await fetchRecipeImage(target.name, target.description, imageAuth);
         setSuggestionPhoto(target.id, uri);
         photoStatusRef.current = 'ready';
         backfill.photoReady(uri);
@@ -108,7 +118,7 @@ export default function AiRecipePreviewScreen() {
         photoStatusRef.current = 'failed';
       }
     },
-    [setSuggestionPhoto, backfill],
+    [setSuggestionPhoto, backfill, imageAuth],
   );
 
   useEffect(() => {

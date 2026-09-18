@@ -2377,6 +2377,19 @@ export interface OperationalPatient {
   followUps: PatientOperationalFollowUp[];
 }
 
+export interface PatientSpend {
+  /** Gross cents across paid */
+  paidCents: number;
+  /** Cents refunded (succeeded refunds only). */
+  refundedCents: number;
+  /** paidCents minus refundedCents. */
+  netCents: number;
+  /**
+     * Latest paid_at (or created_at) among the paid orders.
+     * @nullable
+     */
+  lastPaidAt: string | null;
+}
 export interface OfficeRosterPatient {
   id: string;
   name: string;
@@ -2400,6 +2413,8 @@ export interface OfficeRosterPatient {
      * @nullable
      */
   activeSubscription?: boolean | null;
+  /** Lifetime spend at this office from its orders (one grouped query): gross paid, succeeded refunds, net, and the last paid moment. A patient with no paid order is a real zero; null means the spend aggregate could not be read (unknown). */
+  spend?: null | PatientSpend;
 }
 
 export type FollowUpUpdateInputStatus = typeof FollowUpUpdateInputStatus[keyof typeof FollowUpUpdateInputStatus];
@@ -4577,4 +4592,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

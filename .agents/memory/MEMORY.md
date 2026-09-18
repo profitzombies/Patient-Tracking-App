@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -147,3 +148,4 @@
 - [Patients menu badge](patients-menu-badge.md) — badge shares the roster query (no new poll); flagged = evaluator verdict; pin is URL-only; Shell-in-Node RTR recipe.
 - [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
 - [Photo variants & pages](photo-variants-pages.md) — display is a resolver (page URL else per-photo route at same size); server reports actual signed size; medium signed only on viewer open; set media token after provider mount in suites.
+- [Roster filter model](roster-filter-model.md) — client-side AND stack in the URL; unknown facts match nothing; legacy arriving keys rewrite; RTR suites need Radix stubs + host-only testid lookups.

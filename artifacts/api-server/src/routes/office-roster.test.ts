@@ -61,6 +61,8 @@ let outreachStates: Row[] = [];
 let deletionRequests: Row[] = [];
 let tombstones: Row[] = [];
 let billingSubscriptions: Row[] | "unavailable" = [];
+let spendRows: Row[] | "unavailable" = [];
+const spendRequests: string[] = [];
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -179,6 +181,8 @@ beforeEach(() => {
   deletionRequests = [];
   tombstones = [];
   billingSubscriptions = [];
+  spendRows = [];
+  spendRequests.length = 0;
 
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -245,6 +249,12 @@ beforeEach(() => {
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
     if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response(outreachStates);
+    if (url.pathname === "/rest/v1/rpc/billing_office_patient_spend") {
+      const body = JSON.parse(String(init?.body)) as { p_provider_id: string };
+      spendRequests.push(body.p_provider_id);
+      if (spendRows === "unavailable") return response({ message: "function missing" }, 500);
+      return response(spendRows.filter((row) => row.provider_id === body.p_provider_id).map(({ provider_id: _office, ...row }) => row));
+    }
     if (url.pathname === "/rest/v1/billing_subscriptions") {
       if (billingSubscriptions === "unavailable") return response({ message: "relation missing" }, 500);
       const officeId = (url.searchParams.get("provider_id") ?? "").replace("eq.", "");
@@ -434,6 +444,36 @@ describe("office scope", () => {
     const unknown = await api("/office/roster", "provider-token");
     expect(unknown.status).toBe(200);
     expect((await unknown.json() as { patients: Row[] }).patients[0].activeSubscription).toBeNull();
+  });
+
+  it("carries lifetime spend from the office spend aggregate and goes null when it cannot run", async () => {
+    // No paid orders yet: a real zero, not unknown.
+    const none = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(none.patients[0].spend).toEqual({ paidCents: 0, refundedCents: 0, netCents: 0, lastPaidAt: null });
+    expect(spendRequests).toEqual(["office-1"]);
+
+    spendRows = [
+      { provider_id: "office-1", patient_id: "pat-own", paid_cents: "61400", refunded_cents: "1400", last_paid_at: "2026-09-10T15:00:00.000Z" },
+      // Another office's spend for a different patient never leaks in.
+      { provider_id: "office-2", patient_id: "pat-other", paid_cents: 9900, refunded_cents: 0, last_paid_at: "2026-09-11T15:00:00.000Z" },
+    ];
+    const spent = await (await api("/office/roster", "provider-token")).json() as { patients: Row[] };
+    expect(spent.patients.map((row) => [row.id, row.spend])).toEqual([
+      ["pat-own", { paidCents: 61400, refundedCents: 1400, netCents: 60000, lastPaidAt: "2026-09-10T15:00:00.000Z" }],
+    ]);
+
+    // HQ drill-in asks the aggregate for the explicitly scoped office.
+    spendRequests.length = 0;
+    const hq = await (await api("/office/roster?office=office-2", "hq-token")).json() as { patients: Row[] };
+    expect(spendRequests).toEqual(["office-2"]);
+    expect(hq.patients.map((row) => [row.id, row.spend])).toEqual([
+      ["pat-other", { paidCents: 9900, refundedCents: 0, netCents: 9900, lastPaidAt: "2026-09-11T15:00:00.000Z" }],
+    ]);
+
+    spendRows = "unavailable";
+    const unknown = await api("/office/roster", "provider-token");
+    expect(unknown.status).toBe(200);
+    expect((await unknown.json() as { patients: Row[] }).patients[0].spend).toBeNull();
   });
 
   it("reports no deletion state for an untouched roster", async () => {

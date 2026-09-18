@@ -73,6 +73,12 @@ export interface DeletedAccount {
   enrolledOn: string | null;
 }
 
+export interface PatientSpend {
+  paidCents: number;
+  refundedCents: number;
+  netCents: number;
+  lastPaidAt: string | null;
+}
 export interface OfficePatient {
   id: string;
 
@@ -119,6 +125,13 @@ export interface OfficePatient {
    * not be read (unknown, never treated as false).
    */
   activeSubscription?: boolean | null;
+
+  /**
+   * Lifetime spend at this office (cents), from the office's orders: gross
+   * paid, succeeded refunds, net, and the last paid moment. A patient with no
+   * paid order is a real zero; null means the aggregate could not be read.
+   */
+  spend?: PatientSpend | null;
 
   program?: {
     id: string | null;

@@ -180,6 +180,7 @@ async function main() {
   const detailSource = readFileSync(new URL('../src/pages/PatientDetail.tsx', import.meta.url), 'utf8');
   const editsSource = readFileSync(new URL('../src/components/office/LivePatientEdits.tsx', import.meta.url), 'utf8');
   const patientsSource = readFileSync(new URL('../src/pages/Patients.tsx', import.meta.url), 'utf8');
+  const filtersSource = readFileSync(new URL('../src/lib/roster-filters.ts', import.meta.url), 'utf8');
   const contractSource = readFileSync(new URL('../src/lib/office-roster.ts', import.meta.url), 'utf8');
   const demoSection = detailSource.match(/function DemoPatientDetail\(\)[\s\S]*?\n}\n/)?.[0] ?? '';
   const liveSection = detailSource.match(/function LivePatientDetail[\s\S]*?\nexport default function PatientDetail/)?.[0] ?? '';
@@ -238,7 +239,10 @@ async function main() {
   await check('the roster badges paused and discharged and offers them as live filters', () => {
     assert.match(contractSource, /status: 'invited' \| 'inactive' \| 'needs_attention' \| 'on_track' \| 'paused' \| 'discharged'/);
     assert.match(patientsSource, /status === 'discharged'/);
-    assert.match(patientsSource, /<option value="paused">Paused<\/option>\s*<option value="discharged">Discharged<\/option>\s*<option value="invited">Invited<\/option>/);
+    // The status vocabulary lives in the shared filter model (the builder's
+    // Status field and the quick sets); no native <select> remains on the page.
+    assert.match(filtersSource, /\{ value: 'paused', label: 'Paused' \},\s*\{ value: 'discharged', label: 'Discharged' \},\s*\{ value: 'invited', label: 'Invited' \}/);
+    assert.doesNotMatch(patientsSource, /<select\b/);
   });
 
   await check('the guided demo record is untouched: synthetic session only, no live client, no edit gate', () => {

@@ -18,10 +18,19 @@
  *     "No check-ins yet" — never 0/7 or 0%;
  *   - a patient missing from the aggregate renders dashed "Not available"
  *     cells, a neutral "activity unknown" chip, and no follow-up reason;
- *   - the lapsed filter keeps only the server-flagged patient (the unknown
+ *   - the lapsed quick set keeps only the server-flagged patient (the unknown
  *     one is excluded even though it shows no logs), and the logging sort
  *     puts the unknown row last ascending AND descending;
  *   - the guided demo (signed-out) renders none of the live cells.
+ *
+ * Roster filters (Radix / cmdk / day-picker parts stubbed DOM-free): quick
+ * sets switch exclusively and write the URL, the builder stacks two
+ * conditions with AND, chips remove one condition, the URL round-trips into
+ * the same view (legacy arriving links included), spend filters read the
+ * roster's spend aggregate (unknown never matches), every control is a
+ * button / combobox / input (keyboard operable, announced), phone width
+ * hosts the builder in a bottom sheet, and the demo persona gets the same
+ * quick sets over the seeded roster.
  *
  * Parity: EngagementSummary (patient detail) fed the same signals prints the
  * same figures the roster cell prints.
@@ -55,6 +64,8 @@ g.window ??= {};
 g.window.getSelection ??= () => ({ toString: () => '' });
 g.window.addEventListener ??= () => {};
 g.window.removeEventListener ??= () => {};
+g.window.innerWidth ??= 1280;
+g.window.localStorage ??= (() => { const map = new Map<string, string>(); return { getItem: (key: string) => map.get(key) ?? null, setItem: (key: string, value: string) => { map.set(key, value); }, removeItem: (key: string) => { map.delete(key); } }; })();
 
 let failures = 0;
 function check(name: string, condition: boolean, detail = '') {
@@ -95,13 +106,16 @@ const LAPSED: PatientActivitySignals = {
   moodCounts: { '1': 1, '2': 0, '3': 0, '4': 0, '5': 0 }, topSideEffects: [],
 };
 
-function patient(id: string, name: string, operational: NonNullable<OfficePatient['operational']>): OfficePatient {
+function patient(id: string, name: string, operational: NonNullable<OfficePatient['operational']>, extra: Partial<OfficePatient> = {}): OfficePatient {
   return {
     id, name, email: `${id}@example.com`, phone: null, phoneDisplay: null, activationStatus: 'activated', verified: true,
     createdAt: '2026-07-01T00:00:00Z',
     program: { id: 'metabolic', day: 60, stage: 'protocol', week: 9, startDate: '2026-07-08', startingWeight: 210, currentWeight: 200, goalWeight: 170, weightChange: -10, lastLogDate: null },
     invitation: null,
     operational,
+    spend: { paidCents: 0, refundedCents: 0, netCents: 0, lastPaidAt: null },
+    activeSubscription: false,
+    ...extra,
   } as OfficePatient;
 }
 
@@ -112,10 +126,11 @@ const base = {
 const ROSTER: OfficeRoster = {
   office: { providerId: 'office-1', officeName: 'Beacon Hill Aesthetics', providerCode: '483920' },
   patients: [
-    patient('pat-known', 'Kara Known', { ...base, latestDiaryDate: day(1), latestCheckInDate: AS_OF, loggedDays7: 4, checkIns7: 2, activity: KNOWN, status: 'on_track', reasons: [] }),
+    // Spend: Kara $600 net (a $50 refund), Liam $120, Nolan a real $0, Uma unknown (aggregate unreadable).
+    patient('pat-known', 'Kara Known', { ...base, latestDiaryDate: day(1), latestCheckInDate: AS_OF, loggedDays7: 4, checkIns7: 2, activity: KNOWN, status: 'on_track', reasons: [] }, { spend: { paidCents: 65000, refundedCents: 5000, netCents: 60000, lastPaidAt: '2026-09-01T15:00:00Z' }, activeSubscription: true }),
     patient('pat-empty', 'Nolan Nodata', { ...base, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: NO_DATA, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }),
-    patient('pat-unknown', 'Uma Unknown', { ...base, latestActivityDate: null, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: null, status: 'unknown', reasons: [] }),
-    patient('pat-lapsed', 'Liam Lapsed', { ...base, latestDiaryDate: day(6), latestCheckInDate: day(20), loggedDays7: 1, checkIns7: 0, activity: LAPSED, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }),
+    patient('pat-unknown', 'Uma Unknown', { ...base, latestActivityDate: null, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: null, status: 'unknown', reasons: [] }, { spend: null, activeSubscription: null }),
+    patient('pat-lapsed', 'Liam Lapsed', { ...base, latestDiaryDate: day(6), latestCheckInDate: day(20), loggedDays7: 1, checkIns7: 0, activity: LAPSED, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }, { spend: { paidCents: 12000, refundedCents: 0, netCents: 12000, lastPaidAt: '2026-06-01T15:00:00Z' } }),
   ],
   summary: { totalPatients: 4, activePatients: 4, newEnrollments30d: 0, needsAttention: 2, attention: 2, inactive: 0, invited: 0, checkInsOverdue: 2, loggingLapsed: 2, asOf: AS_OF },
 };
@@ -203,12 +218,42 @@ function activityText(row: ReactTestInstance): string {
   return row.findAll((node) => node.type === 'td').slice(3, 5).map(textOf).join(' | ');
 }
 
-function selectByLabel(root: ReactTestInstance, label: string): ReactTestInstance {
-  return root.find((node) => node.type === 'select' && node.props['aria-label'] === label);
+// Host elements only: a stubbed SelectTrigger forwards data-testid to its
+// button, so the composite instance would otherwise shadow the real props.
+const allByTestId = (root: ReactTestInstance, id: string) => root.findAll((node) => typeof node.type === 'string' && node.props['data-testid'] === id);
+const byTestId = (root: ReactTestInstance, id: string) => {
+  const matches = allByTestId(root, id);
+  if (matches.length !== 1) throw new Error(`expected one ${id}, found ${matches.length}`);
+  return matches[0];
+};
+/** Nearest ancestor (within a few component layers) containing a matching node. */
+function nearby(control: ReactTestInstance, predicate: (node: ReactTestInstance) => boolean): ReactTestInstance {
+  let container: ReactTestInstance | null = control.parent;
+  for (let depth = 0; container && depth < 6; depth += 1) {
+    const hit = container.findAll((node) => typeof node.type === 'string' && predicate(node))[0];
+    if (hit) return hit;
+    container = container.parent;
+  }
+  throw new Error('no nearby match');
+}
+const rowNames = (root: ReactTestInstance) => tableRows(root).map((row) => String(row.props['aria-label']).replace(/^Open |’s patient record$/g, ''));
+
+async function click(node: ReactTestInstance) {
+  await act(async () => { node.props.onClick(); });
 }
 
-async function choose(select: ReactTestInstance, value: string) {
-  await act(async () => { select.props.onChange({ target: { value } }); });
+/** Pick an option on a stubbed Select / Command picker by the option's data-value. */
+async function pickOption(root: ReactTestInstance, controlTestId: string, value: string) {
+  // Select stub: the trigger and its listbox share the Select provider; the
+  // option buttons are siblings rendered after the trigger. Command stub: the
+  // option buttons live in the picker's PopoverContent next to the trigger.
+  await click(nearby(byTestId(root, controlTestId), (node) => node.props.role === 'option' && node.props['data-value'] === value));
+}
+
+const builderForm = (root: ReactTestInstance) => byTestId(root, 'roster-filter-builder').find((node) => node.type === 'form');
+
+async function type(node: ReactTestInstance, value: string) {
+  await act(async () => { node.props.onChange({ target: { value } }); });
 }
 
 console.log('\nlive roster rendering');
@@ -256,13 +301,14 @@ console.log('\nlive roster rendering');
   check('lapsed: real zero check-in streak and 3% rate shown as such', lapsedText.includes('0-day') && lapsedText.includes('3%') && lapsedText.includes('No side effects (30d)'), lapsedText);
 
   // Filters and sorts.
-  await choose(selectByLabel(root, 'Filter by companion-app logging'), 'lapsed');
+  await click(byTestId(root, 'quick-set-inactive-lapsed'));
   const lapsedNames = tableRows(root).map((row) => String(row.props['aria-label']));
-  check('lapsed filter keeps only server-flagged rows (unknown excluded)', lapsedNames.length === 2 && lapsedNames.some((n) => n.includes('Liam Lapsed')) && lapsedNames.some((n) => n.includes('Nolan Nodata')), lapsedNames.join(' | '));
-  await choose(selectByLabel(root, 'Filter by companion-app logging'), 'all');
-  await choose(selectByLabel(root, 'Filter by status'), 'unknown');
-  check('status filter can isolate unknown rows', tableRows(root).length === 1 && String(tableRows(root)[0].props['aria-label']).includes('Uma Unknown'));
-  await choose(selectByLabel(root, 'Filter by status'), 'all');
+  check('lapsed quick set keeps only server-flagged rows (unknown excluded)', lapsedNames.length === 2 && lapsedNames.some((n) => n.includes('Liam Lapsed')) && lapsedNames.some((n) => n.includes('Nolan Nodata')), lapsedNames.join(' | '));
+  await click(byTestId(root, 'quick-set-all'));
+  await click(byTestId(root, 'button-add-filter'));
+  await pickOption(root, 'filter-value-0', 'unknown');
+  check('status filter can isolate unknown rows', tableRows(root).length === 1 && String(tableRows(root)[0].props['aria-label']).includes('Uma Unknown'), rowNames(root).join(' | '));
+  await click(byTestId(root, 'quick-set-all'));
 
   const loggingHeader = root.find((node) => node.type === 'button' && textOf(node).trim().startsWith('Logging (7d)'));
   await act(async () => { loggingHeader.props.onClick(); });
@@ -288,13 +334,187 @@ console.log('\nguided demo untouched');
   rosterRequests = 0;
   __setSession({ authStatus: 'signed-out', authRole: null, authUser: null });
   __setSupabaseSession(null);
-  const { renderer, root } = await renderRoster();
+  const { renderer, root, loc } = await renderRoster();
   const rows = tableRows(root);
   check('demo: no live requests, seeded rows render', rosterRequests === 0 && rows.length > 5, `requests=${rosterRequests} rows=${rows.length}`);
   check('demo: no live activity cells or wellbeing column', root.findAll((node) => node.props['data-state'] !== undefined).length === 0 && !root.findAll((node) => node.type === 'th').some((th) => textOf(th).includes('wellbeing')));
   check('demo: seeded logging bitmap still renders', rows.every((row) => row.findAll((node) => node.type === 'span' && typeof node.props.className === 'string' && /h-2\.5 w-2\.5/.test(node.props.className)).length === 7));
-  check('demo: status filter keeps the demo options', selectByLabel(root, 'Filter by status').findAll((node) => node.type === 'option').map((option) => option.props.value).join(',') === 'all,active,paused,overdue,graduated');
+  // Demo parity: the same quick sets over the seeded roster, statuses mapped
+  // to the live vocabulary (overdue → needs attention, graduated → maintenance).
+  const demoSets = root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('quick-set-') && node.type === 'button').map((node) => textOf(node));
+  check('demo: same built-in quick sets', demoSets.join(',') === 'All,Active,Needs attention,Inactive / lapsed,Invited,Paused,Maintenance phase,New this month,Active subscription,Top spenders', demoSets.join(','));
+  await click(byTestId(root, 'quick-set-needs-attention'));
+  const attentionRows = tableRows(root);
+  check('demo: Needs attention = seeded overdue rows', attentionRows.length > 0 && attentionRows.every((row) => textOf(row).includes('overdue')), `${attentionRows.length}`);
+  await click(byTestId(root, 'quick-set-maintenance'));
+  const maintenanceRows = tableRows(root);
+  check('demo: Maintenance phase = seeded maintenance rows', maintenanceRows.length > 0 && maintenanceRows.every((row) => textOf(row).includes('Maintenance')), `${maintenanceRows.length}`);
+  await click(byTestId(root, 'quick-set-top-spenders'));
+  check('demo: Top spenders applies the spend sort', loc.history.at(-1)?.includes('sort=spent.desc') === true && tableRows(root).length > 0, String(loc.history.at(-1)));
+  await click(byTestId(root, 'quick-set-paused'));
+  const pausedRows = tableRows(root);
+  check('demo: Paused = seeded paused rows', pausedRows.length > 0 && pausedRows.every((row) => textOf(row).includes('paused')));
+  check('demo: no native selects anywhere on the page', root.findAll((node) => node.type === 'select').length === 0);
   renderer.unmount();
+}
+
+console.log('\nroster filters: quick sets, builder, chips, URL');
+{
+  __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' } });
+  __setSupabaseSession('staff-token');
+  const { renderer, root, loc } = await renderRoster();
+  const lastUrl = () => String(loc.history.at(-1));
+  const pressed = () => root.findAll((node) => node.props['aria-pressed'] === true && typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('quick-set-')).map((node) => node.props['data-testid']);
+
+  check('All is the active quick set on arrival', pressed().join(',') === 'quick-set-all');
+  check('no count badge without filters', allByTestId(root, 'badge-filter-count').length === 0 && byTestId(root, 'button-filter').props['aria-label'] === 'Filter');
+
+  // Quick sets are exclusive and write the URL.
+  await click(byTestId(root, 'quick-set-needs-attention'));
+  check('Needs attention: two rows, one pressed pill, URL carries the condition', rowNames(root).join(',') === 'Nolan Nodata,Liam Lapsed' && pressed().join(',') === 'quick-set-needs-attention' && lastUrl().includes('f=status%3Ais%3Aneeds_attention'), `${rowNames(root)} ${pressed()} ${lastUrl()}`);
+  await click(byTestId(root, 'quick-set-active-subscription'));
+  check('Active subscription: only the true flag matches (unknown excluded)', rowNames(root).join(',') === 'Kara Known' && pressed().join(',') === 'quick-set-active-subscription', rowNames(root).join(','));
+  await click(byTestId(root, 'quick-set-top-spenders'));
+  check('Top spenders: paid rows only, highest first; $0 and unknown drop out', rowNames(root).join(',') === 'Kara Known,Liam Lapsed' && lastUrl().includes('sort=spent.desc'), `${rowNames(root)} ${lastUrl()}`);
+  check('filter count badge shows 1', byTestId(root, 'badge-filter-count').children.join('') === '1' && byTestId(root, 'button-filter').props['aria-label'] === 'Filter, 1 active');
+  const chip0 = byTestId(root, 'filter-chip-0');
+  check('chip describes the condition in words', textOf(chip0).includes('more than $0'), textOf(chip0));
+
+  // Stack a second condition in the builder: spent > 0 AND program day ≥ 50.
+  await click(byTestId(root, 'button-add-filter'));
+  check('new row starts as Status is (incomplete, not applied)', byTestId(root, 'filter-field-1').props['data-value'] === 'status' && allByTestId(root, 'filter-chip-1').length === 0);
+  await pickOption(root, 'filter-field-1', 'program_day');
+  await pickOption(root, 'filter-operator-1', 'gte');
+  await type(byTestId(root, 'filter-value-1'), '50');
+  check('stacked: both conditions in the URL and two chips', (lastUrl().match(/f=/g) ?? []).length === 2 && lastUrl().includes('f=program_day%3Agte%3A50') && allByTestId(root, 'filter-chip-1').length === 1, lastUrl());
+  check('stacked rows AND together', rowNames(root).join(',') === 'Kara Known,Liam Lapsed');
+  check('no quick set is pressed once the stack is custom', pressed().length === 0);
+  check('count badge shows 2', byTestId(root, 'badge-filter-count').children.join('') === '2');
+  await type(byTestId(root, 'filter-value-1'), '61');
+  check('program day ≥ 61 excludes everyone (fixture is day 60)', rowNames(root).length === 0 && root.findAll((node) => node.type === 'td' && node.props.colSpan === 7).length === 1, rowNames(root).join(','));
+  await type(byTestId(root, 'filter-value-1'), '60');
+
+  // Spend on the builder: between, and unknown never matches "less than".
+  await click(byTestId(root, 'button-add-filter'));
+  await pickOption(root, 'filter-field-2', 'spent');
+  await pickOption(root, 'filter-operator-2', 'between');
+  await type(byTestId(root, 'filter-value-2-min'), '100');
+  check('half-filled between is not applied', (lastUrl().match(/f=/g) ?? []).length === 2 && allByTestId(root, 'filter-chip-2').length === 0);
+  await type(byTestId(root, 'filter-value-2-max'), '200');
+  check('spent between $100 and $200 keeps Liam only', rowNames(root).join(',') === 'Liam Lapsed' && textOf(byTestId(root, 'filter-chip-2')).includes('between $100 and $200'), `${rowNames(root)} ${textOf(byTestId(root, 'filter-chip-2'))}`);
+
+  // Chip removal drops exactly one condition and re-syncs the builder.
+  await click(byTestId(root, 'filter-chip-0').find((node) => node.type === 'button'));
+  check('removing the first chip leaves day ≥ 60 and the spend range', allByTestId(root, 'filter-chip-2').length === 0 && textOf(byTestId(root, 'filter-chip-0')).includes('Program day at least 60') && allByTestId(root, 'filter-row-2').length === 0 && rowNames(root).join(',') === 'Liam Lapsed', lastUrl());
+  check('chip remove button is announced', root.findAll((node) => node.type === 'button' && String(node.props['aria-label']).startsWith('Remove filter: ')).length === 2);
+
+  // Unknown spend never matches, "no" included.
+  await click(byTestId(root, 'button-clear-filters'));
+  check('Clear all empties the URL and re-presses All', !lastUrl().includes('f=') && pressed().join(',') === 'quick-set-all' && rowNames(root).length === 4, lastUrl());
+  await click(byTestId(root, 'button-add-filter'));
+  await pickOption(root, 'filter-field-0', 'spent');
+  await pickOption(root, 'filter-operator-0', 'lt');
+  await type(byTestId(root, 'filter-value-0'), '1000');
+  check('spent < $1000: real $0 matches, unknown spend does not (still in spend order)', rowNames(root).join(',') === 'Kara Known,Liam Lapsed,Nolan Nodata', rowNames(root).join(','));
+  await pickOption(root, 'filter-field-0', 'active_subscription');
+  check('changing the field resets operator and value (row incomplete again)', byTestId(root, 'filter-operator-0').props['data-value'] === 'is' && !lastUrl().includes('f='), lastUrl());
+  await pickOption(root, 'filter-value-0', 'no');
+  check('subscription "no": false matches, null does not', rowNames(root).sort().join(',') === 'Liam Lapsed,Nolan Nodata', rowNames(root).join(','));
+
+  // Date fields: "in the last N days" and a calendar range via the picker.
+  await pickOption(root, 'filter-field-0', 'last_purchase');
+  await pickOption(root, 'filter-operator-0', 'in_last');
+  await type(byTestId(root, 'filter-value-0'), '30');
+  const recentBuyers = rowNames(root);
+  check('last purchase in the last 30 days (device day) keeps at most recent payers, never Nolan/Uma', !recentBuyers.includes('Nolan Nodata') && !recentBuyers.includes('Uma Unknown'), recentBuyers.join(','));
+  await pickOption(root, 'filter-field-0', 'join_date');
+  await pickOption(root, 'filter-operator-0', 'between');
+  const calendar = nearby(byTestId(root, 'filter-value-0'), (node) => node.props['data-calendar'] !== undefined);
+  check('between opens the range calendar', calendar.props['data-mode'] === 'range');
+  await act(async () => { calendar.props.pickerProps.onSelect({ from: new Date(2026, 5, 1), to: undefined }, new Date(2026, 5, 1)); });
+  check('range half-picked: nothing applied yet', !lastUrl().includes('f='));
+  await act(async () => { calendar.props.pickerProps.onSelect({ from: new Date(2026, 5, 1), to: new Date(2026, 6, 15) }, new Date(2026, 6, 15)); });
+  check('join date between Jun 1 and Jul 15 applies and matches the fixture join day', lastUrl().includes('f=join_date%3Abetween%3A2026-06-01..2026-07-15') && rowNames(root).length === 4, lastUrl());
+  check('chip formats the range', textOf(byTestId(root, 'filter-chip-0')).includes('Jun 1, 2026 – Jul 15, 2026'), textOf(byTestId(root, 'filter-chip-0')));
+
+  // Sorting via the header persists in the URL; the mobile sort picker mirrors it.
+  const nameHeader = root.find((node) => node.type === 'button' && textOf(node).trim().startsWith('Patient'));
+  await click(nameHeader);
+  check('header sort writes ?sort=', lastUrl().includes('sort=name.desc'), lastUrl());
+  await pickOption(root, 'select-sort', 'name.asc');
+  check('phone sort picker writes the same URL key', lastUrl().includes('sort=name.asc') && rowNames(root)[0] === 'Kara Known', lastUrl());
+
+  // Save the stack as a custom quick set (browser storage) and remove it.
+  check('save needs an applied filter', byTestId(root, 'button-save-quick-set-open').props.disabled === false);
+  await click(byTestId(root, 'button-save-quick-set-open'));
+  const nameForm = builderForm(root);
+  await act(async () => { nameForm.props.onSubmit({ preventDefault() {} }); });
+  check('blank name is rejected and announced', root.findAll((node) => node.props.role === 'alert' && textOf(node).includes('Give the quick set a name')).length === 1);
+  await type(byTestId(root, 'input-quick-set-name'), 'Summer joiners');
+  check('Save is the form submit button', byTestId(root, 'button-save-quick-set').props.type === 'submit');
+  await act(async () => { builderForm(root).props.onSubmit({ preventDefault() {} }); });
+  const customPill = root.find((node) => node.type === 'button' && textOf(node) === 'Summer joiners');
+  check('custom quick set appears pressed and persisted', customPill.props['aria-pressed'] === true && String(g.window.localStorage.getItem('thinnr.roster.quick-sets')).includes('Summer joiners'));
+  await click(byTestId(root, 'quick-set-all'));
+  check('custom set releases when All is chosen', customPill.props['aria-pressed'] === false && rowNames(root).length === 4);
+  await click(customPill);
+  check('tapping the custom set re-applies its stack and sort', lastUrl().includes('join_date%3Abetween') && lastUrl().includes('sort=name.asc'), lastUrl());
+  await click(root.find((node) => node.props['aria-label'] === 'Remove quick set Summer joiners'));
+  check('custom set removed from the row and storage', root.findAll((node) => node.type === 'button' && textOf(node) === 'Summer joiners').length === 0 && !String(g.window.localStorage.getItem('thinnr.roster.quick-sets')).includes('Summer joiners'));
+
+  // Keyboard / announcement contract: every control is a native button, input or combobox.
+  const builder = byTestId(root, 'roster-filter-builder');
+  const clickables = builder.findAll((node) => typeof node.type === 'string' && typeof node.props.onClick === 'function');
+  check('builder click targets are buttons (keyboard operable)', clickables.length > 0 && clickables.every((node) => node.type === 'button'), clickables.map((node) => node.type).join(','));
+  check('builder controls carry accessible names', builder.findAll((node) => node.type === 'button' || node.type === 'input' || node.props.role === 'combobox').every((node) => node.props['aria-label'] || node.props.id || textOf(node).trim().length > 0));
+  check('Filter button announces state', byTestId(root, 'button-filter').props['aria-haspopup'] === 'dialog' && typeof byTestId(root, 'button-filter').props['aria-expanded'] === 'boolean');
+  check('quick-set pills are toggle buttons', root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('quick-set-') && node.type === 'button').every((node) => typeof node.props['aria-pressed'] === 'boolean'));
+  check('builder has a live match count', builder.findAll((node) => node.props['aria-live'] === 'polite' && /patients? shown/.test(textOf(node))).length === 1);
+  renderer.unmount();
+}
+
+console.log('\nroster filters: arriving links round-trip');
+{
+  const cases: Array<[string, string, string]> = [
+    ['/patients?logging=lapsed', 'Liam Lapsed,Nolan Nodata', 'legacy ?logging=lapsed pre-applies the lapsed filter, lowest known rate first'],
+    ['/patients?status=needs_attention&reason=check_in_overdue', 'Nolan Nodata,Liam Lapsed', 'legacy status + reason stack'],
+    ['/patients?status=unknown', 'Uma Unknown', 'legacy ?status= isolates the unknown row'],
+    ['/patients?subscription=active', 'Kara Known', 'legacy ?subscription=active'],
+    ['/patients?f=spent%3Agte%3A500&f=program_day%3Agt%3A50&sort=name.asc', 'Kara Known', 'shared link with two conditions and a sort'],
+    ['/patients?f=weight_lost_lb%3Alt%3A5&f=program_day%3Agte%3A42', '', 'weight lost < 5 lb after 6 weeks (fixture lost 10 lb) → nobody'],
+    ['/patients?f=status%3Ais%3Ainvited', '', 'invited (never joined) → nobody in this fixture'],
+    ['/patients?f=bogus%3Ais%3Ax&f=status%3Ais%3Aon_track', 'Kara Known', 'unknown condition keys are ignored, valid ones apply'],
+  ];
+  for (const [path, expected, label] of cases) {
+    const { renderer, root } = await renderRoster(path);
+    check(label, rowNames(root).join(',') === expected, rowNames(root).join(','));
+    renderer.unmount();
+  }
+  // Legacy keys are rewritten as conditions on the first change; the pin survives.
+  const { renderer, root, loc } = await renderRoster('/patients?logging=lapsed&attention=first');
+  check('lapsed arrival shows one chip and the Inactive / lapsed pill pressed', allByTestId(root, 'filter-chip-0').length === 1 && byTestId(root, 'quick-set-inactive-lapsed').props['aria-pressed'] === true);
+  await click(byTestId(root, 'quick-set-all'));
+  const rewritten = String(loc.history.at(-1));
+  check('rewrite drops legacy keys and keeps ?attention=first', !rewritten.includes('logging=') && rewritten.includes('attention=first') && !rewritten.includes('f='), rewritten);
+  renderer.unmount();
+}
+
+console.log('\nroster filters: phone width uses a bottom sheet');
+{
+  g.window.innerWidth = 390;
+  const { renderer, root } = await renderRoster();
+  check('closed: no builder rendered at phone width', allByTestId(root, 'roster-filter-builder').length === 0 && allByTestId(root, 'roster-filter-sheet').length === 0);
+  await click(byTestId(root, 'button-filter'));
+  const sheet = byTestId(root, 'roster-filter-sheet');
+  check('open: builder lives in the bottom sheet', sheet.props['data-side'] === 'bottom' && sheet.props.role === 'dialog' && sheet.findAll((node) => node.props['data-testid'] === 'roster-filter-builder').length === 1);
+  check('sheet is titled', sheet.findAll((node) => node.type === 'h2' && textOf(node) === 'Filters').length === 1);
+  await click(byTestId(root, 'button-add-filter'));
+  await pickOption(root, 'filter-value-0', 'invited');
+  check('sheet builder applies to the roster underneath', rowNames(root).length === 0);
+  await click(byTestId(root, 'button-filters-done'));
+  check('Done closes the sheet; filter stays applied', allByTestId(root, 'roster-filter-sheet').length === 0 && byTestId(root, 'badge-filter-count').children.join('') === '1');
+  renderer.unmount();
+  g.window.innerWidth = 1280;
 }
 
 console.log('\nroster ↔ detail parity');

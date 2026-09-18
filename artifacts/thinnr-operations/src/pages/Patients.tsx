@@ -1,9 +1,35 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Search, Filter, ArrowUpDown, ChevronRight, Check, ShoppingBag, X } from "lucide-react";
+import { Search, ArrowUpDown, ChevronRight, Check, ShoppingBag, X } from "lucide-react";
 import { useScopedPatients, useScopedProviders, useScopedSubscriptions } from "@/data/scoped-data";
-import { LAPSED_AFTER_DAYS, getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
+import { getLoggingStats, isLapsed, lastLogLabel, type LoggingStats } from "@/data/nutrition-data";
+import { MOCK_PRODUCTS } from "@/data/mock-data";
+import { demoPurchasesSummary } from "@/components/office/PatientPurchases";
+import { RosterFilterButton, RosterFilterChips, RosterQuickSets, RosterSortSelect } from "@/components/office/RosterFilters";
+import { DEMO_TODAY_KEY, addDaysToKey, deviceTodayKey } from "@/lib/date-range-keys";
+import {
+  DEFAULT_ROSTER_SORT,
+  activeQuickSet,
+  builtInQuickSets,
+  dateKeyOf,
+  demoStatusToRoster,
+  loadCustomQuickSets,
+  matchesAllConditions,
+  parseRosterView,
+  programDayOn,
+  programLabel,
+  removeCustomQuickSet,
+  saveCustomQuickSet,
+  serializeRosterView,
+  toRosterStatus,
+  type FilterCondition,
+  type QuickSet,
+  type RosterFilterRow,
+  type RosterSort,
+  type RosterSortField,
+  type RosterView,
+} from "@/lib/roster-filters";
 import { getNudgeAssessment } from "@/data/stall-nudge";
 import { buildDemoAttentionItems } from "@/data/attention-demo";
 import { isAttentionFirst, pinFlaggedFirst, withoutAttentionFirst } from "@/lib/patients-badge";
@@ -24,9 +50,7 @@ import {
 } from '@workspace/api-client-react';
 import { useToast } from "@/hooks/use-toast";
 
-type SortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging';
-type SortOrder = 'asc' | 'desc';
-type LoggingFilter = 'all' | 'lapsed';
+type SortField = RosterSortField;
 
 const formatDate = (date: string) =>
   new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -227,24 +251,49 @@ export default function Patients() {
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
   const [location, navigate] = useLocation();
   const searchParams = useSearch();
-  const urlParams = new URLSearchParams(searchParams);
   // Attention-first ordering lives in the URL only (`?attention=first`, set
   // by the amber Patients badge): reload and shared links keep it, and the
   // visible toggle clears it by rewriting the query string.
   const attentionFirst = isAttentionFirst(searchParams);
   const clearAttentionFirst = () => navigate(`${location}${withoutAttentionFirst(searchParams)}`, { replace: true });
-  const arrivedLapsed = urlParams.get('logging') === 'lapsed';
-  const arrivedStatus = urlParams.get('status');
-  const arrivedReason = urlParams.get('reason');
-  const arrivedSubscription = urlParams.get('subscription') === 'active';
+
+  // Filters and sort are the URL's (`?f=field:op:value&sort=field.dir`), so a
+  // view can be bookmarked or shared; older arriving links (`?status=`,
+  // `?logging=lapsed`, `?reason=`, `?subscription=active`) still pre-apply
+  // through the same parser and are rewritten as conditions on first change.
+  const view = useMemo<RosterView>(() => parseRosterView(searchParams), [searchParams]);
+  const conditions = view.conditions;
+  const sortField: SortField = view.sort.field;
+  const sortOrder = view.sort.order;
+  const setView = useCallback(
+    (next: RosterView) => navigate(`${location}${serializeRosterView(searchParams, next)}`, { replace: true }),
+    [location, navigate, searchParams],
+  );
+  const setConditions = (next: FilterCondition[]) => setView({ conditions: next, sort: view.sort });
+  const setSort = (sort: RosterSort) => setView({ conditions, sort });
+
+  // "Today" for date-relative filters: the device day for real offices, the
+  // fixed anchor for demo personas (their roster never moves).
+  const today = liveEnabled ? deviceTodayKey() : DEMO_TODAY_KEY;
+
+  const [customQuickSets, setCustomQuickSets] = useState<QuickSet[]>(() => loadCustomQuickSets(typeof window === 'undefined' ? null : window.localStorage));
+  const quickSets = useMemo(() => [...builtInQuickSets(today), ...customQuickSets], [today, customQuickSets]);
+  const currentQuickSet = activeQuickSet(quickSets, view);
+  // Sets that carry a sort (Top spenders, Inactive / lapsed) apply it; the
+  // rest keep the current sort, except All, which is the roster's home view
+  // and returns it to the default order too.
+  const applyQuickSet = (set: QuickSet) => setView({ conditions: set.conditions, sort: set.sort ?? (set.id === 'all' ? DEFAULT_ROSTER_SORT : view.sort) });
+  const saveQuickSet = (name: string) => {
+    const saved = saveCustomQuickSet(window.localStorage, name, view);
+    setCustomQuickSets(saved.filter((set) => !set.builtIn));
+    toast({ variant: 'success', title: `Quick set “${name.trim()}” saved`, description: 'Saved in this browser only.' });
+  };
+  const removeQuickSet = (set: QuickSet) => {
+    setCustomQuickSets(removeCustomQuickSet(window.localStorage, set.id));
+    toast({ title: `Quick set “${set.label}” removed` });
+  };
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>(arrivedStatus || 'all');
-  const [loggingFilter, setLoggingFilter] = useState<LoggingFilter>(arrivedLapsed ? 'lapsed' : 'all');
-  const [reasonFilter, setReasonFilter] = useState<string>(arrivedReason || 'all');
-  const [subscriptionFilter, setSubscriptionFilter] = useState<'all' | 'active'>(arrivedSubscription ? 'active' : 'all');
-  const [sortField, setSortField] = useState<SortField>(arrivedLapsed ? 'logging' : 'startDate');
-  const [sortOrder, setSortOrder] = useState<SortOrder>(arrivedLapsed ? 'asc' : 'desc');
   const [resending, setResending] = useState<string | null>(null);
 
   const resend = async (patient: OfficePatient) => {
@@ -264,23 +313,6 @@ export default function Patients() {
     }
   };
 
-  // Landing here from the overview compliance card pre-applies the lapsed view.
-  useEffect(() => {
-    if (arrivedLapsed) {
-      setLoggingFilter('lapsed');
-      setSortField('logging');
-      setSortOrder('asc');
-    }
-    if (arrivedStatus) {
-      setStatusFilter(arrivedStatus);
-    }
-    if (arrivedReason) {
-      setReasonFilter(arrivedReason);
-      setStatusFilter('all');
-      setLoggingFilter('all');
-    }
-  }, [arrivedLapsed, arrivedStatus, arrivedReason]);
-
   const statsById = useMemo(
     () => new Map(patients.map((patient) => [patient.id, getLoggingStats(patient)])),
     [patients],
@@ -291,6 +323,14 @@ export default function Patients() {
   const demoSubscriptionActive = useMemo(
     () => new Map(demoSubscriptions.map((subscription) => [subscription.patientId, subscription.status !== 'cancelled'])),
     [demoSubscriptions],
+  );
+  // Seeded spend: the same totals the demo patient record's Purchases panel shows.
+  const demoSpend = useMemo(
+    () => new Map(patients.map((patient) => {
+      const totals = demoPurchasesSummary(patient, demoSubscriptions.find((subscription) => subscription.patientId === patient.id), MOCK_PRODUCTS).totals;
+      return [patient.id, { spentCents: totals.lifetime_net_cents, lastPaidDate: dateKeyOf(totals.last_paid_at) }];
+    })),
+    [patients, demoSubscriptions],
   );
 
   // Demo persona: the seeded attention rules the bell and the "Needs
@@ -321,8 +361,33 @@ export default function Patients() {
 
         const showResend = p.invitation?.state === 'pending';
 
+        const status = toRosterStatus(p.operational?.status ?? p.status ?? 'invited');
+        const programStartDate = dateKeyOf(p.program?.startDate ?? p.startDate);
+        const spentCents = p.spend === undefined || p.spend === null ? null : p.spend.netCents;
+        const filterRow: RosterFilterRow = {
+          status,
+          programId: p.program?.id ?? null,
+          stage: p.program?.stage ?? null,
+          week: p.program?.week ?? null,
+          programDay: p.program?.day ?? programDayOn(programStartDate, today),
+          joinDate: dateKeyOf(p.createdAt),
+          programStartDate,
+          startingWeight: p.program?.startingWeight ?? p.startingWeight ?? null,
+          currentWeight: p.program?.currentWeight ?? p.currentWeight ?? null,
+          spentCents,
+          lastPaidDate: p.spend ? dateKeyOf(p.spend.lastPaidAt) : null,
+          activeSubscription: p.activeSubscription ?? null,
+          lastActivityDate: dateKeyOf(p.operational?.latestActivityDate),
+          lastLogDate: dateKeyOf(p.operational?.latestDiaryDate ?? p.program?.lastLogDate ?? p.lastLogAt),
+          // The server's own lapsed verdict; unknown when the aggregate had no row.
+          loggingLapsed: activity.kind === 'unknown' ? null : isLiveLapsed(activity),
+          attentionReasons: p.operational?.reasons ?? [],
+        };
+
         return {
           id: p.id,
+          filterRow,
+          spentCents,
           name: p.name,
           initials,
           email: p.email,
@@ -356,8 +421,29 @@ export default function Patients() {
       const weightLoss = p.startingWeight - getCurrentWeight(p);
       const percentLoss = ((weightLoss / p.startingWeight) * 100).toFixed(1);
       const stats = statsById.get(p.id)!;
+      const spend = demoSpend.get(p.id) ?? { spentCents: 0, lastPaidDate: null };
+      const filterRow: RosterFilterRow = {
+        status: demoStatusToRoster(p.status),
+        programId: 'thinnr',
+        stage: p.stage,
+        week: p.stage === 'protocol' ? p.protocolWeek : null,
+        programDay: programDayOn(dateKeyOf(p.startDate), DEMO_TODAY_KEY),
+        joinDate: dateKeyOf(p.startDate),
+        programStartDate: dateKeyOf(p.startDate),
+        startingWeight: p.startingWeight,
+        currentWeight: getCurrentWeight(p),
+        spentCents: spend.spentCents,
+        lastPaidDate: spend.lastPaidDate,
+        activeSubscription: demoSubscriptionActive.get(p.id) ?? false,
+        lastActivityDate: stats.daysSinceLastLog == null ? null : addDaysToKey(DEMO_TODAY_KEY, -stats.daysSinceLastLog),
+        lastLogDate: stats.daysSinceLastLog == null ? null : addDaysToKey(DEMO_TODAY_KEY, -stats.daysSinceLastLog),
+        loggingLapsed: isLapsed(stats),
+        attentionReasons: [],
+      };
       return {
         id: p.id,
+        filterRow,
+        spentCents: spend.spentCents,
         name: p.name,
         initials: p.initials,
         email: p.email,
@@ -382,7 +468,13 @@ export default function Patients() {
         rawLive: undefined
       };
     });
-  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoFlagged]);
+  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoSpend, demoFlagged, today]);
+
+  // Program options come from the roster itself (whatever programs the office runs).
+  const programOptions = useMemo(() => {
+    const ids = Array.from(new Set(unifiedRows.map((row) => row.filterRow.programId).filter((id): id is string => id != null))).sort();
+    return ids.map((id) => ({ value: id, label: programLabel(id) }));
+  }, [unifiedRows]);
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = unifiedRows.filter(p => {
@@ -391,34 +483,9 @@ export default function Patients() {
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
                             (p.email ?? '').toLowerCase().includes(search.toLowerCase()) ||
                             matchesPhoneQuery(search, p.phone, p.phoneDisplay);
-      // Live rosters carry an operational status (on_track / needs_attention /
-      // inactive / invited / paused / discharged); "active" there means an
-      // activated account, the same definition the office-analytics rollups
-      // use for their Active figure, so drill-ins from those numbers land on
-      // the matching list. Paused and discharged records are not activated.
-      const matchesStatus =
-        statusFilter === 'all' ||
-        p.status === statusFilter ||
-        (statusFilter === 'active' && p.isLive && p.status !== 'invited' && p.status !== 'paused' && p.status !== 'discharged');
-      // Live rows use the server's own lapsed verdict; rows whose activity
-      // did not load are never "lapsed". Demo rows keep the seeded stats.
-      const matchesLogging = loggingFilter === 'all'
-        || (p.activity ? isLiveLapsed(p.activity) : p.stats ? isLapsed(p.stats) : false);
-
-      let matchesReason = true;
-      if (reasonFilter !== 'all') {
-        if (p.isLive && p.rawLive?.operational?.reasons) {
-          matchesReason = p.rawLive.operational.reasons.includes(reasonFilter as any);
-        } else {
-          matchesReason = false;
-        }
-      }
-
-      // Unknown (null) never matches the subscription filter: a billing outage
-      // must not present a patient as subscribed or as unsubscribed.
-      const matchesSubscription = subscriptionFilter === 'all' || p.activeSubscription === true;
-
-      return matchesSearch && matchesStatus && matchesLogging && matchesReason && matchesSubscription;
+      // Every stacked condition must match (see lib/roster-filters for the
+      // vocabulary: "active" = activated account, unknown facts never match).
+      return matchesSearch && matchesAllConditions(p.filterRow, conditions, today);
     });
 
     result.sort((a, b) => {
@@ -433,6 +500,13 @@ export default function Patients() {
         comparison = a.status.localeCompare(b.status);
       } else if (sortField === 'weightLoss') {
         comparison = a.weightLoss - b.weightLoss;
+      } else if (sortField === 'spent') {
+        // Unknown spend sinks to the bottom in either direction.
+        if (a.spentCents == null || b.spentCents == null) {
+          if (a.spentCents == null && b.spentCents == null) return 0;
+          return a.spentCents == null ? 1 : -1;
+        }
+        comparison = a.spentCents - b.spentCents;
       } else if (sortField === 'logging') {
         if (a.activity || b.activity) {
           // Live: unknown rates sink to the bottom in either direction.
@@ -452,17 +526,16 @@ export default function Patients() {
 
     // Attention-first: flagged rows lead, each group keeping the sort above.
     return attentionFirst ? pinFlaggedFirst(result, (row) => row.attentionFlagged) : result;
-  }, [unifiedRows, search, statusFilter, loggingFilter, reasonFilter, subscriptionFilter, sortField, sortOrder, attentionFirst]);
+  }, [unifiedRows, search, conditions, today, sortField, sortOrder, attentionFirst]);
 
   const pinnedCount = attentionFirst ? filteredAndSortedPatients.filter((row) => row.attentionFlagged).length : 0;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+      setSort({ field, order: sortOrder === 'asc' ? 'desc' : 'asc' });
     } else {
-      setSortField(field);
       // Logging defaults to ascending so the least-engaged patients surface first.
-      setSortOrder(field === 'logging' ? 'asc' : 'desc');
+      setSort({ field, order: field === 'logging' ? 'asc' : 'desc' });
     }
   };
 
@@ -512,86 +585,24 @@ export default function Patients() {
                 <X size={12} aria-hidden="true" />
               </button>
             )}
-            <div className="flex items-center text-xs font-semibold text-muted-foreground">
-              <Filter size={14} className="mr-1.5" /> Filter:
-            </div>
-            <select
-              aria-label="Filter by status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="all">All Patients</option>
-              {liveEnabled ? (
-                <>
-                  <option value="active">Active (activated)</option>
-                  <option value="on_track">On Track</option>
-                  <option value="needs_attention">Needs Attention</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="paused">Paused</option>
-                  <option value="discharged">Discharged</option>
-                  <option value="invited">Invited</option>
-                  <option value="unknown">Activity unknown</option>
-                </>
-              ) : (
-                <>
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="graduated">Graduated (Maintenance)</option>
-                </>
-              )}
-            </select>
-            <select
-              aria-label="Filter by companion-app logging"
-              value={loggingFilter}
-              onChange={(e) => setLoggingFilter(e.target.value as LoggingFilter)}
-              className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="all">All logging</option>
-              <option value="lapsed">Lapsed {LAPSED_AFTER_DAYS}+ days</option>
-            </select>
-            <select
-              aria-label="Filter by shop subscription"
-              value={subscriptionFilter}
-              onChange={(e) => setSubscriptionFilter(e.target.value as 'all' | 'active')}
-              className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-              data-testid="select-subscription-filter"
-            >
-              <option value="all">All purchases</option>
-              <option value="active">Active subscription</option>
-            </select>
-            {liveEnabled && (
-              <select
-                aria-label="Filter by watchlist reason"
-                value={reasonFilter}
-                onChange={(e) => setReasonFilter(e.target.value)}
-                className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="all">All Risk Reasons</option>
-                <option value="check_in_overdue">Check-in Overdue</option>
-                <option value="logging_lapsed">Logging Lapsed</option>
-                <option value="no_activity_14d">Inactive (14d)</option>
-              </select>
-            )}
-            <select
-              aria-label="Sort patients"
-              value={`${sortField}-${sortOrder}`}
-              onChange={(event) => {
-                const [field, order] = event.target.value.split('-') as [SortField, SortOrder];
-                setSortField(field);
-                setSortOrder(order);
-              }}
-              className="h-9 rounded-md border border-border bg-card px-2 text-xs text-foreground shadow-xs outline-none focus:ring-2 focus:ring-ring md:hidden"
-            >
-              <option value="startDate-desc">Newest start</option>
-              <option value="name-asc">Name A–Z</option>
-              <option value="weightLoss-desc">Most weight lost</option>
-              <option value="logging-asc">Lowest logging rate</option>
-              <option value="status-asc">Status</option>
-            </select>
+            <RosterFilterButton
+              applied={conditions}
+              onApply={setConditions}
+              programOptions={programOptions}
+              onSaveQuickSet={saveQuickSet}
+              matchCount={filteredAndSortedPatients.length}
+            />
+            <RosterSortSelect sort={view.sort} onChange={setSort} className="md:hidden" />
           </div>
         </div>
+
+        <RosterQuickSets sets={quickSets} activeId={currentQuickSet?.id ?? null} onSelect={applyQuickSet} onRemove={removeQuickSet} />
+        <RosterFilterChips
+          conditions={conditions}
+          programOptions={programOptions}
+          onRemove={(index) => setConditions(conditions.filter((_, i) => i !== index))}
+          onClearAll={() => setConditions([])}
+        />
 
         <div className="divide-y divide-border md:hidden">
           {filteredAndSortedPatients.map((patient) => {

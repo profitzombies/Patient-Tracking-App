@@ -188,6 +188,8 @@ async function main() {
   const rosterSource = readFileSync(new URL('../src/components/office/LiveRoster.tsx', import.meta.url), 'utf8');
   const liveRosterHookSource = readFileSync(new URL('../src/hooks/use-live-roster.ts', import.meta.url), 'utf8');
   const detailSource = readFileSync(new URL('../src/pages/PatientDetail.tsx', import.meta.url), 'utf8');
+  // The photo strip lives in its own component since the one-call photo pages landed.
+  const photosSource = readFileSync(new URL('../src/components/office/LiveProgressPhotos.tsx', import.meta.url), 'utf8');
   const contractSource = readFileSync(new URL('../src/lib/office-roster.ts', import.meta.url), 'utf8');
 
   await check('live UI mounts only for signed-in staff; demo personas stay seeded-only', () => {
@@ -224,7 +226,8 @@ async function main() {
     assert.match(detailSource, /Nutrition, water, and diary/);
     assert.match(detailSource, /No nutrition or water entries have been recorded/);
     assert.match(detailSource, /No check-ins have been recorded/);
-    assert.match(detailSource, /No progress photos have been uploaded/);
+    assert.match(photosSource, /No progress photos have been uploaded/);
+    assert.match(detailSource, /LiveProgressPhotos/);
     // Live write controls exist now, but only behind the shared edit gate —
     // the live view never touches the demo session or synthetic anchors.
     const liveSection = detailSource.match(/function LivePatientDetail[\s\S]*?export default function PatientDetail/)?.[0] ?? '';
@@ -244,7 +247,7 @@ async function main() {
     assert.match(contractSource, /account: \{/);
     assert.match(detailSource, /record\.diary\.entries/);
     assert.match(detailSource, /record\.water/);
-    assert.match(detailSource, /photo\.url/);
+    assert.match(photosSource, /photo\.url/);
     assert.match(detailSource, /Mood score \$\{checkIn\.mood\}\/5/);
     assert.match(detailSource, /Date of birth/);
     assert.match(detailSource, /Record created/);

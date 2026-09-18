@@ -40,7 +40,7 @@ import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
 import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicationState, medicationAdherenceDto } from "../medications/store";
 import { shiftDateKey } from "../medications/schedule";
-import { activeSubscriptionPatientIds } from "../billing/patient-purchases";
+import { activeSubscriptionPatientIds, officePatientSpend, ZERO_SPEND } from "../billing/patient-purchases";
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
@@ -452,7 +452,7 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients] = await Promise.all([
+    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -473,6 +473,12 @@ router.get("/office/roster", async (req, res) => {
       // every row and the rest of the roster still loads.
       activeSubscriptionPatientIds(scope.providerId).catch((error: unknown) => {
         req.log?.warn({ err: error }, "roster subscription signal unavailable");
+        return null;
+      }),
+      // Lifetime spend from the office's orders (one grouped query); null for
+      // every row when the aggregate could not run, never a silent zero.
+      officePatientSpend(scope.providerId).catch((error: unknown) => {
+        req.log?.warn({ err: error }, "roster spend aggregate unavailable");
         return null;
       }),
     ]);
@@ -523,6 +529,9 @@ router.get("/office/roster", async (req, res) => {
           : null,
         // true/false from the billing tables; null when they could not be read.
         activeSubscription: subscribedPatients ? subscribedPatients.has(String(row.id)) : null,
+        // Lifetime paid / refunded / net cents and the last paid moment at
+        // this office; a patient with no paid order is a real zero.
+        spend: spendByPatient ? spendByPatient.get(String(row.id)) ?? ZERO_SPEND : null,
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted

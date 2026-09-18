@@ -8,6 +8,9 @@
   // a11y stubs and lib/supabase is the invite-suite stub (poses as a
   // signed-in staffer). Exact path keys win over the '@/*' wildcard.
   "extends": "./tsconfig.json",
+  // The Radix / cmdk / day-picker parts behind the Patients roster filter
+  // builder resolve to the DOM-free office-admin stubs (Radix Select needs a
+  // document even while closed).
   "compilerOptions": {
     "jsx": "react-jsx",
     "paths": {
@@ -15,6 +18,11 @@
       "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
       "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
       "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
+      "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],
+      "@/components/ui/calendar": ["./scripts/office-admin-stubs/calendar.tsx"],
       "@/*": ["./src/*"]
     }
   }

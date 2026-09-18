@@ -408,7 +408,7 @@ console.log('roster: attention-first ordering');
   check('changing the sort re-orders inside the groups only', afterSort === 'Bea Brook,Dev Dunn,Ada Aster,Cal Cole,Eve Ember' || afterSort === 'Dev Dunn,Bea Brook,Eve Ember,Cal Cole,Ada Aster', afterSort);
   await act(async () => { control.props.onClick(); });
   await settle();
-  check('clearing the pin rewrites the URL (replace) without the flag', pinned.loc.history.at(-1) === '/patients' && pinned.loc.history.length === 1, pinned.loc.history.join(' → '));
+  check('clearing the pin rewrites the URL (replace) without the flag; the header sort stays in the URL', pinned.loc.history.at(-1) === '/patients?sort=name.asc' && pinned.loc.history.length === 1, pinned.loc.history.join(' → '));
   check('control disappears once the flag is gone', byTestId(pinned.root, 'button-clear-attention-first').length === 0);
   pinned.renderer.unmount();
 

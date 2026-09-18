@@ -4232,6 +4232,23 @@ components:
             True when the patient has an active, past-due, or unpaid shop
             subscription at this office; null when the billing tables could
             not be read (unknown, never false).
+        spend:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/PatientSpend"
+          description: >-
+            Lifetime spend at this office from its orders (one grouped
+            query): gross paid, succeeded refunds, net, and the last paid
+            moment. A patient with no paid order is a real zero; null means
+            the spend aggregate could not be read (unknown).
+    PatientSpend:
+      type: object
+      required: [paidCents, refundedCents, netCents, lastPaidAt]
+      properties:
+        paidCents: { type: number, description: Gross cents across paid, partially refunded, and refunded orders. }
+        refundedCents: { type: number, description: Cents refunded (succeeded refunds only). }
+        netCents: { type: number, description: paidCents minus refundedCents. }
+        lastPaidAt: { type: ["string", "null"], format: date-time, description: Latest paid_at (or created_at) among the paid orders. }
     OperationalPatient:
       type: object
       description: >-

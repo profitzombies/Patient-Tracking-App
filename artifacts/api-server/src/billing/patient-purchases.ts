@@ -2,6 +2,7 @@ import { listCards } from "./cards";
 import { list, orderDto, paidStatuses, subscriptionDto } from "./patient-dtos";
 import { shipmentsForOrders } from "./shipments";
 import { selectMany, selectOne, type BillingOrderItemRow, type BillingOrderRow, type BillingRefundRow } from "./store";
+import { supabaseAdmin } from "../lib/supabase-admin";
 import type { PatientPaymentProblem, PatientPurchasesCard, PatientPurchasesSummary } from "./types";
 
 const enc = encodeURIComponent;
@@ -26,6 +27,52 @@ export async function activeSubscriptionPatientIds(providerId: string): Promise<
     `provider_id=eq.${enc(providerId)}&status=in.(${[...ACTIVE_STATUSES].join(",")})&select=patient_id,status`);
   return new Set(rows.map((row) => row.patient_id).filter((id): id is string => typeof id === "string" && id.length > 0));
 }
+
+/** Lifetime spend at one office for one roster row (cents; paid is gross, net = paid - refunded). */
+export interface PatientSpendDto {
+  paidCents: number;
+  refundedCents: number;
+  netCents: number;
+  lastPaidAt: string | null;
+}
+
+interface SpendRpcRow {
+  patient_id: string;
+  paid_cents: number | string;
+  refunded_cents: number | string;
+  last_paid_at: string | null;
+}
+
+/**
+ * Lifetime spend per patient at the office, from ONE grouped query over the
+ * office's orders and their succeeded refunds (the SQL mirrors the totals in
+ * loadPatientPurchases). Patients absent from the map have no paid order at
+ * this office; callers treat that as a real zero. A thrown error is the only
+ * "unknown" signal, so the roster can degrade every row to null together.
+ */
+export async function officePatientSpend(providerId: string): Promise<Map<string, PatientSpendDto>> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_office_patient_spend", { p_provider_id: providerId });
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`office spend aggregate failed (${result.status})`);
+  }
+  const spend = new Map<string, PatientSpendDto>();
+  for (const row of result.json as SpendRpcRow[]) {
+    const paidCents = Number(row.paid_cents);
+    const refundedCents = Number(row.refunded_cents);
+    if (!Number.isFinite(paidCents) || !Number.isFinite(refundedCents)) {
+      throw new Error("office spend aggregate returned non-numeric totals");
+    }
+    spend.set(String(row.patient_id), {
+      paidCents,
+      refundedCents,
+      netCents: paidCents - refundedCents,
+      lastPaidAt: typeof row.last_paid_at === "string" ? row.last_paid_at : null,
+    });
+  }
+  return spend;
+}
+
+export const ZERO_SPEND: PatientSpendDto = { paidCents: 0, refundedCents: 0, netCents: 0, lastPaidAt: null };
 
 /**
  * Card on file, read only: the payer's Stripe customer is never created here

@@ -8,6 +8,12 @@ export function useIsMobile() {
   );
 
   React.useEffect(() => {
+    // Node-hosted render suites have a window without matchMedia; they still
+    // get the innerWidth verdict below.
+    if (typeof window.matchMedia !== 'function') {
+      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+      return;
+    }
     const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
     const onChange = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);

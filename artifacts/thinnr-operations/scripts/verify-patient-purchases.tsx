@@ -267,9 +267,11 @@ console.log('\nroster: subscription chip and filter (office staff)');
   check('chip only for the subscribed patient; false and null render nothing', byTestId(root, `chip-subscription-${PURCHASES_PATIENT_ID}`).length >= 1 && byTestId(root, `chip-subscription-${OTHER_ID}`).length === 0 && byTestId(root, `chip-subscription-${UNKNOWN_ID}`).length === 0);
   const text = textOf(root);
   check('all three patients listed before filtering', text.includes('Devon Subscribed') && text.includes('Kara Cash') && text.includes('Uma Unknown'));
-  const select = one(root, 'select-subscription-filter');
-  check('filter offers All purchases / Active subscription', select.findAll((n) => n.type === 'option').map((n) => n.props.value).join(',') === 'all,active');
-  await act(async () => { select.props.onChange({ target: { value: 'active' } }); });
+  // The subscription slice is the "Active subscription" quick set (a toggle
+  // button; no native select remains on the roster).
+  const quickSet = one(root, 'quick-set-active-subscription');
+  check('Active subscription quick set is offered, unpressed', quickSet.type === 'button' && quickSet.props['aria-pressed'] === false);
+  await act(async () => { quickSet.props.onClick(); });
   await settle(2);
   const filtered = textOf(root);
   check('active filter keeps only the true row (unknown is excluded, not treated as false)', filtered.includes('Devon Subscribed') && !filtered.includes('Kara Cash') && !filtered.includes('Uma Unknown'));
@@ -277,7 +279,7 @@ console.log('\nroster: subscription chip and filter (office staff)');
 {
   staff();
   const { root } = await render('/patients?subscription=active', <Patients />);
-  check('?subscription=active pre-applies the filter', one(root, 'select-subscription-filter').props.value === 'active' && !textOf(root).includes('Kara Cash') && textOf(root).includes('Devon Subscribed'));
+  check('?subscription=active pre-applies the filter (quick set pressed, chip shown)', one(root, 'quick-set-active-subscription').props['aria-pressed'] === true && byTestId(root, 'filter-chip-0').length === 1 && !textOf(root).includes('Kara Cash') && textOf(root).includes('Devon Subscribed'));
 }
 
 console.log('\nroster: guided demo derives the chip from seeded subscriptions');

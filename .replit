@@ -220,6 +220,18 @@ args = "photo-pages-mobile"
 task = "workflow.run"
 args = "photo-pages-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "roster-filters-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "roster-filters-dependents"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "roster-spend-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1950,6 +1962,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:photo-pages && pnpm --filter @workspace/thinnr-operations run test:body-measurements && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "roster-filters-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:roster-activity && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "roster-filters-dependents"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run test:patients-badge && pnpm --filter @workspace/thinnr-operations run test:invite-patients"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "roster-spend-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run src/routes/office-roster.test.ts src/billing/office-spend.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

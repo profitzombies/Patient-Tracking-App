@@ -10,6 +10,9 @@
   // stubbed out (it needs its own provider). Every other '@/…' import
   // resolves to the real code.
   "extends": "./tsconfig.json",
+  // The Radix / cmdk / day-picker parts behind the Patients roster filter
+  // builder resolve to the DOM-free office-admin stubs (Radix Select needs a
+  // document even while closed).
   "compilerOptions": {
     "jsx": "react-jsx",
     "paths": {
@@ -18,6 +21,10 @@
       "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
       "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
       "@/components/layout/DateRangeControl": ["./scripts/patients-badge-stubs/date-range-control.tsx"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
+      "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],
+      "@/components/ui/calendar": ["./scripts/office-admin-stubs/calendar.tsx"],
       "@/*": ["./src/*"]
     }
   }

@@ -13,7 +13,7 @@ vi.mock("../../lib/org-policy", () => ({ loadOrgPolicy: mocks.loadOrgPolicy }));
 vi.mock("../../exports/worker", () => ({ sweepExpiredExports: mocks.sweepExpiredExports }));
 vi.mock("../../privacy/exports", () => ({ sweepExpiredPatientExports: mocks.sweepExpiredPatientExports }));
 
-import { archiveAuditEvents, cutoffFor, pruneBillingWebhookPayloads, sweepExportArchives, trimChatTranscripts, trimNotificationHistory } from "./retention";
+import { archiveAuditEvents, cutoffFor, pruneBillingWebhookPayloads, sweepExportArchives, sweepSessionRevocations, trimChatTranscripts, trimNotificationHistory } from "./retention";
 import type { JobContext } from "../types";
 
 const NOW = new Date("2026-09-07T12:00:00Z");
@@ -178,5 +178,35 @@ describe("retention jobs", () => {
       { payload: null, payload_pruned_at: NOW.toISOString() },
     ]);
     delete process.env.BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS;
+  });
+
+  it("sweeps only revocation rows past their own expiry, counting instead of deleting on a dry run", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: [{ session_id: "s1" }, { session_id: "s2" }] });
+    const dry = ctx(true);
+    await sweepSessionRevocations(dry.c);
+    expect(dry.counts).toEqual({ rowsDue: 2 });
+    expect(mocks.admin).toHaveBeenCalledTimes(1);
+    expect(mocks.admin.mock.calls[0][0]).toBe("GET");
+    expect(mocks.admin.mock.calls[0][1]).toContain(`/rest/v1/auth_session_revocations?expires_at=lt.${encodeURIComponent(NOW.toISOString())}`);
+
+    mocks.admin.mockReset()
+      .mockResolvedValueOnce({ status: 200, json: [{ session_id: "s1" }, { session_id: "s2" }] })
+      .mockResolvedValueOnce({ status: 204, json: null, contentRange: "*/2" });
+    const live = ctx();
+    await sweepSessionRevocations(live.c);
+    expect(live.counts).toEqual({ rowsDeleted: 2 });
+    expect(mocks.admin.mock.calls[1][0]).toBe("DELETE");
+    expect(mocks.admin.mock.calls[1][1]).toContain(`expires_at=lt.${encodeURIComponent(NOW.toISOString())}`);
+
+    // Nothing due: no delete is issued at all.
+    mocks.admin.mockReset().mockResolvedValueOnce({ status: 200, json: [] });
+    const idle = ctx();
+    await sweepSessionRevocations(idle.c);
+    expect(idle.counts).toEqual({});
+    expect(mocks.admin).toHaveBeenCalledTimes(1);
+
+    // An unreadable list is a failed run, never a silent no-op.
+    mocks.admin.mockReset().mockResolvedValueOnce({ status: 503, json: null });
+    await expect(sweepSessionRevocations(ctx().c)).rejects.toThrow(/revocation retention scan failed/);
   });
 });

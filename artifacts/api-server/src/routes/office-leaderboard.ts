@@ -136,7 +136,7 @@ router.get("/office/leaderboard", async (req, res) => {
       // with no office association that reaches the HQ rung with
       // provider_read is asked for an office — that "office_required"
       // denial is the one signal that "all" is allowed.
-      const resolved = await resolveOfficeScope({ authorization: req.headers.authorization, explicitOfficeId: null, hqPermission: "provider_read", requireUnlocked: false });
+      const resolved = await resolveOfficeScope({ authorization: req.headers.authorization, request: req, explicitOfficeId: null, hqPermission: "provider_read", requireUnlocked: false });
       if (resolved.kind === "ok") {
         target = { kind: "office", providerId: resolved.scope.providerId, officeName: resolved.scope.officeName };
       } else if (resolved.reason === "office_required") {
@@ -146,7 +146,7 @@ router.get("/office/leaderboard", async (req, res) => {
         return;
       }
     } else {
-      const resolved = await resolveOfficeScope({ authorization: req.headers.authorization, explicitOfficeId: explicitOffice, hqPermission: "provider_read", requireUnlocked: false });
+      const resolved = await resolveOfficeScope({ authorization: req.headers.authorization, request: req, explicitOfficeId: explicitOffice, hqPermission: "provider_read", requireUnlocked: false });
       if (resolved.kind !== "ok") {
         respondOfficeScopeDenied(req, res, resolved);
         return;

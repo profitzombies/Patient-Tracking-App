@@ -99,6 +99,8 @@ export function createFakeSupabase(): FakeSupabase {
         billing_connected_accounts: [],
         billing_orders: [],
         billing_order_items: [],
+        auth_session_revocations: [],
+        patient_app_presence: [],
       };
       fake.calls = [];
       fake.authDeletes = [];
@@ -129,6 +131,13 @@ export function createFakeSupabase(): FakeSupabase {
           case "record_admin_audit_event":
             fake.tables.admin_audit_events.push({ ...args, occurred_at: now });
             return { status: 204, json: null };
+          case "security_revoke_auth_sessions": {
+            // One live session per auth user, so the purge's atomic
+            // revoke-and-end step is observable as an auth_session_revocations row.
+            const sessionId = `00000000-0000-4000-8000-${String(args.p_user_id).replace(/[^0-9a-f]/gi, "").padEnd(12, "0").slice(0, 12)}`;
+            fake.tables.auth_session_revocations.push({ session_id: sessionId, user_id: args.p_user_id, reason: args.p_reason, revoked_at: now, expires_at: new Date(Date.now() + Number(args.p_ttl_seconds) * 1000).toISOString() });
+            return { status: 200, json: 1 };
+          }
           case "patient_deletion_request": {
             const patient = fake.tables.patients.find((p) => p.id === args.p_patient_id && !p.archived_at);
             if (!patient) return { status: 400, json: { message: "unknown patient" } };

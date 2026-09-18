@@ -3,9 +3,10 @@
  *
  * Every authenticated patient route (the diary/library data rail, the
  * patient-media rail, and whatever rides them next) resolves identity the
- * same way the claim flow's whoami does: the client's bearer session token
- * is looked up in GoTrue, then the auth user is mapped to a patients row
- * via patients.auth_user_id. Routes never trust a client-supplied patient
+ * same way: the client's bearer session token is verified (locally against
+ * the project's signing keys plus the server's revocation list, or remotely
+ * in GoTrue for the route families named in auth/verification-policy.ts),
+ * then the auth user is mapped to a patients row via patients.auth_user_id. Routes never trust a client-supplied patient
  * id — the resolved row IS the identity.
  *
  * Failure ladder, mirrored by every caller:
@@ -31,12 +32,17 @@
  * (throttled, fire-and-forget — see ./patient-presence). Staff sessions never
  * reach a patient row, so they never leave a presence trace.
  */
-import { fetchAuthUser, supabaseAdmin } from "./supabase-admin";
+import { supabaseAdmin } from "./supabase-admin";
+import { identifyBearer } from "../auth/identify";
+import { verificationModeFor, type VerificationRequest } from "../auth/verification-policy";
 import { consentDto, loadLatestConsent, type ConsentDto } from "../privacy/consent";
 import { notePatientPresence } from "./patient-presence";
 
 const enc = encodeURIComponent;
 
+/** What the resolver needs from a request: the headers plus enough of the
+ * route (method + url) for the verification policy to pick local vs remote. */
+export type PatientRequest = VerificationRequest & { headers: Record<string, unknown> };
 export function bearerToken(req: { headers: Record<string, unknown> }): string | null {
   const header = req.headers.authorization;
   if (typeof header !== "string" || !header.toLowerCase().startsWith("bearer ")) return null;
@@ -70,7 +76,7 @@ export const PHOTO_ANALYSIS_OPT_IN_MESSAGE =
   "Photo analysis is off for your account. Turn it on under Privacy & data to use this.";
 
 export async function resolvePatient(
-  req: { headers: Record<string, unknown> },
+  req: PatientRequest,
   options: ResolvePatientOptions = {},
 ): Promise<ResolvedPatient> {
   const identity = await resolvePatientIdentityInternal(req, "throw");
@@ -117,23 +123,21 @@ type ResolvedIdentity =
  * whether another patient's account is archived, incomplete, or missing
  * consent.
  */
-export async function resolvePatientIdentity(req: {
-  headers: Record<string, unknown>;
-}): Promise<ResolvedIdentity> {
+export async function resolvePatientIdentity(req: PatientRequest): Promise<ResolvedIdentity> {
   const identity = await resolvePatientIdentityInternal(req, "respond");
   if (identity.ok) notePatientPresence(identity.patientId, req.headers);
   return identity;
 }
 
 async function resolvePatientIdentityInternal(
-  req: { headers: Record<string, unknown> },
+  req: PatientRequest,
   lookupFailure: "throw" | "respond",
 ): Promise<ResolvedIdentity> {
   const token = bearerToken(req);
   if (!token) return { ok: false, status: 401, error: "Sign in required." };
-  let user: Awaited<ReturnType<typeof fetchAuthUser>>;
+  let user: Awaited<ReturnType<typeof identifyBearer>>;
   try {
-    user = await fetchAuthUser(token);
+    user = await identifyBearer(token, verificationModeFor(req));
   } catch {
     return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
   }

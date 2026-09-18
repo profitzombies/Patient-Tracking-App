@@ -111,9 +111,12 @@ beforeEach(() => {
       if (body.p_role != null) target.role = body.p_role;
       return response(target);
     }
-    if (url.pathname.endsWith("/logout")) {
-      logoutCalls.push(url.pathname);
-      return response({}, logoutFails ? 503 : 200);
+    // Atomic revoke-and-end RPC (revocation list + auth.sessions delete).
+    if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
+      const p = JSON.parse(String(init?.body)) as Row;
+      logoutCalls.push(String(p.p_user_id));
+      if (logoutFails) return response({}, 503);
+      return response(1);
     }
     throw new Error(`Unexpected fake request: ${url}`);
   }) as typeof fetch;
@@ -243,6 +246,6 @@ describe("HQ team API", () => {
     expect(result.status).toBe(200);
     expect(await result.json()).toEqual({ revoked: true, sessionInvalidation: "failed" });
     expect(rpcCalls).toEqual(["/rest/v1/rpc/hq_revoke_team_member"]);
-    expect(logoutCalls).toEqual(["/auth/v1/admin/users/support-user/logout"]);
+    expect(logoutCalls).toEqual(["support-user"]);
   });
 });

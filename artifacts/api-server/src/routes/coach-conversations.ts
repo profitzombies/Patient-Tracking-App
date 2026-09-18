@@ -338,6 +338,7 @@ router.get("/office/patients/:patientId/coach-conversations", async (req, res) =
   try {
     const scoped = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "conversation_clinical",
       requireUnlocked: true,
@@ -372,6 +373,7 @@ router.get("/office/patients/:patientId/coach-conversations/:conversationId", as
   try {
     const scoped = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "conversation_clinical",
       requireUnlocked: true,

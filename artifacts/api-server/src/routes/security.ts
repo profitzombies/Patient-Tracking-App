@@ -202,7 +202,7 @@ router.post(`${SECURITY_ME_PATH}/sign-out-others`, async (req, res) => {
       res.status(resolved.status).json({ error: resolved.error });
       return;
     }
-    const ok = await logoutOthers(resolved.token);
+    const ok = await logoutOthers({ userId: resolved.actor.userId, sessionId: resolved.sessionId });
     if (!ok) {
       res.status(502).json({ error: "We couldn't sign out your other devices just now. Try again in a moment." });
       return;
@@ -398,7 +398,7 @@ router.post(`${SECURITY_ME_PATH}/password/complete`, async (req, res) => {
     // nothing — the same code stays redeemable for a retry — and the
     // confirmation that says "every other device was signed out" is only
     // ever sent when true.
-    const othersOut = await logoutOthers(token);
+    const othersOut = await logoutOthers({ userId: actor.userId, sessionId, reason: "password_changed" });
     if (!othersOut) {
       req.log?.error({ patientId: actor.patientId }, "pre-password-change logout failed");
       audit(req, actor, "security_password_changed", { sessions: "sign_out_failed", outcome: "aborted" });
@@ -451,6 +451,7 @@ const PATIENT_SESSIONS_HQ_ONLY = "Only THINNR HQ can view or end a patient's ses
 async function hqPatientScope(req: Request, res: Response): Promise<{ providerId: string; actorUserId: string } | null> {
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: "provider_manage",
     requireUnlocked: false,

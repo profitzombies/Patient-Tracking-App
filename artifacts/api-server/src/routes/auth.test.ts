@@ -49,6 +49,7 @@ class FakeBackend {
       profiles: [],
       auth_sign_ins: [],
       account_security_state: [],
+      auth_session_revocations: [],
     };
     this.authUsers.clear();
     this.sentEmails = [];
@@ -219,11 +220,6 @@ class FakeBackend {
       this.authUsers.set(id, user);
       return json(200, user);
     }
-    const logoutMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
-    if (logoutMatch && method === "POST") {
-      this.adminLogouts.push(logoutMatch[1]);
-      return json(200, {});
-    }
     const idMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)$/);
     if (idMatch && method === "GET") {
       const user = this.authUsers.get(idMatch[1]);
@@ -300,6 +296,12 @@ class FakeBackend {
 
     if (url.pathname === "/rest/v1/rpc/claim_find_candidates") {
       return json(200, this.findCandidates(body as { p_kind: string; p_value: string }));
+    }
+    // No live GoTrue sessions are modelled here; the atomic revoke-and-end
+    // RPC therefore touches nothing, and the sweep proceeds as before.
+    if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
+      this.adminLogouts.push(String((body as Row).p_user_id));
+      return json(200, 0);
     }
 
     if (url.pathname === "/rest/v1/rpc/hq_accept_team_invitation") {

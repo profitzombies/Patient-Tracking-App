@@ -7,7 +7,7 @@ const DEVICE_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
 export function createStaffNotificationsRouter(store: StaffNotificationStore = supabaseStaffNotificationStore): IRouter {
   const router: IRouter = Router();
   const scope = async (req: Request) => resolveOfficeScope({
-    authorization: req.headers.authorization, explicitOfficeId: null, hqPermission: "provider_read", requireUnlocked: true,
+    authorization: req.headers.authorization, request: req, explicitOfficeId: null, hqPermission: "provider_read", requireUnlocked: true,
   });
   router.put("/staff-notifications/device", async (req, res) => {
     try {

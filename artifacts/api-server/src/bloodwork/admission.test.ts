@@ -512,7 +512,8 @@ describe("bloodwork admission", () => {
     expect(create.json.code).toBe("PATIENT_SETUP_REQUIRED");
     expect(commit.json.code).toBe("PATIENT_SETUP_REQUIRED");
     expect(source.json.code).toBe("PATIENT_SETUP_REQUIRED");
-    expect(mocks.supabaseAdmin.mock.calls.some(([, path]) => String(path).includes("/rpc/"))).toBe(false);
+    // Identity resolution leaves a fire-and-forget presence touch; no bloodwork RPC may run on denial.
+    expect(mocks.supabaseAdmin.mock.calls.some(([, path]) => String(path).includes("/rpc/") && !String(path).includes("patient_app_presence_touch"))).toBe(false);
     expect(mocks.supabaseAdmin.mock.calls.some(([, path]) => String(path).includes("storage_upload_intents"))).toBe(false);
     expect(mocks.storage.bloodworkUploadURL).not.toHaveBeenCalled();
     expect(mocks.storage.readObjectBounded).not.toHaveBeenCalled();
@@ -539,7 +540,8 @@ describe("bloodwork admission", () => {
       }
       expect(reportState).toBeNull();
       expect(fileState).toBeNull();
-      expect(mocks.supabaseAdmin.mock.calls.some(([method]) => method !== "GET")).toBe(false);
+      // Only the fire-and-forget presence touch may write; nothing bloodwork-related does.
+      expect(mocks.supabaseAdmin.mock.calls.some(([method, path]) => method !== "GET" && !String(path).includes("patient_app_presence_touch"))).toBe(false);
       for (const storage of Object.values(mocks.storage)) expect(storage).not.toHaveBeenCalled();
       expect(mocks.inspectBloodworkFile).not.toHaveBeenCalled();
     },

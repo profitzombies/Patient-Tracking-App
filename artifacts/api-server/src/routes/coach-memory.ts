@@ -111,6 +111,7 @@ router.get("/office/patients/:patientId/coach-memories", async (req, res) => {
   try {
     const scope = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "conversation_clinical",
       requireUnlocked: true,

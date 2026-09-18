@@ -21,10 +21,12 @@
  *                 append-only analytics rows, and deletes the patient row.
  *                 Push tokens, notifications, consents, and exports are
  *                 patient_id tables, so they go here too.
- *   4. auth     — delete the GoTrue user (the auth_user_id was captured on
- *                 the request row at request time). GoTrue cascades sessions,
- *                 refresh tokens, identities, and MFA factors. 404 = already
- *                 gone = done.
+ *   4. auth     — put the user's live sessions on the server's revocation
+ *                 list (locally verified tokens must die with the account),
+ *                 then delete the GoTrue user (the auth_user_id was captured
+ *                 on the request row at request time). GoTrue cascades
+ *                 sessions, refresh tokens, identities, and MFA factors.
+ *                 404 = already gone = done.
  *
  * The request row itself has no FK to the patient and survives, carrying
  * per-step counts in `steps` so HQ can see exactly what happened.
@@ -32,6 +34,7 @@
 import { logger } from "../lib/logger";
 import { objectStorage } from "../lib/objectStorage";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { revokeUserSessions } from "../auth/session-revocations";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { PATIENT_MEDIA_PREFIX } from "../routes/patient-media";
 import { selectMany, selectOne, update } from "../billing/store";
@@ -229,6 +232,7 @@ export const defaultPurgeDeps: PurgeDeps = {
     };
   },
   async deleteAuthUser(userId) {
+    await revokeUserSessions({ userId, reason: "purge" });
     const result = await supabaseAdmin("DELETE", `/auth/v1/admin/users/${enc(userId)}`);
     if (result.status === 404) return "absent";
     if (result.status >= 300) throw new Error(`auth user delete failed (${result.status})`);

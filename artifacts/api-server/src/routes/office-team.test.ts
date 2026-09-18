@@ -3,8 +3,8 @@
  *
  * The fake PostgREST/GoTrue below emulates the office-scope lookups, the
  * team_members table, the two SQL role/status RPCs (with their last-owner
- * guards), the provisioning writes behind an invitation, and the GoTrue
- * admin logout — so authority, lifecycle, fail-closed access, session
+ * guards), the provisioning writes behind an invitation, and the server-side
+ * global sign-out — so authority, lifecycle, fail-closed access, session
  * invalidation, and audit contracts are asserted through the real router.
  */
 import express from "express";
@@ -125,10 +125,11 @@ beforeEach(() => {
       const userId = authUsers[bearerOf(init)];
       return userId ? response({ id: userId }) : response({ message: "bad token" }, 401);
     }
-    const logout = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
-    if (logout) {
-      logouts.push(decodeURIComponent(logout[1]));
-      return response(null, logoutStatus);
+    // Server-side global sign-out: one atomic RPC lists the sessions on the
+    // revocation list and deletes them from auth.sessions.
+    if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
+      logouts.push(String(body.p_user_id));
+      return response(logoutStatus === 204 ? 1 : null, logoutStatus === 204 ? 200 : logoutStatus);
     }
     if (url.pathname === "/auth/v1/admin/users") return response({ users: [] });
     if (url.pathname === "/rest/v1/providers") return response(matching(providers, url.searchParams, ["auth_user_id", "provider_id", "email"]));
@@ -344,7 +345,7 @@ describe("deactivate / reactivate / sign-out", () => {
     expect(next.json?.error).toBe(STAFF_DEACTIVATED_MESSAGE);
   });
 
-  it("reports a GoTrue logout outage without undoing the deactivation", async () => {
+  it("reports a session sign-out outage without undoing the deactivation", async () => {
     logoutStatus = 500;
     const res = await call("POST", `/office/team/${STAFF_TM}/deactivate`, "owner-token");
     expect(res.status).toBe(200);
@@ -388,7 +389,7 @@ describe("deactivate / reactivate / sign-out", () => {
     expect(teamMembers.find((r) => r.id === STAFF_TM)?.activation_status).toBe("activated");
   });
 
-  it("sign-out surfaces a GoTrue failure instead of claiming success", async () => {
+  it("sign-out surfaces a session-end failure instead of claiming success", async () => {
     logoutStatus = 500;
     const res = await call("POST", `/office/team/${STAFF_TM}/sign-out`, "admin-token");
     expect(res.status).toBe(502);

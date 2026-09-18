@@ -48,6 +48,7 @@ function dto(scope: OfficeScope, settingsRow: Record<string, unknown>, overrides
 async function scoped(req: Request, res: Response, requireUnlocked: boolean): Promise<OfficeScope | null> {
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: requireUnlocked ? "provider_manage" : "provider_read",
     requireUnlocked,

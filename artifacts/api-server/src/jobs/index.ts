@@ -6,7 +6,6 @@
 import { drainTrainingMediaCleanup } from "../training/media-cleanup";
 import { abandonedUploadsJob } from "./definitions/abandoned-uploads";
 import { reconcileStorageJob } from "./definitions/reconcile-storage";
-import { retentionAuditJob, retentionBillingWebhooksJob, retentionChatJob, retentionExportsJob, retentionNotificationsJob } from "./definitions/retention";
 import { registerJob } from "./scheduler";
 import type { JobDefinition } from "./types";
 import { bloodworkExtractionJob } from "./definitions/bloodwork-extraction";
@@ -18,6 +17,7 @@ import { billingRenewalRemindersJob } from "./definitions/billing-renewal-remind
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
 import { patientSignInMetricsJob } from "./definitions/patient-sign-in-metrics";
 import { photoVariantsBackfillJob } from "./definitions/photo-variants-backfill";
+import { retentionAuditJob, retentionBillingWebhooksJob, retentionChatJob, retentionExportsJob, retentionNotificationsJob, retentionSessionRevocationsJob } from "./definitions/retention";
 
 const HOUR_MS = 3_600_000;
 
@@ -60,6 +60,7 @@ export const ALL_JOBS: JobDefinition[] = [
   retentionChatJob,
   retentionNotificationsJob,
   retentionAuditJob,
+  retentionSessionRevocationsJob,
   trainingMediaCleanupJob,
   patientMediaCleanupJob,
   patientSignInMetricsJob,

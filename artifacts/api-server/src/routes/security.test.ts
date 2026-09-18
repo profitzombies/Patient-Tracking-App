@@ -14,8 +14,12 @@ import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import crypto from "node:crypto";
+import { createFakeSigner } from "../auth/testing/fake-jwt";
+import { resetAccessTokenVerifierForTests } from "../auth/access-token";
 
 const FAKE_SUPABASE = "http://fake.supabase.local";
+/** ES256 signer standing in for the project's GoTrue key; served at the fake JWKS endpoint. */
+const signer = createFakeSigner({ kid: "kid-live", issuer: `${FAKE_SUPABASE}/auth/v1` });
 
 type Row = Record<string, unknown>;
 type Cond = [string, string, string];
@@ -51,6 +55,9 @@ class FakeBackend {
   othersLogouts: string[] = [];
   failOthersLogout = false;
   failAdminLogout = false;
+  failRevocationWrites = false;
+  /** Every Supabase call the API made, as "METHOD /path". */
+  requests: string[] = [];
 
   reset() {
     this.tables = {
@@ -66,6 +73,7 @@ class FakeBackend {
       account_security_state: [],
       patient_push_tokens: [],
       patient_notifications: [],
+      auth_session_revocations: [],
     };
     this.authUsers.clear();
     this.sessions.clear();
@@ -75,6 +83,8 @@ class FakeBackend {
     this.othersLogouts = [];
     this.failOthersLogout = false;
     this.failAdminLogout = false;
+    this.failRevocationWrites = false;
+    this.requests = [];
   }
 
   seedAuthUser(overrides: Row = {}): Row {
@@ -90,6 +100,13 @@ class FakeBackend {
     const now = new Date().toISOString();
     this.sessions.set(sessionId, { session_id: sessionId, user_id: userId, created_at: now, updated_at: now, refreshed_at: now, not_after: null, user_agent: userAgent, ip: "203.0.113.9/32" });
     return { sessionId, token: tokenFor(userId, sessionId) };
+  }
+
+  /** Like openSession, but the token is a genuine ES256 JWT the API can verify locally. */
+  openVerifiedSession(userId: string, userAgent = IPHONE_UA): { sessionId: string; token: string } {
+    const opened = this.openSession(userId, userAgent);
+    const user = this.authUsers.get(userId);
+    return { sessionId: opened.sessionId, token: signer.sign({ sub: userId, session_id: opened.sessionId, email: user?.email ?? undefined }) };
   }
 
   private rowMatches(row: Row, [col, op, value]: Cond): boolean {
@@ -166,6 +183,7 @@ class FakeBackend {
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Row | Row[]) : null;
     const bearer = String((init?.headers as Record<string, string> | undefined)?.Authorization ?? "").replace(/^Bearer /, "");
+    this.requests.push(`${method} ${url.pathname}`);
 
     if (url.hostname === "api.resend.com") {
       const b = body as Row;
@@ -174,29 +192,13 @@ class FakeBackend {
     }
 
     // ── GoTrue ────────────────────────────────────────────────────────────
+    if (url.pathname === "/auth/v1/.well-known/jwks.json") return json(200, signer.jwks());
     if (url.pathname === "/auth/v1/user") {
       const claims = claimsOf(bearer);
       const session = claims?.session_id ? this.sessions.get(claims.session_id) : null;
       const user = claims?.sub ? this.authUsers.get(claims.sub) : null;
       if (!session || !user) return json(401, { msg: "invalid token" });
       return json(200, user);
-    }
-    if (url.pathname === "/auth/v1/logout") {
-      const claims = claimsOf(bearer);
-      if (!claims?.session_id || !this.sessions.has(claims.session_id)) return json(401, {});
-      if (this.failOthersLogout) return json(500, {});
-      this.othersLogouts.push(claims.session_id);
-      if (url.searchParams.get("scope") === "others") {
-        for (const [id, row] of this.sessions) if (row.user_id === claims.sub && id !== claims.session_id) this.sessions.delete(id);
-      }
-      return new Response(null, { status: 204 });
-    }
-    const logoutMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
-    if (logoutMatch && method === "POST") {
-      if (this.failAdminLogout) return json(500, {});
-      this.adminLogouts.push(logoutMatch[1]);
-      for (const [id, row] of this.sessions) if (row.user_id === logoutMatch[1]) this.sessions.delete(id);
-      return json(200, {});
     }
     if (method === "POST" && url.pathname === "/auth/v1/token" && url.searchParams.get("grant_type") === "password") {
       const b = body as Row;
@@ -221,6 +223,33 @@ class FakeBackend {
     }
 
     // ── RPCs ──────────────────────────────────────────────────────────────
+    if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
+      // Atomic list-and-end: every targeted session goes on the revocation
+      // list and out of the live set in one step, or nothing happens.
+      const p = body as Row;
+      const target = String(p.p_user_id);
+      const except = p.p_except_session_id;
+      if (except) this.othersLogouts.push(String(except)); else this.adminLogouts.push(target);
+      if (except ? this.failOthersLogout : this.failAdminLogout) return json(500, {});
+      if (this.failRevocationWrites) return json(500, { message: "fake: revocation write refused" });
+      if (!this.tables.auth_session_revocations) return json(500, { message: "fake: revocation table missing" });
+      const ttlMs = Number(p.p_ttl_seconds) * 1000;
+      const nowMs = Date.now();
+      let ended = 0;
+      for (const [id, row] of this.sessions) {
+        if (row.user_id !== target || id === except) continue;
+        this.sessions.delete(id);
+        ended += 1;
+        const issued = Math.max(...[row.refreshed_at, row.updated_at, row.created_at].map((v) => (v ? new Date(String(v)).getTime() : 0)), nowMs);
+        let expires = issued + ttlMs;
+        if (row.not_after && new Date(String(row.not_after)).getTime() < expires) expires = new Date(String(row.not_after)).getTime();
+        expires = Math.max(expires, nowMs + 60_000);
+        const rowOut = { session_id: id, user_id: target, reason: p.p_reason, revoked_at: new Date(nowMs).toISOString(), expires_at: new Date(expires).toISOString() };
+        const existing = this.tables.auth_session_revocations.find((r) => r.session_id === id);
+        if (existing) Object.assign(existing, rowOut); else this.tables.auth_session_revocations.push({ id: crypto.randomUUID(), ...rowOut });
+      }
+      return json(200, ended);
+    }
     if (url.pathname === "/rest/v1/rpc/security_list_auth_sessions") {
       const target = String((body as Row).p_user_id);
       return json(200, [...this.sessions.values()].filter((s) => s.user_id === target));
@@ -440,6 +469,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   backend.reset();
+  resetAccessTokenVerifierForTests();
   routeErrors.length = 0;
 });
 
@@ -960,6 +990,8 @@ describe("recovery hardening", () => {
 // ── Staff and HQ views ───────────────────────────────────────────────────────
 
 const TM_ID = "6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f";
+const TM_MANY = "7a2d3e4f-5b6c-4d7e-9f0a-1b2c3d4e5f60";
+const TM_LATE = "8b3e4f50-6c7d-4e8f-a01b-2c3d4e5f6071";
 
 describe("office team sessions", () => {
   function seedTeam() {
@@ -1062,5 +1094,136 @@ describe("HQ views", () => {
     await settle();
     expect(backend.audits.some((a) => a.p_action === "hq_team_sessions_viewed")).toBe(true);
     expect(backend.audits.some((a) => a.p_action === "hq_team_signed_out" && (a.p_metadata as Row).reason === "suspicious_activity")).toBe(true);
+  });
+});
+
+// ── Local verification + revocation list ─────────────────────────────────────
+
+describe("local token verification", () => {
+  const authUserCalls = () => backend.requests.filter((r) => r === "GET /auth/v1/user").length;
+
+  it("serves ordinary staff reads from a locally verified token — no /auth/v1/user round trip", async () => {
+    const office = seedOffice();
+    const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    const first = await api("GET", "/api/office/team", undefined, auth(owner.token));
+    expect(first.status).toBe(200);
+    const again = await api("GET", "/api/office/team", undefined, auth(owner.token));
+    expect(again.status).toBe(200);
+    expect(authUserCalls()).toBe(0);
+    expect(backend.requests.filter((r) => r === "GET /auth/v1/.well-known/jwks.json")).toHaveLength(1);
+    expect(backend.requests.filter((r) => r === "GET /rest/v1/auth_session_revocations")).toHaveLength(2);
+  });
+
+  it("still asks Supabase Auth on the security-settings family, per the route policy", async () => {
+    const office = seedOffice();
+    const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    const me = await api("GET", "/api/security/me", undefined, auth(owner.token));
+    expect(me.status).toBe(200);
+    expect(authUserCalls()).toBe(1);
+    // The revocation list is authoritative on every route, remote ones included.
+    expect(backend.requests.filter((r) => r === "GET /rest/v1/auth_session_revocations")).toHaveLength(1);
+  });
+
+  it("rejects expired, tampered, and foreign-project tokens without consulting Supabase Auth", async () => {
+    const office = seedOffice();
+    const userId = String(office.user.id);
+    const sessionId = crypto.randomUUID();
+    const expired = signer.sign({ sub: userId, session_id: sessionId }, { nowSeconds: Math.floor(Date.now() / 1000) - 7200 });
+    const foreign = signer.sign({ sub: userId, session_id: sessionId }, { issuer: "https://someone-else.supabase.co/auth/v1" });
+    const genuine = signer.sign({ sub: userId, session_id: sessionId });
+    const [h, p] = genuine.split(".");
+    const tampered = `${h}.${p}.${Buffer.from("not-the-signature").toString("base64url")}`;
+    for (const token of [expired, foreign, tampered]) {
+      const res = await api("GET", "/api/office/team", undefined, auth(token));
+      expect(res.status).toBe(401);
+    }
+    expect(authUserCalls()).toBe(0);
+  });
+
+  it("cuts a signed-out-everywhere session off on an ordinary read within the same second", async () => {
+    const office = seedOffice();
+    const userId = String(office.user.id);
+    const phone = backend.openVerifiedSession(userId, IPHONE_UA);
+    const laptop = backend.openVerifiedSession(userId, MAC_CHROME_UA);
+    expect((await api("GET", "/api/office/team", undefined, auth(laptop.token))).status).toBe(200);
+
+    const out = await api("POST", "/api/security/me/sign-out-others", {}, auth(phone.token));
+    expect(out.status).toBe(200);
+    // The laptop's session id is on the list with an expiry, the phone's is not.
+    const rows = backend.tables.auth_session_revocations;
+    expect(rows.map((r) => r.session_id)).toEqual([laptop.sessionId]);
+    expect(rows[0]).toMatchObject({ user_id: userId, reason: "signed_out_others" });
+    expect(new Date(String(rows[0].expires_at)).getTime()).toBeGreaterThan(Date.now());
+
+    const before = authUserCalls();
+    const refused = await api("GET", "/api/office/team", undefined, auth(laptop.token));
+    expect(refused.status).toBe(401);
+    const kept = await api("GET", "/api/office/team", undefined, auth(phone.token));
+    expect(kept.status).toBe(200);
+    expect(authUserCalls()).toBe(before);
+  });
+
+  it("refuses to report a sign-out when the revocation list cannot be written", async () => {
+    const office = seedOffice();
+    const userId = String(office.user.id);
+    const phone = backend.openVerifiedSession(userId, IPHONE_UA);
+    const laptop = backend.openVerifiedSession(userId, MAC_CHROME_UA);
+    backend.failRevocationWrites = true;
+    const out = await api("POST", "/api/security/me/sign-out-others", {}, auth(phone.token));
+    expect(out.status).toBe(502);
+    // The atomic RPC refused as a whole: no row on the list, no session ended.
+    expect(backend.tables.auth_session_revocations).toEqual([]);
+    expect(backend.sessions.has(laptop.sessionId)).toBe(true);
+    expect((await api("GET", "/api/office/team", undefined, auth(laptop.token))).status).toBe(200);
+  });
+
+  it("signs out every one of a teammate's sessions, however many, with no list cap", async () => {
+    const office = seedOffice();
+    const memberUser = backend.seedAuthUser({ email: "sam@clinic.example" });
+    backend.tables.team_members.push({ id: TM_MANY, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "admin", activation_status: "activated", auth_user_id: memberUser.id, invited_at: null, joined_at: null, deactivated_at: null });
+    const memberId = String(memberUser.id);
+    const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    const devices = Array.from({ length: 130 }, (_, i) => backend.openVerifiedSession(memberId, i % 2 ? IPHONE_UA : MAC_CHROME_UA));
+    expect((await api("GET", "/api/office/team", undefined, auth(devices[129].token))).status).toBe(200);
+
+    const out = await api("POST", `/api/office/team/${TM_MANY}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(out.status).toBe(200);
+    // The forced sign-out itself is a security-settings route (remote); every
+    // ordinary read below is refused locally, without asking Supabase Auth.
+    const before = authUserCalls();
+    expect(backend.tables.auth_session_revocations.map((r) => r.session_id).sort()).toEqual(devices.map((d) => d.sessionId).sort());
+    expect([...backend.sessions.keys()]).toEqual([owner.sessionId]);
+    for (const device of devices) {
+      expect((await api("GET", "/api/office/team", undefined, auth(device.token))).status).toBe(401);
+    }
+    expect((await api("GET", "/api/office/team", undefined, auth(owner.token))).status).toBe(200);
+    expect(authUserCalls()).toBe(before);
+  });
+
+  it("a session opened after the sweep is a new login and stays valid, while every earlier one is refused", async () => {
+    const office = seedOffice();
+    const memberUser = backend.seedAuthUser({ email: "sam@clinic.example" });
+    backend.tables.team_members.push({ id: TM_LATE, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "admin", activation_status: "activated", auth_user_id: memberUser.id, invited_at: null, joined_at: null, deactivated_at: null });
+    const memberId = String(memberUser.id);
+    const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    const stale = backend.openVerifiedSession(memberId, IPHONE_UA);
+    expect((await api("POST", `/api/office/team/${TM_LATE}/sign-out`, { reason: "lost_device" }, auth(owner.token))).status).toBe(200);
+    const fresh = backend.openVerifiedSession(memberId, MAC_CHROME_UA);
+    expect((await api("GET", "/api/office/team", undefined, auth(stale.token))).status).toBe(401);
+    expect((await api("GET", "/api/office/team", undefined, auth(fresh.token))).status).toBe(200);
+    expect(backend.tables.auth_session_revocations.map((r) => r.session_id)).toEqual([stale.sessionId]);
+  });
+
+  it("answers with an outage, never 'signed out', when the revocation list cannot be read", async () => {
+    const office = seedOffice();
+    const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    delete backend.tables.auth_session_revocations;
+    // Office routes map any identity outage to their 502 "try again"; the
+    // staff guards answer 503. Neither may look like a sign-out.
+    const res = await api("GET", "/api/office/team", undefined, auth(owner.token));
+    expect(res.status).toBeGreaterThanOrEqual(502);
+    expect(res.status).toBeLessThan(504);
+    const hq = await api("GET", "/api/hq-team", undefined, auth(owner.token));
+    expect(hq.status).toBe(503);
   });
 });

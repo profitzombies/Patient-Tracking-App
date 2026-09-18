@@ -12,7 +12,7 @@ import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/st
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
-import { markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
+import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -345,14 +345,9 @@ router.delete(
 
       let sessionInvalidation: "not_applicable" | "complete" | "failed" =
         target.authUserId ? "complete" : "not_applicable";
-      if (target.authUserId) {
-        const logout = await supabaseAdmin("POST", `/auth/v1/admin/users/${encode(target.authUserId)}/logout`, {
-          scope: "global",
-        });
-        if (logout.status >= 300) {
-          sessionInvalidation = "failed";
-          req.log?.error({ status: logout.status }, "revoked HQ session logout failed");
-        }
+      if (target.authUserId && !(await adminLogoutAll(target.authUserId, "hq_revoked"))) {
+        sessionInvalidation = "failed";
+        req.log?.error({ userId: target.authUserId }, "revoked HQ session logout failed");
       }
       // The role/profile revocation is already committed and every staff guard
       // rechecks it, so a GoTrue logout outage cannot restore API access.
@@ -439,9 +434,8 @@ router.post(
       let sessionInvalidation: "not_applicable" | "complete" | "failed" = "not_applicable";
       const reason = parsed.data.reason ?? "other";
       if (target.authUserId) {
-        const logout = await supabaseAdmin("POST", `/auth/v1/admin/users/${encode(target.authUserId)}/logout`, { scope: "global" });
-        if (logout.status >= 300) {
-          req.log?.error({ status: logout.status }, "HQ member session logout failed");
+        if (!(await adminLogoutAll(target.authUserId, "hq_forced"))) {
+          req.log?.error({ userId: target.authUserId }, "HQ member session logout failed");
           res.status(502).json({ error: "Could not sign that member out right now." });
           return;
         }

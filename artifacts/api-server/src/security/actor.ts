@@ -5,8 +5,9 @@
  * an alert is about. Never returns anything a client could not already see
  * about themselves.
  */
+import { identifyBearer } from "../auth/identify";
 import { bearerToken } from "../lib/patient-auth";
-import { fetchAuthUser, supabaseAdmin } from "../lib/supabase-admin";
+import { supabaseAdmin } from "../lib/supabase-admin";
 import { sessionIdOfToken } from "./device";
 
 const enc = encodeURIComponent;
@@ -96,13 +97,17 @@ export type ResolvedActor =
 /**
  * Resolve the caller from their bearer token. 401 for no/expired session,
  * 403 for a live session with no account behind it, 503 when GoTrue is down.
+ *
+ * Always verified REMOTELY: these are the security-settings flows (session
+ * lists, sign-out-others, password changes) where Supabase Auth itself must
+ * vouch for the session, whatever path they are mounted on.
  */
 export async function resolveSecurityActor(req: { headers: Record<string, unknown> }): Promise<ResolvedActor> {
   const token = bearerToken(req);
   if (!token) return { ok: false, status: 401, error: "Sign in to continue." };
-  let user: Awaited<ReturnType<typeof fetchAuthUser>>;
+  let user: Awaited<ReturnType<typeof identifyBearer>>;
   try {
-    user = await fetchAuthUser(token);
+    user = await identifyBearer(token, "remote");
   } catch {
     return { ok: false, status: 503, error: "Could not verify your session. Try again in a moment." };
   }

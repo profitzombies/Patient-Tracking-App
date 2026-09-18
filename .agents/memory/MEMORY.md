@@ -1,5 +1,3 @@
-// hint: Structural and logic conflict. Both design and behavior differ.
-// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -145,6 +143,7 @@
 - [Coach product suggestions](coach-product-suggestions.md) — real accounts: offers AND product prose only from the live office storefront (branch on auth, not data); persist opt-out first; export new cols.
 - [Stripe webhook workspace endpoints](stripe-webhook-workspace-endpoints.md) — throwaway workspaces leave dead .replit.dev endpoints in the shared sandbox; prune by liveness probe + age, never age alone; registration is single-flight.
 - [App presence & HQ active users](app-usage-presence.md) — presence rides identity resolution + a bare heartbeat; now-tiles end today, rows end on range end; demo self-seeds (no account list); failed polls show Error.
+- [Local JWT verification](local-jwt-verification.md) — local by default, one route-policy module for remote; sign-outs list+end sessions in ONE SQL RPC (GoTrue has no admin logout).
 - [Patient session persistence](patient-session-persistence.md) — auth-js reports session:null during retryable refresh failures; storage is truth, only SIGNED_OUT signs out; mgmt-API session timeouts are in HOURS.
 - [Patients menu badge](patients-menu-badge.md) — badge shares the roster query (no new poll); flagged = evaluator verdict; pin is URL-only; Shell-in-Node RTR recipe.
 - [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.

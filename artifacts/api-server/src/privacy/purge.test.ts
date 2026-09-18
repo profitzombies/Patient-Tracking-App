@@ -318,6 +318,11 @@ describe("drainDuePurges against the store double", () => {
     expect(mocks.supabase.tables.patient_data_exports).toEqual([]);
     expect(mocks.supabase.tables.patients.map((p) => p.id)).toEqual([P2]);
     expect(mocks.supabase.authDeletes).toEqual(["auth-1"]);
+    // The user's live session went on the server's revocation list before
+    // the auth user was deleted, so a still-valid access token dies at once.
+    expect(mocks.supabase.tables.auth_session_revocations).toEqual([
+      expect.objectContaining({ user_id: "auth-1", reason: "purge" }),
+    ]);
     expect(mocks.supabase.tables.patient_tombstones).toEqual([
       expect.objectContaining({ id: P1, provider_id: "office-1", was_activated: true, program_id: "thinnr", enrolled_on: "2026-06-01" }),
     ]);

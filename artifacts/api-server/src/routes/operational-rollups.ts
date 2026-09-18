@@ -369,6 +369,7 @@ router.get("/office/overview", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "provider_read",
       requireUnlocked: false,
@@ -451,6 +452,7 @@ router.get("/office/analytics", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "provider_read",
       requireUnlocked: false,

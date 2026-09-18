@@ -27,6 +27,7 @@ export function createOfficeNotificationsRouter(store: NotificationStore = supab
     try {
       const resolved = await resolveOfficeScope({
         authorization: req.headers.authorization,
+        request: req,
         explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
         hqPermission: "provider_read",
         requireUnlocked: false,

@@ -121,6 +121,7 @@ function bearer(req: Request): string {
 async function scoped(req: Request, thread: Thread) {
   return resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: THREAD_PERMISSION[thread],
     requireUnlocked: true,

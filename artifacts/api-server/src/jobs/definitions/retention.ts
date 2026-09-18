@@ -11,11 +11,15 @@
  *                             deleted (the only delete path the append-only
  *                             trigger admits)
  *   retention-exports         expired export archives (office + patient)
+ *   retention-session-revocations
+ *                             session revocation rows past their token
+ *                             horizon (reads already ignore them)
  *
  * Progress photos are deliberately NOT trimmed here: the photo retention
  * period is policy-defined but the patient-visible deletion flow that would
  * honour it is out of this job's scope.
  */
+import { sweepExpiredRevocations } from "../../auth/session-revocations";
 import { sweepExpiredExports } from "../../exports/worker";
 import { sweepExpiredPatientExports } from "../../privacy/exports";
 import { loadOrgPolicy } from "../../lib/org-policy";
@@ -163,6 +167,21 @@ export async function pruneBillingWebhookPayloads(ctx: JobContext): Promise<void
   if (result.status >= 300) throw new Error(`billing webhook payload prune failed (${result.status})`);
 }
 
+export async function sweepSessionRevocations(ctx: JobContext): Promise<void> {
+  const cutoff = ctx.now.toISOString();
+  const due = await supabaseAdmin(
+    "GET",
+    `/rest/v1/auth_session_revocations?expires_at=lt.${enc(cutoff)}&select=session_id&limit=1000`,
+  );
+  if (due.status >= 300 || !Array.isArray(due.json)) throw new Error(`session revocation retention scan failed (${due.status})`);
+  if (ctx.dryRun) {
+    ctx.tally("rowsDue", due.json.length);
+    return;
+  }
+  if (due.json.length === 0) return;
+  await sweepExpiredRevocations(ctx.now);
+  ctx.tally("rowsDeleted", due.json.length);
+}
 export const retentionChatJob: JobDefinition = {
   name: "retention-chat",
   title: "Chat transcript retention",
@@ -206,4 +225,13 @@ export const retentionBillingWebhooksJob: JobDefinition = {
   intervalMs: 24 * HOUR_MS,
   leaseSeconds: 15 * 60,
   run: pruneBillingWebhookPayloads,
+};
+
+export const retentionSessionRevocationsJob: JobDefinition = {
+  name: "retention-session-revocations",
+  title: "Session revocation list clean-up",
+  description: "Deletes revoked-session rows whose access tokens can no longer be valid; requests already ignore expired rows.",
+  intervalMs: 6 * HOUR_MS,
+  leaseSeconds: 5 * 60,
+  run: sweepSessionRevocations,
 };

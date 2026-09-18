@@ -240,6 +240,10 @@ args = "coach-usage-limits"
 task = "workflow.run"
 args = "external-trigger-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "local-token-verification-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2025,6 +2029,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/jobs/external-trigger.test.ts src/jobs/external-tick-script.test.ts src/jobs/external-ticks.test.ts src/jobs/schema.sql.test.ts src/routes/system-jobs.test.ts src/routes/patient-notifications.test.ts src/jobs/scheduler.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "local-token-verification-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/auth src/routes/security.test.ts src/routes/auth.test.ts src/routes/hq-team.test.ts src/routes/office-team.test.ts src/routes/claim.test.ts src/privacy/purge.test.ts src/jobs/definitions/retention.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

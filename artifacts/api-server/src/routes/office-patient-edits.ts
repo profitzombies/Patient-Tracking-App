@@ -74,6 +74,7 @@ async function scopedPatient(req: Request): Promise<Scoped> {
     ? String((req.body as { office: string }).office) : null;
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : bodyOffice,
     hqPermission: "provider_manage",
     requireUnlocked: true,

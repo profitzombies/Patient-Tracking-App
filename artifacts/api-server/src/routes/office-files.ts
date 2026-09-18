@@ -16,6 +16,7 @@ async function withOfficeScope(
 ) {
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: "settings_manage",
     requireUnlocked: false,

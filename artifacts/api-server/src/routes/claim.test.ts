@@ -243,13 +243,6 @@ class FakeBackend {
       }
       return json(200, user);
     }
-    const logoutMatch = url.pathname.match(/^\/auth\/v1\/admin\/users\/([^/]+)\/logout$/);
-    if (logoutMatch && method === "POST") {
-      if (this.failAdminLogout) return json(500, { msg: "simulated logout failure" });
-      this.adminLogouts.push(logoutMatch[1]);
-      for (const [token, userId] of this.sessions) if (userId === logoutMatch[1]) this.sessions.delete(token);
-      return json(200, {});
-    }
     if (idMatch && method === "DELETE") {
       if (this.failAuthDelete) return json(500, { msg: "simulated auth delete failure" });
       this.authUsers.delete(idMatch[1]);
@@ -309,6 +302,15 @@ class FakeBackend {
 
     if (url.pathname === "/rest/v1/rpc/claim_find_candidates") {
       return json(200, this.runRpc(body as { p_kind: string; p_value: string }));
+    }
+    // Atomic revoke-and-end RPC; proceeds (or fails) exactly as scripted.
+    if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
+      if (this.failAdminLogout) return json(500, { msg: "simulated logout failure" });
+      const target = String((body as Row).p_user_id);
+      this.adminLogouts.push(target);
+      let ended = 0;
+      for (const [token, userId] of this.sessions) if (userId === target) { this.sessions.delete(token); ended += 1; }
+      return json(200, ended);
     }
 
     if (url.pathname === "/rest/v1/rpc/claim_register_send") {

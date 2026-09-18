@@ -66,6 +66,7 @@ router.get(OFFICE_AUDIT_PATH, async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: q.office ?? null,
       hqPermission: "audit_read",
       requireUnlocked: false,

@@ -15,6 +15,7 @@
 import crypto from "node:crypto";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { logger } from "../lib/logger";
+import { revokeUserSessions, type SessionRevocationReason } from "../auth/session-revocations";
 import {
   describeUserAgent,
   fingerprintOf,
@@ -238,22 +239,41 @@ export async function listAuthSessions(userId: string): Promise<AuthSessionRow[]
   return Array.isArray(res.json) ? (res.json as AuthSessionRow[]) : [];
 }
 
-/** Every session for the user (admin logout = GoTrue's global scope). */
-export async function adminLogoutAll(userId: string): Promise<boolean> {
-  const res = await supabaseAdmin("POST", `/auth/v1/admin/users/${enc(userId)}/logout`, { scope: "global" });
-  return res.status < 300;
+/**
+ * Every session for the user (the server-side "sign out everywhere"): one
+ * atomic RPC lists the session ids on the server's revocation list and ends
+ * the GoTrue sessions (GoTrue on this project serves no per-user admin
+ * logout route — it answers "404 page not found" — so the sessions are
+ * ended the way GoTrue's own global logout does it, by deleting the user's
+ * auth.sessions rows, refresh tokens included). A refused write signs
+ * nothing out and reports failure, so the caller can safely retry.
+ */
+export async function adminLogoutAll(userId: string, reason: SessionRevocationReason = "admin_logout"): Promise<boolean> {
+  try {
+    await revokeUserSessions({ userId, reason });
+    return true;
+  } catch (error) {
+    logger.error({ err: error, userId }, "session revocation failed; admin logout aborted");
+    return false;
+  }
 }
 
-/** Every session except the one behind `accessToken` (GoTrue "others" scope, user-authenticated). */
-export async function logoutOthers(accessToken: string): Promise<boolean> {
-  const base = (process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const res = await fetch(`${base}/auth/v1/logout?scope=others`, {
-    method: "POST",
-    headers: { apikey: key, Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  return res.status < 300;
+/**
+ * Every session except the caller's own. Same atomic RPC, sparing the
+ * session behind the caller's token. A token without a session claim cannot
+ * be spared, so every session (the caller's too) is ended — the safe side.
+ */
+export async function logoutOthers(
+  owner: { userId: string; sessionId: string | null; reason?: SessionRevocationReason },
+): Promise<boolean> {
+  const { userId, sessionId } = owner;
+  try {
+    await revokeUserSessions({ userId, reason: owner.reason ?? "signed_out_others", exceptSessionId: sessionId });
+    return true;
+  } catch (error) {
+    logger.error({ err: error, userId }, "session revocation failed; logout-others aborted");
+    return false;
+  }
 }
 
 // ── Security state (forced reset) ────────────────────────────────────────────

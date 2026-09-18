@@ -22,6 +22,7 @@ export async function requireOfficeBillingScope(
   const bodyOffice = req.body && typeof req.body.office === "string" ? req.body.office : null;
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : bodyOffice,
     hqPermission: options.write ? "provider_manage" : "financial_read",
     requireUnlocked: options.write,

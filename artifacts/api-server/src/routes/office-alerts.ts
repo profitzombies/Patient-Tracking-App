@@ -27,6 +27,7 @@ const settingsBody = z.object({
 async function scoped(req: Request, res: Response, manage = false): Promise<OfficeScope | null> {
   const resolved = await resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: manage ? "provider_manage" : "provider_read",
     requireUnlocked: manage,

@@ -38,7 +38,7 @@ import {
 } from "../auth/office-scope";
 import { recordAccessDenied, recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
+import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
 import {
   OFFICE_ROLES,
   PROVISIONING_FAILED_MESSAGE,
@@ -108,6 +108,7 @@ async function scoped(req: Request): Promise<Awaited<ReturnType<typeof resolveOf
       : null;
   return resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : bodyOffice,
     hqPermission: "provider_manage",
     requireUnlocked: true,
@@ -181,11 +182,10 @@ function audit(req: Request, scope: OfficeScope, action: string, targetId: strin
   }).catch((error) => req.log?.error({ err: error }, "office team audit failed"));
 }
 
-async function globalLogout(req: Request, authUserId: string | null): Promise<"not_applicable" | "complete" | "failed"> {
+async function globalLogout(req: Request, authUserId: string | null, reason: "deactivated" | "office_forced"): Promise<"not_applicable" | "complete" | "failed"> {
   if (!authUserId) return "not_applicable";
-  const logout = await supabaseAdmin("POST", `/auth/v1/admin/users/${enc(authUserId)}/logout`, { scope: "global" });
-  if (logout.status >= 300) {
-    req.log?.error({ status: logout.status }, "office teammate session logout failed");
+  if (!(await adminLogoutAll(authUserId, reason))) {
+    req.log?.error({ userId: authUserId }, "office teammate session logout failed");
     return "failed";
   }
   return "complete";
@@ -378,7 +378,7 @@ async function setStatus(req: Request, res: Response, active: boolean): Promise<
     // already committed and every guard rechecks membership, so a GoTrue
     // logout outage cannot keep API access alive — it only delays the
     // browser's own sign-out until its next role refresh.
-    const sessionInvalidation = active ? "not_applicable" : await globalLogout(req, target.auth_user_id);
+    const sessionInvalidation = active ? "not_applicable" : await globalLogout(req, target.auth_user_id, "deactivated");
     res.json({ member: memberDto(updated, scope), sessionInvalidation });
   } catch (error) {
     req.log?.error({ err: error }, "office status change failed");
@@ -438,7 +438,7 @@ router.post(`${OFFICE_TEAM_PATH}/:memberId/sign-out`, async (req, res) => {
       return;
     }
     if (refuseTargetEdit(res, scope, target, target.office_role === "owner")) return;
-    const sessionInvalidation = await globalLogout(req, target.auth_user_id);
+    const sessionInvalidation = await globalLogout(req, target.auth_user_id, "office_forced");
     if (sessionInvalidation === "failed") {
       res.status(502).json({ error: "Could not sign that teammate out right now." });
       return;

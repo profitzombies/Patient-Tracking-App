@@ -1,22 +1,20 @@
 /**
- * Staff authorization for the training-media routes.
+ * Staff authorization for HQ routes.
  *
  * The operations web app signs users in with Supabase; the API server has no
  * session of its own. Callers forward their existing Supabase access token
  * (`Authorization: Bearer <token>`) and this module verifies it in two hops:
  *
- *   1. `GET {SUPABASE_URL}/auth/v1/user` with the caller's token — Supabase
- *      itself confirms the token is live (signature, expiry, revocation).
- *   2. `GET /rest/v1/profiles?id=eq.<uid>&select=role` with the service role
- *      key — roles come from the `staff_role_assignments`-synchronized
- *      profile row, never from claims a client could mint.
- *
- * Verified identities are cached for one minute per token so a lesson page
- * requesting playback URLs doesn't hammer Supabase; that window matches how
- * quickly a role revocation must bite (revocations also kill the session
- * server-side, which hop 1 sees on the next cold check).
+ *   1. The token is verified — locally against the project's signing keys
+ *      plus the server's session revocation list, or by Supabase Auth itself
+ *      for the route families `auth/verification-policy.ts` marks remote.
+ *   2. `GET /rest/v1/hq_memberships` (then the legacy profile row) with the
+ *      service role key — roles come from durable membership rows, never
+ *      from claims a client could mint.
  */
 import type { NextFunction, Request, Response } from "express";
+import { identifyBearer } from "../auth/identify";
+import { verificationModeFor, type VerificationMode } from "../auth/verification-policy";
 import { recordAccessDenied } from "./admin-audit";
 
 export type StaffRole = "hq_admin";
@@ -78,18 +76,24 @@ function serviceKey(): string {
  * when Supabase itself is unreachable (callers map that to 503, not 401 —
  * an outage must never read as "you are signed out").
  */
-export async function verifyStaffToken(token: string): Promise<StaffIdentity | null> {
+export async function verifyStaffToken(
+  token: string,
+  options: { verification?: VerificationMode } = {},
+): Promise<StaffIdentity | null> {
+  const user = await identifyBearer(token, options.verification ?? "local");
+  if (!user) return null;
+  return staffIdentityForUser(user.id);
+}
+
+/**
+ * Membership lookup for an ALREADY verified auth user id. Split out so a
+ * caller that has just identified the bearer (office scope) does not verify
+ * the same token twice.
+ */
+export async function staffIdentityForUser(userId: string): Promise<StaffIdentity | null> {
   const base = supabaseBase();
   const key = serviceKey();
-
-  const userRes = await fetch(`${base}/auth/v1/user`, {
-    headers: { apikey: key, Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (userRes.status === 401 || userRes.status === 403) return null;
-  if (!userRes.ok) throw new Error(`Supabase auth check failed (${userRes.status})`);
-  const user = (await userRes.json()) as { id?: string };
-  if (!user.id) return null;
+  const user = { id: userId };
 
   // Always inspect memberships before considering the legacy profile. In
   // particular, a revoked membership must not fall through to a stale
@@ -143,7 +147,7 @@ export function requireStaff(roles: readonly StaffRole[]) {
     }
     let identity: StaffIdentity | null;
     try {
-      identity = await verifyStaffToken(token);
+      identity = await verifyStaffToken(token, { verification: verificationModeFor(req) });
     } catch (error) {
       req.log?.error({ err: error }, "staff token verification unavailable");
       res.status(503).json({ error: "Could not verify your session — try again in a moment." });
@@ -174,7 +178,7 @@ export function requireHqPermission(permission: HqPermission) {
     }
     let identity: StaffIdentity | null;
     try {
-      identity = await verifyStaffToken(token);
+      identity = await verifyStaffToken(token, { verification: verificationModeFor(req) });
     } catch (error) {
       req.log?.error({ err: error }, "staff token verification unavailable");
       res.status(503).json({ error: "Could not verify your session — try again in a moment." });

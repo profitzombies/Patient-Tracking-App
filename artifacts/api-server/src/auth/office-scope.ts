@@ -19,11 +19,13 @@
  */
 import type { Request, Response } from "express";
 import { recordAccessDenied } from "../lib/admin-audit";
-import { fetchAuthUser, supabaseAdmin } from "../lib/supabase-admin";
+import { supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
+import { identifyBearer } from "./identify";
+import { verificationModeFor, type VerificationRequest } from "./verification-policy";
 import {
   hasHqPermission,
-  verifyStaffToken,
+  staffIdentityForUser,
   type HqPermission,
 } from "../lib/staff-auth";
 
@@ -150,13 +152,19 @@ export async function resolveOfficeScope(input: {
   hqPermission: HqPermission;
   /** Refuse locked offices (invitation writes); reads let HQ through a lock. */
   requireUnlocked: boolean;
+  /**
+   * The request being served (method + url) so the verification policy can
+   * decide local vs remote token verification. Omitted = local.
+   */
+  request?: VerificationRequest;
 }): Promise<OfficeScopeResult> {
   const header = input.authorization ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
   if (!token) return denied(401, SIGN_IN_MESSAGE, "sign_in");
 
-  // Hop 1: GoTrue confirms the token is live and yields the auth user id.
-  const user = await fetchAuthUser(token);
+  // Hop 1: the token is verified (locally, or by GoTrue for the remote
+  // families) and yields the auth user id.
+  const user = await identifyBearer(token, verificationModeFor(input.request));
   if (!user) return denied(401, SIGN_IN_MESSAGE, "sign_in");
 
   // Provider owner? The office is their own — explicit input is ignored.
@@ -213,8 +221,9 @@ export async function resolveOfficeScope(input: {
     };
   }
 
-  // HQ — must name the office explicitly and hold the permission.
-  const identity = await verifyStaffToken(token);
+  // HQ — must name the office explicitly and hold the permission. The
+  // bearer is already verified above; only the membership lookup remains.
+  const identity = await staffIdentityForUser(user.id);
   if (!identity) return denied(403, STAFF_ONLY_MESSAGE, "staff_only", user.id);
   if (!hasHqPermission(identity, input.hqPermission)) {
     return denied(

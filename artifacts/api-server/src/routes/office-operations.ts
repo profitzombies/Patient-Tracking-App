@@ -30,6 +30,7 @@ function followUpDto(row: Record<string, unknown>) {
 async function scope(req: Request, permission: "provider_read" | "provider_manage") {
   return resolveOfficeScope({
     authorization: req.headers.authorization,
+    request: req,
     explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
     hqPermission: permission,
     requireUnlocked: permission === "provider_manage",

@@ -438,6 +438,7 @@ router.get("/office/roster", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "provider_read",
       requireUnlocked: false,
@@ -577,6 +578,7 @@ router.get("/office/patients/:id", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "provider_read",
       requireUnlocked: false,
@@ -908,6 +910,7 @@ router.post("/office/patients/:id/photos/urls", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: typeof req.query.office === "string" ? req.query.office : null,
       hqPermission: "provider_read",
       requireUnlocked: false,
@@ -1003,6 +1006,7 @@ router.post("/office/invitations", async (req, res) => {
 
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId: parsed.data.office ?? null,
       hqPermission: "provider_manage",
       requireUnlocked: true,
@@ -1109,6 +1113,7 @@ router.post("/office/invitations/:id/resend", async (req, res) => {
   try {
     const resolved = await resolveOfficeScope({
       authorization: req.headers.authorization,
+      request: req,
       explicitOfficeId:
         typeof (req.body ?? {}).office === "string"
           ? String((req.body as { office?: string }).office)

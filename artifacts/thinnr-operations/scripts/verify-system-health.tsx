@@ -151,6 +151,11 @@ let externalTrigger: Record<string, unknown> = {
 let healthStatus = 200;
 type OutboxFixture = { due: number; oldestDueAt: string | null; oldestDueAgeMs: number | null; inFlight: number } | null;
 let outbox: OutboxFixture = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
+type WarehouseFixture = { pending: number; due: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: 'pending' | 'sent' | 'needs_attention' | 'skipped' }> } | null | undefined;
+let warehouse: WarehouseFixture = {
+  pending: 3, due: 1, sent24h: 41, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: true,
+  recent_failures: [{ order_id: 'order-77', order_number: 'TH-4Q7K2M', error: 'ItemSKU not recognized: REGULATE-OLD', at: new Date(NOW - 40 * 60_000).toISOString(), state: 'needs_attention' }],
+};
 let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknown } = (name, dryRun) => ({
   status: 200,
   body: { run: { id: 'run-9', jobName: name, trigger: 'manual', dryRun, status: 'succeeded', owner: 'api:1', startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), counts: dryRun ? { wouldDelete: 3 } : { deleted: 3 }, failureCount: 0, error: null } },
@@ -228,7 +233,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger, warehouse });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -378,6 +383,40 @@ console.log('\nsystem health: push outbox backlog');
     textOf(byTestId(unreadable.root, 'metric-outbox-due')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-outbox-in-flight')[0]) === '—' && byTestId(unreadable.root, 'text-outbox-unreadable').length === 1
       && byTestId(unreadable.root, 'job-retention-chat').length === 1);
   outbox = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
+}
+
+console.log('\nsystem health: warehouse submissions');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  const tile = (id: string) => textOf(byTestId(root, `metric-warehouse-${id}`)[0]);
+  check('the last 24 h of warehouse submissions show sent, failed, retried, waiting and needs-attention counts',
+    tile('sent') === '41' && tile('failed') === '2' && tile('retries') === '1' && tile('pending') === '3' && tile('attention') === '1',
+    `${tile('sent')} / ${tile('failed')} / ${tile('retries')} / ${tile('pending')} / ${tile('attention')}`);
+  check('a due intent and an open rejection read as work to do', textOf(byTestId(root, 'system-health-warehouse')[0]).includes('1 due now') && textOf(byTestId(root, 'system-health-warehouse')[0]).includes('Fix and retry in Fulfillment'));
+  const failure = byTestId(root, 'warehouse-failure-order-77')[0];
+  const failureLink = failure?.findAll((node: any) => node.type === 'a')[0];
+  check('recent failures list the order number, the warehouse message, and link to Fulfillment',
+    Boolean(failure) && textOf(failure).includes('TH-4Q7K2M') && textOf(failure).includes('ItemSKU not recognized: REGULATE-OLD') && failureLink?.props.href === '/admin/payments/fulfillment',
+    failure ? textOf(failure) : '(no failure row)');
+  check('auto-submit on shows no paused notice', byTestId(root, 'text-warehouse-paused').length === 0 && byTestId(root, 'text-warehouse-unreadable').length === 0);
+
+  warehouse = { pending: 5, due: 5, sent24h: 0, failed24h: 0, retries24h: 0, needs_attention: 0, auto_submit: false, recent_failures: [] };
+  const paused = await render('/admin/system-health', <SystemHealth />);
+  check('the kill switch off shows a paused notice with the queued count, and no failure list',
+    byTestId(paused.root, 'text-warehouse-paused').length === 1 && textOf(byTestId(paused.root, 'text-warehouse-paused')[0]).includes('5 paid orders are queued') && byTestId(paused.root, 'list-warehouse-failures').length === 0,
+    textOf(byTestId(paused.root, 'text-warehouse-paused')[0]));
+
+  warehouse = null;
+  const unreadable = await render('/admin/system-health', <SystemHealth />);
+  check('an unreadable submission queue shows dashes and a notice, never zeros',
+    textOf(byTestId(unreadable.root, 'metric-warehouse-sent')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-warehouse-pending')[0]) === '—' && byTestId(unreadable.root, 'text-warehouse-unreadable').length === 1
+      && textOf(byTestId(unreadable.root, 'system-health-warehouse')[0]).includes('Queue unreadable'));
+
+  warehouse = undefined;
+  const absent = await render('/admin/system-health', <SystemHealth />);
+  check('an API without the warehouse field shows dashes with no unreadable alarm',
+    textOf(byTestId(absent.root, 'metric-warehouse-sent')[0]) === '—' && byTestId(absent.root, 'text-warehouse-unreadable').length === 0);
+  warehouse = { pending: 3, due: 1, sent24h: 41, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: true, recent_failures: [] };
 }
 
 console.log('\nsystem health: sign-in ledger unreadable');

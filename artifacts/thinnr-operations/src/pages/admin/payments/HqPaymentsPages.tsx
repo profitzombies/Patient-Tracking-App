@@ -16,6 +16,7 @@ import {
   formatAddress,
 } from '@/components/billing/primitives';
 import { FulfillmentDialog } from '@/components/billing/hq/FulfillmentDialog';
+import { WarehouseStatus } from '@/components/billing/WarehouseStatus';
 import { AreaChart, CHART_COLORS, ChartCard, cumulative, hourLabel, hourlySeriesFrom, runningHourLabel, seriesFrom, shortDay } from '@/components/billing/hq/RevenueCharts';
 import { ActivityTable } from '@/components/billing/hq/ActivityTable';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
@@ -48,6 +49,7 @@ import {
   useHqTransactions,
   useInvalidateHqBilling,
   useUpdateFulfillment,
+  useRetryWarehouse,
 } from '@/hooks/use-billing';
 import { hqBilling } from '@/lib/billing-api';
 import {
@@ -58,6 +60,9 @@ import {
   formatDateTime,
   formatDeliveryWindow,
   fulfillmentTone,
+  WAREHOUSE_STATE_LABEL,
+  warehouseDetail,
+  warehouseTone,
   FULFILLMENT_LABEL,
   humanizeRequirement,
   ORDER_KIND_LABEL,
@@ -66,7 +71,7 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   subscriptionTone,
 } from '@/lib/billing-format';
-import type { HqTodayOverview, OrderDetail, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
+import type { HqTodayOverview, OrderDetail, SubscriptionChangeQuote, SubscriptionRow, WarehouseSync } from '@/lib/billing-types';
 import {
   DEMO_FULFILLMENT,
   DEMO_CATALOG,
@@ -732,6 +737,12 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
                   { label: 'Tracking', value: order.tracking_number ?? '—' },
                   { label: 'Shipped', value: order.shipped_at ? formatDateTime(order.shipped_at) : '—' },
                   ...(order.canceled_reason ? [{ label: 'Canceled reason', value: order.canceled_reason }] : []),
+                  ...(order.warehouse
+                    ? [
+                        { label: 'Warehouse', value: <StatusPill tone={warehouseTone(order.warehouse.state)} testId="pill-transaction-warehouse">{WAREHOUSE_STATE_LABEL[order.warehouse.state]}</StatusPill> },
+                        { label: 'Warehouse detail', value: warehouseDetail(order.warehouse) },
+                      ]
+                    : []),
                 ]}
               />
             </div>
@@ -799,6 +810,14 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
   );
 }
 
+/** What staff read after a cancel, depending on whether the warehouse could mirror it. */
+const WAREHOUSE_SYNC_MESSAGE: Record<WarehouseSync['kind'], (sync: WarehouseSync) => string> = {
+  not_sent: () => 'The warehouse never received it, so nothing else to do.',
+  applied: () => 'The warehouse order was canceled too.',
+  locked: (sync) => `The warehouse is already packing this order (${sync.kind === 'locked' ? sync.warehouse_status : 'locked'}); contact the 3PL to stop the shipment.`,
+  unavailable: () => 'The warehouse could not be reached; cancel the warehouse order manually or retry later.',
+};
+
 export function PaymentsFulfillment() {
   return <Gate>{(demo, canWrite) => <FulfillmentBody demo={demo} canWrite={canWrite} />}</Gate>;
 }
@@ -808,9 +827,17 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
   const query = useHqFulfillment({ status });
   const sandbox = useBillingSandbox();
   const mutation = useUpdateFulfillment();
+  const retry = useRetryWarehouse();
   const { toast } = useToast();
   const [dialog, setDialog] = useState<{ order: OrderDetail; mode: 'ship' | 'cancel' } | null>(null);
   const rows = demo ? DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === status) : query.data?.items;
+  const retryWarehouse = (order: OrderDetail) => {
+    if (demo) { toast({ title: 'Preview only', description: 'Sign in to retry live warehouse submissions.' }); return; }
+    retry.mutate(order.id, {
+      onSuccess: () => toast({ variant: 'success', title: `${order.order_number} queued for the warehouse again.`, description: 'It is sent on the next drain, within a few minutes.' }),
+      onError: (error: Error) => toast({ variant: 'destructive', title: 'Retry failed', description: error.message }),
+    });
+  };
   const update = (value: { carrier?: string; tracking_number?: string; canceled_reason?: string }) => {
     if (!dialog) return;
     if (demo) {
@@ -821,10 +848,12 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
     mutation.mutate(
       { orderId: dialog.order.id, status: dialog.mode === 'ship' ? 'shipped' : 'canceled', ...value },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
+          const sync = result.warehouse_sync;
           toast({
             variant: 'success',
             title: dialog.mode === 'ship' ? 'Shipped. The patient was emailed the tracking number.' : 'Order canceled.',
+            description: dialog.mode === 'cancel' && sync ? WAREHOUSE_SYNC_MESSAGE[sync.kind](sync) : undefined,
           });
           setDialog(null);
         },
@@ -923,6 +952,20 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
                   </div>
                 )}
               </div>
+              <WarehouseStatus
+                orderId={order.id}
+                warehouse={order.warehouse}
+                action={canWrite && order.warehouse?.state === 'needs_attention' && order.fulfillment_status === 'to_ship' ? (
+                  <button
+                    data-testid={`button-warehouse-retry-${order.id}`}
+                    className={`${BTN_SECONDARY} h-8 px-3`}
+                    disabled={retry.isPending}
+                    onClick={() => retryWarehouse(order)}
+                  >
+                    Retry warehouse
+                  </button>
+                ) : null}
+              />
             </SectionCard>
           ))}
           {!rows?.length && (

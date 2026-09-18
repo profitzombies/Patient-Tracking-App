@@ -6,7 +6,7 @@ import { BillingCartError, checkoutCart, estimateCartTax, MAX_CART_LINES, MAX_LI
 import { BillingCatalogError, officeOffering, subscribeSavePercent } from "../billing/catalog";
 import { BillingOrderError } from "../billing/orders";
 import {
-  changeSubscriptionAddress, changeSubscriptionPlan, moveNextShipment, parseMoveDate, skipNextShipment,
+  changeSubscriptionAddress, takeAddressSync, changeSubscriptionPlan, moveNextShipment, parseMoveDate, skipNextShipment,
   subscriptionCard, updateSubscriptionCard,
 } from "../billing/patient-subscriptions";
 import { BillingPriceError } from "../billing/prices";
@@ -349,7 +349,10 @@ function action(name: string, run: Action): void {
       const row = await ownedSubscription(ctx, String(req.params.id));
       if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
       const updated = await run(ctx, row, req.body);
-      res.json(subscriptionDto(updated, await productName(updated.product_id)));
+      // Address changes report whether the current shipment followed to the
+      // warehouse or is already being packed (change applies to future boxes).
+      const warehouse = name === "address" ? takeAddressSync(updated.id) : null;
+      res.json({ ...subscriptionDto(updated, await productName(updated.product_id)), ...(warehouse ? { warehouse_sync: warehouse } : {}) });
     } catch (error) { fail(req, res, error); }
   });
 }

@@ -21,9 +21,12 @@ import { useOfficeFulfillmentInfinite } from '@/hooks/useOfficeBilling';
 import { DEMO_FULFILLMENT } from '@/data/office-payments-demo';
 import {
   FULFILLMENT_LABEL,
+  WAREHOUSE_STATE_LABEL,
   formatDate,
   formatDateTime,
   fulfillmentTone,
+  warehouseTone,
+  warehouseWaitingLine,
 } from '@/lib/office-billing-format';
 import type { FulfillmentStatus, OrderDetail } from '@/lib/office-billing-types';
 import { useColors } from '@/hooks/useColors';
@@ -187,10 +190,21 @@ function FulfillmentDetail({ order }: { order: OrderDetail }) {
   if (order.fulfillment_status === 'canceled') {
     return <Body>{order.canceled_reason ?? 'No reason recorded'}</Body>;
   }
-  return <Body>Waiting for THINNR to pack and ship.</Body>;
+  return (
+    <View style={styles.waiting}>
+      <Body testID={`text-warehouse-${order.id}`}>{warehouseWaitingLine(order.warehouse)}</Body>
+      {order.warehouse ? (
+        <View style={styles.pillRow} testID={`pill-warehouse-${order.id}`}>
+          <StatusPill tone={warehouseTone(order.warehouse.state)}>{WAREHOUSE_STATE_LABEL[order.warehouse.state]}</StatusPill>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   list: { gap: 10 },
+  waiting: { gap: 6 },
+  pillRow: { flexDirection: 'row' },
   link: { fontFamily: 'Inter_600SemiBold', fontSize: 12, paddingVertical: 6 },
 });

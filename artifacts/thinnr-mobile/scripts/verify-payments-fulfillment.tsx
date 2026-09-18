@@ -116,6 +116,29 @@ async function main() {
   check('all controls are accessible', accessible(mounted.root));
   await mounted.unmount();
 
+  section('Warehouse state (read-only on the phone)');
+  resetRequests();
+  const base = DEMO_FULFILLMENT.find((order) => order.fulfillment_status === 'to_ship')!;
+  const sent = { state: 'sent', warehouse_order_id: '1436188', warehouse_status: 'Imported', sent_at: '2026-10-11T14:04:00Z', error: null, attempts: 1, next_attempt_at: null, last_attempt_at: '2026-10-11T14:04:00Z' };
+  const rejected = { ...sent, state: 'needs_attention', warehouse_order_id: null, warehouse_status: null, sent_at: null, error: 'ItemSKU not recognized: CONTROL-OLD' };
+  const queued = { ...sent, state: 'pending', warehouse_order_id: null, warehouse_status: null, sent_at: null, attempts: 0, last_attempt_at: null, next_attempt_at: '2026-10-11T14:06:00Z' };
+  const rows = [['w1', sent], ['w2', rejected], ['w3', queued], ['w4', null]] as const;
+  setScript((request) => {
+    if (request.path === '/api/billing/office/status') return { status: 200, body: STATUS };
+    if (request.path !== '/api/billing/office/fulfillment') return undefined;
+    return { status: 200, body: { items: rows.map(([id, warehouse]) => ({ ...base, id, order_number: `TH-${id.toUpperCase()}`, warehouse })), next_cursor: null } };
+  });
+  mounted = await mount(<FulfillmentScreen />, STAFF);
+  const line = (id: string) => text(mounted.root, `text-warehouse-${id}`);
+  // The pill renders its label uppercased, so compare case-insensitively.
+  const pill = (id: string) => (one(mounted.root, `pill-warehouse-${id}`) ? textOf(one(mounted.root, `pill-warehouse-${id}`)!).toLowerCase() : '');
+  check('sent order shows the warehouse id and timestamp', line('w1').includes('Sent to the warehouse') && line('w1').includes('warehouse order 1436188') && pill('w1').includes('sent to warehouse'), `${line('w1')} | ${pill('w1')}`);
+  check('rejected order reads needs attention with HQ handling it, never the raw error', pill('w2').includes('needs attention') && line('w2').includes('THINNR HQ is fixing it') && !JSON.stringify(mounted.renderer.toJSON()).includes('CONTROL-OLD'), `${line('w2')} | ${pill('w2')}`);
+  check('queued order reads sending; pre-warehouse orders keep the plain waiting line', pill('w3').includes('sending to warehouse') && line('w3').includes('Waiting for THINNR') && line('w4').includes('Waiting for THINNR') && !one(mounted.root, 'pill-warehouse-w4'), `${line('w3')} | ${line('w4')}`);
+  check('no retry control on the phone', mounted.root.findAll((node: any) => node.type === 'Pressable' && /retry/i.test(textOf(node))).length === 0);
+  check('warehouse rows stay accessible', accessible(mounted.root));
+  await mounted.unmount();
+
   section('Loading and error retry');
   liveScript({ delayed: true });
   mounted = await mount(<FulfillmentScreen />, STAFF);

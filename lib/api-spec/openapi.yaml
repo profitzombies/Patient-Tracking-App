@@ -4383,6 +4383,34 @@ components:
           type: ["array", "null"]
           items: { $ref: "#/components/schemas/PatientSignInMonth" }
         externalTrigger: { $ref: "#/components/schemas/ExternalTriggerHealth" }
+        # WarehouseCraft submission queue (last 24 h); null when it could not be read.
+        # Optional so older servers still validate.
+        warehouse:
+          oneOf:
+            - $ref: "#/components/schemas/WarehouseSubmissionHealth"
+            - type: "null"
+    WarehouseSubmissionHealth:
+      type: object
+      required: [pending, due, sent24h, failed24h, retries24h, needs_attention, auto_submit, recent_failures]
+      properties:
+        pending: { type: number, description: Intents still waiting to be sent. }
+        due: { type: number, description: Pending intents whose next attempt is due now. }
+        sent24h: { type: number }
+        failed24h: { type: number, description: Attempts in the last 24 h that failed (transient or definite). }
+        retries24h: { type: number, description: Intents retried at least once in the last 24 h. }
+        needs_attention: { type: number }
+        auto_submit: { type: boolean, description: HQ kill switch state. }
+        recent_failures:
+          type: array
+          items:
+            type: object
+            required: [order_id, order_number, error, at, state]
+            properties:
+              order_id: { type: string }
+              order_number: { type: ["string", "null"] }
+              error: { type: ["string", "null"] }
+              at: { type: ["string", "null"] }
+              state: { type: string, enum: [pending, sent, needs_attention, skipped] }
     PushOutboxBacklog:
       type: object
       required: [due, oldestDueAt, oldestDueAgeMs, inFlight]

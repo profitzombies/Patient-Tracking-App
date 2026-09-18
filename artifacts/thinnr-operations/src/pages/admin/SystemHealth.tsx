@@ -27,6 +27,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNowStrict } from 'date-fns';
+import { Link } from 'wouter';
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, PauseCircle, Play, Radio, RotateCcw, ShieldAlert } from 'lucide-react';
 import {
   getGetHqSystemHealthQueryKey,
@@ -114,6 +115,53 @@ export function formatAge(ms: number | null | undefined): string {
 /** Backlog ages past one tick are worth a look; past ten minutes the drain is behind. */
 export const OUTBOX_AGE_WARN_MS = 60_000;
 export const OUTBOX_AGE_ALERT_MS = 10 * 60_000;
+
+/**
+ * Last 24 h of WarehouseCraft submissions. `undefined` = not loaded yet,
+ * `null` = the API could not read the queue (shown as unavailable, never as zero).
+ */
+function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemHealthResult['warehouse'] | undefined; loaded: boolean }) {
+  const unreadable = loaded && warehouse === null;
+  const detailWhenMissing = unreadable ? 'Queue unreadable' : 'Waiting for first read';
+  return (
+    <section className="mt-6" aria-labelledby="warehouse-heading" data-testid="system-health-warehouse">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="warehouse-heading" className="font-serif text-base font-bold text-navy">Warehouse submissions</h2>
+        <p className="text-[11px] text-muted-foreground">Paid orders sent to WarehouseCraft in the last 24 hours. Rejections wait in Fulfillment as Needs attention until HQ fixes the product or address and retries.</p>
+      </div>
+      {unreadable && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-warehouse-unreadable">
+          The submission queue could not be read, so these figures are unavailable rather than zero.
+        </p>
+      )}
+      {warehouse && !warehouse.auto_submit && (
+        <p role="status" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-warehouse-paused">
+          Automatic submission is switched off in Payments settings. {warehouse.pending.toLocaleString()} paid {warehouse.pending === 1 ? 'order is' : 'orders are'} queued and will go out once it is switched back on.
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <MetricTile label="Sent" value={warehouse ? warehouse.sent24h.toLocaleString() : '—'} detail={warehouse ? 'Last 24 hours' : detailWhenMissing} testId="metric-warehouse-sent" />
+        <MetricTile label="Failed attempts" value={warehouse ? warehouse.failed24h.toLocaleString() : '—'} detail={warehouse ? (warehouse.failed24h === 0 ? 'None' : 'Transient and definite') : detailWhenMissing} testId="metric-warehouse-failed" />
+        <MetricTile label="Retried" value={warehouse ? warehouse.retries24h.toLocaleString() : '—'} detail={warehouse ? 'Needed more than one attempt' : detailWhenMissing} testId="metric-warehouse-retries" />
+        <MetricTile label="Waiting" value={warehouse ? warehouse.pending.toLocaleString() : '—'} detail={warehouse ? (warehouse.due === 0 ? 'Nothing due' : `${warehouse.due.toLocaleString()} due now`) : detailWhenMissing} testId="metric-warehouse-pending" />
+        <MetricTile label="Needs attention" value={warehouse ? warehouse.needs_attention.toLocaleString() : '—'} detail={warehouse ? (warehouse.needs_attention === 0 ? 'Queue is clean' : 'Fix and retry in Fulfillment') : detailWhenMissing} testId="metric-warehouse-attention" />
+      </div>
+      {warehouse && warehouse.recent_failures.length > 0 && (
+        <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-card text-xs" data-testid="list-warehouse-failures">
+          {warehouse.recent_failures.map((failure) => (
+            <li key={failure.order_id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-2.5" data-testid={`warehouse-failure-${failure.order_id}`}>
+              <span>
+                <Link href="/admin/payments/fulfillment" className="font-semibold text-primary hover:underline">{failure.order_number ?? failure.order_id}</Link>
+                <span className="ml-2 text-destructive">{failure.error ?? 'Rejected by the warehouse'}</span>
+              </span>
+              <span className="text-muted-foreground">{when(failure.at)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 export function outboxAgeDetail(outbox: SystemHealthResult['outbox'] | undefined): string {
   if (outbox === undefined) return 'Waiting for first read';
@@ -407,6 +455,8 @@ export default function SystemHealth() {
               />
             </div>
           </section>
+
+          <WarehouseSubmissionsSection warehouse={data?.warehouse} loaded={Boolean(data)} />
 
           {isError && (
             <div role="alert" className="mt-6 rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-4 py-3 text-xs text-destructive" data-testid="text-system-health-error">

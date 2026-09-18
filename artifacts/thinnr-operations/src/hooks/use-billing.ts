@@ -349,6 +349,18 @@ export function useUpdateFulfillment() {
   });
 }
 
+export function useRetryWarehouse() {
+  const { base } = useHqBillingScope();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => hqBilling.retryWarehouse(orderId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: [...base, 'fulfillment'] });
+      void client.invalidateQueries({ queryKey: [...base, 'transaction'] });
+    },
+  });
+}
+
 export function useHqCatalog() {
   const { liveEnabled, base } = useHqBillingScope();
   return useQuery({ queryKey: [...base, 'catalog'], queryFn: () => hqBilling.catalog(), enabled: liveEnabled });

@@ -8,7 +8,7 @@ import { markOrderPaidFromInvoice } from "./orders";
 import { ensureRecurringPrices } from "./prices";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox, isStripeMissing } from "./stripe-client";
 import {
-  shipmentColumns,insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingCartRow, type BillingConnectedAccountRow,
+  shipmentColumns, newOrderNumber, insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingCartRow, type BillingConnectedAccountRow,
   type BillingOrderRow, type BillingPaymentLinkRow, type BillingPayerRow, type BillingProductRow, type BillingSettingsRow,
 } from "./store";
 import { markSubscriptionInvoicePaid, nextShipmentAt, periodEnd } from "./subscriptions";
@@ -118,10 +118,7 @@ export async function estimateCartTax(
   }
   return total;
 }
-function orderNumber(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return `TH-${[...crypto.randomBytes(6)].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
-}
+const orderNumber = newOrderNumber;
 
 /**
  * Prices a mixed cart for one office. One-time lines share one order (and one

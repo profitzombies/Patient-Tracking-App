@@ -20,6 +20,7 @@
  * authenticated tick records a heartbeat (src/jobs/external-ticks.ts) that the
  * health route reports as "last external tick", stale after five minutes.
  */
+import { warehouseHealth } from "../billing/warehouse-submissions";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createLimiter } from "../coach/limits";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
@@ -171,7 +172,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
       // The outbox read is separate from the job ledger: when it fails the
       // page still shows the jobs, and the outbox tiles read as unavailable
       // rather than an empty, healthy-looking queue.
-      const [states, recentRuns, ticks, outbox] = await Promise.all([
+      const [states, recentRuns, ticks, outbox, warehouse] = await Promise.all([
         store.listStates(),
         store.listRecentRuns(25),
         tickStore.list(),
@@ -182,6 +183,11 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
             return null;
           },
         ),
+        // Same posture as the outbox: a failed read shows as unavailable, never as a quiet queue.
+        warehouseHealth(now).catch((error: unknown) => {
+          req.log?.error({ err: error }, "warehouse submission health read failed");
+          return null;
+        }),
       ]);
       const stateByName = new Map(states.map((s) => [s.jobName, s]));
       const jobs: JobHealthDto[] = [];
@@ -209,6 +215,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
         jobs,
         recentRuns: recentRuns.map(runDto),
         outbox,
+        warehouse,
         patientSignIns,
         externalTrigger: toExternalTriggerHealth(ticks, now),
       });

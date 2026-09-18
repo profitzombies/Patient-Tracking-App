@@ -419,6 +419,18 @@ export interface OrderSummary {
   paid_at: string | null;
 }
 
+/** WarehouseCraft submission outcome for an order (null until the order is paid, and for legacy rows). */
+export interface WarehouseSubmission {
+  state: "pending" | "sent" | "needs_attention" | "skipped";
+  warehouse_order_id: string | null;
+  warehouse_status: string | null;
+  sent_at: string | null;
+  error: string | null;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_attempt_at: string | null;
+}
+
 export interface OrderDetail extends OrderSummary {
   items: OrderItem[];
   shipping_address: ShippingAddress;
@@ -431,6 +443,8 @@ export interface OrderDetail extends OrderSummary {
   shipped_at: string | null;
   shipped_by_name: string | null;
   canceled_reason: string | null;
+  /** Optional: older demo fixtures omit it; live rows carry it once paid. */
+  warehouse?: WarehouseSubmission | null;
   refunds: Refund[];
   disputes: Dispute[];
   ledger: LedgerLine[];

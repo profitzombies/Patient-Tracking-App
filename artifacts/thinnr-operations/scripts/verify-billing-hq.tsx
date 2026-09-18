@@ -219,12 +219,41 @@ await check('activity demo rows', '/admin/payments/activity?kind=refund', Paymen
 }
 await check('providers demo rows', '/admin/payments/providers', PaymentsProviders, ['Jenkins Wellness', 'Beacon Hill Aesthetics', 'below minimum']);
 await check('transactions demo rows', '/admin/payments/transactions', PaymentsTransactions, ['TH-D3MO01', 'Maya Thompson', 'Subscription renewal']);
-await check('fulfillment demo rows', '/admin/payments/fulfillment?status=to_ship', PaymentsFulfillment, ['TH-D3MO01', 'Mark shipped', 'Copy address']);
+await check('fulfillment demo rows', '/admin/payments/fulfillment?status=to_ship', PaymentsFulfillment, [
+  'TH-D3MO01', 'Mark shipped', 'Copy address',
+  // WarehouseCraft states: sent (with the 3PL id + timestamp), rejected (with the warehouse's message), and still queued.
+  'Sent to warehouse', 'Warehouse order 1436100', 'Needs attention', 'ItemSKU not recognized: REGULATE-OLD', 'Retry warehouse',
+  'Sending to warehouse', 'Queued; the warehouse receives paid orders within a few minutes.',
+]);
+{
+  // The retry action is HQ-only and appears exactly once: on the rejected order, never on sent or queued ones.
+  const location = memoryLocation({ path: '/admin/payments/fulfillment?status=to_ship' });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let renderer: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/admin/payments" nest><PaymentsFulfillment /></Route></Router></DateRangeProvider></QueryClientProvider>);
+  });
+  const retries = renderer!.root.findAll(node => node.type === 'button' && String(node.props['data-testid'] ?? '').startsWith('button-warehouse-retry-'));
+  const pills = renderer!.root.findAll(node => node.type === 'span' && String(node.props['data-testid'] ?? '').startsWith('pill-warehouse-'));
+  const pillText = (id: string) => JSON.stringify(pills.find(node => node.props['data-testid'] === `pill-warehouse-${id}`)?.children ?? null);
+  await act(async () => { retries[0]?.props.onClick(); });
+  const problems = [
+    retries.length !== 1 || retries[0].props['data-testid'] !== 'button-warehouse-retry-demo-order-2' ? `expected one retry button on demo-order-2, found ${retries.map(node => node.props['data-testid']).join(', ') || 'none'}` : '',
+    !pillText('demo-order-1').includes('Sent to warehouse') ? `demo-order-1 pill reads ${pillText('demo-order-1')}` : '',
+    !pillText('demo-order-2').includes('Needs attention') ? `demo-order-2 pill reads ${pillText('demo-order-2')}` : '',
+    !pillText('demo-order-5').includes('Sending to warehouse') ? `demo-order-5 pill reads ${pillText('demo-order-5')}` : '',
+  ].filter(Boolean);
+  if (problems.length) { failures += 1; console.error(`FAIL fulfillment warehouse states: ${problems.join('; ')}`); }
+  else console.log('ok fulfillment warehouse states');
+  await act(async () => { renderer!.unmount(); });
+}
+await check('fulfillment shipped demo rows', '/admin/payments/fulfillment?status=shipped', PaymentsFulfillment, ['TH-D3MO03', 'Mark delivered', 'Sent to warehouse', 'Warehouse order 1436102']);
 await check('catalog demo rows', '/admin/payments/catalog', PaymentsCatalog, [
   'Control', 'Maintenance + Detox Stack', 'Add product', 'Active products', 'Program settings', 'Card fee rate', '"2.90"', '/admin/payments/catalog/products/new',
   'Metabolic & Appetite Support', 'Supplement · Every 2, 4, 6, 8, 10 or 12 weeks · default 4', 'Drops · Every 4, 8 or 12 weeks · default 4', 'Subscribe and save',
   'Shipping charged to patients (fallback when live rates are unavailable)', 'Free shipping above', 'Pick-and-pack schedule',
   'Trailing 7 days:', '<50/wk', 'Patients pay the pick-and-pack fee by default',
+  'Send paid orders to WarehouseCraft automatically', 'Every paid order is submitted to the warehouse within a few minutes',
 ]);
 await check('catalog history demo rows', '/admin/payments/catalog/history', PaymentsCatalogHistory, [
   'Office price changed', 'Jenkins Wellness', 'Alex Morgan', '/admin/team?member=hq-1', 'floor $109.99 → $119.99', 'price $79.99 → $84.99', ':27',
@@ -249,7 +278,7 @@ await check(
   'transaction detail back link',
   '/admin/payments/transactions/demo-order-1',
   () => <PaymentTransactionDetail params={{ orderId: 'demo-order-1' }} />,
-  ['TH-D3MO01', 'Back to transactions'],
+  ['TH-D3MO01', 'Back to transactions', 'Warehouse', 'Sent to warehouse', 'Warehouse order 1436100'],
 );
 
 {

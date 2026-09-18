@@ -510,3 +510,6 @@ export * from './updateOfficeAlertPreferencesBody';
 export * from './updateOfficeAlertSettingsParams';
 export * from './updateOfficePatientFollowUpParams';
 export * from './updateOfficeSettingsOverridesParams';
+export * from './warehouseSubmissionHealth';
+export * from './warehouseSubmissionHealthRecentFailuresItem';
+export * from './warehouseSubmissionHealthRecentFailuresItemState';

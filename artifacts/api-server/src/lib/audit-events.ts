@@ -95,6 +95,8 @@ export const AUDIT_ACTIONS = [
   "billing_subscription_resumed",
   "billing_subscription_changed",
   "billing_order_fulfillment_updated",
+  "billing_warehouse_retry",
+  "billing_warehouse_auto_submit_changed",
   "billing_prices_updated",
   "billing_payment_link_created",
   "billing_payment_link_updated",

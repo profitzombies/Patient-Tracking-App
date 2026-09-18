@@ -59,6 +59,7 @@ export function settingsDto(row: BillingSettingsRow, weeklyOrders = 0): BillingS
     shipping_charge_cents: row.shipping_charge_cents, shipping_cost_cents: row.shipping_cost_cents,
     card_fee_bps: row.card_fee_bps, card_fee_fixed_cents: row.card_fee_fixed_cents,
     subscribe_save_enabled: row.subscribe_save_enabled, subscribe_save_percent: row.subscribe_save_percent,
+    warehouse_auto_submit: row.warehouse_auto_submit !== false,
     version: row.version, updated_at: row.updated_at ?? null,
   };
 }
@@ -475,7 +476,7 @@ export async function productImageSignedUrl(imageId: string): Promise<string | n
   return objectStorage.signedDownloadURL(image.object_path, 3600);
 }
 export type SettingsUpdateInput = Pick<BillingSettingsRow, "shipping_charge_cents" | "shipping_cost_cents" | "card_fee_bps" | "card_fee_fixed_cents">
-  & Partial<Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent">>
+  & Partial<Pick<BillingSettingsRow, "subscribe_save_enabled" | "subscribe_save_percent" | "warehouse_auto_submit">>
   & Partial<ShippingRules> & { expected_version: number };
 export async function updateSettings(input: SettingsUpdateInput, actor: string): Promise<BillingSettings> {
   const before = await getSettings();
@@ -499,6 +500,7 @@ export async function updateSettings(input: SettingsUpdateInput, actor: string):
     pick_pack_schedule: rest.pick_pack_schedule === undefined ? rules.pick_pack_schedule : normalizeSchedule(rest.pick_pack_schedule),
     pick_pack_pass_through_default: rest.pick_pack_pass_through_default ?? rules.pick_pack_pass_through_default,
     expedited_enabled: rest.expedited_enabled ?? rules.expedited_enabled,
+    warehouse_auto_submit: rest.warehouse_auto_submit ?? (before.warehouse_auto_submit !== false),
   };
   const result = await supabaseAdmin("PATCH", `/rest/v1/billing_settings?id=eq.1&version=eq.${expected_version}`, {
     ...values, version: expected_version + 1, updated_by: actor,

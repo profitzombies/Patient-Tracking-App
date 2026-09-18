@@ -2298,6 +2298,43 @@ export interface PatientSignInMonth {
   smsPerActivePatient: number | null;
 }
 
+export type WarehouseSubmissionHealthRecentFailuresItemState = typeof WarehouseSubmissionHealthRecentFailuresItemState[keyof typeof WarehouseSubmissionHealthRecentFailuresItemState];
+
+
+export const WarehouseSubmissionHealthRecentFailuresItemState = {
+  pending: 'pending',
+  sent: 'sent',
+  needs_attention: 'needs_attention',
+  skipped: 'skipped',
+} as const;
+
+export type WarehouseSubmissionHealthRecentFailuresItem = {
+  order_id: string;
+  /** @nullable */
+  order_number: string | null;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  at: string | null;
+  state: WarehouseSubmissionHealthRecentFailuresItemState;
+};
+
+export interface WarehouseSubmissionHealth {
+  /** Intents still waiting to be sent. */
+  pending: number;
+  /** Pending intents whose next attempt is due now. */
+  due: number;
+  sent24h: number;
+  /** Attempts in the last 24 h that failed (transient or definite). */
+  failed24h: number;
+  /** Intents retried at least once in the last 24 h. */
+  retries24h: number;
+  needs_attention: number;
+  /** HQ kill switch state. */
+  auto_submit: boolean;
+  recent_failures: WarehouseSubmissionHealthRecentFailuresItem[];
+}
+
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
@@ -2307,6 +2344,7 @@ export interface SystemHealthResult {
   /** @nullable */
   patientSignIns: PatientSignInMonth[] | null;
   externalTrigger: ExternalTriggerHealth;
+  warehouse?: WarehouseSubmissionHealth | null;
 }
 
 export type ThresholdLevel = typeof ThresholdLevel[keyof typeof ThresholdLevel];

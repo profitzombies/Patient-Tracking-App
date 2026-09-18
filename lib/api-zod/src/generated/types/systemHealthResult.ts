@@ -10,6 +10,7 @@ import type { PatientSignInMonth } from './patientSignInMonth';
 import type { PushOutboxBacklog } from './pushOutboxBacklog';
 import type { SystemJobHealth } from './systemJobHealth';
 import type { SystemJobRun } from './systemJobRun';
+import type { WarehouseSubmissionHealth } from './warehouseSubmissionHealth';
 
 export interface SystemHealthResult {
   asOf: string;
@@ -20,4 +21,5 @@ export interface SystemHealthResult {
   /** @nullable */
   patientSignIns: PatientSignInMonth[] | null;
   externalTrigger: ExternalTriggerHealth;
+  warehouse?: WarehouseSubmissionHealth | null;
 }

@@ -2,7 +2,7 @@
  * Money and status formatting shared by every payments screen. Money is
  * integer cents on the wire; dollars exist only here and in price inputs.
  */
-import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus } from '@/lib/billing-types';
+import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/billing-types';
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -204,4 +204,30 @@ export function cadenceSummary(offered: readonly CadenceWeeks[], fallback: Caden
   if (offered.length === 1) return `Every ${offered[0]} weeks`;
   const head = offered.slice(0, -1).join(', ');
   return `Every ${head} or ${offered[offered.length - 1]} weeks · default ${fallback}`;
+}
+
+/** Staff-facing wording for the WarehouseCraft submission state of a paid order. */
+export const WAREHOUSE_STATE_LABEL: Record<WarehouseSubmission['state'], string> = {
+  pending: 'Sending to warehouse',
+  sent: 'Sent to warehouse',
+  needs_attention: 'Needs attention',
+  skipped: 'Not sent to warehouse',
+};
+
+export function warehouseTone(state: WarehouseSubmission['state']): PillTone {
+  return state === 'sent' ? 'good' : state === 'needs_attention' ? 'bad' : state === 'pending' ? 'info' : 'neutral';
+}
+
+/** One line of detail under the warehouse pill: when it was sent (and the 3PL's id), or what went wrong. */
+export function warehouseDetail(warehouse: WarehouseSubmission): string {
+  if (warehouse.state === 'sent') {
+    const id = warehouse.warehouse_order_id ? `Warehouse order ${warehouse.warehouse_order_id}` : 'Warehouse order id pending';
+    return `${id} · ${formatDateTime(warehouse.sent_at)}`;
+  }
+  if (warehouse.state === 'needs_attention') return warehouse.error ?? 'The warehouse rejected this order.';
+  if (warehouse.state === 'pending') {
+    if (warehouse.error) return `${warehouse.error} Retrying ${warehouse.next_attempt_at ? formatDateTime(warehouse.next_attempt_at) : 'shortly'}.`;
+    return 'Queued; the warehouse receives paid orders within a few minutes.';
+  }
+  return 'Canceled or refunded before it reached the warehouse.';
 }

@@ -116,6 +116,8 @@ export interface BillingSettings extends ShippingRules {
   subscribe_save_enabled: boolean;
   /** Whole percent off every subscription renewal while enabled (kept while off). */
   subscribe_save_percent: number;
+  /** Kill switch: paid orders keep queueing warehouse intents, but nothing is sent while off. */
+  warehouse_auto_submit: boolean;
   version: number;
   updated_at: string | null;
 }
@@ -467,6 +469,17 @@ export interface OrderSummary {
   paid_at: string | null;
 }
 
+/** WarehouseCraft submission outcome for an order (null until the order is paid). */
+export interface WarehouseSubmission {
+  state: "pending" | "sent" | "needs_attention" | "skipped";
+  warehouse_order_id: string | null;
+  warehouse_status: string | null;
+  sent_at: string | null;
+  error: string | null;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_attempt_at: string | null;
+}
 export interface OrderDetail extends OrderSummary {
   items: OrderItem[];
   shipping_address: ShippingAddress;
@@ -479,6 +492,8 @@ export interface OrderDetail extends OrderSummary {
   shipped_at: string | null;
   shipped_by_name: string | null;
   canceled_reason: string | null;
+  /** WarehouseCraft submission outcome; null until the order is paid (and for legacy rows). */
+  warehouse: WarehouseSubmission | null;
   refunds: Refund[];
   disputes: Dispute[];
   ledger: LedgerLine[];

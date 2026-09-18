@@ -1,0 +1,683 @@
+{
+  "recorded_at": "2026-09-18T20:38:12.310Z",
+  "note": "Recorded against the NovEx WarehouseCraft test account (test SKUs Test01-Test05). Credentials and host are never stored. Facts: create returns HTTP 200 for BOTH success and rejection (read ResultOrder[].ResultDetail[].Status); an order created with no lines is accepted, so the client refuses empty carts; the API does not gate edits by status (a cancelled order still accepted an address edit), so the app enforces the 3PL status list itself.",
+  "calls": [
+    {
+      "label": "lookup_miss",
+      "method": "GET",
+      "path": "/api/OrderDatas?clientOrderId=TH-APITEST2",
+      "request": null,
+      "status": 404,
+      "content_type": "application/json",
+      "body": {
+        "Message": "Not Found."
+      }
+    },
+    {
+      "label": "create",
+      "method": "POST",
+      "path": "/api/OrderDatas",
+      "request": {
+        "ClientOrderId": "TH-APITEST2",
+        "OrderDate": "2026-09-18T12:00:00",
+        "CompanyOrName": "THINNR API Test",
+        "AddressLine1": "123 Test Street",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "US",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS_GroundAdvantage",
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ItemQuantity": 1,
+            "ItemPrice": 49
+          },
+          {
+            "ItemSKU": "Test03",
+            "ItemQuantity": 2,
+            "ItemPrice": 19.5
+          }
+        ]
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Orders successfully submitted.",
+        "ResultOrder": [
+          {
+            "ClientOrderId": "TH-APITEST2",
+            "ResultDetail": [
+              {
+                "Status": "Success",
+                "Details": "Created OrderId: 1436119"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "label": "create_duplicate",
+      "method": "POST",
+      "path": "/api/OrderDatas",
+      "request": {
+        "ClientOrderId": "TH-APITEST2",
+        "OrderDate": "2026-09-18T12:00:00",
+        "CompanyOrName": "THINNR API Test",
+        "AddressLine1": "123 Test Street",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "US",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS_GroundAdvantage",
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ItemQuantity": 1,
+            "ItemPrice": 49
+          },
+          {
+            "ItemSKU": "Test03",
+            "ItemQuantity": 2,
+            "ItemPrice": 19.5
+          }
+        ]
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Error submitting orders.",
+        "ResultOrder": [
+          {
+            "ClientOrderId": "TH-APITEST2",
+            "ResultDetail": [
+              {
+                "Status": "Error",
+                "Details": "Duplicate Order: ClientOrderId TH-APITEST2 is already in the system under OrderId 1436119."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "label": "lookup_hit",
+      "method": "GET",
+      "path": "/api/OrderDatas?clientOrderId=TH-APITEST2",
+      "request": null,
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Imported",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "123 Test Street",
+        "AddressLine2": null,
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "status_list",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-18&endDate=2026-09-19",
+      "request": null,
+      "status": 200,
+      "content_type": "application/json",
+      "body": [
+        {
+          "OrderId": 1436119,
+          "ClientOrderId": "TH-APITEST2",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-18T12:00:00",
+          "ImportDate": "2026-09-18T15:38:13.093",
+          "OrderStatus": "Imported",
+          "CarrierCode": "USPS",
+          "ShippingMethod": "USPS Ground Advantage",
+          "ShippingData": []
+        }
+      ]
+    },
+    {
+      "label": "edit_address",
+      "method": "PUT",
+      "path": "/api/OrderDatas/1436119",
+      "request": {
+        "OrderId": 1436119,
+        "AddressLine1": "456 Test Avenue",
+        "AddressLine2": "Apt 2",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "US"
+      },
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Imported",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "456 Test Avenue",
+        "AddressLine2": "Apt 2",
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "after_edit",
+      "method": "GET",
+      "path": "/api/OrderDatas/1436119",
+      "request": null,
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Imported",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "456 Test Avenue",
+        "AddressLine2": "Apt 2",
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "cancel",
+      "method": "PUT",
+      "path": "/api/OrderDatas/1436119",
+      "request": {
+        "OrderId": 1436119,
+        "OrderStatus": "Cancelled"
+      },
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Cancelled",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "456 Test Avenue",
+        "AddressLine2": "Apt 2",
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "after_cancel",
+      "method": "GET",
+      "path": "/api/OrderDatas/1436119",
+      "request": null,
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Cancelled",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "456 Test Avenue",
+        "AddressLine2": "Apt 2",
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "edit_after_cancel",
+      "method": "PUT",
+      "path": "/api/OrderDatas/1436119",
+      "request": {
+        "OrderId": 1436119,
+        "AddressLine1": "789 Test Blvd"
+      },
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "WarehouseCode": "MEM",
+        "OrderStatus": "Cancelled",
+        "OrderDate": "2026-09-18T12:00:00",
+        "ShipByDate": null,
+        "DeliverByDate": null,
+        "CompanyOrName": "THINNR API Test",
+        "Attention": null,
+        "AddressLine1": "789 Test Blvd",
+        "AddressLine2": "Apt 2",
+        "AddressLine3": null,
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38104",
+        "Country": "United States of America",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS Ground Advantage",
+        "NotesToCustomerPackingSlip": null,
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 1",
+            "ItemQuantity": 1,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          },
+          {
+            "ItemSKU": "Test03",
+            "ParentSKU": null,
+            "ItemSKU2": null,
+            "ItemDescription": "TEST Item 3",
+            "ItemQuantity": 2,
+            "IsKitHeader": false,
+            "IsPicked": false,
+            "PickType": null,
+            "OrderDetailLotData": []
+          }
+        ]
+      }
+    },
+    {
+      "label": "create_unknown_sku",
+      "method": "POST",
+      "path": "/api/OrderDatas",
+      "request": {
+        "ClientOrderId": "TH-APITEST2-BADSKU",
+        "OrderDate": "2026-09-18T12:00:00",
+        "CompanyOrName": "THINNR API Test",
+        "AddressLine1": "123 Test Street",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "US",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS_GroundAdvantage",
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test99",
+            "ItemQuantity": 1
+          }
+        ]
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Error submitting orders.",
+        "ResultOrder": [
+          {
+            "ClientOrderId": "TH-APITEST2-BADSKU",
+            "ResultDetail": [
+              {
+                "Status": "Error",
+                "Details": "ItemSKU not recognized: Test99"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "label": "create_bad_method",
+      "method": "POST",
+      "path": "/api/OrderDatas",
+      "request": {
+        "ClientOrderId": "TH-APITEST2-BADMETHOD",
+        "OrderDate": "2026-09-18T12:00:00",
+        "CompanyOrName": "THINNR API Test",
+        "AddressLine1": "123 Test Street",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "US",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "NOT_A_METHOD",
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": [
+          {
+            "ItemSKU": "Test01",
+            "ItemQuantity": 1,
+            "ItemPrice": 49
+          },
+          {
+            "ItemSKU": "Test03",
+            "ItemQuantity": 2,
+            "ItemPrice": 19.5
+          }
+        ]
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Error submitting orders.",
+        "ResultOrder": [
+          {
+            "ClientOrderId": "TH-APITEST2-BADMETHOD",
+            "ResultDetail": [
+              {
+                "Status": "Error",
+                "Details": "Unknown shipping method: NOT_A_METHOD"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "label": "create_missing_items",
+      "method": "POST",
+      "path": "/api/OrderDatas",
+      "request": {
+        "ClientOrderId": "TH-APITEST2-NOITEMS",
+        "OrderDate": "2026-09-18T12:00:00",
+        "CompanyOrName": "THINNR API Test",
+        "AddressLine1": "123 Test Street",
+        "City": "Memphis",
+        "State": "TN",
+        "PostalCode": "38103",
+        "Country": "US",
+        "Phone": "9015550100",
+        "Email": "test@example.com",
+        "ShippingMethod": "USPS_GroundAdvantage",
+        "NotesToWarehouse": "API connectivity test - do not ship",
+        "OrderDetailData": []
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Orders successfully submitted.",
+        "ResultOrder": [
+          {
+            "ClientOrderId": "TH-APITEST2-NOITEMS",
+            "ResultDetail": [
+              {
+                "Status": "Success",
+                "Details": "Created OrderId: 1436120"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "label": "cancel_no_items_order",
+      "method": "PUT",
+      "path": "/api/OrderDatas/1436120",
+      "request": {
+        "OrderId": 1436120,
+        "OrderStatus": "Cancelled"
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "OrderId": 1436120,
+        "ClientOrderId": "TH-APITEST2-NOITEMS",
+        "OrderStatus": "Cancelled"
+      }
+    },
+    {
+      "label": "lookup_rejected_order_is_absent",
+      "method": "GET",
+      "path": "/api/OrderDatas?clientOrderId=TH-APITEST2-BADSKU",
+      "request": null,
+      "status": 404,
+      "content_type": "application/json",
+      "body": {
+        "Message": "Not Found."
+      }
+    },
+    {
+      "label": "edit_invalid_status",
+      "method": "PUT",
+      "path": "/api/OrderDatas/1436119",
+      "request": {
+        "OrderId": 1436119,
+        "OrderStatus": "Bogus"
+      },
+      "status": 406,
+      "content_type": "application/json",
+      "body": {
+        "Message": "The OrderStatus 'Bogus' is not a valid value."
+      }
+    },
+    {
+      "label": "edit_unknown_order",
+      "method": "PUT",
+      "path": "/api/OrderDatas/99999999",
+      "request": {
+        "OrderId": 99999999,
+        "OrderStatus": "Cancelled"
+      },
+      "status": 404,
+      "content_type": "application/json",
+      "body": {
+        "Message": "The order was not found."
+      }
+    },
+    {
+      "label": "no_credentials",
+      "method": "GET",
+      "path": "/api/OrderDatas?clientOrderId=TH-APITEST2",
+      "request": null,
+      "status": 401,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "Authorization has been denied for this request."
+      }
+    },
+    {
+      "label": "bad_credentials",
+      "method": "GET",
+      "path": "/api/OrderDatas?clientOrderId=TH-APITEST2",
+      "request": null,
+      "status": 401,
+      "content_type": "application/json",
+      "body": {
+        "Message": "Invalid username or password."
+      }
+    }
+  ]
+}

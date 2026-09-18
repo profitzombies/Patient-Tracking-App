@@ -292,6 +292,18 @@ args = "shipping-rates-mobile"
 task = "workflow.run"
 args = "shipping-rates-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-submit-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-submit-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-submit-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2228,6 +2240,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-submit-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/shipping/warehousecraft-orders.test.ts src/billing/warehouse-submissions.test.ts src/billing/order-number.test.ts src/routes/billing-hq.test.ts src/routes/billing-hq-orders.test.ts src/routes/billing-office-orders.test.ts src/routes/system-jobs.test.ts src/routes/patient-shop.test.ts src/billing/orders.test.ts src/lib/audit-events.test.ts src/jobs/scheduler.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-submit-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-submit-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

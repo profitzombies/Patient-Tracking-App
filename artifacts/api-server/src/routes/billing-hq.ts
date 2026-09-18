@@ -5,6 +5,7 @@ import {
   BillingCatalogError, createProduct, editProduct, finalizeProductImage, getProduct, listCatalog, listCatalogChanges,
   productImageUploadUrl, removeProductImage, reorderProducts, setDefaultProductImage, setProductActive, setProductStatus,
   updateSettings,
+  getSettings,
 } from "../billing/catalog";
 import { listOfficePrices } from "../billing/prices";
 import { officeDashboard } from "../billing/reporting";
@@ -73,6 +74,7 @@ const SettingsSchema = z.object({
   }).optional(),
   pick_pack_pass_through_default: z.boolean().optional(),
   expedited_enabled: z.boolean().optional(),
+  warehouse_auto_submit: z.boolean().optional(),
   expected_version: z.number().int().nonnegative(),
 });
 function actor(res: Response): string { return (res.locals.staff as StaffIdentity).userId; }
@@ -260,9 +262,13 @@ router.put("/billing/hq/catalog/settings", requireHqPermission("settings_manage"
   const parsed = SettingsSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Check the billing settings.", field: String(parsed.error.issues[0]?.path[0] ?? "") }); return; }
   try {
+    const before = await getSettings();
     const settings = await updateSettings(parsed.data, actor(res));
     const { expected_version: _v, ...changed } = parsed.data;
     await audit(req, res, "billing_settings_updated", "billing_settings", "1", { keys_changed: Object.keys(changed).length });
+    if (parsed.data.warehouse_auto_submit !== undefined && parsed.data.warehouse_auto_submit !== before.warehouse_auto_submit) {
+      await audit(req, res, "billing_warehouse_auto_submit_changed", "billing_settings", "1", { enabled: parsed.data.warehouse_auto_submit });
+    }
     res.json({ settings });
   } catch (error) { fail(req, res, error); }
 });

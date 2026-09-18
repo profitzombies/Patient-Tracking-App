@@ -2,7 +2,7 @@
  * Money and status formatting shared by every payments screen. Money is
  * integer cents on the wire; dollars exist only here and in price inputs.
  */
-import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus } from '@/lib/office-billing-types';
+import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/office-billing-types';
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -186,4 +186,26 @@ export function cadenceSummary(offered: readonly CadenceWeeks[], fallback: Caden
   if (offered.length === 1) return `Every ${offered[0]} weeks`;
   const head = offered.slice(0, -1).join(', ');
   return `Every ${head} or ${offered[offered.length - 1]} weeks · default ${fallback}`;
+}
+
+/** Provider-facing wording for the WarehouseCraft state of a paid order (read-only on the phone). */
+export const WAREHOUSE_STATE_LABEL: Record<WarehouseSubmission['state'], string> = {
+  pending: 'Sending to warehouse',
+  sent: 'Sent to warehouse',
+  needs_attention: 'Needs attention',
+  skipped: 'Not sent to warehouse',
+};
+
+export function warehouseTone(state: WarehouseSubmission['state']): PillTone {
+  return state === 'sent' ? 'good' : state === 'needs_attention' ? 'bad' : state === 'pending' ? 'info' : 'neutral';
+}
+
+/** The queue line under a waiting order: where it actually is right now. */
+export function warehouseWaitingLine(warehouse: WarehouseSubmission | null | undefined): string {
+  if (!warehouse || warehouse.state === 'pending' || warehouse.state === 'skipped') return 'Waiting for THINNR to pack and ship.';
+  if (warehouse.state === 'sent') {
+    const id = warehouse.warehouse_order_id ? ` (warehouse order ${warehouse.warehouse_order_id})` : '';
+    return `Sent to the warehouse ${formatDateTime(warehouse.sent_at)}${id}.`;
+  }
+  return 'The warehouse could not accept this order yet; THINNR HQ is fixing it.';
 }

@@ -1,5 +1,6 @@
 import { EMPTY_COACH_SUGGESTION } from '@/lib/billing-types';
 import type {
+  WarehouseSubmission,
   AiCostModel, AiCostSummary, AiCostSurface, CatalogChange, CoachSuggestionRule, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
   HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, ProductPageContent, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
@@ -287,6 +288,7 @@ function makeOrder(index: number, kind: OrderKind, status: OrderStatus, fulfillm
     carrier: fulfillment === 'shipped' ? 'USPS' : null, shipped_at: fulfillment === 'shipped' ? '2026-09-24T17:00:00Z' : null,
     shipped_by_name: fulfillment === 'shipped' ? 'Alex Morgan' : null,
     canceled_reason: fulfillment === 'canceled' ? 'Patient requested cancellation before shipment.' : null,
+    warehouse: demoWarehouse(index, status, fulfillment),
     refunds: refunded ? [{ id: `refund-${index}`, stripe_refund_id: `re_demo_${index}`, amount_cents: refunded, reason: 'Patient request', status: 'succeeded', requested_by_name: 'Alex Morgan', created_at: '2026-09-24T16:00:00Z' }] : [],
     disputes: status === 'disputed' ? [{ id: `dispute-${index}`, stripe_dispute_id: `dp_demo_${index}`, amount_cents: total, status: 'needs_response', reason: 'fraudulent', evidence_due_by: '2026-10-05T00:00:00Z', created_at: '2026-09-24T16:00:00Z', closed_at: null }] : [],
     ledger: [
@@ -295,6 +297,17 @@ function makeOrder(index: number, kind: OrderKind, status: OrderStatus, fulfillm
     ],
     stripe: { account_id: provider.account?.stripe_account_id ?? `acct_demo_${provider.provider_id}`, invoice_id: `in_demo_${index}`, payment_intent_id: `pi_demo_${index}`, charge_id: `ch_demo_${index}`, balance_transaction_id: `txn_demo_${index}` },
   };
+}
+
+/** WarehouseCraft state per demo order: one rejection and one in-flight intent so every queue state is on screen. */
+function demoWarehouse(index: number, status: OrderStatus, fulfillment: 'to_ship' | 'shipped' | 'canceled'): WarehouseSubmission | null {
+  if (status === 'pending' || status === 'failed') return null;
+  const paidAt = `2026-09-${String(10 + index).padStart(2, '0')}T14:02:00Z`;
+  const base = { warehouse_order_id: null, warehouse_status: null, sent_at: null, error: null, attempts: 1, next_attempt_at: null, last_attempt_at: `2026-09-${String(10 + index).padStart(2, '0')}T14:04:00Z` };
+  if (fulfillment === 'canceled') return { ...base, state: 'skipped', attempts: 0, last_attempt_at: null };
+  if (index === 1) return { ...base, state: 'needs_attention', attempts: 1, error: 'ItemSKU not recognized: REGULATE-OLD' };
+  if (index === 4) return { ...base, state: 'pending', attempts: 0, last_attempt_at: null, next_attempt_at: '2026-09-24T14:06:00Z' };
+  return { ...base, state: 'sent', warehouse_order_id: String(1436100 + index), warehouse_status: fulfillment === 'shipped' ? 'Shipped' : 'Imported', sent_at: paidAt.replace('14:02', '14:04') };
 }
 
 const ORDER_STATES: Array<[OrderKind, OrderStatus, 'to_ship' | 'shipped' | 'canceled']> = [

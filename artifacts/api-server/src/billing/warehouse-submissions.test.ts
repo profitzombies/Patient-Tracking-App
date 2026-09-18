@@ -1,0 +1,376 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { JobContext } from "../jobs/types";
+import { WarehouseCraftError } from "../shipping/warehousecraft";
+import type { WarehouseOrder, WarehouseOrderClient } from "../shipping/warehousecraft-orders";
+
+/**
+ * In-memory PostgREST stand-in: enough of the eq/in/lte/order/limit grammar for
+ * the submission queue. Every write is recorded so the tests can assert the
+ * exact state transitions, not just the return value.
+ */
+const state = vi.hoisted(() => ({
+  tables: {} as Record<string, any[]>,
+  writes: [] as Array<{ op: string; table: string; patch?: any }>,
+  admin: [] as Array<{ method: string; path: string; body?: any }>,
+  recipients: [{ auth_user_id: "hq-1", email: "hq@example.test", display_name: "HQ Admin" }] as any[],
+}));
+
+vi.mock("../lib/supabase-admin", () => ({
+  supabaseAdmin: vi.fn(async (method: string, path: string, body?: any) => {
+    state.admin.push({ method, path, body });
+    if (path.startsWith("/rest/v1/hq_memberships")) return { status: 200, json: state.recipients };
+    if (path.startsWith("/rest/v1/staff_notifications")) {
+      state.tables.staff_notifications ??= [];
+      state.tables.staff_notifications.push(...(Array.isArray(body) ? body : [body]));
+      return { status: 201, json: body };
+    }
+    return { status: 404, json: null };
+  }),
+}));
+vi.mock("./customer-emails", () => ({ notifyShipmentTransition: vi.fn() }));
+vi.mock("./store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./store")>();
+  const rows = (table: string) => (state.tables[table] ??= []);
+  const parse = (query: string) => {
+    const params = new URLSearchParams(query);
+    const filters: Array<(row: any) => boolean> = [];
+    let order: Array<[string, string]> = [];
+    let limit = Infinity;
+    for (const [key, value] of params) {
+      if (key === "select") continue;
+      if (key === "order") { order = value.split(",").map((part) => part.split(".") as [string, string]); continue; }
+      if (key === "limit") { limit = Number(value); continue; }
+      const eq = /^eq\.(.*)$/.exec(value); const lte = /^lte\.(.*)$/.exec(value); const gte = /^gte\.(.*)$/.exec(value); const inList = /^in\.\((.*)\)$/.exec(value);
+      if (eq) filters.push((row) => String(row[key]) === eq[1]);
+      else if (lte) filters.push((row) => row[key] != null && String(row[key]) <= lte[1]);
+      else if (gte) filters.push((row) => row[key] != null && String(row[key]) >= gte[1]);
+      else if (inList) { const set = new Set(inList[1].split(",")); filters.push((row) => set.has(String(row[key]))); }
+      else throw new Error(`fake store: unsupported filter ${key}=${value}`);
+    }
+    return { filters, order, limit };
+  };
+  const select = (table: string, query: string) => {
+    const { filters, order, limit } = parse(query);
+    let out = rows(table).filter((row) => filters.every((filter) => filter(row)));
+    if (order.length) out = [...out].sort((a, b) => {
+      for (const [column, direction] of order) {
+        const av = String(a[column] ?? ""); const bv = String(b[column] ?? "");
+        if (av !== bv) return (av < bv ? -1 : 1) * (direction === "desc" ? -1 : 1);
+      }
+      return 0;
+    });
+    return out.slice(0, Number.isFinite(limit) ? limit : undefined);
+  };
+  let seq = 0;
+  return {
+    ...actual,
+    nowIso: () => "2026-09-18T12:00:00.000Z",
+    selectOne: vi.fn(async (table: string, query: string) => select(table, query)[0] ?? null),
+    selectMany: vi.fn(async (table: string, query: string) => select(table, query)),
+    update: vi.fn(async (table: string, query: string, patch: any) => {
+      state.writes.push({ op: "update", table, patch });
+      const row = select(table, query)[0];
+      if (row) Object.assign(row, patch);
+      return row ? { ...row } : null;
+    }),
+    insert: vi.fn(async (table: string, row: any) => { const full = { id: `${table}-${++seq}`, created_at: "2026-09-18T12:00:00.000Z", ...row }; rows(table).push(full); state.writes.push({ op: "insert", table, patch: full }); return full; }),
+    insertIgnore: vi.fn(async (table: string, row: any) => {
+      const key = table === "billing_shipments" || table === "billing_warehouse_submissions" ? "order_id" : "id";
+      if (rows(table).some((existing) => existing[key] === row[key])) return null;
+      const full = { id: `${table}-${++seq}`, created_at: "2026-09-18T12:00:00.000Z", ...row };
+      rows(table).push(full); state.writes.push({ op: "insertIgnore", table, patch: full }); return full;
+    }),
+  };
+});
+
+import { BACKOFF_CAP_MS, MAX_ATTEMPTS, backoffMs, cancelAtWarehouse, ensureSubmission, payloadForOrder, retrySubmission, submitOne, syncSubscriptionAddress, warehouseDto, warehouseHealth } from "./warehouse-submissions";
+import { BATCH_SIZE, runWarehouseSubmit, warehouseSubmitJob } from "../jobs/definitions/warehouse-submit";
+
+const ADDRESS = { name: "Pat Example", line1: "123 Test Street", line2: null, city: "Memphis", state: "TN", postal_code: "38103", country: "US", phone: "9015550100" };
+const NOW = new Date("2026-09-18T12:00:00.000Z");
+
+function order(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "ord-1", order_number: "TH-000123", provider_id: "office-1", patient_id: "pat-1", payer_id: "payer-1", subscription_id: null,
+    kind: "one_time", status: "paid", fulfillment_status: "to_ship", shipping_address: ADDRESS, shipping_method: "standard",
+    paid_at: "2026-09-18T11:58:00.000Z", created_at: "2026-09-18T11:57:00.000Z", carrier: null, tracking_number: null, shipped_at: null, canceled_reason: null, shipped_by: null,
+    ...overrides,
+  } as any;
+}
+function item(overrides: Partial<Record<string, unknown>> = {}) {
+  return { id: "item-1", order_id: "ord-1", product_id: "prod-1", product_name_snapshot: "Meal Replacement Shake", quantity: 2, unit_price_cents: 4900, warehousecraft_sku_snapshot: "Test01", created_at: "2026-09-18T11:57:00.000Z", ...overrides } as any;
+}
+function submission(overrides: Partial<Record<string, unknown>> = {}) {
+  return { id: "sub-1", order_id: "ord-1", provider_id: "office-1", patient_id: "pat-1", state: "pending", attempts: 0, next_attempt_at: "2026-09-18T11:59:00.000Z", warehouse_order_id: null, warehouse_status: null, last_error: null, last_error_kind: null, last_attempt_at: null, sent_at: null, skipped_reason: null, payload: null, created_at: "2026-09-18T11:58:00.000Z", ...overrides } as any;
+}
+function seed(input: { orders?: any[]; items?: any[]; submissions?: any[]; shipments?: any[]; settings?: any } = {}) {
+  state.tables = {
+    billing_orders: input.orders ?? [order()], billing_order_items: input.items ?? [item()],
+    billing_payers: [{ id: "payer-1", email: "pat@example.test" }],
+    billing_warehouse_submissions: input.submissions ?? [submission()], billing_shipments: input.shipments ?? [],
+    billing_settings: [input.settings ?? { id: 1, warehouse_auto_submit: true }], staff_notifications: [],
+  };
+}
+function fakeClient(overrides: Partial<WarehouseOrderClient> = {}): WarehouseOrderClient & { calls: string[] } {
+  const calls: string[] = [];
+  const wrap = <K extends keyof WarehouseOrderClient>(name: K, impl: WarehouseOrderClient[K]) => (async (...args: any[]) => { calls.push(name); return (impl as any)(...args); }) as WarehouseOrderClient[K];
+  return {
+    calls,
+    create: wrap("create", overrides.create ?? (async () => ({ kind: "created", order_id: 1436119 }))),
+    lookup: wrap("lookup", overrides.lookup ?? (async () => null)),
+    editAddress: wrap("editAddress", overrides.editAddress ?? (async () => liveOrder("Imported"))),
+    cancel: wrap("cancel", overrides.cancel ?? (async () => liveOrder("Cancelled"))),
+  };
+}
+const liveOrder = (status: string, id = 1436119): WarehouseOrder => ({ order_id: id, client_order_id: "TH-000123", status, shipping_method: "USPS Ground Advantage", address: { ...ADDRESS, line2: null }, lines: [{ sku: "Test01", quantity: 2 }] });
+const sub = () => state.tables.billing_warehouse_submissions[0];
+const shipment = () => state.tables.billing_shipments[0];
+
+beforeEach(() => { state.writes = []; state.admin = []; seed(); });
+
+describe("payloadForOrder", () => {
+  it("builds the create body from the order, item snapshots, and payer email (renewals carry a note)", () => {
+    const payload = payloadForOrder(order({ kind: "subscription_renewal", shipping_method: "expedited" }), [item(), item({ id: "item-2", warehousecraft_sku_snapshot: "Test03", quantity: 1, unit_price_cents: 1950 })], { email: "pat@example.test" });
+    expect(payload).toMatchObject({ ClientOrderId: "TH-000123", ShippingMethod: "USPS_PriorityMail", Email: "pat@example.test", NotesToWarehouse: "Subscription renewal", AddressLine1: "123 Test Street", PostalCode: "38103" });
+    expect(payload.OrderDetailData).toEqual([{ ItemSKU: "Test01", ItemQuantity: 2, ItemPrice: 49 }, { ItemSKU: "Test03", ItemQuantity: 1, ItemPrice: 19.5 }]);
+    expect(payload.OrderDate).toBe("2026-09-18T11:58:00");
+  });
+  it("defaults to standard shipping for legacy orders without a method", () => {
+    expect(payloadForOrder(order({ shipping_method: undefined }), [item()], null).ShippingMethod).toBe("USPS_GroundAdvantage");
+  });
+});
+
+describe("ensureSubmission", () => {
+  it("creates one pending intent per paid order and is idempotent", async () => {
+    seed({ submissions: [] });
+    const first = await ensureSubmission(order());
+    const second = await ensureSubmission(order());
+    expect(first?.state).toBe("pending");
+    expect(second?.id).toBe(first?.id);
+    expect(state.tables.billing_warehouse_submissions).toHaveLength(1);
+  });
+  it("never queues an unpaid order", async () => {
+    seed({ submissions: [] });
+    expect(await ensureSubmission(order({ status: "pending" }))).toBeNull();
+    expect(state.tables.billing_warehouse_submissions).toHaveLength(0);
+  });
+});
+
+describe("submitOne", () => {
+  it("sends the order, stores the warehouse id, and mirrors Sent onto the shipment row", async () => {
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("sent");
+    expect(sub()).toMatchObject({ state: "sent", attempts: 1, warehouse_order_id: "1436119", sent_at: NOW.toISOString(), last_error: null });
+    expect(sub().payload).toMatchObject({ ClientOrderId: "TH-000123" });
+    expect(shipment()).toMatchObject({ order_id: "ord-1", warehouse_state: "sent", warehouse_order_id: "1436119", warehouse_sent_at: NOW.toISOString() });
+    expect(state.tables.staff_notifications).toHaveLength(0);
+  });
+  it("treats a duplicate ClientOrderId as success after looking the order up (crash-after-accept is never a second order)", async () => {
+    const client = fakeClient({ create: async () => ({ kind: "duplicate", order_id: null }), lookup: async () => liveOrder("Committed", 777) });
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("duplicate");
+    expect(client.calls).toEqual(["create", "lookup"]);
+    expect(sub()).toMatchObject({ state: "sent", warehouse_order_id: "777", warehouse_status: "Committed" });
+  });
+  it("parks a definite rejection as Needs attention with the warehouse's message and alerts HQ once", async () => {
+    const client = fakeClient({ create: async () => ({ kind: "rejected", message: "ItemSKU not recognized: BOGUS" }) });
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("rejected");
+    expect(sub()).toMatchObject({ state: "needs_attention", attempts: 1, last_error: "ItemSKU not recognized: BOGUS", last_error_kind: "rejected" });
+    expect(shipment()).toMatchObject({ warehouse_state: "needs_attention", warehouse_error: "ItemSKU not recognized: BOGUS" });
+    expect(state.tables.staff_notifications).toHaveLength(1);
+    expect(state.tables.staff_notifications[0]).toMatchObject({ provider_id: null, auth_user_id: "hq-1", channel: "email", kind: "system_threshold", title: "Warehouse rejected order TH-000123", dedupe_key: "warehouse_submission:ord-1:hq-1:email" });
+    expect(state.admin.find((call) => call.path.startsWith("/rest/v1/staff_notifications"))?.path).toContain("on_conflict=dedupe_key");
+  });
+  it("classifies an unbuildable payload (missing SKU) as Needs attention without calling the warehouse", async () => {
+    seed({ items: [item({ warehousecraft_sku_snapshot: null })] });
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("rejected");
+    expect(client.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "needs_attention", last_error_kind: "incomplete", last_error: expect.stringMatching(/No WarehouseCraft SKU for: Meal Replacement Shake/) });
+  });
+  it("keeps a transient failure pending with exponential backoff and no alert", async () => {
+    const client = fakeClient({ create: async () => { throw new WarehouseCraftError("WarehouseCraft HTTP 503: down", "transient", 503); } });
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("retry");
+    expect(sub()).toMatchObject({ state: "pending", attempts: 1, last_error_kind: "transient", next_attempt_at: new Date(NOW.getTime() + 2 * 60_000).toISOString() });
+    expect(state.tables.staff_notifications).toHaveLength(0);
+    expect(state.tables.billing_shipments).toHaveLength(0);
+    seed({ submissions: [submission({ attempts: 4 })] });
+    await submitOne(sub(), { client, now: () => NOW });
+    expect(sub().next_attempt_at).toBe(new Date(NOW.getTime() + backoffMs(5)).toISOString());
+  });
+  it("bounds the backoff and gives up into Needs attention after the attempt budget", async () => {
+    expect(backoffMs(1)).toBe(2 * 60_000);
+    expect(backoffMs(20)).toBe(BACKOFF_CAP_MS);
+    seed({ submissions: [submission({ attempts: MAX_ATTEMPTS - 1 })] });
+    const client = fakeClient({ create: async () => { throw new WarehouseCraftError("unreachable", "transient", null); } });
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("exhausted");
+    expect(sub()).toMatchObject({ state: "needs_attention", attempts: MAX_ATTEMPTS, last_error: expect.stringMatching(/gave up after 12 attempts/) });
+    expect(state.tables.staff_notifications).toHaveLength(1);
+  });
+  it("skips intents whose order was canceled or refunded before the drain reached them", async () => {
+    seed({ orders: [order({ fulfillment_status: "canceled" })] });
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("skipped");
+    expect(client.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "skipped", skipped_reason: "order canceled before submission" });
+    expect(shipment()).toMatchObject({ warehouse_state: "skipped" });
+  });
+});
+
+describe("retrySubmission", () => {
+  it("returns a Needs attention intent to pending, due now, and clears the shipment error", async () => {
+    seed({ submissions: [submission({ state: "needs_attention", attempts: 3, last_error: "ItemSKU not recognized: BOGUS", last_error_kind: "rejected" })], shipments: [{ id: "ship-1", order_id: "ord-1", warehouse_state: "needs_attention", warehouse_error: "ItemSKU not recognized: BOGUS" }] });
+    const row = await retrySubmission("ord-1");
+    expect(row).toMatchObject({ state: "pending", attempts: 0, next_attempt_at: "2026-09-18T12:00:00.000Z" });
+    expect(shipment()).toMatchObject({ warehouse_state: "pending", warehouse_error: null });
+  });
+  it("leaves a sent intent alone", async () => {
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1" })] });
+    expect((await retrySubmission("ord-1"))?.state).toBe("sent");
+  });
+});
+
+describe("cancelAtWarehouse", () => {
+  it("marks a not-yet-sent intent skipped so the drain never sends a canceled order", async () => {
+    const client = fakeClient();
+    await expect(cancelAtWarehouse("ord-1", { client })).resolves.toEqual({ kind: "not_sent" });
+    expect(client.calls).toEqual([]);
+    expect(sub().state).toBe("skipped");
+  });
+  it("cancels at the warehouse while the status is still editable", async () => {
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119", payload: { ClientOrderId: "TH-000123" } })] });
+    const client = fakeClient({ lookup: async () => liveOrder("On Hold") });
+    await expect(cancelAtWarehouse("ord-1", { client })).resolves.toEqual({ kind: "applied", warehouse_order_id: "1436119" });
+    expect(client.calls).toEqual(["lookup", "cancel"]);
+    expect(sub().warehouse_status).toBe("Cancelled");
+  });
+  it("reports the shipment locked once the warehouse has committed the order", async () => {
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119" })] });
+    const client = fakeClient({ lookup: async () => liveOrder("Committed") });
+    await expect(cancelAtWarehouse("ord-1", { client })).resolves.toEqual({ kind: "locked", warehouse_status: "Committed" });
+    expect(client.calls).toEqual(["lookup"]);
+    expect(sub()).toMatchObject({ warehouse_status: "Committed", last_error: expect.stringMatching(/cancellation could not be applied/) });
+  });
+  it("reports unavailable (never throws) when the warehouse cannot be reached", async () => {
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119" })] });
+    const client = fakeClient({ lookup: async () => { throw new WarehouseCraftError("down", "transient", 503); } });
+    await expect(cancelAtWarehouse("ord-1", { client })).resolves.toMatchObject({ kind: "unavailable" });
+  });
+});
+
+describe("syncSubscriptionAddress", () => {
+  it("edits sent-but-editable orders, updates pending ones locally, and reports committed ones as locked", async () => {
+    seed({
+      orders: [
+        order({ id: "ord-a", order_number: "TH-A", subscription_id: "sub-9" }),
+        order({ id: "ord-b", order_number: "TH-B", subscription_id: "sub-9" }),
+        order({ id: "ord-c", order_number: "TH-C", subscription_id: "sub-9" }),
+        order({ id: "ord-d", order_number: "TH-D", subscription_id: "sub-9", fulfillment_status: "shipped" }),
+      ],
+      submissions: [
+        submission({ id: "s-a", order_id: "ord-a", state: "sent", warehouse_order_id: "1", payload: { ClientOrderId: "TH-A" } }),
+        submission({ id: "s-b", order_id: "ord-b", state: "sent", warehouse_order_id: "2" }),
+        submission({ id: "s-c", order_id: "ord-c" }),
+      ],
+    });
+    const next = { ...ADDRESS, line1: "456 Edited Ave" };
+    const client = fakeClient({ lookup: async (id) => liveOrder(id === "TH-A" ? "Committed" : "Picked"), editAddress: async () => liveOrder("Modified") });
+    await expect(syncSubscriptionAddress("sub-9", next, { client })).resolves.toEqual({ applied: ["TH-A"], locked: ["TH-B"], unavailable: [] });
+    expect(state.tables.billing_orders.find((row) => row.id === "ord-c").shipping_address.line1).toBe("456 Edited Ave");
+    expect(state.tables.billing_orders.find((row) => row.id === "ord-d").shipping_address.line1).toBe("123 Test Street");
+    expect(state.tables.billing_warehouse_submissions.find((row) => row.id === "s-a")).toMatchObject({ warehouse_status: "Modified", payload: { AddressLine1: "456 Edited Ave" } });
+  });
+});
+
+describe("warehouseDto / warehouseHealth", () => {
+  it("exposes the next attempt only while pending", () => {
+    expect(warehouseDto(submission({ state: "sent", next_attempt_at: "x" }))?.next_attempt_at).toBeNull();
+    expect(warehouseDto(submission())?.next_attempt_at).toBe("2026-09-18T11:59:00.000Z");
+    expect(warehouseDto(null)).toBeNull();
+  });
+  it("counts the last 24 h and lists Needs attention orders with their numbers", async () => {
+    seed({
+      orders: [order(), order({ id: "ord-2", order_number: "TH-000124" })],
+      submissions: [
+        submission({ id: "a", state: "sent", sent_at: "2026-09-18T10:00:00.000Z", last_attempt_at: "2026-09-18T10:00:00.000Z", attempts: 2 }),
+        submission({ id: "b", order_id: "ord-2", state: "needs_attention", last_attempt_at: "2026-09-18T11:00:00.000Z", last_error: "ItemSKU not recognized: X", last_error_kind: "rejected", attempts: 1 }),
+        submission({ id: "c", order_id: "ord-3", state: "pending", next_attempt_at: "2026-09-18T13:00:00.000Z", last_attempt_at: "2026-09-18T11:30:00.000Z", last_error_kind: "transient", attempts: 1 }),
+        submission({ id: "d", order_id: "ord-4", state: "pending", next_attempt_at: "2026-09-18T11:00:00.000Z" }),
+        submission({ id: "e", order_id: "ord-5", state: "sent", sent_at: "2026-09-16T10:00:00.000Z", last_attempt_at: "2026-09-16T10:00:00.000Z", attempts: 1 }),
+      ],
+      settings: { id: 1, warehouse_auto_submit: false },
+    });
+    await expect(warehouseHealth(NOW)).resolves.toEqual({
+      pending: 2, due: 1, sent24h: 1, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: false,
+      recent_failures: [{ order_id: "ord-2", order_number: "TH-000124", error: "ItemSKU not recognized: X", at: "2026-09-18T11:00:00.000Z", state: "needs_attention" }],
+    });
+  });
+});
+
+describe("warehouse-submit job", () => {
+  function ctx(overrides: Partial<JobContext> = {}): JobContext & { tallies: Record<string, number>; failures: string[]; checkpoints: number } {
+    const tallies: Record<string, number> = {}; const failures: string[] = [];
+    const context = {
+      now: NOW, dryRun: false, leaseLost: false, tallies, failures, checkpoints: 0,
+      tally: (key: string, by: number) => { tallies[key] = (tallies[key] ?? 0) + by; },
+      failItem: (key: string) => { failures.push(key); },
+      log: () => {}, checkpoint: () => { context.checkpoints += 1; },
+      ...overrides,
+    } as any;
+    return context;
+  }
+  it("is scheduled on the tick and only drains due intents in order", async () => {
+    expect(warehouseSubmitJob.intervalMs).toBe(120_000);
+    seed({
+      orders: [order(), order({ id: "ord-2", order_number: "TH-2" }), order({ id: "ord-3", order_number: "TH-3" })],
+      items: [item(), item({ id: "i2", order_id: "ord-2" }), item({ id: "i3", order_id: "ord-3" })],
+      submissions: [submission({ id: "late", order_id: "ord-2", next_attempt_at: "2026-09-18T11:00:00.000Z" }), submission(), submission({ id: "future", order_id: "ord-3", next_attempt_at: "2026-09-18T13:00:00.000Z" })],
+    });
+    const created: string[] = [];
+    const client = fakeClient({ create: async (payload) => { created.push(payload.ClientOrderId); return { kind: "created", order_id: created.length }; } });
+    const context = ctx();
+    await runWarehouseSubmit(context, { client });
+    expect(created).toEqual(["TH-2", "TH-000123"]);
+    expect(context.tallies).toMatchObject({ due: 2, sent: 2 });
+    expect(context.checkpoints).toBeGreaterThan(0);
+    expect(state.tables.billing_warehouse_submissions.find((row) => row.id === "future").state).toBe("pending");
+  });
+  it("pauses under the HQ kill switch without touching the queue", async () => {
+    seed({ settings: { id: 1, warehouse_auto_submit: false } });
+    const client = fakeClient();
+    const context = ctx();
+    await runWarehouseSubmit(context, { client });
+    expect(client.calls).toEqual([]);
+    expect(context.tallies).toEqual({ pausedPending: 1 });
+    expect(sub().state).toBe("pending");
+  });
+  it("counts but sends nothing on a dry run", async () => {
+    const client = fakeClient();
+    const context = ctx({ dryRun: true });
+    await runWarehouseSubmit(context, { client });
+    expect(client.calls).toEqual([]);
+    expect(context.tallies).toEqual({ due: 1, wouldSubmit: 1 });
+    expect(state.writes).toEqual([]);
+  });
+  it("stops at the lease boundary and surfaces rejections as item failures", async () => {
+    seed({
+      orders: [order(), order({ id: "ord-2", order_number: "TH-2" })], items: [item(), item({ id: "i2", order_id: "ord-2" })],
+      submissions: [submission(), submission({ id: "s2", order_id: "ord-2" })],
+    });
+    const client = fakeClient({ create: async () => ({ kind: "rejected", message: "ItemSKU not recognized: X" }) });
+    const context = ctx();
+    let sent = 0;
+    Object.defineProperty(context, "leaseLost", { get: () => sent++ >= 1 });
+    await runWarehouseSubmit(context, { client });
+    expect(client.calls).toEqual(["create"]);
+    expect(context.failures).toEqual(["order:ord-1"]);
+    expect(context.tallies).toMatchObject({ rejected: 1 });
+  });
+  it("drains more than one batch when the queue is deep", async () => {
+    const orders = Array.from({ length: BATCH_SIZE + 2 }, (_, i) => order({ id: `o${i}`, order_number: `TH-${i}` }));
+    seed({ orders, items: orders.map((row) => item({ id: `i${row.id}`, order_id: row.id })), submissions: orders.map((row) => submission({ id: `s${row.id}`, order_id: row.id })) });
+    const client = fakeClient();
+    const context = ctx();
+    await runWarehouseSubmit(context, { client });
+    expect(context.tallies.sent).toBe(BATCH_SIZE + 2);
+  });
+});

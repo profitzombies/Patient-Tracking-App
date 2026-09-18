@@ -17,7 +17,16 @@ import { ExportsPanel } from '@/components/exports/ExportsPanel';
 import { useOfficeBillingScope } from '@/hooks/use-billing';
 import { useDateRange } from '@/contexts/date-range';
 import { useOfficeActivity, useOfficeFulfillment, useOfficeRefunds } from '@/hooks/use-billing';
-import { FULFILLMENT_LABEL, formatDate, formatDateTime, fulfillmentTone, type PillTone } from '@/lib/billing-format';
+import { FULFILLMENT_LABEL, WAREHOUSE_STATE_LABEL, formatDate, formatDateTime, fulfillmentTone, warehouseTone, type PillTone } from '@/lib/billing-format';
+import type { WarehouseSubmission } from '@/lib/billing-types';
+
+/** Offices read the warehouse state, HQ acts on it: the queue line says where the order actually is. */
+function waitingLine(warehouse: WarehouseSubmission | null | undefined): string {
+  if (!warehouse || warehouse.state === 'pending') return 'Waiting for THINNR to pack and ship.';
+  if (warehouse.state === 'sent') return `Sent to the warehouse ${formatDateTime(warehouse.sent_at)}.`;
+  if (warehouse.state === 'needs_attention') return 'The warehouse could not accept this order yet; THINNR HQ is fixing it.';
+  return 'Waiting for THINNR to pack and ship.';
+}
 import type { OfficeBillingStatus, OfficeRefundRow, OrderDetail } from '@/lib/billing-types';
 import { DEMO_ACTIVITY, DEMO_FULFILLMENT, DEMO_REFUNDS } from './demo-data';
 import { Boundary, DemoNotice, ErrorBox, Header, PAGE, RowLink, clickable, useUrlFilters } from './shared';
@@ -355,7 +364,15 @@ function FulfillmentView({ status, demo = false }: { status: OfficeBillingStatus
                   ) : order.fulfillment_status === 'canceled' ? (
                     <p className="mt-1 text-muted-foreground">{order.canceled_reason ?? 'No reason recorded'}</p>
                   ) : (
-                    <p className="mt-1 text-muted-foreground">Waiting for THINNR to pack and ship.</p>
+                    <p className="mt-1 text-muted-foreground">{waitingLine(order.warehouse)}</p>
+                  )}
+                  {order.warehouse && order.fulfillment_status === 'to_ship' && (
+                    <p className="mt-1" data-testid={`text-warehouse-${order.id}`}>
+                      <StatusPill tone={warehouseTone(order.warehouse.state)}>{WAREHOUSE_STATE_LABEL[order.warehouse.state]}</StatusPill>
+                      {order.warehouse.state === 'sent' && order.warehouse.warehouse_order_id && (
+                        <span className="ml-2 text-muted-foreground">Warehouse order {order.warehouse.warehouse_order_id}</span>
+                      )}
+                    </p>
                   )}
                   <Link href={`/transactions/${order.id}`} className="mt-3 inline-flex font-semibold text-primary hover:underline" data-testid={`link-fulfillment-order-${order.id}`}>
                     View transaction

@@ -57,6 +57,7 @@ import type {
   PublicCartStatus,
   ShippingAddress,
   StaffSaleContext,
+  WarehouseSync,
 } from '@/lib/billing-types';
 
 export { OfficeApiError as BillingApiError };
@@ -238,10 +239,12 @@ export const hqBilling = {
     }),
   fulfillment: (filters: ListFilters) => officeRequest<Paged<OrderDetail>>(`${HQ}/fulfillment${qs(filters)}`, MESSAGES),
   updateFulfillment: (orderId: string, body: FulfillmentUpdate) =>
-    officeRequest<{ order: OrderDetail }>(`${HQ}/fulfillment/${encodeURIComponent(orderId)}`, MESSAGES, {
+    officeRequest<{ order: OrderDetail; warehouse_sync?: WarehouseSync }>(`${HQ}/fulfillment/${encodeURIComponent(orderId)}`, MESSAGES, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  retryWarehouse: (orderId: string) =>
+    officeRequest<{ order: OrderDetail }>(`${HQ}/fulfillment/${encodeURIComponent(orderId)}/warehouse-retry`, MESSAGES, { method: 'POST' }),
   catalog: () => officeRequest<HqCatalogResponse>(`${HQ}/catalog`, MESSAGES),
   product: (productId: string) =>
     officeRequest<{ product: CatalogProductDetail }>(`${HQ}/catalog/products/${encodeURIComponent(productId)}`, MESSAGES),

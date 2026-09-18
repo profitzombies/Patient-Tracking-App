@@ -9,6 +9,7 @@ import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import OfficePaymentsArea, { PickPackSettingsCard } from '../src/pages/office/payments/OfficePaymentsArea';
+import { DEMO_FULFILLMENT } from '../src/pages/office/payments/demo-data';
 import { RefundDialog } from '../src/components/billing/RefundDialog';
 import { OFFICE_NAV_ITEMS, OFFICE_PAYMENTS_SECTIONS, isOfficeMenuPathActive } from '../src/components/layout/nav-config';
 
@@ -472,7 +473,27 @@ console.log('\noffice billing: activity, refunds and fulfillment status');
   await act(async () => one(fulfillment.root, 'filter-fulfillment-shipped').props.onClick());
   await settle();
   check('shipped queue shows carrier and tracking, read-only', text(fulfillment.root).includes('TH-D3MO02') && text(fulfillment.root).includes('USPS') && fulfillment.root.findAll((node) => node.type === 'button' && text(node).includes('Mark shipped')).length === 0);
+  check('demo fulfillment predates warehouse submission and shows no warehouse state', all(fulfillment.root, 'text-warehouse-demo-order-1').length === 0 && !text(fulfillment.root).includes('warehouse'));
   fulfillment.renderer.unmount();
+
+  // Live queue: WarehouseCraft state is read-only for offices (no retry), but says where each order is.
+  reset();
+  const liveOrder = (id: string, warehouse: Record<string, unknown> | null) => ({
+    ...DEMO_FULFILLMENT[0], id, order_number: `TH-${id.toUpperCase()}`, fulfillment_status: 'to_ship', warehouse,
+  });
+  const sent = { state: 'sent', warehouse_order_id: '1436188', warehouse_status: 'Imported', sent_at: '2026-10-11T14:04:00Z', error: null, attempts: 1, next_attempt_at: null, last_attempt_at: '2026-10-11T14:04:00Z' };
+  const rejected = { ...sent, state: 'needs_attention', warehouse_order_id: null, warehouse_status: null, sent_at: null, error: 'ItemSKU not recognized: CONTROL-OLD' };
+  const queued = { ...sent, state: 'pending', warehouse_order_id: null, warehouse_status: null, sent_at: null, attempts: 0, last_attempt_at: null, next_attempt_at: '2026-10-11T14:06:00Z' };
+  responses = [json(200, status()), json(200, { items: [liveOrder('a1', sent), liveOrder('a2', rejected), liveOrder('a3', queued), liveOrder('a4', null)], next_cursor: null })];
+  const liveQueue = await render('/fulfillment');
+  await settle();
+  const queueText = text(liveQueue.root);
+  const warehouseText = (id: string) => text(one(liveQueue.root, `text-warehouse-${id}`) ?? liveQueue.root);
+  check('live queue shows the warehouse id and timestamp for a sent order', warehouseText('a1').includes('Sent to warehouse') && warehouseText('a1').includes('Warehouse order 1436188') && queueText.includes('Sent to the warehouse Oct 11, 2026'), warehouseText('a1'));
+  check('live queue shows a rejected order as needs attention with HQ handling it', warehouseText('a2').includes('Needs attention') && queueText.includes('THINNR HQ is fixing it'), warehouseText('a2'));
+  check('live queue shows a queued order as sending, and pre-warehouse orders stay plain', warehouseText('a3').includes('Sending to warehouse') && all(liveQueue.root, 'text-warehouse-a4').length === 0 && queueText.includes('Waiting for THINNR to pack and ship.'), warehouseText('a3'));
+  check('offices never see the warehouse error text or a retry action', !queueText.includes('CONTROL-OLD') && liveQueue.root.findAll((node) => node.type === 'button' && /retry/i.test(text(node))).length === 0);
+  liveQueue.renderer.unmount();
 
   reset();
   const today = { date: '2026-10-11', time_zone: 'America/New_York', current_hour: 10, hours: Array.from({ length: 24 }, (_, hour) => ({ hour, collected_cents: hour === 9 ? 8999 : 0, refunded_cents: 0, net_cents: hour === 9 ? 8999 : 0, fee_cents: hour === 9 ? 4599 : 0, profit_cents: hour === 9 ? 4109 : 0, orders: hour === 9 ? 1 : 0 })), collected_cents: 8999, net_cents: 8999, fee_cents: 4599, profit_cents: 4109, refunded_cents: 0, orders: 1 };

@@ -10,6 +10,7 @@ import { resolvePayer, touchLinkUse } from "./links";
 import { sendReceipt } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
+  newOrderNumber,
   shipmentTerms,
   insert, insertIgnore, nowIso, selectMany, selectOne, update, type BillingConnectedAccountRow,
   type BillingOrderItemRow, type BillingOrderRow, type BillingPaymentLinkRow,
@@ -17,6 +18,7 @@ import {
 import { getOrderBundle, officeName } from "./store-orders";
 import type { OrderDetail, PublicOrderResponse, ShippingAddress } from "./types";
 import { dispatchStripeEvent, onStripeEvent, type StripeEventContext } from "./webhooks";
+import { cancelAtWarehouse, warehouseDto } from "./warehouse-submissions";
 
 export class BillingOrderError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -76,11 +78,7 @@ export async function quoteOrder(link: BillingPaymentLinkRow, items: ItemInput[]
     shipping_cost_cents: settings.shipping_cost_cents, settings,
   };
 }
-function orderNumber(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.randomBytes(6);
-  return `TH-${[...bytes].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
-}
+const orderNumber = newOrderNumber;
 async function accountFor(providerId: string): Promise<BillingConnectedAccountRow> {
   const account = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}&disconnected_at=is.null`);
   if (!account?.charges_enabled) throw new BillingOrderError("This office is not ready to accept payments.", 409);
@@ -333,6 +331,15 @@ export async function refundOrder(orderId: string, input: { amount_cents?: numbe
   });
   if (stripeRefund.status === "succeeded") {
     await update("billing_orders", `id=eq.${encodeURIComponent(order.id)}`, { status: amount === remainder ? "refunded" : "partially_refunded" });
+    // A full refund of an unshipped order cancels the shipment at the warehouse
+    // too (same path staff cancellations use); a locked order is only recorded.
+    if (amount === remainder && order.fulfillment_status === "to_ship") {
+      const sync = await cancelAtWarehouse(order.id).catch((error) => {
+        logger.warn({ orderId: order.id, err: error instanceof Error ? error.message : String(error) }, "warehouse cancel after refund failed");
+        return null;
+      });
+      if (sync?.kind === "locked") logger.info({ orderId: order.id, status: sync.warehouse_status }, "refunded order already packing at warehouse");
+    }
     await insertIgnore("billing_ledger", {
       provider_id: order.provider_id, order_id: order.id, subscription_id: order.subscription_id, kind: "refund",
       amount_cents: -amount, application_fee_cents: 0, stripe_ref: stripeRefund.id,
@@ -346,13 +353,14 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
   const bundle = await getOrderBundle(orderId);
   if (!bundle) throw new BillingOrderError("Order not found.", 404);
   const { order, items, payer, office } = bundle;
-  const [refunds, disputes, ledger, account] = await Promise.all([
+  const [refunds, disputes, ledger, account, submission] = await Promise.all([
     selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_disputes", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_ledger", `order_id=eq.${encodeURIComponent(order.id)}&order=occurred_at.desc`),
     // Reading an order must not depend on the office still being able to
     // charge: paid goods ship even after a disconnect or a capability pause.
     selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(order.provider_id)}`),
+    selectOne("billing_warehouse_submissions", `order_id=eq.${encodeURIComponent(order.id)}`),
   ]);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const settings = (order.metadata?.settings ?? { card_fee_bps: 290, card_fee_fixed_cents: 30 }) as any;
@@ -382,6 +390,7 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
     } } : {}),
     subscription_id: order.subscription_id, tracking_number: order.tracking_number, carrier: order.carrier,
     shipped_at: order.shipped_at, shipped_by_name: null, canceled_reason: order.canceled_reason,
+    warehouse: warehouseDto(submission),
     refunds: refunds.map((row) => ({ id: row.id, stripe_refund_id: row.stripe_refund_id, amount_cents: row.amount_cents,
       reason: row.reason, status: row.status, requested_by_name: null, created_at: row.created_at })),
     disputes: disputes as any, ledger: ledger as any,

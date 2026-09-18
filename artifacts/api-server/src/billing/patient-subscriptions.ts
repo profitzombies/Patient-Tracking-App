@@ -1,3 +1,5 @@
+import { logger } from "../lib/logger";
+import { syncSubscriptionAddress } from "./warehouse-submissions";
 import { cardDto } from "./cards";
 import { notifySubscriptionEvent, planLabel } from "./customer-emails";
 import { getSettings, productCadences, subscribeSavePercent, subscriptionUnitPrice } from "./catalog";
@@ -94,8 +96,24 @@ export async function changeSubscriptionAddress(row: Row, address: ShippingAddre
   }
   const updated = await update("billing_subscriptions", `id=eq.${enc(row.id)}`, { shipping_address: address as unknown as Record<string, unknown> });
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
+  // Unshipped orders of this subscription follow the change: pending warehouse
+  // intents read the (now updated) order row; already-sent orders are edited at
+  // the warehouse while their status allows it, otherwise reported locked so the
+  // patient learns the change applies to future shipments only.
+  const sync = await syncSubscriptionAddress(row.id, address).catch((error) => {
+    logger.warn({ subscriptionId: row.id, err: error instanceof Error ? error.message : String(error) }, "warehouse address sync failed");
+    return { applied: [], locked: [], unavailable: [] };
+  });
+  lastAddressSync.set(row.id, sync);
   await notifySubscriptionEvent(updated, { kind: "address-changed" });
   return updated;
+}
+/** Result of the most recent warehouse address sync per subscription (read once by the route that returns it). */
+const lastAddressSync = new Map<string, { applied: string[]; locked: string[]; unavailable: string[] }>();
+export function takeAddressSync(subscriptionId: string): { applied: string[]; locked: string[]; unavailable: string[] } | null {
+  const sync = lastAddressSync.get(subscriptionId) ?? null;
+  lastAddressSync.delete(subscriptionId);
+  return sync;
 }
 
 async function subscriptionItems(stripe: any, acct: string, row: Row, priceRow: { stripe_price_id: string | null; stripe_shipping_price_id: string | null; stripe_product_id: string | null; stripe_cadence_prices: Record<string, { price_id: string; shipping_price_id: string }> }) {

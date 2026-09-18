@@ -446,6 +446,7 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
     card_fee_fixed: centsToDollarsInput(settings.card_fee_fixed_cents),
     subscribe_save_enabled: settings.subscribe_save_enabled,
     subscribe_save_percent: String(settings.subscribe_save_percent),
+    warehouse_auto_submit: settings.warehouse_auto_submit !== false,
   });
   const [form, setForm] = useState(() => fromSettings(s));
   // The version we send is the one the fields were filled from, so a save
@@ -534,6 +535,7 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
         card_fee_fixed_cents: fixed.cents,
         subscribe_save_enabled: form.subscribe_save_enabled,
         subscribe_save_percent: savePercent,
+        warehouse_auto_submit: form.warehouse_auto_submit,
         expected_version: baseline.version,
       },
       {
@@ -675,6 +677,29 @@ export function SettingsCard({ data, canWrite, demo }: { data: HqCatalogResponse
             </span>
           </label>
         </div>
+      </div>
+      <div className="border-t border-border px-5 py-4" data-testid="settings-warehouse">
+        <label className="flex items-start gap-3 text-xs">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            data-testid="checkbox-settings-warehouse-auto-submit"
+            checked={form.warehouse_auto_submit}
+            disabled={!canWrite}
+            onChange={(event) => {
+              setError(null);
+              setForm((x) => ({ ...x, warehouse_auto_submit: event.target.checked }));
+            }}
+          />
+          <span>
+            <b className="block font-semibold text-navy">Send paid orders to WarehouseCraft automatically</b>
+            <span className="text-muted-foreground">
+              {form.warehouse_auto_submit
+                ? 'Every paid order is submitted to the warehouse within a few minutes; rejections land in Fulfillment as Needs attention.'
+                : 'Paused: paid orders keep queueing and nothing is lost, but none are sent until this is switched back on.'}
+            </span>
+          </span>
+        </label>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-border px-5 py-3">
         {canWrite && (

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import type { ShipmentQuote } from "../shipping/rating";
 import type { CadenceWeeks, OrderSummary, Payer, PickPackTier, ProductCategory, ProductFactRow, ProductFaq, ShipmentTerms, ShippingMethod, ShippingSource } from "./types";
@@ -8,7 +9,7 @@ export type BillingTable =
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
-  | "billing_prebuilt_carts" | "billing_office_settings";
+  | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
@@ -18,6 +19,8 @@ export interface BillingSettingsRow extends TimestampedRow {
   /** Shipping rules (see shipping/rating.ts); the flat charge/cost above is the fallback. */
   free_shipping_over_cents: number | null; pick_pack_tier: PickPackTier; pick_pack_schedule: Record<string, unknown>;
   pick_pack_pass_through_default: boolean; expedited_enabled: boolean;
+  /** HQ kill switch for automatic WarehouseCraft submission (intents keep queueing while off). */
+  warehouse_auto_submit?: boolean;
 }
 /** Per-office shipping overrides; null = inherit HQ. */
 export interface BillingOfficeSettingsRow extends TimestampedRow {
@@ -173,6 +176,17 @@ export interface BillingShipmentRow extends TimestampedRow {
   canceled_at: string | null; canceled_reason: string | null;
   events: Array<{ at: string; status: string; detail?: Record<string, unknown> }>;
   updated_by: string | null;
+  /** Mirror of the WarehouseCraft submission outcome (see warehouse-submissions.ts). */
+  warehouse_order_id?: string | null; warehouse_state?: WarehouseSubmissionState | null;
+  warehouse_sent_at?: string | null; warehouse_error?: string | null;
+}
+export type WarehouseSubmissionState = "pending" | "sent" | "needs_attention" | "skipped";
+/** One submission intent per paid order; created by the paid-transition trigger, drained by the warehouse-submit job. */
+export interface BillingWarehouseSubmissionRow extends TimestampedRow {
+  id: string; order_id: string; provider_id: string; patient_id: string | null; state: WarehouseSubmissionState;
+  attempts: number; next_attempt_at: string; warehouse_order_id: string | null; warehouse_status: string | null;
+  last_error: string | null; last_error_kind: "rejected" | "transient" | "incomplete" | null; last_attempt_at: string | null;
+  sent_at: string | null; skipped_reason: string | null; payload: Record<string, unknown> | null;
 }
 export interface BillingLedgerRow extends TimestampedRow {
   id: string; provider_id: string; order_id: string | null; subscription_id: string | null;
@@ -213,6 +227,7 @@ export type BillingRows = {
   billing_webhook_events: BillingWebhookEventRow; billing_shipments: BillingShipmentRow; billing_carts: BillingCartRow;
   billing_customer_emails: BillingCustomerEmailRow;
   billing_prebuilt_carts: BillingPrebuiltCartRow; billing_office_settings: BillingOfficeSettingsRow;
+  billing_warehouse_submissions: BillingWarehouseSubmissionRow;
 };
 
 export class BillingStoreError extends Error {
@@ -288,6 +303,16 @@ export function pagination(input: { limit?: unknown; cursor?: unknown }) {
     } catch { throw new BillingStoreError("Invalid cursor.", 400); }
   }
   return { limit, cursor };
+}
+/**
+ * Human-readable order number, also WarehouseCraft's ClientOrderId: `TH-` plus
+ * six characters from an alphabet without 0/O/1/I. It never contains `#` (the
+ * warehouse rejects it) and the DB unique index on billing_orders.order_number
+ * is the collision guard (32^6 ≈ 1.07e9 values per prefix).
+ */
+export function newOrderNumber(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return `TH-${[...crypto.randomBytes(6)].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
 }
 export function encodeCursor(row: { created_at: string; id: string } | null): string | null {
   return row ? Buffer.from(JSON.stringify(row)).toString("base64url") : null;

@@ -4787,7 +4787,23 @@ export const GetHqSystemHealthResponse = zod.object({
   "summary": zod.record(zod.string(), zod.number()).nullable(),
   "error": zod.string().nullable()
 }).describe('Last heartbeat from the external scheduled trigger for one tick kind'))
-})
+}),
+  "warehouse": zod.union([zod.object({
+  "pending": zod.number().describe('Intents still waiting to be sent.'),
+  "due": zod.number().describe('Pending intents whose next attempt is due now.'),
+  "sent24h": zod.number(),
+  "failed24h": zod.number().describe('Attempts in the last 24 h that failed (transient or definite).'),
+  "retries24h": zod.number().describe('Intents retried at least once in the last 24 h.'),
+  "needs_attention": zod.number(),
+  "auto_submit": zod.boolean().describe('HQ kill switch state.'),
+  "recent_failures": zod.array(zod.object({
+  "order_id": zod.string(),
+  "order_number": zod.string().nullable(),
+  "error": zod.string().nullable(),
+  "at": zod.string().nullable(),
+  "state": zod.enum(['pending', 'sent', 'needs_attention', 'skipped'])
+}))
+}),zod.null()]).optional()
 })
 
 

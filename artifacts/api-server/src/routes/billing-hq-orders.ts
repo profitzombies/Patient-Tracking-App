@@ -8,6 +8,7 @@ import {
   resendSubscriptionPaymentEmail, resumeSubscription, retrySubscriptionPayment, toSubscriptionRow,
 } from "../billing/subscriptions";
 import { recordShipment } from "../billing/shipments";
+import { cancelAtWarehouse, retrySubmission } from "../billing/warehouse-submissions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
 import { stripeRejection } from "../billing/stripe-client";
@@ -124,10 +125,31 @@ router.put("/billing/hq/fulfillment/:order_id", requireHqPermission("provider_ma
       status: "canceled", canceled_reason: parsed.data.canceled_reason, updated_by: actor(res), source: "staff",
     } : { status: "processing", updated_by: actor(res), source: "staff" });
     if (parsed.data.status === "shipped") await notifyOrderShipped({ order: row, shipment });
+    // A staff cancellation follows through to WarehouseCraft while the 3PL still
+    // allows it; once the order is committed there, the response says so and
+    // the app-side cancel stands on its own.
+    const warehouse = parsed.data.status === "canceled" ? await cancelAtWarehouse(row.id) : null;
     await audit(req, res, "billing_order_fulfillment_updated", "billing_order", row.id, {
       order_id: row.id, fulfillment_status: parsed.data.status, has_tracking: Boolean(parsed.data.tracking_number),
+      ...(warehouse ? { warehouse_sync: warehouse.kind } : {}),
     }, bundle.order.provider_id);
-    res.json({ order: await toOrderDetail(row.id, true) });
+    res.json({ order: await toOrderDetail(row.id, true), warehouse_sync: warehouse });
+  } catch (error) { fail(req, res, error); }
+});
+/** HQ retry after the product SKU or address was fixed: the intent goes back to pending and the next drain picks it up. */
+router.post("/billing/hq/fulfillment/:order_id/warehouse-retry", requireHqPermission("provider_manage"), async (req, res) => {
+  try {
+    const bundle = await getOrderBundle(String(req.params.order_id));
+    if (!bundle) { res.status(404).json({ error: "Order not found." }); return; }
+    if (!["paid", "partially_refunded"].includes(bundle.order.status) || bundle.order.fulfillment_status !== "to_ship") {
+      res.status(409).json({ error: "Only paid, unshipped orders can be resent to the warehouse." }); return;
+    }
+    const submission = await retrySubmission(bundle.order.id);
+    if (!submission) { res.status(409).json({ error: "This order has no warehouse submission." }); return; }
+    await audit(req, res, "billing_warehouse_retry", "billing_order", bundle.order.id, {
+      order_id: bundle.order.id, order_number: bundle.order.order_number, previous_error: submission.last_error,
+    }, bundle.order.provider_id);
+    res.json({ order: await toOrderDetail(bundle.order.id, true) });
   } catch (error) { fail(req, res, error); }
 });
 router.get("/billing/hq/subscriptions", requireHqPermission("financial_read"), async (req, res) => {

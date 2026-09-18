@@ -4715,6 +4715,140 @@ export const GetHqSystemHealthResponse = zod.object({
 
 
 /**
+ * @summary Request latency per route family, heaviest database statements, and table/storage growth with thresholds
+ */
+export const GetHqSystemPerformanceResponse = zod.object({
+  "asOf": zod.string(),
+  "latency": zod.union([zod.object({
+  "lastHour": zod.object({
+  "since": zod.string(),
+  "families": zod.array(zod.object({
+  "family": zod.string().describe('Route family (first two labelled path segments, e.g. office\/roster).'),
+  "streaming": zod.boolean().describe('Long-lived model streams use the wider streaming budget.'),
+  "requests": zod.number(),
+  "errors": zod.number().describe('Responses with a 5xx status.'),
+  "dbShare": zod.number().describe('Share of requests (0–1) that touched the database.'),
+  "aiShare": zod.number().describe('Share of requests (0–1) that called an AI model.'),
+  "meanMs": zod.number().nullable(),
+  "p50Ms": zod.number().nullable(),
+  "p95Ms": zod.number().nullable(),
+  "maxMs": zod.number(),
+  "level": zod.enum(['ok', 'amber', 'red'])
+}))
+}),
+  "lastDay": zod.object({
+  "since": zod.string(),
+  "families": zod.array(zod.object({
+  "family": zod.string().describe('Route family (first two labelled path segments, e.g. office\/roster).'),
+  "streaming": zod.boolean().describe('Long-lived model streams use the wider streaming budget.'),
+  "requests": zod.number(),
+  "errors": zod.number().describe('Responses with a 5xx status.'),
+  "dbShare": zod.number().describe('Share of requests (0–1) that touched the database.'),
+  "aiShare": zod.number().describe('Share of requests (0–1) that called an AI model.'),
+  "meanMs": zod.number().nullable(),
+  "p50Ms": zod.number().nullable(),
+  "p95Ms": zod.number().nullable(),
+  "maxMs": zod.number(),
+  "level": zod.enum(['ok', 'amber', 'red'])
+}))
+})
+}),zod.null()]).describe('Null when the request metrics table could not be read.'),
+  "slowStatements": zod.union([zod.object({
+  "statsResetAt": zod.string().nullable(),
+  "byTotal": zod.array(zod.object({
+  "queryId": zod.string(),
+  "role": zod.string().nullable(),
+  "query": zod.string().describe('Normalised statement text from pg_stat_statements (constants replaced).'),
+  "calls": zod.number(),
+  "totalMs": zod.number(),
+  "meanMs": zod.number(),
+  "maxMs": zod.number(),
+  "rows": zod.number(),
+  "sharedBlocksRead": zod.number()
+})),
+  "byMean": zod.array(zod.object({
+  "queryId": zod.string(),
+  "role": zod.string().nullable(),
+  "query": zod.string().describe('Normalised statement text from pg_stat_statements (constants replaced).'),
+  "calls": zod.number(),
+  "totalMs": zod.number(),
+  "meanMs": zod.number(),
+  "maxMs": zod.number(),
+  "rows": zod.number(),
+  "sharedBlocksRead": zod.number()
+}))
+}),zod.null()]).describe('Null when pg_stat_statements could not be read.'),
+  "growth": zod.union([zod.object({
+  "latestDate": zod.string(),
+  "previousDate": zod.string().nullable(),
+  "database": zod.object({
+  "bytes": zod.number(),
+  "previousBytes": zod.number().nullable(),
+  "deltaBytes": zod.number().nullable(),
+  "deltaPercent": zod.number().nullable(),
+  "bytesPerDay": zod.number().nullable().describe('Delta normalised to one day when snapshots are further apart.'),
+  "level": zod.enum(['ok', 'amber', 'red'])
+}),
+  "storage": zod.object({
+  "bytes": zod.number(),
+  "previousBytes": zod.number().nullable(),
+  "deltaBytes": zod.number().nullable(),
+  "deltaPercent": zod.number().nullable(),
+  "bytesPerDay": zod.number().nullable().describe('Delta normalised to one day when snapshots are further apart.'),
+  "level": zod.enum(['ok', 'amber', 'red'])
+}),
+  "tables": zod.array(zod.object({
+  "name": zod.string(),
+  "totalBytes": zod.number(),
+  "tableBytes": zod.number().nullable(),
+  "indexBytes": zod.number().nullable(),
+  "rowEstimate": zod.number().nullable(),
+  "deltaBytes": zod.number().nullable()
+})),
+  "storagePrefixes": zod.array(zod.object({
+  "name": zod.string(),
+  "bytes": zod.number(),
+  "objectCount": zod.number().nullable(),
+  "deltaBytes": zod.number().nullable()
+})),
+  "history": zod.array(zod.object({
+  "date": zod.string(),
+  "databaseBytes": zod.number().nullable(),
+  "storageBytes": zod.number().nullable()
+}))
+}),zod.null()]).describe('Null when no daily size snapshot exists yet or the table could not be read.'),
+  "thresholds": zod.object({
+  "level": zod.enum(['ok', 'amber', 'red']),
+  "config": zod.object({
+  "latency": zod.object({
+  "defaultAmberMs": zod.number(),
+  "defaultRedMs": zod.number(),
+  "streamingAmberMs": zod.number(),
+  "streamingRedMs": zod.number(),
+  "minRequests": zod.number().describe('Families with fewer requests in the hour are not levelled.')
+}),
+  "dbGrowth": zod.object({
+  "amberBytesPerDay": zod.number(),
+  "redBytesPerDay": zod.number()
+}),
+  "storageGrowth": zod.object({
+  "amberBytesPerDay": zod.number(),
+  "redBytesPerDay": zod.number()
+})
+}),
+  "findings": zod.array(zod.object({
+  "metric": zod.enum(['p95_latency', 'db_growth', 'storage_growth']),
+  "level": zod.enum(['amber', 'red']),
+  "family": zod.string().nullable().describe('Route family for latency findings; null for growth.'),
+  "value": zod.number().describe('Observed value: ms for latency, bytes per day for growth.'),
+  "limit": zod.number().describe('The limit that was crossed'),
+  "message": zod.string()
+}))
+})
+})
+
+
+/**
  * @summary One job run (used to poll a manual run that is still going)
  */
 export const GetHqSystemJobRunParams = zod.object({

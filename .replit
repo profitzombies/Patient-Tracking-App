@@ -2115,3 +2115,14 @@ args = "pnpm --filter @workspace/thinnr-operations run test:app-usage && pnpm --
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "system-performance-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/supabase-admin.test.ts src/lib/request-metrics.test.ts src/system src/jobs/definitions/data-growth-snapshot.test.ts src/jobs/definitions/system-thresholds.test.ts src/alerts/staff-sender.test.ts src/routes/system-jobs.test.ts src/routes/hq-staff-alerts.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

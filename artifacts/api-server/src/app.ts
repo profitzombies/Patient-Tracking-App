@@ -7,6 +7,9 @@ import { MENU_SCAN_PATH } from "./routes/menu-scan";
 import { LABEL_SCAN_PATH } from "./routes/label-scan";
 import billingWebhooksRouter from "./routes/billing-webhooks";
 import { logger } from "./lib/logger";
+import { createRequestTiming } from "./lib/request-timing";
+import { markRequestDependency } from "./lib/request-context";
+import * as openaiServer from "@workspace/integrations-openai-ai-server";
 
 const app: Express = express();
 
@@ -14,9 +17,13 @@ const app: Express = express();
 // req.ip reflects the real client (used by the coach rate limiter).
 app.set("trust proxy", true);
 
+// pino-http supplies req.id and req.log; the completion line itself comes
+// from the request-timing middleware below so every response carries a
+// stable route label, its duration, and the db/ai flags.
 app.use(
   pinoHttp({
     logger,
+    autoLogging: false,
     serializers: {
       req(req) {
         return {
@@ -33,6 +40,14 @@ app.use(
     },
   }),
 );
+export const requestTiming = createRequestTiming();
+app.use(requestTiming.middleware);
+// Every model call through the shared OpenAI client flags the request as
+// AI-backed. Route suites replace the client module with a partial mock, so
+// the hook is looked up rather than imported by name.
+if ("observeOpenAIRequests" in openaiServer) {
+  openaiServer.observeOpenAIRequests(() => markRequestDependency("ai"));
+}
 /**
  * Browser origins are restricted to this app's own surfaces: localhost dev
  * and Replit-hosted domains (the Expo web build is served from a different

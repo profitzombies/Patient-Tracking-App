@@ -13,7 +13,8 @@ router.get("/hq/staff-alerts/deliveries", requireHqPermission("provider_read"), 
       const data = row.data && typeof row.data === "object" ? row.data as Record<string, unknown> : {};
       const provider = row.providers && typeof row.providers === "object" ? row.providers as Record<string, unknown> : {};
       return {
-        id: row.id, providerId: row.provider_id, officeName: String(provider.provider_name ?? row.provider_id),
+        // HQ system threshold alerts belong to no office.
+        id: row.id, providerId: row.provider_id, officeName: String(provider.provider_name ?? row.provider_id ?? "THINNR HQ"),
         channel: row.channel, recipientEmail: row.email ?? null, status: row.status,
         suppressionReason: row.suppression_reason ?? null, suppressionDetail: row.suppression_reason ?? null,
         lastError: row.last_error ?? null, digestDate: data.digestDate ?? null, flaggedCount: data.flaggedCount ?? 0,

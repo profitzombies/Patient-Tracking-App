@@ -2229,6 +2229,197 @@ export interface SystemHealthResult {
   externalTrigger: ExternalTriggerHealth;
 }
 
+export type ThresholdLevel = typeof ThresholdLevel[keyof typeof ThresholdLevel];
+
+
+export const ThresholdLevel = {
+  ok: 'ok',
+  amber: 'amber',
+  red: 'red',
+} as const;
+
+export type ThresholdFindingMetric = typeof ThresholdFindingMetric[keyof typeof ThresholdFindingMetric];
+
+
+export const ThresholdFindingMetric = {
+  p95_latency: 'p95_latency',
+  db_growth: 'db_growth',
+  storage_growth: 'storage_growth',
+} as const;
+
+export type ThresholdFindingLevel = typeof ThresholdFindingLevel[keyof typeof ThresholdFindingLevel];
+
+
+export const ThresholdFindingLevel = {
+  amber: 'amber',
+  red: 'red',
+} as const;
+
+export interface ThresholdFinding {
+  metric: ThresholdFindingMetric;
+  level: ThresholdFindingLevel;
+  /**
+     * Route family for latency findings; null for growth.
+     * @nullable
+     */
+  family: string | null;
+  /** Observed value: ms for latency, bytes per day for growth. */
+  value: number;
+  /** The limit that was crossed */
+  limit: number;
+  message: string;
+}
+
+export interface GrowthThresholds {
+  amberBytesPerDay: number;
+  redBytesPerDay: number;
+}
+
+export type ThresholdConfigLatency = {
+  defaultAmberMs: number;
+  defaultRedMs: number;
+  streamingAmberMs: number;
+  streamingRedMs: number;
+  /** Families with fewer requests in the hour are not levelled. */
+  minRequests: number;
+};
+
+export interface ThresholdConfig {
+  latency: ThresholdConfigLatency;
+  dbGrowth: GrowthThresholds;
+  storageGrowth: GrowthThresholds;
+}
+
+export interface LatencyFamily {
+  /** Route family (first two labelled path segments, e.g. office/roster). */
+  family: string;
+  /** Long-lived model streams use the wider streaming budget. */
+  streaming: boolean;
+  requests: number;
+  /** Responses with a 5xx status. */
+  errors: number;
+  /** Share of requests (0–1) that touched the database. */
+  dbShare: number;
+  /** Share of requests (0–1) that called an AI model. */
+  aiShare: number;
+  /** @nullable */
+  meanMs: number | null;
+  /** @nullable */
+  p50Ms: number | null;
+  /** @nullable */
+  p95Ms: number | null;
+  maxMs: number;
+  level: ThresholdLevel;
+}
+
+export interface LatencyWindow {
+  since: string;
+  families: LatencyFamily[];
+}
+
+export interface SlowStatement {
+  queryId: string;
+  /** @nullable */
+  role: string | null;
+  /** Normalised statement text from pg_stat_statements (constants replaced). */
+  query: string;
+  calls: number;
+  totalMs: number;
+  meanMs: number;
+  maxMs: number;
+  rows: number;
+  sharedBlocksRead: number;
+}
+
+export interface SlowStatements {
+  /** @nullable */
+  statsResetAt: string | null;
+  byTotal: SlowStatement[];
+  byMean: SlowStatement[];
+}
+
+export interface GrowthSeries {
+  bytes: number;
+  /** @nullable */
+  previousBytes: number | null;
+  /** @nullable */
+  deltaBytes: number | null;
+  /** @nullable */
+  deltaPercent: number | null;
+  /**
+     * Delta normalised to one day when snapshots are further apart.
+     * @nullable
+     */
+  bytesPerDay: number | null;
+  level: ThresholdLevel;
+}
+
+export interface TableGrowth {
+  name: string;
+  totalBytes: number;
+  /** @nullable */
+  tableBytes: number | null;
+  /** @nullable */
+  indexBytes: number | null;
+  /** @nullable */
+  rowEstimate: number | null;
+  /** @nullable */
+  deltaBytes: number | null;
+}
+
+export interface StoragePrefixGrowth {
+  name: string;
+  bytes: number;
+  /** @nullable */
+  objectCount: number | null;
+  /** @nullable */
+  deltaBytes: number | null;
+}
+
+export interface GrowthHistoryPoint {
+  date: string;
+  /** @nullable */
+  databaseBytes: number | null;
+  /** @nullable */
+  storageBytes: number | null;
+}
+
+export interface SystemGrowth {
+  latestDate: string;
+  /** @nullable */
+  previousDate: string | null;
+  database: GrowthSeries;
+  storage: GrowthSeries;
+  tables: TableGrowth[];
+  storagePrefixes: StoragePrefixGrowth[];
+  history: GrowthHistoryPoint[];
+}
+
+/**
+ * Null when the request metrics table could not be read.
+ */
+export type SystemPerformanceResultLatency = {
+  lastHour: LatencyWindow;
+  lastDay: LatencyWindow;
+} | null;
+
+export type SystemPerformanceResultThresholds = {
+  level: ThresholdLevel;
+  config: ThresholdConfig;
+  findings: ThresholdFinding[];
+};
+
+export interface SystemPerformanceResult {
+  asOf: string;
+  /** Null when the request metrics table could not be read. */
+  latency: SystemPerformanceResultLatency;
+  /** Null when pg_stat_statements could not be read. */
+  slowStatements: SlowStatements | null;
+  /** Null when no daily size snapshot exists yet or the table could not be read. */
+  growth: SystemGrowth | null;
+  thresholds: SystemPerformanceResultThresholds;
+}
+
 export interface SystemJobRunResult {
   run: SystemJobRun;
 }

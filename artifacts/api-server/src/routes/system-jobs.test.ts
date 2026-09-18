@@ -27,6 +27,8 @@ import { createMemoryJobStore } from "../jobs/store";
 import type { JobDefinition } from "../jobs/types";
 import type { WorkerDrains } from "../jobs/worker-drains";
 import { createSystemJobsRouter, describeInterval, jobHealthStatus, type JobHealthDto } from "./system-jobs";
+import type { PerformanceDto } from "../system/performance";
+import { thresholdConfig } from "../system/thresholds";
 
 let clock = new Date("2026-09-07T12:00:00Z");
 const store = createMemoryJobStore(() => clock);
@@ -49,6 +51,10 @@ let outbox: (now: Date) => Promise<{ due: number; oldestDueAt: string | null; in
 });
 let server: http.Server;
 let base = "";
+let performance: (now: Date) => Promise<PerformanceDto> = async (now) => ({
+  asOf: now.toISOString(), latency: null, slowStatements: null, growth: null,
+  thresholds: { level: "ok", config: thresholdConfig(), findings: [] },
+});
 
 function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinition["run"] }): JobDefinition {
   return { title: overrides.name, description: `${overrides.name} description`, intervalMs: 3_600_000, leaseSeconds: 60, ...overrides };
@@ -57,7 +63,7 @@ function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinit
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now) }));
+  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now), readPerformance: (now) => performance(now) }));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -216,6 +222,35 @@ describe("GET /hq/system-health", () => {
     } finally {
       s.close();
     }
+  });
+});
+
+describe("GET /hq/system-health/performance", () => {
+  it("needs settings_manage", async () => {
+    expect((await fetch(`${base}/hq/system-health/performance`)).status).toBe(403);
+  });
+
+  it("returns latency, slow statements, growth, and the evaluated thresholds", async () => {
+    performance = async (now) => ({
+      asOf: now.toISOString(),
+      latency: { lastHour: { since: "h", families: [{ family: "office/roster", streaming: false, requests: 63, errors: 0, dbShare: 1, aiShare: 0, meanMs: 900, p50Ms: 700, p95Ms: 1840, maxMs: 3000, level: "amber" }] }, lastDay: { since: "d", families: [] } },
+      slowStatements: { statsResetAt: null, byTotal: [], byMean: [] },
+      growth: null,
+      thresholds: { level: "amber", config: thresholdConfig(), findings: [{ metric: "p95_latency", level: "amber", family: "office/roster", value: 1840, limit: 1500, message: "slow" }] },
+    });
+    const res = await fetch(`${base}/hq/system-health/performance`, { headers: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json() as PerformanceDto;
+    expect(body.latency?.lastHour.families[0]).toMatchObject({ family: "office/roster", p95Ms: 1840, level: "amber" });
+    expect(body.thresholds).toMatchObject({ level: "amber", findings: [{ metric: "p95_latency", family: "office/roster" }] });
+    expect(body.growth).toBeNull();
+  });
+
+  it("answers 502 when the whole read fails", async () => {
+    performance = async () => { throw new Error("pg down"); };
+    const res = await fetch(`${base}/hq/system-health/performance`, { headers: admin });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Could not load performance right now." });
   });
 });
 

@@ -2427,6 +2427,15 @@ paths:
         "200":
           description: System health snapshot
           content: { application/json: { schema: { $ref: "#/components/schemas/SystemHealthResult" } } }
+  /hq/system-health/performance:
+    get:
+      operationId: getHqSystemPerformance
+      tags: [hq]
+      summary: Request latency per route family, heaviest database statements, and table/storage growth with thresholds
+      responses:
+        "200":
+          description: Performance snapshot; each section is null when its source could not be read
+          content: { application/json: { schema: { $ref: "#/components/schemas/SystemPerformanceResult" } } }
   /hq/system-health/runs/{runId}:
     get:
       operationId: getHqSystemJobRun
@@ -4290,6 +4299,158 @@ components:
         signups: { type: number }
         activePatients: { type: number }
         smsPerActivePatient: { type: ["number", "null"] }
+    ThresholdLevel:
+      type: string
+      enum: [ok, amber, red]
+    ThresholdFinding:
+      type: object
+      required: [metric, level, family, value, limit, message]
+      properties:
+        metric: { type: string, enum: [p95_latency, db_growth, storage_growth] }
+        level: { type: string, enum: [amber, red] }
+        family: { type: ["string", "null"], description: Route family for latency findings; null for growth. }
+        value: { type: number, description: "Observed value: ms for latency, bytes per day for growth." }
+        limit: { type: number, description: The limit that was crossed, in the same unit. }
+        message: { type: string }
+    GrowthThresholds:
+      type: object
+      required: [amberBytesPerDay, redBytesPerDay]
+      properties:
+        amberBytesPerDay: { type: number }
+        redBytesPerDay: { type: number }
+    ThresholdConfig:
+      type: object
+      required: [latency, dbGrowth, storageGrowth]
+      properties:
+        latency:
+          type: object
+          required: [defaultAmberMs, defaultRedMs, streamingAmberMs, streamingRedMs, minRequests]
+          properties:
+            defaultAmberMs: { type: number }
+            defaultRedMs: { type: number }
+            streamingAmberMs: { type: number }
+            streamingRedMs: { type: number }
+            minRequests: { type: number, description: Families with fewer requests in the hour are not levelled. }
+        dbGrowth: { $ref: "#/components/schemas/GrowthThresholds" }
+        storageGrowth: { $ref: "#/components/schemas/GrowthThresholds" }
+    LatencyFamily:
+      type: object
+      required: [family, streaming, requests, errors, dbShare, aiShare, meanMs, p50Ms, p95Ms, maxMs, level]
+      properties:
+        family: { type: string, description: "Route family (first two labelled path segments, e.g. office/roster)." }
+        streaming: { type: boolean, description: Long-lived model streams use the wider streaming budget. }
+        requests: { type: number }
+        errors: { type: number, description: Responses with a 5xx status. }
+        dbShare: { type: number, description: Share of requests (0–1) that touched the database. }
+        aiShare: { type: number, description: Share of requests (0–1) that called an AI model. }
+        meanMs: { type: ["number", "null"] }
+        p50Ms: { type: ["number", "null"] }
+        p95Ms: { type: ["number", "null"] }
+        maxMs: { type: number }
+        level: { $ref: "#/components/schemas/ThresholdLevel" }
+    LatencyWindow:
+      type: object
+      required: [since, families]
+      properties:
+        since: { type: string }
+        families: { type: array, items: { $ref: "#/components/schemas/LatencyFamily" } }
+    SlowStatement:
+      type: object
+      required: [queryId, role, query, calls, totalMs, meanMs, maxMs, rows, sharedBlocksRead]
+      properties:
+        queryId: { type: string }
+        role: { type: ["string", "null"] }
+        query: { type: string, description: Normalised statement text from pg_stat_statements (constants replaced). }
+        calls: { type: number }
+        totalMs: { type: number }
+        meanMs: { type: number }
+        maxMs: { type: number }
+        rows: { type: number }
+        sharedBlocksRead: { type: number }
+    SlowStatements:
+      type: object
+      required: [statsResetAt, byTotal, byMean]
+      properties:
+        statsResetAt: { type: ["string", "null"] }
+        byTotal: { type: array, items: { $ref: "#/components/schemas/SlowStatement" } }
+        byMean: { type: array, items: { $ref: "#/components/schemas/SlowStatement" } }
+    GrowthSeries:
+      type: object
+      required: [bytes, previousBytes, deltaBytes, deltaPercent, bytesPerDay, level]
+      properties:
+        bytes: { type: number }
+        previousBytes: { type: ["number", "null"] }
+        deltaBytes: { type: ["number", "null"] }
+        deltaPercent: { type: ["number", "null"] }
+        bytesPerDay: { type: ["number", "null"], description: Delta normalised to one day when snapshots are further apart. }
+        level: { $ref: "#/components/schemas/ThresholdLevel" }
+    TableGrowth:
+      type: object
+      required: [name, totalBytes, tableBytes, indexBytes, rowEstimate, deltaBytes]
+      properties:
+        name: { type: string }
+        totalBytes: { type: number }
+        tableBytes: { type: ["number", "null"] }
+        indexBytes: { type: ["number", "null"] }
+        rowEstimate: { type: ["number", "null"] }
+        deltaBytes: { type: ["number", "null"] }
+    StoragePrefixGrowth:
+      type: object
+      required: [name, bytes, objectCount, deltaBytes]
+      properties:
+        name: { type: string }
+        bytes: { type: number }
+        objectCount: { type: ["number", "null"] }
+        deltaBytes: { type: ["number", "null"] }
+    GrowthHistoryPoint:
+      type: object
+      required: [date, databaseBytes, storageBytes]
+      properties:
+        date: { type: string }
+        databaseBytes: { type: ["number", "null"] }
+        storageBytes: { type: ["number", "null"] }
+    SystemGrowth:
+      type: object
+      required: [latestDate, previousDate, database, storage, tables, storagePrefixes, history]
+      properties:
+        latestDate: { type: string }
+        previousDate: { type: ["string", "null"] }
+        database: { $ref: "#/components/schemas/GrowthSeries" }
+        storage: { $ref: "#/components/schemas/GrowthSeries" }
+        tables: { type: array, items: { $ref: "#/components/schemas/TableGrowth" } }
+        storagePrefixes: { type: array, items: { $ref: "#/components/schemas/StoragePrefixGrowth" } }
+        history: { type: array, items: { $ref: "#/components/schemas/GrowthHistoryPoint" } }
+    SystemPerformanceResult:
+      type: object
+      required: [asOf, latency, slowStatements, growth, thresholds]
+      properties:
+        asOf: { type: string }
+        latency:
+          description: Null when the request metrics table could not be read.
+          oneOf:
+            - type: object
+              required: [lastHour, lastDay]
+              properties:
+                lastHour: { $ref: "#/components/schemas/LatencyWindow" }
+                lastDay: { $ref: "#/components/schemas/LatencyWindow" }
+            - type: "null"
+        slowStatements:
+          description: Null when pg_stat_statements could not be read.
+          oneOf:
+            - $ref: "#/components/schemas/SlowStatements"
+            - type: "null"
+        growth:
+          description: Null when no daily size snapshot exists yet or the table could not be read.
+          oneOf:
+            - $ref: "#/components/schemas/SystemGrowth"
+            - type: "null"
+        thresholds:
+          type: object
+          required: [level, config, findings]
+          properties:
+            level: { $ref: "#/components/schemas/ThresholdLevel" }
+            config: { $ref: "#/components/schemas/ThresholdConfig" }
+            findings: { type: array, items: { $ref: "#/components/schemas/ThresholdFinding" } }
     SystemJobRunResult:
       type: object
       required: [run]

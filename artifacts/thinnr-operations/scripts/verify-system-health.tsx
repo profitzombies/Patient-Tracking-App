@@ -50,6 +50,7 @@ import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import SystemHealth, { STATUS_LABEL, externalTriggerSeverity, formatAge, formatCounts, monthLabel, ratioLabel, statusClass } from '../src/pages/admin/SystemHealth';
 import { useToast } from '../src/hooks/use-toast';
+import { formatBytes, formatDelta, formatMs } from '../src/pages/admin/SystemPerformance';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -155,6 +156,60 @@ let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknow
   body: { run: { id: 'run-9', jobName: name, trigger: 'manual', dryRun, status: 'succeeded', owner: 'api:1', startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), counts: dryRun ? { wouldDelete: 3 } : { deleted: 3 }, failureCount: 0, error: null } },
 });
 
+const family = (name: string, p95Ms: number, requests: number, level: 'ok' | 'amber' | 'red', extra: Partial<Record<string, unknown>> = {}) => ({
+  family: name, streaming: false, requests, errors: 0, dbShare: 1, aiShare: 0, meanMs: p95Ms / 2, p50Ms: Math.round(p95Ms / 3), p95Ms, maxMs: p95Ms * 2, level, ...extra,
+});
+const statement = (id: string, query: string, calls: number, totalMs: number, meanMs: number) => ({ queryId: id, role: 'authenticator', query, calls, totalMs, meanMs, maxMs: meanMs * 3, rows: calls * 4, sharedBlocksRead: 12 });
+const MB = 1024 * 1024;
+const thresholdConfig = {
+  latency: { defaultAmberMs: 1500, defaultRedMs: 4000, streamingAmberMs: 20_000, streamingRedMs: 45_000, minRequests: 20 },
+  dbGrowth: { amberBytesPerDay: 250 * MB, redBytesPerDay: 1024 * MB },
+  storageGrowth: { amberBytesPerDay: 2048 * MB, redBytesPerDay: 10240 * MB },
+};
+type PerformanceFixture = {
+  asOf: string;
+  latency: { lastHour: { since: string; families: ReturnType<typeof family>[] }; lastDay: { since: string; families: ReturnType<typeof family>[] } } | null;
+  slowStatements: { statsResetAt: string | null; byTotal: ReturnType<typeof statement>[]; byMean: ReturnType<typeof statement>[] } | null;
+  growth: Record<string, unknown> | null;
+  thresholds: { level: 'ok' | 'amber' | 'red'; config: typeof thresholdConfig; findings: Array<Record<string, unknown>> };
+};
+const healthyPerformance = (): PerformanceFixture => ({
+  asOf: new Date(NOW).toISOString(),
+  latency: {
+    lastHour: { since: new Date(NOW - 3_600_000).toISOString(), families: [family('office/roster', 1840, 63, 'amber'), family('health', 12, 400, 'ok'), family('coach/chat', 9_000, 30, 'ok', { streaming: true, aiShare: 1 }), family('patient/diary', 6_000, 3, 'ok')] },
+    lastDay: { since: new Date(NOW - 86_400_000).toISOString(), families: [family('office/roster', 900, 1_500, 'ok'), family('health', 10, 9_000, 'ok')] },
+  },
+  slowStatements: {
+    statsResetAt: new Date(NOW - 5 * 86_400_000).toISOString(),
+    byTotal: [statement('101', 'SELECT * FROM diary_entries WHERE patient_id = $1', 12_000, 90_000, 7.5), statement('102', 'select hq_request_latency($1)', 80, 12_000, 150)],
+    byMean: [statement('102', 'select hq_request_latency($1)', 80, 12_000, 150), statement('101', 'SELECT * FROM diary_entries WHERE patient_id = $1', 12_000, 90_000, 7.5)],
+  },
+  growth: {
+    latestDate: '2026-09-18', previousDate: '2026-09-17',
+    database: { bytes: 900 * MB, previousBytes: 600 * MB, deltaBytes: 300 * MB, deltaPercent: 50, bytesPerDay: 300 * MB, level: 'amber' },
+    storage: { bytes: 5 * 1024 * MB, previousBytes: 5 * 1024 * MB - 100 * MB, deltaBytes: 100 * MB, deltaPercent: 2, bytesPerDay: 100 * MB, level: 'ok' },
+    tables: [
+      { name: 'public.diary_entries', totalBytes: 400 * MB, tableBytes: 300 * MB, indexBytes: 100 * MB, rowEstimate: 1_250_000, deltaBytes: 250 * MB },
+      { name: 'public.approved_foods', totalBytes: 90 * MB, tableBytes: 60 * MB, indexBytes: 30 * MB, rowEstimate: 129_000, deltaBytes: 0 },
+    ],
+    storagePrefixes: [{ name: '/objects/patient-media/', bytes: 4 * 1024 * MB, objectCount: 18_400, deltaBytes: 90 * MB }],
+    history: [
+      { date: '2026-09-16', databaseBytes: 500 * MB, storageBytes: 4_900 * MB },
+      { date: '2026-09-17', databaseBytes: 600 * MB, storageBytes: 5_020 * MB },
+      { date: '2026-09-18', databaseBytes: 900 * MB, storageBytes: 5_120 * MB },
+    ],
+  },
+  thresholds: {
+    level: 'amber', config: thresholdConfig,
+    findings: [
+      { metric: 'p95_latency', level: 'amber', family: 'office/roster', value: 1840, limit: 1500, message: 'office/roster: p95 1840 ms over the last hour (63 requests) is above the 1500 ms amber limit.' },
+      { metric: 'db_growth', level: 'amber', family: null, value: 300 * MB, limit: 250 * MB, message: 'Database grew 300.0 MB per day, above the 250 MB amber limit.' },
+    ],
+  },
+});
+let performance: PerformanceFixture = healthyPerformance();
+let performanceStatus = 200;
+
 const requests: Array<{ url: string; method: string; body: unknown }> = [];
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -166,6 +221,10 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   if (run && method === 'POST') {
     const answer = runAnswer(decodeURIComponent(run[1]), body?.dryRun === true);
     return json(answer.body, answer.status);
+  }
+  if (url.includes('/api/hq/system-health/performance')) {
+    if (performanceStatus !== 200) return json({ error: 'Could not load performance right now.' }, performanceStatus);
+    return json(performance);
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
@@ -378,6 +437,50 @@ console.log('\nsystem health: ledger unavailable');
   check('the trigger card shows dashes and no chips or warning without data',
     byTestId(root, 'system-health-external-trigger').length === 1 && textOf(byTestId(root, 'text-tick-last-jobs')[0]) === '—' && byTestId(root, 'chip-tick-status-jobs').length === 0 && byTestId(root, 'text-external-trigger-warning').length === 0);
   healthStatus = 200;
+}
+
+console.log('\nsystem health: performance panels');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('the threshold banner reports the crossed findings as an alert',
+    byTestId(root, 'performance-thresholds')[0]?.props.role === 'alert' && textOf(byTestId(root, 'text-performance-level')[0]).startsWith('2 thresholds crossed')
+      && byTestId(root, 'finding-p95_latency-office-roster').length === 1 && byTestId(root, 'finding-db_growth').length === 1);
+  check('the banner prints every limit so the colours are explainable', textOf(byTestId(root, 'performance-thresholds')[0]).includes('p95 amber 1.50 s / red 4.00 s') && textOf(byTestId(root, 'performance-thresholds')[0]).includes('DB growth 250.0 MB / 1.00 GB per day'));
+  const p95 = (name: string) => textOf(byTestId(root, `text-p95-${name}`)[0]);
+  check('the last-hour latency table sorts by p95 and shows p50/p95 per family',
+    byTestId(root, 'table-latency').length === 1 && p95('office-roster') === '1.84 s' && p95('health') === '12 ms' && p95('coach-chat') === '9.00 s'
+      && byTestId(root, 'table-latency')[0].findAllByType('tbody')[0].findAllByType('tr').map((tr) => tr.props['data-testid']).join(',') === 'row-latency-coach-chat,row-latency-patient-diary,row-latency-office-roster,row-latency-health');
+  check('an amber family is chipped amber; a thin family is "too few", a stream is tagged',
+    textOf(byTestId(root, 'row-latency-office-roster')[0]).includes('Amber') && textOf(byTestId(root, 'row-latency-patient-diary')[0]).includes('too few') && textOf(byTestId(root, 'row-latency-coach-chat')[0]).includes('stream'));
+  await act(async () => { byTestId(root, 'toggle-latency-window-lastDay')[0].props.onClick(); });
+  check('switching to the day window swaps the rows and keeps the pressed state', byTestId(root, 'row-latency-coach-chat').length === 0 && textOf(byTestId(root, 'row-latency-office-roster')[0]).includes('1,500') && byTestId(root, 'toggle-latency-window-lastDay')[0].props['aria-pressed'] === true);
+  check('slow statements list by total time first with calls, total, and mean',
+    byTestId(root, 'table-slow-statements')[0].findAllByType('tbody')[0].findAllByType('tr')[0].props['data-testid'] === 'row-statement-101' && textOf(byTestId(root, 'row-statement-101')[0]).includes('12,000') && textOf(byTestId(root, 'row-statement-101')[0]).includes('1.5 m') === false && textOf(byTestId(root, 'row-statement-101')[0]).includes('90.0 s'));
+  await act(async () => { byTestId(root, 'toggle-statement-order-byMean')[0].props.onClick(); });
+  check('ordering by mean time puts the slow-every-time statement first', byTestId(root, 'table-slow-statements')[0].findAllByType('tbody')[0].findAllByType('tr')[0].props['data-testid'] === 'row-statement-102');
+  check('growth tiles show size, delta, growth per day, and level',
+    textOf(byTestId(root, 'metric-db-size')[0]) === '900.0 MB' && textOf(byTestId(root, 'metric-db-growth')[0]) === '+300.0 MB' && textOf(byTestId(root, 'metric-storage-size')[0]) === '5.00 GB' && textOf(byTestId(root, 'metric-storage-growth')[0]) === '+100.0 MB'
+      && textOf(byTestId(root, 'chip-db-growth-level')[0]) === 'Amber' && textOf(byTestId(root, 'chip-storage-growth-level')[0]) === 'OK',
+    `${textOf(byTestId(root, 'metric-db-size')[0])} / ${textOf(byTestId(root, 'metric-db-growth')[0])} / ${textOf(byTestId(root, 'metric-storage-size')[0])} / ${textOf(byTestId(root, 'metric-storage-growth')[0])}`);
+  check('the table rows carry heap, index, row estimate, and the daily delta',
+    textOf(byTestId(root, 'row-table-public-diary_entries')[0]).includes('1,250,000') && textOf(byTestId(root, 'row-table-public-diary_entries')[0]).includes('+250.0 MB') && textOf(byTestId(root, 'row-table-public-approved_foods')[0]).includes('no change')
+      && textOf(byTestId(root, 'row-storage--objects-patient-media-')[0]).includes('18,400 objects'));
+  check('a history of three snapshots draws both trend lines', byTestId(root, 'growth-history').length === 1 && byTestId(root, 'line-database').length === 1 && byTestId(root, 'line-storage').length === 1);
+  check('formatters: bytes, deltas, and milliseconds',
+    formatBytes(512) === '512 B' && formatBytes(1536) === '2 KB' && formatBytes(1.5 * MB) === '1.5 MB' && formatBytes(2.5 * 1024 * MB) === '2.50 GB' && formatBytes(null) === '—'
+      && formatDelta(-4 * MB) === '−4.0 MB' && formatDelta(0) === 'no change' && formatDelta(null) === '—' && formatMs(999) === '999 ms' && formatMs(1234) === '1.23 s' && formatMs(45_000) === '45.0 s');
+
+  performance = { ...healthyPerformance(), latency: null, slowStatements: null, growth: null, thresholds: { level: 'ok', config: thresholdConfig, findings: [] } };
+  const bare = await render('/admin/system-health', <SystemHealth />);
+  check('null sections say unavailable / no snapshot yet, never zeros',
+    byTestId(bare.root, 'text-latency-unavailable').length === 1 && byTestId(bare.root, 'text-statements-unavailable').length === 1 && byTestId(bare.root, 'text-growth-unavailable').length === 1
+      && byTestId(bare.root, 'table-latency').length === 0 && byTestId(bare.root, 'growth-summary').length === 0 && byTestId(bare.root, 'performance-thresholds')[0]?.props.role === 'status');
+
+  performanceStatus = 502;
+  const down = await render('/admin/system-health', <SystemHealth />);
+  check('a 502 on the performance read shows its own notice while the jobs board still renders', byTestId(down.root, 'text-performance-error').length === 1 && byTestId(down.root, 'job-abandoned-uploads').length === 1 && byTestId(down.root, 'table-latency').length === 0);
+  performanceStatus = 200;
+  performance = healthyPerformance();
 }
 
 console.log('\nsystem health: demo persona and non-admin role');

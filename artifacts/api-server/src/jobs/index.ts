@@ -28,6 +28,8 @@ import {
   retentionSignInsJob,
 } from "./definitions/retention";
 import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-events";
+import { dataGrowthSnapshotJob } from "./definitions/data-growth-snapshot";
+import { systemThresholdsJob } from "./definitions/system-thresholds";
 
 /** Request-scoped patient upload discards; logged as user runs, never scheduled. */
 export const patientMediaCleanupJob: JobDefinition = {
@@ -78,6 +80,8 @@ export const ALL_JOBS: JobDefinition[] = [
   trainingMediaCleanupJob,
   patientMediaCleanupJob,
   patientSignInMetricsJob,
+  dataGrowthSnapshotJob,
+  systemThresholdsJob,
 ];
 
 let registered = false;

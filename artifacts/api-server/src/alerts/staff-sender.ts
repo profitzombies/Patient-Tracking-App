@@ -32,6 +32,31 @@ function reasonText(reason: { label: string; days: number | null }): string {
   if (reason.days === null) return `${reason.label} (never)`;
   return `${reason.label} (${reason.days} day${reason.days === 1 ? "" : "s"})`;
 }
+function formatThresholdValue(metric: string, value: number): string {
+  if (metric === "p95_latency") return `p95 ${Math.round(value).toLocaleString("en-US")} ms`;
+  const mb = value / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB per day` : `${mb.toFixed(1)} MB per day`;
+}
+/** HQ threshold alert: everything it needs was snapshotted on the row when the job queued it. */
+export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedEmail {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  const metric = String(data.metric ?? "");
+  const family = typeof data.family === "string" ? data.family : null;
+  const metricLabel = metric === "p95_latency" ? `Slow route ${family ?? ""}`.trim() : metric === "db_growth" ? "Database growing fast" : metric === "storage_growth" ? "Storage growing fast" : row.title;
+  return renderEmailTemplate("system-threshold-alert", {
+    name: typeof data.recipientName === "string" ? data.recipientName : "",
+    level: String(data.level ?? "amber"),
+    metricLabel,
+    finding: typeof data.message === "string" && data.message ? data.message : row.body,
+    observed: formatThresholdValue(metric, Number(data.value ?? 0)),
+    limit: formatThresholdValue(metric, Number(data.limit ?? 0)),
+    day: digestDateLabel(String(data.day ?? "")),
+    healthLink: `${publicOrigin()}/admin/system-health`,
+  });
+}
+export function isSystemThresholdRow(row: StaffNotificationRow): boolean {
+  return row.kind === "system_threshold" || (row.provider_id === null && row.kind !== "staff_attention_digest");
+}
 /** Builds the branded digest email from the snapshot stored on the row at enqueue time. */
 export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail {
   const data = (row.data ?? {}) as Record<string, unknown>;
@@ -57,7 +82,7 @@ export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail
 async function sendEmail(row: StaffNotificationRow): Promise<void> {
   const key = process.env.RESEND_API_KEY; const from = fromAddress();
   if (!key || !from || !row.email) throw new Error("staff email delivery is not configured");
-  const rendered = renderStaffDigestEmail(row);
+  const rendered = isSystemThresholdRow(row) ? renderSystemThresholdEmail(row) : renderStaffDigestEmail(row);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from, to: [row.email], subject: rendered.subject, text: rendered.text, html: rendered.html }),
@@ -77,6 +102,22 @@ export async function runStaffNotificationTick(input: {
   for (const row of claimed) {
     try {
       if (new Date(row.expires_at) <= now) { if (await finish(input.store, row, input.owner, "expired", now, null, summary)) summary.suppressed += 1; continue; }
+      // HQ system alerts belong to no office: no office state, per-office
+      // preference, or quiet hours apply. They are email-only by construction
+      // (the threshold job never queues a push row).
+      if (isSystemThresholdRow(row) || row.provider_id === null) {
+        if (row.channel !== "email") {
+          if (await finish(input.store, row, input.owner, "suppressed", now, "channel_unsupported", summary)) summary.suppressed += 1;
+          continue;
+        }
+        try {
+          await sendEmail(row);
+          if (await patch(input.store, row, input.owner, { status: "sent", sent_at: now.toISOString(), finalized_at: now.toISOString(), attempts: row.attempts + 1, lease_owner: null, lease_until: null }, summary)) summary.sent += 1;
+        } catch (error) {
+          if (await patch(input.store, row, input.owner, { status: "failed", attempts: row.attempts + 1, last_error: error instanceof Error ? error.message : String(error), finalized_at: now.toISOString(), lease_owner: null, lease_until: null }, summary)) summary.failed += 1;
+        }
+        continue;
+      }
       const office = await input.store.officeState(row.provider_id);
       if (!office.available || office.locked) {
         if (await finish(input.store, row, input.owner, "suppressed", now, office.locked ? "office_locked" : "office_unavailable", summary)) summary.suppressed += 1;

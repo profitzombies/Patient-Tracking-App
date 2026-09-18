@@ -7,7 +7,11 @@ export interface StaffPushToken {
   platform: "ios" | "android"; disabled_at: string | null;
 }
 export interface StaffNotificationRow {
-  id: string; provider_id: string; auth_user_id: string; channel: "push" | "email"; email: string | null;
+  id: string;
+  /** Null only for kind system_threshold (HQ-addressed; no office checks apply). */
+  provider_id: string | null;
+  kind?: "staff_attention_digest" | "system_threshold" | string;
+  auth_user_id: string; channel: "push" | "email"; email: string | null;
   status: string; attempts: number; expires_at: string; data: Record<string, unknown>;
   title: string; body: string; suppression_reason: string | null; lease_owner: string | null;
 }

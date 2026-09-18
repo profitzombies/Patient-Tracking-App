@@ -1,3 +1,4 @@
+// hint: Structural and logic conflict. Both design and behavior differ.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -154,3 +155,5 @@
 - [Office Overview live numbers](overview-live-counts.md) — linked counts come from roster rows + shared predicates (never the rollup RPC); finance rides one prior+current dashboard request; billing 403 = owners-only, not Error.
 - [Ledger retention guards](ledger-retention-guards.md) — keep-latest guard + delete in ONE data-modifying CTE with `and not p_dry_run`; mutation-check guards; new settings columns need runner postconditions.
 - [App usage Insights](app-usage-insights.md) — one event helper at write seams, patient-local hour (−1 = day-only), rollups ∪ raw tail, one shared rule engine for demo + live; rebuild lib dist on signature change.
+- [System performance metrics](system-performance-metrics.md) — latency flush needs a request after the minute rolls; pg_stat_statements is since-reset; unlistable storage prefix withholds the total; HQ alerts have provider_id null.
+- [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.

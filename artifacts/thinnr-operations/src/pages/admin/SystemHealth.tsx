@@ -17,6 +17,10 @@
  * exports, and clean-up have stopped — that reads as a red warning. When the
  * server still runs its own timers (development) the same gap is only a note.
  *
+ * Below the jobs board sit the performance panels (SystemPerformance.tsx):
+ * request speed per route family, the heaviest database statements, and
+ * table/storage growth, coloured by the same thresholds that email HQ.
+ *
  * Live-only: the guided demo has no job ledger, so signed-out visitors see a
  * note rather than a fabricated healthy board.
  */
@@ -41,6 +45,7 @@ import { useSession } from '@/contexts/session';
 import { MetricTile, PageHeader } from '@/components/admin/primitives';
 import { useToast } from '@/hooks/use-toast';
 import { fetchStaffAlertDeliveries } from '@/lib/office-alerts-api';
+import { SystemPerformancePanels } from './SystemPerformance';
 
 export const STATUS_LABEL: Record<SystemJobHealthStatus, string> = {
   ok: 'Healthy',
@@ -412,6 +417,8 @@ export default function SystemHealth() {
           <ExternalTriggerCard health={data?.externalTrigger} loaded={Boolean(data)} />
 
           <VerificationCostPanel months={data?.patientSignIns} loaded={!!data} />
+
+          <SystemPerformancePanels enabled={canLoad} keySuffix={[authUser?.id, hqRole]} />
 
           <section className="mt-6 space-y-3" aria-label="Background jobs" data-testid="system-health-jobs">
             {isLoading && !data && (

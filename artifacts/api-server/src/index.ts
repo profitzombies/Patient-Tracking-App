@@ -1,4 +1,4 @@
-import app from "./app";
+import app, { requestTiming } from "./app";
 import { logger } from "./lib/logger";
 import { startExportWorker } from "./exports/worker";
 import { startNotificationWorker } from "./notifications/worker";
@@ -56,3 +56,16 @@ app.listen(port, (err) => {
   startJobScheduler();
   void ensureBillingWebhookEndpoints();
 });
+
+// Land the in-memory latency histogram (including the open minute) before a
+// restart or scale-down takes the process away; capped so a slow database
+// cannot hold the shutdown.
+const FINAL_FLUSH_CAP_MS = 3_000;
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.once(signal, () => {
+    const cap = new Promise<void>((resolve) => setTimeout(resolve, FINAL_FLUSH_CAP_MS).unref());
+    Promise.race([requestTiming.flusher?.flush(true) ?? Promise.resolve(), cap])
+      .catch((error: unknown) => logger.warn({ err: error }, "final request metrics flush failed"))
+      .finally(() => process.exit(0));
+  });
+}

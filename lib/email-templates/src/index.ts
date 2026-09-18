@@ -14,6 +14,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "subscription-payment-failed",
   "subscription-cancelled",
   "staff-attention-digest",
+  "system-threshold-alert",
   ...SHOP_EMAIL_TEMPLATE_IDS,
 ] as const;
 
@@ -270,6 +271,33 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       settingsLink: "Alert settings link",
     },
   },
+  {
+    id: "system-threshold-alert",
+    name: "System health threshold alert",
+    purpose: "Tells HQ administrators that a System health limit (request speed, database growth, or storage growth) was crossed and links to the page.",
+    trigger: "The system-thresholds job finds a route family’s p95 latency, the database’s daily growth, or object storage’s daily growth above an amber or red limit.",
+    audience: "Active HQ administrators (super admin and admin roles).",
+    sampleVariables: {
+      name: "Jordan",
+      level: "amber",
+      metricLabel: "Slow route hq/system-health",
+      finding: "hq/system-health: p95 1840 ms over the last hour (63 requests) is above the 1500 ms amber limit.",
+      observed: "p95 1,840 ms",
+      limit: "1,500 ms",
+      day: "Friday, September 18, 2026",
+      healthLink: "https://operations.example.com/admin/system-health",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      level: "Level (amber or red)",
+      metricLabel: "Short metric name",
+      finding: "One-sentence finding",
+      observed: "Observed value",
+      limit: "Limit crossed",
+      day: "Day of the finding",
+      healthLink: "System health page link",
+    },
+  },
   ...SHOP_EMAIL_TEMPLATE_CATALOG,
 ] as const;
 
@@ -516,6 +544,7 @@ export function renderEmailTemplate(
   if (id === "order-shipped") return renderOrderShipped(variables);
   if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
   if (id === "staff-attention-digest") return renderStaffAttentionDigest(variables);
+  if (id === "system-threshold-alert") return renderSystemThresholdAlert(variables);
   const shop = renderShopEmail(id, variables);
   if (shop) return shop;
 
@@ -783,6 +812,55 @@ function renderStaffAttentionDigest(variables: EmailVariables): RenderedEmail {
         ${paragraph("Open a patient’s record from the portal to see their full activity, weights, and messages. Alerts are informational and do not replace clinical judgment.")}
         ${settingsLink ? paragraph(`<a href="${escapeHtml(settingsLink)}" style="color:#315eae;">Change who receives alerts or turn off your email digest</a> in office settings.`) : ""}`,
       closing: `You are receiving this because ${officeName} chose you as an alert recipient. Sent once a day, only when at least one patient is flagged.`,
+    }),
+  };
+}
+
+function renderSystemThresholdAlert(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const level = requireVariable(variables, "level").toLowerCase() === "red" ? "red" : "amber";
+  const metricLabel = requireVariable(variables, "metricLabel");
+  const finding = requireVariable(variables, "finding");
+  const observed = requireVariable(variables, "observed");
+  const limit = requireVariable(variables, "limit");
+  const day = requireVariable(variables, "day");
+  const healthLink = requireVariable(variables, "healthLink");
+  const levelWord = level === "red" ? "Red" : "Amber";
+  const subject = `${levelWord}: ${metricLabel}`;
+  const previewText = `${finding} Open System health for the numbers.`;
+  const guidance = level === "red"
+    ? "Red means people are waiting or storage is growing faster than planned. Look at the slow statements and growth panels before adding capacity."
+    : "Amber is a heads-up: nothing is down, but this is the number to watch. You will hear again only if it turns red.";
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `${levelWord}: ${metricLabel}`,
+    `A System health limit was crossed on ${day}.`,
+    "",
+    finding,
+    `Observed: ${observed}`,
+    `Limit: ${limit}`,
+    "",
+    `Open System health: ${healthLink}`,
+    "",
+    guidance,
+    "",
+    "You receive this once per metric, level, and day.",
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: `System health · ${levelWord}`,
+      heading: metricLabel,
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`A System health limit was crossed on <strong>${escapeHtml(day)}</strong>.`)}
+        ${infoPanel(`${levelWord} finding`, finding)}
+        ${paragraph(`<strong>Observed:</strong> ${escapeHtml(observed)}<br><strong>Limit:</strong> ${escapeHtml(limit)}`)}
+        ${button(healthLink, "Open System health", level === "red" ? "#a8322a" : "#315eae")}
+        ${paragraph(guidance)}`,
+      closing: "You receive this because you are an HQ administrator. Sent once per metric, level, and day.",
     }),
   };
 }

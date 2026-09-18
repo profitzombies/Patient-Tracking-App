@@ -47,6 +47,41 @@ beforeEach(() => {
 });
 
 describe("staff notification sender", () => {
+  it("emails HQ system threshold alerts without office, preference, or quiet-hours checks", async () => {
+    policyState.quietHours = { mode: "custom", start: "00:00", end: "23:59" }; // would defer an office row
+    const system: StaffNotificationRow = {
+      ...row("email"), provider_id: null, kind: "system_threshold", email: "hq@example.com",
+      title: "Amber: Slow route office/roster", body: "office/roster: p95 1840 ms over the last hour (63 requests) is above the 1500 ms amber limit.",
+      data: { metric: "p95_latency", level: "amber", family: "office/roster", value: 1840, limit: 1500, day: "2026-10-11", recipientName: "Jordan",
+        message: "office/roster: p95 1840 ms over the last hour (63 requests) is above the 1500 ms amber limit." },
+    };
+    const harness = setup(system);
+    const officeState = vi.spyOn(harness.store, "officeState");
+    const preference = vi.spyOn(harness.store, "preference");
+    const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-2" }), { status: 200 }));
+    const summary = await harness.tick();
+    expect(summary).toMatchObject({ sent: 1, deferred: 0, suppressed: 0 });
+    expect(officeState).not.toHaveBeenCalled();
+    expect(preference).not.toHaveBeenCalled();
+    const payload = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as { to: string[]; subject: string; html: string; text: string };
+    expect(payload).toMatchObject({ to: ["hq@example.com"], subject: "Amber: Slow route office/roster" });
+    expect(payload.html).toContain("Hello Jordan");
+    expect(payload.html).toContain("1500 ms amber limit");
+    expect(payload.html).toContain("https://portal.example/admin/system-health");
+    expect(payload.text).toContain("Observed: p95 1,840 ms");
+    expect(payload.text).toContain("Limit: p95 1,500 ms");
+    expect(payload.text).toContain("Sunday, October 11, 2026");
+    expect(harness.store.notifications[0]?.status).toBe("sent");
+  });
+
+  it("suppresses a system threshold row on any channel but email", async () => {
+    const harness = setup({ ...row("push"), provider_id: null, kind: "system_threshold" });
+    const summary = await harness.tick();
+    expect(summary).toMatchObject({ suppressed: 1, sent: 0 });
+    expect(harness.store.notifications[0]).toMatchObject({ status: "suppressed", suppression_reason: "channel_unsupported" });
+    expect(harness.push.sent).toHaveLength(0);
+  });
+
   it("sends email through Resend with recipient, subject, and portal link", async () => {
     const harness = setup(row("email"));
     const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));

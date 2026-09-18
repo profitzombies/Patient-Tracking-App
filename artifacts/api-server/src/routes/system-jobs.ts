@@ -37,6 +37,7 @@ import { supabaseJobStore, type JobStore } from "../jobs/store";
 import { defaultWorkerDrains, runWorkerDrains, type WorkerDrains } from "../jobs/worker-drains";
 import { supabaseNotificationStore, type OutboxBacklog } from "../notifications/store";
 import type { JobDefinition, JobItemFailureRecord, JobRunRecord, JobStateRecord } from "../jobs/types";
+import { readPerformance } from "../system/performance";
 import { readPatientSignInMetrics, type PatientSignInMonth } from "../security/sign-in-metrics";
 
 export type JobHealthStatus = "ok" | "failing" | "stale" | "never_ran" | "running" | "on_demand";
@@ -139,6 +140,8 @@ export interface SystemJobsRouterOptions {
   drains?: WorkerDrains;
   /** Push outbox backlog reader (fake in tests). */
   outboxBacklog?: (now: Date) => Promise<OutboxBacklog>;
+  /** Performance reader (fake in tests). */
+  readPerformance?: typeof readPerformance;
 }
 
 export interface OutboxBacklogDto extends OutboxBacklog {
@@ -212,6 +215,21 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
     } catch (error) {
       req.log?.error({ err: error }, "system health read failed");
       res.status(502).json({ error: "Could not load system health right now." });
+    }
+  });
+
+  // Request speed, slow statements, and data growth. Separate from the job
+  // board so a slow statistics read never delays the jobs, and each section
+  // degrades to null on its own (the page says "unavailable", never zero).
+  r.get("/hq/system-health/performance", requireHqPermission("settings_manage"), async (req: Request, res: Response) => {
+    try {
+      const performance = await (options.readPerformance ?? readPerformance)(new Date(), {
+        onError: (section, error) => req.log?.error({ err: error, section }, "system performance section read failed"),
+      });
+      res.json(performance);
+    } catch (error) {
+      req.log?.error({ err: error }, "system performance read failed");
+      res.status(502).json({ error: "Could not load performance right now." });
     }
   });
 

@@ -27,12 +27,8 @@ export const JOB_OWNER = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8
 /** Base backoff after a failed run (doubles per consecutive failure, capped at 6h in SQL). */
 export const JOB_BACKOFF_BASE_SECONDS = 300;
 
-export function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
+import { envInt } from "../lib/env";
+export { envInt };
 
 export function jobsDisabled(): boolean {
   const raw = process.env.JOBS_DISABLED;

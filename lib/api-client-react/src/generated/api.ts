@@ -207,6 +207,7 @@ import type {
   SystemHealthResult,
   SystemJobRunResult,
   SystemJobStartedResult,
+  SystemPerformanceResult,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
   TrainingAttachmentFinalizeResult,
@@ -9420,6 +9421,83 @@ export function useGetHqSystemHealth<TData = Awaited<ReturnType<typeof getHqSyst
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqSystemHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqSystemPerformanceUrl = () => {
+
+
+
+
+  return `/api/hq/system-health/performance`
+}
+
+/**
+ * @summary Request latency per route family, heaviest database statements, and table/storage growth with thresholds
+ */
+export const getHqSystemPerformance = async ( options?: Parameters<typeof customFetch>[1]): Promise<SystemPerformanceResult> => {
+
+  return customFetch<SystemPerformanceResult>(getGetHqSystemPerformanceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqSystemPerformanceQueryKey = () => {
+    return [
+    `/api/hq/system-health/performance`
+    ] as const;
+    }
+
+
+export const getGetHqSystemPerformanceQueryOptions = <TData = Awaited<ReturnType<typeof getHqSystemPerformance>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemPerformance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqSystemPerformanceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqSystemPerformance>>> = ({ signal }) => getHqSystemPerformance({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqSystemPerformance>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqSystemPerformanceQueryResult = NonNullable<Awaited<ReturnType<typeof getHqSystemPerformance>>>
+export type GetHqSystemPerformanceQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Request latency per route family, heaviest database statements, and table/storage growth with thresholds
+ */
+
+export function useGetHqSystemPerformance<TData = Awaited<ReturnType<typeof getHqSystemPerformance>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqSystemPerformance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqSystemPerformanceQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

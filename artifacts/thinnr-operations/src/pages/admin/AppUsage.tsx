@@ -21,7 +21,7 @@ import { getGetHqAppUsageInsightsQueryKey, getGetHqAppUsageQueryKey, useGetHqApp
 import type { InsightsDataset } from '@workspace/app-usage-insights';
 import { SectionCard } from '@/components/patient/heritage';
 import { AdminPage, MetricTile, PageHeader } from '@/components/admin/primitives';
-import { AppUsageTable } from '@/components/admin/AppUsageTable';
+import { AppUsagePracticeFilter, AppUsageTable } from '@/components/admin/AppUsageTable';
 import { AppUsageInsightsSection, type InsightsOfficeOption } from '@/components/admin/AppUsageInsights';
 import { AreaChart, CHART_COLORS } from '@/components/billing/hq/RevenueCharts';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
@@ -65,8 +65,11 @@ export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refr
   const failed = state === 'error';
   const network = data?.network;
   const rows = data?.offices ?? [];
+  const [practiceId, setPracticeId] = useState<string | null>(null);
+  const selectedPracticeId = practiceId && rows.some((row) => row.providerId === practiceId) ? practiceId : null;
+  const visibleRows = selectedPracticeId ? rows.filter((row) => row.providerId === selectedPracticeId) : rows;
   const noData = state === 'ready' && (!network || !network.available);
-  const unavailable = countUnavailable(rows);
+  const unavailable = countUnavailable(visibleRows);
 
   const tileValue = (value: number | undefined) =>
     loading ? '—' : failed ? 'Error' : value == null ? '—' : fmt(value);
@@ -165,6 +168,11 @@ export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refr
         <SectionCard
           title="By practice"
           sub={`Weekly and monthly active app users per office as of ${formatDateKey(range.end, true)}. Sort any column; rank follows the sorted metric.`}
+          action={
+            <div className="w-full sm:w-[400px]" data-testid="app-usage-practice-filter">
+              <AppUsagePracticeFilter rows={rows} value={selectedPracticeId} onChange={setPracticeId} />
+            </div>
+          }
         >
           {loading ? (
             <p className="px-5 py-8 text-center text-xs text-muted-foreground" data-testid="text-app-usage-table-loading">Loading practices…</p>
@@ -178,10 +186,10 @@ export function AppUsageView({ state, data, range, asOfLabel, updatedLabel, refr
                 <p className="border-b border-border bg-secondary px-5 py-2 text-[11px] text-muted-foreground" data-testid="text-app-usage-unavailable-note">
                   {unavailable === rows.length
                     ? 'No office has recorded data in this range — figures are unavailable, not zero. Try a later range.'
-                    : `${unavailable} of ${rows.length} offices have no data in this range and are shown as unavailable.`}
+                    : `${unavailable} of ${visibleRows.length} offices have no data in this range and are shown as unavailable.`}
                 </p>
               )}
-              <AppUsageTable rows={rows} rangeEnd={range.end} />
+              <AppUsageTable rows={visibleRows} rangeEnd={range.end} filterActive={selectedPracticeId !== null} />
             </>
           )}
         </SectionCard>

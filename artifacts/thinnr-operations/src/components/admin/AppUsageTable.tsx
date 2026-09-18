@@ -10,9 +10,12 @@
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronsUpDown } from 'lucide-react';
 import type { AppUsageOfficeRow } from '@workspace/api-client-react';
 import { Sparkline } from '@/components/admin/Sparkline';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { INPUT_CLASS } from '@/components/patient/heritage';
 import {
   APP_USAGE_COLUMNS,
   DEFAULT_APP_USAGE_RANK_KEY,
@@ -31,12 +34,76 @@ import {
 interface AppUsageTableProps {
   rows: AppUsageOfficeRow[];
   rangeEnd: string;
+  filterActive?: boolean;
 }
 
 const HEADER_BTN =
   'inline-flex items-center gap-1 rounded-sm text-left font-bold uppercase tracking-[.12em] transition hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
-export function AppUsageTable({ rows, rangeEnd }: AppUsageTableProps) {
+interface AppUsagePracticeFilterProps {
+  rows: AppUsageOfficeRow[];
+  value: string | null;
+  onChange: (providerId: string | null) => void;
+}
+
+/** A wide, searchable practice picker for the table header. */
+export function AppUsagePracticeFilter({ rows, value, onChange }: AppUsagePracticeFilterProps) {
+  const [open, setOpen] = useState(false);
+  const current = rows.find((row) => row.providerId === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          role="combobox"
+          aria-label="Search practices"
+          aria-expanded={open}
+          data-testid="select-app-usage-practice"
+          className={`${INPUT_CLASS} flex h-9 w-full min-w-0 items-center justify-between gap-2 text-left ${!current && 'text-muted-foreground'}`}
+        >
+          <span className="truncate">{current?.officeName ?? 'All practices'}</span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(400px,calc(100vw-2rem))] p-0">
+        <Command>
+          <CommandInput placeholder="Search office or provider…" className="h-9 text-xs" />
+          <CommandList>
+            <CommandEmpty>No practice found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="all practices"
+                onSelect={() => { onChange(null); setOpen(false); }}
+                className="text-xs"
+              >
+                All practices
+                <Check className={`ml-auto h-4 w-4 ${value === null ? 'opacity-100' : 'opacity-0'}`} aria-hidden="true" />
+              </CommandItem>
+              {rows.map((row) => (
+                <CommandItem
+                  key={row.providerId}
+                  value={`${row.officeName} ${row.providerName}`}
+                data-value={row.providerId}
+                  onSelect={() => { onChange(row.providerId); setOpen(false); }}
+                  className="items-start text-xs"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-navy">{row.officeName}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground">{row.providerName}</span>
+                  </span>
+                  <Check className={`ml-auto mt-0.5 h-4 w-4 shrink-0 ${row.providerId === value ? 'opacity-100' : 'opacity-0'}`} aria-hidden="true" />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function AppUsageTable({ rows, rangeEnd, filterActive = false }: AppUsageTableProps) {
   const [sort, setSort] = useState<AppUsageSort>(DEFAULT_APP_USAGE_SORT);
 
   const sorted = useMemo(() => sortAppUsageRows(rows, sort), [rows, sort]);
@@ -64,7 +131,7 @@ export function AppUsageTable({ rows, rangeEnd }: AppUsageTableProps) {
   if (rows.length === 0) {
     return (
       <p className="px-5 py-8 text-center text-xs text-muted-foreground" data-testid="text-app-usage-empty">
-        No enabled provider offices yet.
+        {filterActive ? 'No practice matches that search.' : 'No enabled provider offices yet.'}
       </p>
     );
   }

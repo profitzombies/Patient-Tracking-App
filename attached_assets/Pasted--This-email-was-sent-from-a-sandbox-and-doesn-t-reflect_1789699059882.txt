@@ -1,0 +1,131 @@
+
+ 
+This email was sent from a sandbox and doesn't reflect live data.	
+ 
+ 
+ 
+ 
+ 
+Stripe	
+ 
+ 
+ 
+ 
+ 
+Hello,	
+ 
+ 
+ 
+ 
+We’ve had some trouble sending requests in test mode to a webhook endpoint associated with your Thinnr App Sandbox account. Stripe sends webhook events to your server to notify you of activity in your Stripe account, such as a completed payout or a newly created invoice.	
+ 
+ 
+ 
+ 
+The URL of the failing webhook endpoint is: https://4c78631c-d629-4f46-aa2e-dbe1e90c6e41-00-hqogufpgvrsz-l9zbrape.kirk.replit.dev/api/billing/webhooks/connect	
+ 
+ 
+ 
+ 
+You (or someone on your team) configured your Stripe account to send events to that URL. You can change your account’s webhook endpoints from the Dashboard.	
+ 
+ 
+ 
+ 
+In most cases, a failing webhook does not impact your payments or payouts. However:	
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+If you use subscriptions, we rely on your webhook endpoint to notify you of new invoices. These invoices may be delayed for up to three days if your endpoint is unable to successfully receive them.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+If you use Checkout and rely on the checkout.session.completed event as part of your purchase fulfillment process, you should review your completed payments to ensure you have fulfilled all recent purchases.
+ 
+ 
+ 
+ 
+ 
+We’ve attempted to send event notifications to this endpoint 278 times since the first failure on September 15, 2026 at 1:48:23 AM UTC. If this endpoint is important to your application, please try and fix the issue. If you do not need this webhook endpoint, you can remove it from your Stripe webhook settings. We will stop sending event notifications to this webhook endpoint by September 24, 2026 at 1:48:23 AM UTC.	
+ 
+ 
+ 
+ 
+Here is the summary of errors we received while attempting to send webhook events:	
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+277 requests returned HTTP 404, indicating the URL doesn’t exist. You should verify the endpoint URL is correct in your Stripe webhook settings.	
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+1 request could not connect to the server associated with the webhook event.	
+ 
+ 
+ 
+ 
+ 
+You need to return any status code between HTTP 200 to 299 for Stripe to consider the webhook event successfully delivered.	
+ 
+ 
+ 
+ 
+For more details on these errors and to review your account’s recent activity, you can find the full set of events and request logs on the Dashboard.	
+ 
+ 
+ 
+ 
+For more in-depth information on how to use webhooks, we recommend reviewing our documentation.	
+ 
+ 
+ 
+ 
+— The Stripe team	
+ 
+ 
+ 
+ 
+ 
+This email relates to your Thinnr App Sandbox Stripe account.
+Account ID: acct_1UFMklDXeckvbsug
+Need to refer to this message? Use this ID: em_ervd40k2qurhjzmiy4psmx6a4al4e0	
+ 
+ 
+ 
+Stripe, 354 Oyster Point Blvd, South San Francisco, CA 94080	
+ 
+ 
+ 
+You are currently subscribed to "Webhook failures" emails. Manage your communication preferences or unsubscribe.	
+ 
+ 
+ 
+ 

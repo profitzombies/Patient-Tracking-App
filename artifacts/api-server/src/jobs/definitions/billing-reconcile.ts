@@ -6,6 +6,7 @@ import { selectMany, selectOne, update } from "../../billing/store";
 import { processStripeEvent } from "../../billing/webhook-processing";
 import { dispatchStripeEvent } from "../../billing/webhooks";
 import { registerBillingWebhookHandlers } from "../../billing/webhook-handlers";
+import { ensureBillingWebhookEndpoints } from "../../billing/webhook-endpoints";
 import type { JobContext, JobDefinition } from "../types";
 
 const MINUTE_MS = 60_000;
@@ -155,6 +156,9 @@ export async function reconcileBilling(ctx: JobContext): Promise<void> {
   await reconcileSubscriptions(ctx, stripe);
   await replayWebhooks(ctx);
   await syncPayouts(ctx, stripe);
+  // Re-checks that this origin's endpoints still exist in Stripe (a sibling
+  // workspace may have pruned them) and prunes retired-workspace endpoints.
+  await ensureBillingWebhookEndpoints();
 }
 
 export const billingReconcileJob: JobDefinition = {

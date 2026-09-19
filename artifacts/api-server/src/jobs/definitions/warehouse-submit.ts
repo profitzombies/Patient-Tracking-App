@@ -11,7 +11,8 @@
  * tick like every other worker family.
  */
 import { selectMany, selectOne } from "../../billing/store";
-import { submitOne, type SubmissionDeps } from "../../billing/warehouse-submissions";
+import { HELD_PREFIX, submitOne, type SubmissionDeps } from "../../billing/warehouse-submissions";
+import { warehouseTenantMode } from "../../shipping/warehousecraft";
 import type { JobContext, JobDefinition } from "../types";
 
 const MINUTE_MS = 60_000;
@@ -37,19 +38,24 @@ export async function runWarehouseSubmit(ctx: JobContext, deps: WarehouseSubmitD
     ctx.log("warehouse_submit_paused", { pending: waiting.length });
     return;
   }
+  const tenantMode = deps.tenantMode ?? warehouseTenantMode();
+  // Rows already held for the live tenant cannot change verdict until the mode flips, so
+  // while the connection is still in test mode they stay out of the batch budget entirely.
+  const heldFilter = tenantMode === "test" ? `&or=(last_error.is.null,last_error.not.like.${encodeURIComponent(`${HELD_PREFIX}*`)})` : "";
   for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
     ctx.checkpoint();
     const due = await selectMany("billing_warehouse_submissions",
-      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
+      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}${heldFilter}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
     if (!due.length) break;
     ctx.tally("due", due.length);
     if (ctx.dryRun) { ctx.tally("wouldSubmit", due.length); break; }
     for (const submission of due) {
       if (ctx.leaseLost) return;
       try {
-        const outcome = await submitOne(submission, { client: deps.client, now: () => ctx.now });
+        const priorAttempts = submission.attempts;
+        const outcome = await submitOne(submission, { client: deps.client, now: () => ctx.now, tenantMode });
         ctx.tally(outcome, 1);
-        if (submission.attempts > 0 && outcome !== "retry") ctx.tally("retriesResolved", 1);
+        if (priorAttempts > 0 && outcome !== "retry" && outcome !== "held") ctx.tally("retriesResolved", 1);
         if (outcome === "rejected" || outcome === "exhausted") ctx.failItem(`order:${submission.order_id}`, new Error(`warehouse ${outcome}`), { reportLocal: true });
       } catch (error) {
         // Store failures: leave the intent as it is; the next drain retries it.

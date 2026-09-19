@@ -48,6 +48,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { __setSession } from './a11y-stubs/session';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
+import { format } from 'date-fns';
 import SystemHealth, { STATUS_LABEL, externalTriggerSeverity, formatAge, formatCounts, monthLabel, ratioLabel, statusClass } from '../src/pages/admin/SystemHealth';
 import { useToast } from '../src/hooks/use-toast';
 import { formatBytes, formatDelta, formatMs } from '../src/pages/admin/SystemPerformance';
@@ -156,7 +157,7 @@ type WarehouseSyncFixture = {
   rows_seen_24h: number; transitions_24h: number; errors_24h: number; polls_24h: number; failed_polls_24h: number;
   stalled: boolean; stalled_after_minutes: number; back_ordered: number; awaiting_tracking: number;
 } | null | undefined;
-type WarehouseFixture = { pending: number; due: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: 'pending' | 'sent' | 'needs_attention' | 'skipped' }>; sync?: WarehouseSyncFixture } | null | undefined;
+type WarehouseFixture = { pending: number; due: number; held?: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; tenant_mode?: 'test' | 'live'; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: 'pending' | 'sent' | 'needs_attention' | 'skipped' }>; sync?: WarehouseSyncFixture } | null | undefined;
 const healthySync: WarehouseSyncFixture = {
   last_success_at: new Date(NOW - 9 * 60_000).toISOString(), last_poll_at: new Date(NOW - 9 * 60_000).toISOString(), last_error: null,
   last_window: { start: new Date(NOW - 3 * 3_600_000).toISOString(), end: new Date(NOW - 9 * 60_000).toISOString() },
@@ -414,7 +415,7 @@ console.log('\nsystem health: warehouse submissions');
   const syncTile = (id: string) => textOf(byTestId(root, `metric-warehouse-sync-${id}`)[0]);
   const syncText = textOf(byTestId(root, 'system-health-warehouse-sync')[0]);
   check('the status feed shows rows seen, transitions applied and row errors for the last 24 h, with the last poll time',
-    syncTile('rows') === '118' && syncTile('transitions') === '7' && syncTile('errors') === '0' && syncTile('last-poll') === 'Sep 18, 2026 22:09' && syncText.includes('96 in 24 h') && syncText.includes('No failed polls') && byTestId(root, 'text-warehouse-sync-stalled').length === 0,
+    syncTile('rows') === '118' && syncTile('transitions') === '7' && syncTile('errors') === '0' && syncTile('last-poll') === format(new Date(healthySync!.last_poll_at!), 'MMM d, yyyy HH:mm') && syncText.includes('96 in 24 h') && syncText.includes('No failed polls') && byTestId(root, 'text-warehouse-sync-stalled').length === 0,
     `${syncTile('rows')} / ${syncTile('transitions')} / ${syncTile('errors')} / ${syncTile('last-poll')}`);
   check('back-ordered orders at the warehouse are counted under the feed', textOf(byTestId(root, 'text-warehouse-sync-flags')[0]) === '2 back-ordered at the warehouse');
 
@@ -433,6 +434,20 @@ console.log('\nsystem health: warehouse submissions');
   warehouse = { pending: 5, due: 5, sent24h: 0, failed24h: 0, retries24h: 0, needs_attention: 0, auto_submit: false, recent_failures: [] };
   const legacy = await render('/admin/system-health', <SystemHealth />);
   check('a payload without the feed block renders no status feed section', byTestId(legacy.root, 'system-health-warehouse-sync').length === 0);
+  check('a payload without the tenant mode renders no connection notice', byTestId(legacy.root, 'text-warehouse-tenant-mode').length === 0);
+
+  warehouse = { ...warehouse, tenant_mode: 'test', held: 2 };
+  const testTenant = await render('/admin/system-health', <SystemHealth />);
+  check('a test-tenant connection is called out with the number of real orders held',
+    byTestId(testTenant.root, 'text-warehouse-tenant-mode').length === 1 && textOf(byTestId(testTenant.root, 'text-warehouse-tenant-mode')[0]).includes('TEST tenant')
+      && textOf(byTestId(testTenant.root, 'text-warehouse-tenant-mode')[0]).includes('2 real orders are held right now'),
+    textOf(byTestId(testTenant.root, 'text-warehouse-tenant-mode')[0]));
+  warehouse = { ...warehouse, tenant_mode: 'live', held: 0 };
+  const liveTenant = await render('/admin/system-health', <SystemHealth />);
+  check('a live-tenant connection reads as live and mentions that test-mode orders are skipped',
+    textOf(byTestId(liveTenant.root, 'text-warehouse-tenant-mode')[0]).includes('LIVE tenant') && textOf(byTestId(liveTenant.root, 'text-warehouse-tenant-mode')[0]).includes('test-mode orders are skipped')
+      && !textOf(byTestId(liveTenant.root, 'text-warehouse-tenant-mode')[0]).includes('held right now'));
+  warehouse = { pending: 5, due: 5, sent24h: 0, failed24h: 0, retries24h: 0, needs_attention: 0, auto_submit: false, recent_failures: [] };
   const paused = await render('/admin/system-health', <SystemHealth />);
   check('the kill switch off shows a paused notice with the queued count, and no failure list',
     byTestId(paused.root, 'text-warehouse-paused').length === 1 && textOf(byTestId(paused.root, 'text-warehouse-paused')[0]).includes('5 paid orders are queued') && byTestId(paused.root, 'list-warehouse-failures').length === 0,

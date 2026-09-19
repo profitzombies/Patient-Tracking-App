@@ -139,6 +139,19 @@ function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemH
           Automatic submission is switched off in Payments settings. {warehouse.pending.toLocaleString()} paid {warehouse.pending === 1 ? 'order is' : 'orders are'} queued and will go out once it is switched back on.
         </p>
       )}
+      {warehouse && warehouse.tenant_mode !== undefined && (
+        <p
+          role="status"
+          className={warehouse.tenant_mode === 'live'
+            ? 'mt-3 rounded-md border border-border bg-card px-4 py-2.5 text-xs text-muted-foreground'
+            : 'mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]'}
+          data-testid="text-warehouse-tenant-mode"
+        >
+          {warehouse.tenant_mode === 'live'
+            ? 'Warehouse connection: LIVE tenant. Real orders are sent; Stripe test-mode orders are skipped.'
+            : `Warehouse connection: TEST tenant. Stripe test-mode orders are sent to the test warehouse; real (live-mode) orders are held until the live credentials and WAREHOUSECRAFT_TENANT_MODE=live are set.${(warehouse.held ?? 0) > 0 ? ` ${(warehouse.held ?? 0).toLocaleString()} real ${warehouse.held === 1 ? 'order is' : 'orders are'} held right now.` : ''}`}
+        </p>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <MetricTile label="Sent" value={warehouse ? warehouse.sent24h.toLocaleString() : '—'} detail={warehouse ? 'Last 24 hours' : detailWhenMissing} testId="metric-warehouse-sent" />
         <MetricTile label="Failed attempts" value={warehouse ? warehouse.failed24h.toLocaleString() : '—'} detail={warehouse ? (warehouse.failed24h === 0 ? 'None' : 'Transient and definite') : detailWhenMissing} testId="metric-warehouse-failed" />

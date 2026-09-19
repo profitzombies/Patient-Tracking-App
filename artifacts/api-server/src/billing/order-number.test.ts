@@ -3,10 +3,10 @@ import { newOrderNumber } from "./store";
 
 /** Order numbers double as WarehouseCraft ClientOrderIds: the format is a wire contract. */
 describe("newOrderNumber", () => {
-  it("matches TH- plus six unambiguous characters and never contains #", () => {
+  it("matches TH- plus eight unambiguous characters and never contains #", () => {
     for (let i = 0; i < 2000; i += 1) {
       const value = newOrderNumber();
-      expect(value).toMatch(/^TH-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
+      expect(value).toMatch(/^TH-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/);
       expect(value).not.toContain("#");
     }
   });

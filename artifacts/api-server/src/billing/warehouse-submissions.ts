@@ -11,12 +11,14 @@
  *   into `needs_attention` once the attempt budget is spent so nothing retries forever.
  * The HQ kill switch (billing_settings.warehouse_auto_submit) pauses the drain; intents keep
  * accumulating and resume untouched when it is switched back on.
+ * Tenant guard (see tenantVerdict): real orders are held while WAREHOUSECRAFT_TENANT_MODE is
+ * not "live"; Stripe sandbox orders are skipped once it is.
  */
 import {
   WarehousePayloadError, buildWarehouseOrder, canCancelAtWarehouse, canEditAddressAtWarehouse, isCancelledAtWarehouse,
-  warehouseOrderClient, type WarehouseOrderClient, type WarehouseOrderPayload,
+  warehouseOrderClient, type WarehouseOrder, type WarehouseOrderClient, type WarehouseOrderPayload,
 } from "../shipping/warehousecraft-orders";
-import { WarehouseCraftError } from "../shipping/warehousecraft";
+import { WarehouseCraftError, warehouseTenantMode, type WarehouseTenantMode } from "../shipping/warehousecraft";
 import { ensureShipment } from "./shipments";
 import { raiseWarehouseHqAlert } from "./warehouse-alerts";
 import {
@@ -35,7 +37,26 @@ export function backoffMs(attempts: number): number {
   return Math.min(BACKOFF_CAP_MS, 2 * MINUTE_MS * 2 ** Math.max(0, attempts - 1));
 }
 
-export type SubmissionDeps = { client?: WarehouseOrderClient; now?: () => Date };
+export type SubmissionDeps = { client?: WarehouseOrderClient; now?: () => Date; tenantMode?: WarehouseTenantMode };
+
+/**
+ * Tenant guard. Real orders (Stripe live mode) only ever go to the LIVE tenant;
+ * Stripe sandbox orders only ever go to the TEST tenant. A real order that
+ * arrives while the connection is still in test mode is held (pending, no
+ * attempt spent, re-checked every HOLD_RECHECK_MS) so flipping the mode drains
+ * it; a sandbox order against a live tenant is skipped for good.
+ */
+export const HELD_PREFIX = "Held: ";
+export const HOLD_RECHECK_MS = 15 * MINUTE_MS;
+export const HELD_LIVE_ORDER_MESSAGE = `${HELD_PREFIX}this is a real (live-mode) order but the warehouse connection is in TEST mode. It will be sent once WAREHOUSECRAFT_TENANT_MODE=live is set with the live credentials.`;
+export const SKIPPED_SANDBOX_REASON = "test-mode (Stripe sandbox) order; never sent to the live warehouse";
+
+export function tenantVerdict(order: Pick<BillingOrderRow, "livemode">, mode: WarehouseTenantMode): "send" | "hold" | "skip" {
+  const real = order.livemode === true;
+  if (real && mode !== "live") return "hold";
+  if (!real && mode === "live") return "skip";
+  return "send";
+}
 
 /** Idempotent app-side fallback for orders paid before the trigger existed (or in test backends). */
 export async function ensureSubmission(order: Pick<BillingOrderRow, "id" | "provider_id" | "patient_id" | "status">): Promise<BillingWarehouseSubmissionRow | null> {
@@ -58,7 +79,7 @@ export function payloadForOrder(order: BillingOrderRow, items: BillingOrderItemR
   });
 }
 
-export type SubmitOutcome = "sent" | "duplicate" | "rejected" | "retry" | "exhausted" | "skipped";
+export type SubmitOutcome = "sent" | "duplicate" | "rejected" | "retry" | "exhausted" | "skipped" | "held";
 
 async function mirror(order: Pick<BillingOrderRow, "id" | "provider_id" | "fulfillment_status" | "carrier" | "tracking_number" | "shipped_at" | "canceled_reason" | "shipped_by">, patch: {
   warehouse_state: WarehouseSubmissionState; warehouse_order_id?: string | null; warehouse_sent_at?: string | null; warehouse_error?: string | null;
@@ -103,6 +124,23 @@ export async function submitOne(submission: BillingWarehouseSubmissionRow, deps:
     await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { state: "skipped", skipped_reason: `order ${order.fulfillment_status === "canceled" ? "canceled" : "refunded"} before submission`, last_attempt_at: at });
     await mirror(order, { warehouse_state: "skipped" });
     return "skipped";
+  }
+  const verdict = tenantVerdict(order, deps.tenantMode ?? warehouseTenantMode());
+  if (verdict === "skip") {
+    await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { state: "skipped", skipped_reason: SKIPPED_SANDBOX_REASON, last_attempt_at: at });
+    await mirror(order, { warehouse_state: "skipped", warehouse_error: null });
+    return "skipped";
+  }
+  if (verdict === "hold") {
+    // No attempt spent and last_error_kind/last_attempt_at untouched: a hold is not a failure,
+    // and any genuine earlier failure keeps ageing out of the 24 h health window on its own.
+    // (Read the pre-update value first: test stores hand back the same row object.)
+    const alreadyHeld = submission.last_error === HELD_LIVE_ORDER_MESSAGE;
+    await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, {
+      last_error: HELD_LIVE_ORDER_MESSAGE, next_attempt_at: new Date(now.getTime() + HOLD_RECHECK_MS).toISOString(),
+    });
+    if (!alreadyHeld) await mirror(order, { warehouse_state: "pending", warehouse_error: HELD_LIVE_ORDER_MESSAGE });
+    return "held";
   }
   const [items, payer] = await Promise.all([
     selectMany("billing_order_items", `order_id=eq.${enc(order.id)}&order=created_at.asc`),
@@ -165,23 +203,28 @@ export async function cancelAtWarehouse(orderId: string, deps: SubmissionDeps = 
   const client = deps.client ?? warehouseOrderClient;
   const submission = await selectOne("billing_warehouse_submissions", `order_id=eq.${enc(orderId)}`);
   if (!submission || submission.state === "skipped") return { kind: "not_sent" };
+  const order = await selectOne("billing_orders", `id=eq.${enc(orderId)}`);
   if (submission.state !== "sent" || !submission.warehouse_order_id) {
     await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { state: "skipped", skipped_reason: "canceled in app before submission" });
-    const order = await selectOne("billing_orders", `id=eq.${enc(orderId)}`);
     if (order) await mirror(order, { warehouse_state: "skipped", warehouse_error: null });
     return { kind: "not_sent" };
   }
   try {
-    const live = await client.lookup(await clientOrderIdFor(orderId, submission));
-    const status = live?.status ?? submission.warehouse_status ?? "";
-    if (isCancelledAtWarehouse(status)) return { kind: "applied", warehouse_order_id: submission.warehouse_order_id };
+    const target = order ? await verifiedWarehouseOrder(order, submission, client, deps) : { ok: false as const, message: "order row not found" };
+    if (!target.ok) {
+      await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { last_error: `Cancel not mirrored: ${target.message}` });
+      return { kind: "unavailable", message: target.message };
+    }
+    const warehouseOrderId = String(target.live.order_id);
+    const status = target.live.status;
+    if (isCancelledAtWarehouse(status)) return { kind: "applied", warehouse_order_id: warehouseOrderId };
     if (!canCancelAtWarehouse(status)) {
       await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { warehouse_status: status, last_error: `Warehouse order is ${status}; cancellation could not be applied.` });
       return { kind: "locked", warehouse_status: status };
     }
-    const result = await client.cancel(Number(submission.warehouse_order_id));
-    await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { warehouse_status: result.status });
-    return { kind: "applied", warehouse_order_id: submission.warehouse_order_id };
+    const result = await client.cancel(target.live.order_id);
+    await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { warehouse_status: result.status, warehouse_order_id: warehouseOrderId });
+    return { kind: "applied", warehouse_order_id: warehouseOrderId };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { last_error: `Cancel not mirrored: ${message}` });
@@ -189,11 +232,30 @@ export async function cancelAtWarehouse(orderId: string, deps: SubmissionDeps = 
   }
 }
 
-async function clientOrderIdFor(orderId: string, submission: BillingWarehouseSubmissionRow): Promise<string> {
+function clientOrderIdFor(order: Pick<BillingOrderRow, "order_number">, submission: BillingWarehouseSubmissionRow): string {
   const fromPayload = submission.payload?.ClientOrderId;
-  if (typeof fromPayload === "string" && fromPayload) return fromPayload;
-  const order = await selectOne("billing_orders", `id=eq.${enc(orderId)}`);
-  return order?.order_number ?? "";
+  return typeof fromPayload === "string" && fromPayload ? fromPayload : order.order_number;
+}
+
+/**
+ * The only way to pick the warehouse order a MUTATING call (cancel, address edit) may
+ * touch. WarehouseCraft's numeric OrderIds are per tenant, so an id cached while the
+ * connection pointed at the test tenant must never be reused against the live one: the
+ * order's Stripe mode has to match the configured tenant, and the order has to be found
+ * under our ClientOrderId right now. There is no fallback to the cached numeric id.
+ */
+async function verifiedWarehouseOrder(order: Pick<BillingOrderRow, "livemode" | "order_number">, submission: BillingWarehouseSubmissionRow, client: WarehouseOrderClient, deps: SubmissionDeps): Promise<{ ok: true; live: WarehouseOrder } | { ok: false; message: string }> {
+  const mode = deps.tenantMode ?? warehouseTenantMode();
+  if (tenantVerdict(order, mode) !== "send") {
+    return { ok: false, message: `the warehouse connection is in ${mode.toUpperCase()} mode but this is a ${order.livemode === true ? "live" : "sandbox"} order; nothing was changed at the warehouse.` };
+  }
+  const clientOrderId = clientOrderIdFor(order, submission);
+  const live = await client.lookup(clientOrderId);
+  if (!live) return { ok: false, message: `order ${clientOrderId} was not found at the warehouse; the cached warehouse id was not used.` };
+  if (live.client_order_id && live.client_order_id !== clientOrderId) {
+    return { ok: false, message: `the warehouse returned order ${live.client_order_id} for ${clientOrderId}; nothing was changed.` };
+  }
+  return { ok: true, live };
 }
 
 /**
@@ -211,16 +273,21 @@ export async function syncSubscriptionAddress(subscriptionId: string, address: S
     const submission = await selectOne("billing_warehouse_submissions", `order_id=eq.${enc(order.id)}`);
     if (!submission || submission.state !== "sent" || !submission.warehouse_order_id) continue;
     try {
-      const live = await client.lookup(order.order_number);
-      const status = live?.status ?? submission.warehouse_status ?? "";
+      const target = await verifiedWarehouseOrder(order, submission, client, deps);
+      if (!target.ok) {
+        await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { last_error: `Address edit not mirrored: ${target.message}` });
+        result.unavailable.push(order.order_number);
+        continue;
+      }
+      const status = target.live.status;
       if (!canEditAddressAtWarehouse(status)) {
         await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { warehouse_status: status });
         result.locked.push(order.order_number);
         continue;
       }
-      const edited = await client.editAddress(Number(submission.warehouse_order_id), address);
+      const edited = await client.editAddress(target.live.order_id, address);
       await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, {
-        warehouse_status: edited.status, payload: { ...(submission.payload ?? {}), AddressLine1: address.line1, AddressLine2: address.line2, City: address.city, State: address.state, PostalCode: address.postal_code, CompanyOrName: address.name },
+        warehouse_status: edited.status, warehouse_order_id: String(target.live.order_id), payload: { ...(submission.payload ?? {}), AddressLine1: address.line1, AddressLine2: address.line2, City: address.city, State: address.state, PostalCode: address.postal_code, CompanyOrName: address.name },
       });
       result.applied.push(order.order_number);
     } catch (error) {
@@ -246,10 +313,10 @@ export async function submissionsForOrders(orderIds: string[]): Promise<Map<stri
 }
 
 /** System health: the last 24 h of submission activity plus everything still waiting. */
-export async function warehouseHealth(now: Date): Promise<{ pending: number; due: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: WarehouseSubmissionState }> }> {
+export async function warehouseHealth(now: Date): Promise<{ pending: number; due: number; held: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; tenant_mode: WarehouseTenantMode; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: WarehouseSubmissionState }> }> {
   const since = new Date(now.getTime() - 86_400_000).toISOString();
   const [pending, recent, attention, settings] = await Promise.all([
-    selectMany("billing_warehouse_submissions", "state=eq.pending&select=id,next_attempt_at"),
+    selectMany("billing_warehouse_submissions", "state=eq.pending&select=id,next_attempt_at,last_error"),
     selectMany("billing_warehouse_submissions", `last_attempt_at=gte.${enc(since)}&select=id,state,attempts,last_error_kind,sent_at`),
     selectMany("billing_warehouse_submissions", "state=eq.needs_attention&order=last_attempt_at.desc&select=order_id,last_error,last_attempt_at,state"),
     selectOne("billing_settings", "id=eq.1&select=warehouse_auto_submit"),
@@ -257,12 +324,17 @@ export async function warehouseHealth(now: Date): Promise<{ pending: number; due
   const failures = attention.slice(0, 10);
   const orderIds = failures.map((row) => row.order_id);
   const numbers = new Map((orderIds.length ? await selectMany("billing_orders", `id=in.(${orderIds.map(enc).join(",")})&select=id,order_number`) : []).map((row) => [row.id, row.order_number]));
+  const tenantMode = warehouseTenantMode();
+  const isHeld = (row: { last_error: string | null }) => typeof row.last_error === "string" && row.last_error.startsWith(HELD_PREFIX);
   return {
-    pending: pending.length, due: pending.filter((row) => row.next_attempt_at <= now.toISOString()).length,
+    pending: pending.length,
+    // Held rows are only "due" once the connection is live: in test mode the drain leaves them alone.
+    due: pending.filter((row) => row.next_attempt_at <= now.toISOString() && (tenantMode === "live" || !isHeld(row))).length,
+    held: pending.filter(isHeld).length,
     sent24h: recent.filter((row) => row.state === "sent" && row.sent_at && row.sent_at >= since).length,
     failed24h: recent.filter((row) => row.state === "needs_attention" || (row.state === "pending" && row.last_error_kind)).length,
     retries24h: recent.filter((row) => row.attempts > 1).length,
-    needs_attention: attention.length, auto_submit: settings?.warehouse_auto_submit ?? true,
+    needs_attention: attention.length, auto_submit: settings?.warehouse_auto_submit ?? true, tenant_mode: tenantMode,
     recent_failures: failures.map((row) => ({ order_id: row.order_id, order_number: numbers.get(row.order_id) ?? null, error: row.last_error, at: row.last_attempt_at, state: row.state })),
   };
 }

@@ -88,6 +88,20 @@ function normalizeBase(raw: string): string {
   return withScheme.replace(/\/+$/, "");
 }
 
+export type WarehouseTenantMode = "test" | "live";
+
+/**
+ * Which warehouse tenant the configured credentials belong to. Defaults to "test":
+ * real (Stripe live-mode) orders are HELD until an operator sets
+ * WAREHOUSECRAFT_TENANT_MODE=live alongside the live credentials, and Stripe
+ * sandbox orders are never sent to a live tenant. Rates and the status poll are
+ * read-only and run in either mode.
+ */
+export function warehouseTenantMode(): WarehouseTenantMode {
+  const raw = (env("WAREHOUSECRAFT_TENANT_MODE") ?? "test").toLowerCase();
+  return raw === "live" || raw === "production" || raw === "prod" ? "live" : "test";
+}
+
 export function warehouseCraftConfig() {
   const username = env("WAREHOUSECRAFT_API_USERNAME") ?? env("NOVEX_API_USERNAME");
   const password = env("WAREHOUSECRAFT_API_PASSWORD") ?? env("NOVEX_API_PASSWORD");

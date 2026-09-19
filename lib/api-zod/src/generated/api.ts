@@ -4791,11 +4791,13 @@ export const GetHqSystemHealthResponse = zod.object({
   "warehouse": zod.union([zod.object({
   "pending": zod.number().describe('Intents still waiting to be sent.'),
   "due": zod.number().describe('Pending intents whose next attempt is due now.'),
+  "held": zod.number().optional().describe('Real (live-mode) orders waiting because the warehouse connection is still in test mode. Older API builds omit it.'),
   "sent24h": zod.number(),
   "failed24h": zod.number().describe('Attempts in the last 24 h that failed (transient or definite).'),
   "retries24h": zod.number().describe('Intents retried at least once in the last 24 h.'),
   "needs_attention": zod.number(),
   "auto_submit": zod.boolean().describe('HQ kill switch state.'),
+  "tenant_mode": zod.enum(['test', 'live']).optional().describe('Which warehouse tenant the configured credentials belong to (WAREHOUSECRAFT_TENANT_MODE; defaults to test). Older API builds omit it.'),
   "recent_failures": zod.array(zod.object({
   "order_id": zod.string(),
   "order_number": zod.string().nullable(),

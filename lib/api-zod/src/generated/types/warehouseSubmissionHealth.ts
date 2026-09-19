@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WarehouseSubmissionHealthRecentFailuresItem } from './warehouseSubmissionHealthRecentFailuresItem';
+import type { WarehouseSubmissionHealthTenantMode } from './warehouseSubmissionHealthTenantMode';
 import type { WarehouseSyncHealth } from './warehouseSyncHealth';
 
 export interface WarehouseSubmissionHealth {
@@ -13,6 +14,8 @@ export interface WarehouseSubmissionHealth {
   pending: number;
   /** Pending intents whose next attempt is due now. */
   due: number;
+  /** Real (live-mode) orders waiting because the warehouse connection is still in test mode. Older API builds omit it. */
+  held?: number;
   sent24h: number;
   /** Attempts in the last 24 h that failed (transient or definite). */
   failed24h: number;
@@ -21,6 +24,8 @@ export interface WarehouseSubmissionHealth {
   needs_attention: number;
   /** HQ kill switch state. */
   auto_submit: boolean;
+  /** Which warehouse tenant the configured credentials belong to (WAREHOUSECRAFT_TENANT_MODE; defaults to test). Older API builds omit it. */
+  tenant_mode?: WarehouseSubmissionHealthTenantMode;
   recent_failures: WarehouseSubmissionHealthRecentFailuresItem[];
   sync?: WarehouseSyncHealth | null;
 }

@@ -4395,11 +4395,13 @@ components:
       properties:
         pending: { type: number, description: Intents still waiting to be sent. }
         due: { type: number, description: Pending intents whose next attempt is due now. }
+        held: { type: number, description: Real (live-mode) orders waiting because the warehouse connection is still in test mode. Older API builds omit it. }
         sent24h: { type: number }
         failed24h: { type: number, description: Attempts in the last 24 h that failed (transient or definite). }
         retries24h: { type: number, description: Intents retried at least once in the last 24 h. }
         needs_attention: { type: number }
         auto_submit: { type: boolean, description: HQ kill switch state. }
+        tenant_mode: { type: string, enum: [test, live], description: Which warehouse tenant the configured credentials belong to (WAREHOUSECRAFT_TENANT_MODE; defaults to test). Older API builds omit it. }
         recent_failures:
           type: array
           items:

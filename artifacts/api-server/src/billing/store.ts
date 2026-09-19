@@ -315,13 +315,14 @@ export function pagination(input: { limit?: unknown; cursor?: unknown }) {
 }
 /**
  * Human-readable order number, also WarehouseCraft's ClientOrderId: `TH-` plus
- * six characters from an alphabet without 0/O/1/I. It never contains `#` (the
- * warehouse rejects it) and the DB unique index on billing_orders.order_number
- * is the collision guard (32^6 ≈ 1.07e9 values per prefix).
+ * eight characters from an alphabet without 0/O/1/I. It never contains `#` (the
+ * warehouse rejects it). 32^8 ≈ 1.1e12 values keeps a random collision below
+ * 1e-7 per order at 100k orders; the DB unique index on billing_orders.order_number
+ * is the backstop (a collision fails that checkout attempt, never double-submits).
  */
 export function newOrderNumber(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  return `TH-${[...crypto.randomBytes(6)].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
+  return `TH-${[...crypto.randomBytes(8)].map((byte) => alphabet[byte % alphabet.length]).join("")}`;
 }
 export function encodeCursor(row: { created_at: string; id: string } | null): string | null {
   return row ? Buffer.from(JSON.stringify(row)).toString("base64url") : null;

@@ -40,6 +40,17 @@ vi.mock("./store", async (importOriginal) => {
       if (key === "select") continue;
       if (key === "order") { order = value.split(",").map((part) => part.split(".") as [string, string]); continue; }
       if (key === "limit") { limit = Number(value); continue; }
+      if (key === "or") {
+        // or=(col.is.null,col.not.like.Prefix*): the drain's "not already held" filter.
+        const terms = value.slice(1, -1).split(",").map((term) => {
+          const isNull = /^([a-z_]+)\.is\.null$/.exec(term); const notLike = /^([a-z_]+)\.not\.like\.(.*)\*$/.exec(term);
+          if (isNull) return (row: any) => row[isNull[1]] == null;
+          if (notLike) return (row: any) => row[notLike[1]] != null && !String(row[notLike[1]]).startsWith(notLike[2]);
+          throw new Error(`fake store: unsupported or term ${term}`);
+        });
+        filters.push((row) => terms.some((term) => term(row)));
+        continue;
+      }
       const eq = /^eq\.(.*)$/.exec(value); const lte = /^lte\.(.*)$/.exec(value); const gte = /^gte\.(.*)$/.exec(value); const inList = /^in\.\((.*)\)$/.exec(value);
       if (eq) filters.push((row) => String(row[key]) === eq[1]);
       else if (lte) filters.push((row) => row[key] != null && String(row[key]) <= lte[1]);
@@ -83,7 +94,7 @@ vi.mock("./store", async (importOriginal) => {
   };
 });
 
-import { BACKOFF_CAP_MS, MAX_ATTEMPTS, backoffMs, cancelAtWarehouse, ensureSubmission, payloadForOrder, retrySubmission, submitOne, syncSubscriptionAddress, warehouseDto, warehouseHealth } from "./warehouse-submissions";
+import { BACKOFF_CAP_MS, HELD_LIVE_ORDER_MESSAGE, HOLD_RECHECK_MS, MAX_ATTEMPTS, SKIPPED_SANDBOX_REASON, backoffMs, cancelAtWarehouse, ensureSubmission, payloadForOrder, retrySubmission, submitOne, syncSubscriptionAddress, tenantVerdict, warehouseDto, warehouseHealth } from "./warehouse-submissions";
 import { BATCH_SIZE, runWarehouseSubmit, warehouseSubmitJob } from "../jobs/definitions/warehouse-submit";
 
 const ADDRESS = { name: "Pat Example", line1: "123 Test Street", line2: null, city: "Memphis", state: "TN", postal_code: "38103", country: "US", phone: "9015550100" };
@@ -122,7 +133,7 @@ function fakeClient(overrides: Partial<WarehouseOrderClient> = {}): WarehouseOrd
     cancel: wrap("cancel", overrides.cancel ?? (async () => liveOrder("Cancelled"))),
   };
 }
-const liveOrder = (status: string, id = 1436119): WarehouseOrder => ({ order_id: id, client_order_id: "TH-000123", status, shipping_method: "USPS Ground Advantage", address: { ...ADDRESS, line2: null }, lines: [{ sku: "Test01", quantity: 2 }] });
+const liveOrder = (status: string, id = 1436119, clientOrderId = "TH-000123"): WarehouseOrder => ({ order_id: id, client_order_id: clientOrderId, status, shipping_method: "USPS Ground Advantage", address: { ...ADDRESS, line2: null }, lines: [{ sku: "Test01", quantity: 2 }] });
 const sub = () => state.tables.billing_warehouse_submissions[0];
 const shipment = () => state.tables.billing_shipments[0];
 
@@ -216,6 +227,57 @@ describe("submitOne", () => {
   });
 });
 
+describe("tenant guard", () => {
+  it("routes real orders to the live tenant only and sandbox orders to the test tenant only", () => {
+    expect(tenantVerdict({ livemode: true }, "live")).toBe("send");
+    expect(tenantVerdict({ livemode: false }, "test")).toBe("send");
+    expect(tenantVerdict({ livemode: true }, "test")).toBe("hold");
+    expect(tenantVerdict({ livemode: false }, "live")).toBe("skip");
+    // Legacy rows without the flag are treated as sandbox (never sent to a live tenant by accident).
+    expect(tenantVerdict({ livemode: undefined as unknown as boolean }, "live")).toBe("skip");
+  });
+  it("defaults to the test tenant when WAREHOUSECRAFT_TENANT_MODE is unset and reads live/production/prod as live", async () => {
+    const { warehouseTenantMode } = await import("../shipping/warehousecraft");
+    const previous = process.env.WAREHOUSECRAFT_TENANT_MODE;
+    try {
+      delete process.env.WAREHOUSECRAFT_TENANT_MODE;
+      expect(warehouseTenantMode()).toBe("test");
+      for (const value of ["live", "LIVE", "production", "prod"]) { process.env.WAREHOUSECRAFT_TENANT_MODE = value; expect(warehouseTenantMode()).toBe("live"); }
+      process.env.WAREHOUSECRAFT_TENANT_MODE = "sandbox";
+      expect(warehouseTenantMode()).toBe("test");
+    } finally {
+      if (previous === undefined) delete process.env.WAREHOUSECRAFT_TENANT_MODE; else process.env.WAREHOUSECRAFT_TENANT_MODE = previous;
+    }
+  });
+  it("holds a real order while the connection is in test mode: no call, no attempt spent, re-checked later, not counted as a failure", async () => {
+    seed({ orders: [order({ livemode: true })] });
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "test" })).resolves.toBe("held");
+    expect(client.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "pending", attempts: 0, last_error: HELD_LIVE_ORDER_MESSAGE, last_error_kind: null, next_attempt_at: new Date(NOW.getTime() + HOLD_RECHECK_MS).toISOString() });
+    expect(shipment()).toMatchObject({ warehouse_state: "pending", warehouse_error: HELD_LIVE_ORDER_MESSAGE });
+    expect(state.tables.staff_notifications).toHaveLength(0);
+    // Flipping the mode drains the held order on the next pass and clears the hold message.
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "live" })).resolves.toBe("sent");
+    expect(sub()).toMatchObject({ state: "sent", attempts: 1, last_error: null });
+    expect(shipment()).toMatchObject({ warehouse_state: "sent", warehouse_error: null });
+  });
+  it("skips a Stripe sandbox order for good once the connection is live, without calling the warehouse", async () => {
+    seed({ orders: [order({ livemode: false })] });
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "live" })).resolves.toBe("skipped");
+    expect(client.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "skipped", skipped_reason: SKIPPED_SANDBOX_REASON });
+    expect(shipment()).toMatchObject({ warehouse_state: "skipped" });
+  });
+  it("sends a sandbox order to the test tenant and a real order to the live tenant", async () => {
+    seed({ orders: [order({ livemode: false })] });
+    await expect(submitOne(sub(), { client: fakeClient(), now: () => NOW, tenantMode: "test" })).resolves.toBe("sent");
+    seed({ orders: [order({ livemode: true })] });
+    await expect(submitOne(sub(), { client: fakeClient(), now: () => NOW, tenantMode: "live" })).resolves.toBe("sent");
+  });
+});
+
 describe("retrySubmission", () => {
   it("returns a Needs attention intent to pending, due now, and clears the shipment error", async () => {
     seed({ submissions: [submission({ state: "needs_attention", attempts: 3, last_error: "ItemSKU not recognized: BOGUS", last_error_kind: "rejected" })], shipments: [{ id: "ship-1", order_id: "ord-1", warehouse_state: "needs_attention", warehouse_error: "ItemSKU not recognized: BOGUS" }] });
@@ -255,6 +317,30 @@ describe("cancelAtWarehouse", () => {
     const client = fakeClient({ lookup: async () => { throw new WarehouseCraftError("down", "transient", 503); } });
     await expect(cancelAtWarehouse("ord-1", { client })).resolves.toMatchObject({ kind: "unavailable" });
   });
+  it("never writes by the cached numeric id: a lookup miss or a tenant mismatch refuses instead of cancelling someone else's order", async () => {
+    // Sent to the test tenant, connection now live: the cached OrderId belongs to another tenant.
+    seed({ orders: [order({ livemode: false })], submissions: [submission({ state: "sent", warehouse_order_id: "1436119" })] });
+    let client = fakeClient({ lookup: async () => liveOrder("On Hold") });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "live" })).resolves.toMatchObject({ kind: "unavailable", message: expect.stringMatching(/LIVE mode but this is a sandbox order/) });
+    expect(client.calls).toEqual([]);
+    expect(sub().last_error).toMatch(/Cancel not mirrored/);
+    // Same tenant, but the ClientOrderId is unknown there: no fallback to the cached status or id.
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119", warehouse_status: "Imported" })] });
+    client = fakeClient({ lookup: async () => null });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toMatchObject({ kind: "unavailable", message: expect.stringMatching(/not found at the warehouse/) });
+    expect(client.calls).toEqual(["lookup"]);
+    // The lookup answers a different ClientOrderId: refuse as well.
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119" })] });
+    client = fakeClient({ lookup: async () => liveOrder("On Hold", 999, "TH-OTHER") });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toMatchObject({ kind: "unavailable" });
+    expect(client.calls).toEqual(["lookup"]);
+  });
+  it("cancels the order the lookup verified and re-points the cached id at it", async () => {
+    seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1", payload: { ClientOrderId: "TH-000123" } })] });
+    const client = fakeClient({ lookup: async () => liveOrder("Imported", 777), cancel: async (id) => liveOrder("Cancelled", id) });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toEqual({ kind: "applied", warehouse_order_id: "777" });
+    expect(sub()).toMatchObject({ warehouse_order_id: "777", warehouse_status: "Cancelled" });
+  });
 });
 
 describe("syncSubscriptionAddress", () => {
@@ -273,11 +359,22 @@ describe("syncSubscriptionAddress", () => {
       ],
     });
     const next = { ...ADDRESS, line1: "456 Edited Ave" };
-    const client = fakeClient({ lookup: async (id) => liveOrder(id === "TH-A" ? "Committed" : "Picked"), editAddress: async () => liveOrder("Modified") });
+    const client = fakeClient({ lookup: async (id) => liveOrder(id === "TH-A" ? "Committed" : "Picked", id === "TH-A" ? 1 : 2, id), editAddress: async () => liveOrder("Modified", 1, "TH-A") });
     await expect(syncSubscriptionAddress("sub-9", next, { client })).resolves.toEqual({ applied: ["TH-A"], locked: ["TH-B"], unavailable: [] });
     expect(state.tables.billing_orders.find((row) => row.id === "ord-c").shipping_address.line1).toBe("456 Edited Ave");
     expect(state.tables.billing_orders.find((row) => row.id === "ord-d").shipping_address.line1).toBe("123 Test Street");
     expect(state.tables.billing_warehouse_submissions.find((row) => row.id === "s-a")).toMatchObject({ warehouse_status: "Modified", payload: { AddressLine1: "456 Edited Ave" } });
+  });
+  it("refuses to edit at the warehouse when the tenant does not match the order or the lookup misses", async () => {
+    seed({
+      orders: [order({ id: "ord-a", order_number: "TH-A", subscription_id: "sub-9", livemode: true }), order({ id: "ord-b", order_number: "TH-B", subscription_id: "sub-9", livemode: false })],
+      submissions: [submission({ id: "s-a", order_id: "ord-a", state: "sent", warehouse_order_id: "1" }), submission({ id: "s-b", order_id: "ord-b", state: "sent", warehouse_order_id: "2" })],
+    });
+    const client = fakeClient({ lookup: async () => null });
+    // Test tenant: the real order is refused without a call, the sandbox order is looked up and missed.
+    await expect(syncSubscriptionAddress("sub-9", ADDRESS, { client, tenantMode: "test" })).resolves.toEqual({ applied: [], locked: [], unavailable: ["TH-A", "TH-B"] });
+    expect(client.calls).toEqual(["lookup"]);
+    expect(state.tables.billing_warehouse_submissions.map((row) => row.last_error)).toEqual([expect.stringMatching(/TEST mode but this is a live order/), expect.stringMatching(/not found at the warehouse/)]);
   });
 });
 
@@ -296,11 +393,13 @@ describe("warehouseDto / warehouseHealth", () => {
         submission({ id: "c", order_id: "ord-3", state: "pending", next_attempt_at: "2026-09-18T13:00:00.000Z", last_attempt_at: "2026-09-18T11:30:00.000Z", last_error_kind: "transient", attempts: 1 }),
         submission({ id: "d", order_id: "ord-4", state: "pending", next_attempt_at: "2026-09-18T11:00:00.000Z" }),
         submission({ id: "e", order_id: "ord-5", state: "sent", sent_at: "2026-09-16T10:00:00.000Z", last_attempt_at: "2026-09-16T10:00:00.000Z", attempts: 1 }),
+        // Held and past its re-check time: counted as held, not as due, while the tenant is test.
+        submission({ id: "f", order_id: "ord-6", state: "pending", next_attempt_at: "2026-09-18T11:10:00.000Z", last_error: HELD_LIVE_ORDER_MESSAGE }),
       ],
       settings: { id: 1, warehouse_auto_submit: false },
     });
     await expect(warehouseHealth(NOW)).resolves.toEqual({
-      pending: 2, due: 1, sent24h: 1, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: false,
+      pending: 3, due: 1, held: 1, sent24h: 1, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: false, tenant_mode: "test",
       recent_failures: [{ order_id: "ord-2", order_number: "TH-000124", error: "ItemSKU not recognized: X", at: "2026-09-18T11:00:00.000Z", state: "needs_attention" }],
     });
   });
@@ -372,5 +471,25 @@ describe("warehouse-submit job", () => {
     const context = ctx();
     await runWarehouseSubmit(context, { client });
     expect(context.tallies.sent).toBe(BATCH_SIZE + 2);
+  });
+  it("keeps already-held live orders out of the batch budget while the tenant is test, and drains them once it is live", async () => {
+    // A real order first touched in test mode is held once (tallied, mirrored) ...
+    seed({ orders: [order({ livemode: true }), order({ id: "ord-2", order_number: "TH-2", livemode: false })], items: [item(), item({ id: "i2", order_id: "ord-2" })], submissions: [submission(), submission({ id: "s2", order_id: "ord-2" })] });
+    const client = fakeClient();
+    const first = ctx();
+    await runWarehouseSubmit(first, { client, tenantMode: "test" });
+    expect(first.tallies).toMatchObject({ due: 2, held: 1, sent: 1 });
+    expect(first.tallies.retriesResolved).toBeUndefined();
+    // ... and on a later pass (still test mode, hold re-check time elapsed) it is not even selected.
+    sub().next_attempt_at = "2026-09-18T11:00:00.000Z";
+    const second = ctx();
+    await runWarehouseSubmit(second, { client, tenantMode: "test" });
+    expect(second.tallies).toEqual({});
+    expect(sub()).toMatchObject({ state: "pending", attempts: 0 });
+    // Flipping the connection to live drains it.
+    const third = ctx();
+    await runWarehouseSubmit(third, { client, tenantMode: "live" });
+    expect(third.tallies).toMatchObject({ due: 1, sent: 1 });
+    expect(sub()).toMatchObject({ state: "sent", last_error: null });
   });
 });

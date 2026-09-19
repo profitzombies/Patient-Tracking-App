@@ -15,7 +15,7 @@ import React, { act } from 'react';
 import { all, check, finish, ids, isBlocked, mount, one, paths, press, requests, resetRequests, routerLog, section, setScript, settle, STAFF, text, textOf } from './payments-stubs/harness';
 import { DEMO_DASHBOARD, DEMO_TODAY, DEMO_ACTIVITY } from '../data/office-payments-demo';
 import { AreaChart, chartSummary, hourlySeriesFrom, niceMax, runningHourLabel, seriesFrom } from '../components/payments/RevenueCharts';
-import { formatCents } from '../lib/office-billing-format';
+import { formatCents, mrrHint } from '../lib/office-billing-format';
 import { localDayKey, rangeForPreset } from '../components/payments/range';
 import type { OfficeBillingStatus } from '../lib/office-billing-types';
 import OverviewScreen from '../app/(tabs)/payments/index';
@@ -30,7 +30,7 @@ const STATUS: OfficeBillingStatus = {
   office: { provider_id: 'prov-1', office_name: 'Maple Med Spa' },
 };
 
-const LIVE_DASHBOARD = { ...DEMO_DASHBOARD, collected_cents: 123456, net_cents: 70000, orders: 9 };
+const LIVE_DASHBOARD = { ...DEMO_DASHBOARD, collected_cents: 123456, net_cents: 70000, orders: 9, mrr_cents: 98765, active_subscriptions: 7, account_connected: true };
 const LIVE_TODAY = { ...DEMO_TODAY, collected_cents: 5000 };
 
 function liveScript(over: Partial<Record<string, { status: number; body: unknown }>> = {}) {
@@ -59,6 +59,8 @@ async function main() {
   const range = rangeForPreset(30, today);
   check('30-day range is inclusive of today in device-local keys', range.from === '2026-08-19' && range.to === '2026-09-17', JSON.stringify(range));
   check('localDayKey pads', localDayKey(new Date(2026, 0, 5)) === '2026-01-05');
+  check('mrr hint counts active subscriptions', mrrHint({ account_connected: true, active_subscriptions: 7 }) === '7 active subscriptions' && mrrHint({ account_connected: true, active_subscriptions: 1 }) === '1 active subscription');
+  check('mrr hint explains zero and not-connected', mrrHint({ account_connected: true, active_subscriptions: 0 }) === 'No active subscriptions' && mrrHint({ account_connected: false, active_subscriptions: 0 }) === 'Payments not connected yet');
 
   section('AreaChart semantics');
   {
@@ -96,6 +98,7 @@ async function main() {
     check('title', text(demo.root, 'payments-title') === 'Payments overview');
     check('available balance tile from the pinned dataset', text(demo.root, 'tile-available').includes(formatCents(DEMO_DASHBOARD.balance.available_cents)));
     check('office net tile', text(demo.root, 'tile-office-net').includes(formatCents(DEMO_DASHBOARD.net_cents)));
+    check('demo keeps the pinned active-subscriptions tile, no MRR', text(demo.root, 'tile-subscriptions').includes(String(DEMO_DASHBOARD.active_subscriptions)) && !one(demo.root, 'tile-mrr'));
     check('today gross from the pinned dataset', text(demo.root, 'today-gross') === formatCents(DEMO_TODAY.collected_cents));
     check('today chart is a running total', !!one(demo.root, 'chart-today-revenue-plot') && String(one(demo.root, 'chart-today-revenue-plot')!.props.accessibilityLabel).includes('so far'));
     check('daily revenue chart renders', !!one(demo.root, 'chart-daily-revenue-plot'));
@@ -127,6 +130,8 @@ async function main() {
     check('no ?office= on any request', requests.every((r) => !r.url.includes('office=')));
     check('live figures, not demo', text(live.root, 'tile-gross').includes('$1,234.56') && text(live.root, 'tile-office-net').includes('$700.00'));
     check('no demo notice when signed in', !one(live.root, 'billing-demo-notice'));
+    check('live MRR tile from the dashboard payload, not the phone', text(live.root, 'tile-mrr').includes('$987.65') && !text(live.root, 'tile-mrr').includes(formatCents(DEMO_DASHBOARD.mrr_cents)), text(live.root, 'tile-mrr'));
+    check('MRR detail is the active-subscription count', text(live.root, 'tile-mrr').includes('7 active subscriptions') && !one(live.root, 'tile-subscriptions'));
     check('sandbox badge follows the status flag', !!one(live.root, 'billing-sandbox-badge'));
     check('range picker present with 30 days selected', one(live.root, 'overview-range-30')?.props.accessibilityState?.selected === true);
     check('recent activity shows live rows', ids(live.root, 'row-activity-').length === 2);
@@ -144,10 +149,21 @@ async function main() {
     liveScript({ '/api/billing/office/dashboard': { status: 500, body: { error: 'boom' } } });
     const errored = await mount(<OverviewScreen />, STAFF);
     check('dashboard error is announced with retry', !!one(errored.root, 'overview-error') && !!one(errored.root, 'overview-error-retry'));
+    check('no MRR tile while the dashboard is errored (shares the grid state)', !one(errored.root, 'tile-mrr') && !one(errored.root, 'tile-gross'));
     liveScript();
     await press(errored.root, 'overview-error-retry');
-    check('retry recovers', !one(errored.root, 'overview-error') && !!one(errored.root, 'tile-gross'));
+    check('retry recovers', !one(errored.root, 'overview-error') && !!one(errored.root, 'tile-gross') && !!one(errored.root, 'tile-mrr'));
     await errored.unmount();
+
+    liveScript({ '/api/billing/office/dashboard': { status: 200, body: { ...LIVE_DASHBOARD, mrr_cents: 0, active_subscriptions: 0, account_connected: false } } });
+    const unconnected = await mount(<OverviewScreen />, STAFF);
+    check('not connected → $0.00 MRR with the not-connected detail', text(unconnected.root, 'tile-mrr').includes('$0.00') && text(unconnected.root, 'tile-mrr').includes('Payments not connected yet'), text(unconnected.root, 'tile-mrr'));
+    await unconnected.unmount();
+
+    liveScript({ '/api/billing/office/dashboard': { status: 200, body: { ...LIVE_DASHBOARD, mrr_cents: 0, active_subscriptions: 0 } } });
+    const none = await mount(<OverviewScreen />, STAFF);
+    check('connected with none → "No active subscriptions"', text(none.root, 'tile-mrr').includes('No active subscriptions'), text(none.root, 'tile-mrr'));
+    await none.unmount();
 
     liveScript({ '/api/billing/office/status': { status: 403, body: { error: 'forbidden' } } });
     const forbidden = await mount(<OverviewScreen />, STAFF);

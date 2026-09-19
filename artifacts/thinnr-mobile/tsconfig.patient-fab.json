@@ -7,7 +7,10 @@
   // that import graph is remapped to a Node stub and JSX is compiled with
   // the automatic runtime. Exact-path keys (AppModal, the contexts,
   // photo-prep) take precedence over the "@/*" wildcard, swapping just those
-  // modules for recorders while everything else stays real.
+  // modules for recorders while everything else stays real. expo/fetch and
+  // async-storage reach this graph through the live patient-data rail and the
+  // cart context (which also pulls the binary product images); those reuse
+  // the meal-photo and chat-account suites' Node stand-ins.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -17,6 +20,7 @@
       "@/context/PatientContext": ["./scripts/patient-fab-stubs/patient-context.ts"],
       "@/context/CoachChatContext": ["./scripts/patient-fab-stubs/coach-chat-context.ts"],
       "@/lib/photo-prep": ["./scripts/patient-fab-stubs/photo-prep.ts"],
+      "@/data/product-images": ["./scripts/chat-account-stubs/product-images.ts"],
       "@/*": ["./*"],
       "react-native": ["./scripts/patient-fab-stubs/react-native.ts"],
       "@expo/vector-icons": ["./scripts/patient-fab-stubs/expo-vector-icons.ts"],
@@ -25,6 +29,8 @@
       "expo-symbols": ["./scripts/patient-fab-stubs/expo-symbols.ts"],
       "expo-image": ["./scripts/patient-fab-stubs/expo-image.ts"],
       "expo-image-picker": ["./scripts/patient-fab-stubs/expo-image-picker.ts"],
+      "expo/fetch": ["./scripts/meal-photo-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
       "react-native-safe-area-context": [
         "./scripts/patient-fab-stubs/react-native-safe-area-context.ts"
       ]

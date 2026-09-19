@@ -27,7 +27,7 @@ import {
 import { useOfficeActivity, useOfficeDashboard, useOfficeToday } from '@/hooks/useOfficeBilling';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
-import { formatCents, formatDate } from '@/lib/office-billing-format';
+import { formatCents, formatDate, mrrHint } from '@/lib/office-billing-format';
 import type { HqTodayOverview, OfficeDashboard } from '@/lib/office-billing-types';
 import { DEMO_ACTIVITY, DEMO_DASHBOARD, DEMO_TODAY } from '@/data/office-payments-demo';
 
@@ -63,6 +63,15 @@ function LiveOverview({ ctx }: { ctx: PaymentsLive }) {
   );
 }
 
+/**
+ * Tile grid + charts for one dashboard payload. The demo persona keeps the
+ * pinned "Active subscriptions" tile (the same grid as the office web
+ * payments overview); a signed-in office sees live monthly recurring
+ * revenue with the active count as its detail instead. MRR is server
+ * computed (price × quantity normalized from cadence weeks, shipping
+ * excluded) and is never derived on the phone, so it rides the dashboard
+ * query's loading and error states like every other live tile.
+ */
 function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; demo?: boolean; userId?: string }) {
   const colors = useColors();
   const series = seriesFrom(data.series);
@@ -81,7 +90,11 @@ function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; d
         <MetricTile label="Refunds" value={formatCents(data.refunded_cents)} hint="Returned to patients" testID="tile-refunds" />
         <MetricTile label="THINNR fees" value={formatCents(data.thinnr_fee_cents)} hint="Program share of every sale" testID="tile-fees" />
         <MetricTile label="Office net" value={formatCents(data.net_cents)} hint={`After THINNR fees and ${formatCents(data.stripe_fee_cents)} in card fees`} testID="tile-office-net" />
-        <MetricTile label="Active subscriptions" value={String(data.active_subscriptions)} hint="Renewing every 4 weeks" testID="tile-subscriptions" />
+        {demo ? (
+          <MetricTile label="Active subscriptions" value={String(data.active_subscriptions)} hint="Renewing every 4 weeks" testID="tile-subscriptions" />
+        ) : (
+          <MetricTile label="Monthly recurring revenue" value={formatCents(data.mrr_cents)} hint={mrrHint(data)} testID="tile-mrr" />
+        )}
         <MetricTile label="Waiting to ship" value={String(data.to_ship)} hint="Packed and shipped by THINNR" testID="tile-to-ship" />
       </View>
 

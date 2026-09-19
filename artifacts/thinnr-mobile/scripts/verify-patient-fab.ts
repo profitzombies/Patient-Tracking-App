@@ -251,6 +251,7 @@ const PATIENT_SECTIONS: SectionSpec[] = [
     rows: [
       { key: 'library', label: 'Library', iconHost: 'Feather', iconName: 'grid' },
       { key: 'plan', label: 'Plan', iconHost: 'Feather', iconName: 'clipboard' },
+      { key: 'shop', label: 'Shop', iconHost: 'Feather', iconName: 'shopping-bag' },
       { key: 'account', label: 'Account & settings', iconHost: 'Feather', iconName: 'user' },
     ],
   },

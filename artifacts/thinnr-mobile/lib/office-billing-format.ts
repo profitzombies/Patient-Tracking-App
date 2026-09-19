@@ -2,7 +2,7 @@
  * Money and status formatting shared by every payments screen. Money is
  * integer cents on the wire; dollars exist only here and in price inputs.
  */
-import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/office-billing-types';
+import type { CadenceWeeks, FulfillmentStatus, OfficeDashboard, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/office-billing-types';
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -22,6 +22,17 @@ export function parseDollarsToCents(input: string): { ok: true; cents: number } 
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
   if (!Number.isSafeInteger(cents) || cents < 0) return { ok: false, error: 'Enter a valid amount.' };
   return { ok: true, cents };
+}
+
+/**
+ * Detail line under the live MRR tile — the same wording the office web
+ * Overview uses: the active-subscription count, or why there is none yet.
+ */
+export function mrrHint(data: Pick<OfficeDashboard, 'account_connected' | 'active_subscriptions'>): string {
+  if (!data.account_connected) return 'Payments not connected yet';
+  const active = data.active_subscriptions;
+  if (active === 0) return 'No active subscriptions';
+  return `${active} active subscription${active === 1 ? '' : 's'}`;
 }
 
 export function centsToDollarsInput(cents: number | null | undefined): string {

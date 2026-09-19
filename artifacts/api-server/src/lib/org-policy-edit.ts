@@ -141,6 +141,8 @@ export function mergePolicyInput(
     ["signInDays", input.retention?.signInDays, v => { next.retention.signInDays = v; }, "Sign-in history retention"],
     ["webhookEventDays", input.retention?.webhookEventDays, v => { next.retention.webhookEventDays = v; }, "Webhook event retention"],
     ["clinicalRecordDays", input.retention?.clinicalRecordDays, v => { next.retention.clinicalRecordDays = v; }, "Clinical record retention"],
+    ["staffIdleTimeoutMinutes", input.staffIdleTimeoutMinutes, v => { next.staffIdleTimeoutMinutes = v; }, "Staff idle timeout"],
+    ["hqIdleTimeoutMinutes", input.hqIdleTimeoutMinutes, v => { next.hqIdleTimeoutMinutes = v; }, "HQ idle timeout"],
   ];
   for (const [key, value, set, label] of ints) {
     if (value === undefined) continue;

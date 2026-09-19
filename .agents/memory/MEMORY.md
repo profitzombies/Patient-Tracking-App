@@ -163,3 +163,4 @@
 - [WarehouseCraft status feed sync](warehousecraft-status-sync.md) — feed authoritative only for sent orders, provider writes share the staff shipment path + one forward-only guard; docs ByDate route is 404, tenant uses OrderStatusDatas date-only Central days.
 - [Retention compliance floors](retention-compliance-floors.md) — floors live in bounds+OpenAPI min+DB CHECK+clamp-on-read together; clinical record window is separate from the chat timer, care-team pinned by SQL test.
 - [PHI-free push and email](phi-free-outbound.md) — all email through one transport seam with per-template PHI class + catalog lint; both push senders wrap the client in sendGuarded; copy generic, data ids-only.
+- [Staff idle timeout & fresh-code re-auth](staff-idle-timeout-reauth.md) — idle window is client-side (stable signOut, BroadcastChannel); code proof = session-bound ledger stamp, gate after authz, fail closed.

@@ -60,17 +60,19 @@ function FieldRow({ label, help, children, last = false }: { label: string; help
   );
 }
 
-function NumberField({ id, label, value, bounds, unit, onChange }: {
+function NumberField({ id, label, value, bounds, unit, problem, onChange }: {
   id: string;
   label: string;
   value: number;
   bounds: { min: number; max: number };
   unit: string;
+  problem?: string | null;
   onChange: (next: number) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <input
+    <div>
+      <div className="flex items-center gap-2">
+        <input
         type="number"
         inputMode="numeric"
         className={`${INPUT_CLASS} h-9 w-28 tabular-nums`}
@@ -81,11 +83,14 @@ function NumberField({ id, label, value, bounds, unit, onChange }: {
         onChange={(event) => onChange(event.target.value === '' ? Number.NaN : Number(event.target.value))}
         aria-label={label}
         aria-describedby={`${id}-range`}
-        data-testid={id}
-      />
-      <span id={`${id}-range`} className="text-[11px] text-muted-foreground">
-        {unit} · {bounds.min}–{bounds.max}
-      </span>
+          data-testid={id}
+          aria-invalid={problem ? true : undefined}
+        />
+        <span id={`${id}-range`} className="text-[11px] text-muted-foreground">
+          {unit} · {bounds.min}–{bounds.max}
+        </span>
+      </div>
+      {problem && <p className="mt-1 text-[11px] font-medium text-destructive" role="alert">{problem}</p>}
     </div>
   );
 }
@@ -376,6 +381,10 @@ const retentionPayload = (d: RetentionDraft): HqOrganizationSettingsInput => ({
   exportLinkHours: d.exportLinkHours,
 });
 
+interface SecurityDraft {
+  staffIdleTimeoutMinutes: number;
+  hqIdleTimeoutMinutes: number;
+}
 const numbersComplete = (values: number[]) => (values.every((value) => Number.isFinite(value)) ? null : 'Every number needs a value before saving.');
 
 // ─── The page body ───────────────────────────────────────────────────────────
@@ -553,6 +562,43 @@ export function LivePolicySettings() {
       </PolicyCard>
 
       <PolicyCard
+        section="security"
+        title="Security"
+        sub="When inactive staff sessions are signed out of the operations web app."
+        settings={settings}
+        fromSettings={securityFrom}
+        toPayload={securityPayload}
+        incomplete={(draft) => idleTimeoutProblem(draft.staffIdleTimeoutMinutes) ?? idleTimeoutProblem(draft.hqIdleTimeoutMinutes)}
+      >
+        {(draft, setDraft) => (
+          <>
+            <FieldRow label="Staff idle timeout" help="Office staff are signed out of the web app after this many minutes without activity. Offices can shorten this for their own team, never lengthen it.">
+              <NumberField
+                id="input-policy-staff-idle-timeout"
+                label="Staff idle timeout minutes"
+                value={draft.staffIdleTimeoutMinutes}
+                bounds={POLICY_BOUNDS.staffIdleTimeoutMinutes}
+                unit="minutes"
+                problem={idleTimeoutProblem(draft.staffIdleTimeoutMinutes)}
+                onChange={(staffIdleTimeoutMinutes) => setDraft({ staffIdleTimeoutMinutes })}
+              />
+            </FieldRow>
+            <FieldRow label="HQ idle timeout" help="HQ accounts are signed out of the web app after this many minutes without activity." last>
+              <NumberField
+                id="input-policy-hq-idle-timeout"
+                label="HQ idle timeout minutes"
+                value={draft.hqIdleTimeoutMinutes}
+                bounds={POLICY_BOUNDS.hqIdleTimeoutMinutes}
+                unit="minutes"
+                problem={idleTimeoutProblem(draft.hqIdleTimeoutMinutes)}
+                onChange={(hqIdleTimeoutMinutes) => setDraft({ hqIdleTimeoutMinutes })}
+              />
+            </FieldRow>
+          </>
+        )}
+      </PolicyCard>
+
+      <PolicyCard
         section="retention"
         title="Data retention & exports"
         sub="How long each record class is kept, and how long a download link stays valid. Clean-up jobs read these values; they never run from this page."
@@ -596,3 +642,22 @@ export function LivePolicySettings() {
     </>
   );
 }
+
+const idleTimeoutProblem = (value: number): string | null => {
+  if (!Number.isFinite(value)) return 'Enter a timeout in minutes.';
+  if (!Number.isInteger(value)) return 'Use a whole number of minutes.';
+  if (value < POLICY_BOUNDS.staffIdleTimeoutMinutes.min || value > POLICY_BOUNDS.staffIdleTimeoutMinutes.max) {
+    return 'Enter a value from 5 to 120 minutes.';
+  }
+  return null;
+};
+
+const securityPayload = (d: SecurityDraft): HqOrganizationSettingsInput => ({
+  staffIdleTimeoutMinutes: d.staffIdleTimeoutMinutes,
+  hqIdleTimeoutMinutes: d.hqIdleTimeoutMinutes,
+});
+
+const securityFrom = (s: HqOrganizationSettings): SecurityDraft => ({
+  staffIdleTimeoutMinutes: s.staffIdleTimeoutMinutes,
+  hqIdleTimeoutMinutes: s.hqIdleTimeoutMinutes,
+});

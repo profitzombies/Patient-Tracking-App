@@ -8,7 +8,8 @@
  * or unknown address gets the same neutral "code is on its way" reply, so
  * the screen never confirms whether an account exists.
  */
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { INACTIVITY_SIGN_OUT_REASON_KEY } from '@/hooks/useIdleTimeout';
 import { useLocation } from 'wouter';
 import { ArrowRight, Building2, ChevronDown, Stethoscope, Utensils } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,18 @@ export default function SignIn() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
+
+  useEffect(() => {
+    try {
+      const reason = window.sessionStorage.getItem(INACTIVITY_SIGN_OUT_REASON_KEY);
+      window.sessionStorage.removeItem(INACTIVITY_SIGN_OUT_REASON_KEY);
+      if (reason === 'inactivity') {
+        setNotice('You were signed out after a period of inactivity. Sign in again to continue.');
+      }
+    } catch {
+      // Storage is best-effort; sign-in remains available.
+    }
+  }, []);
 
   const chooseDemo = (persona: Persona) => {
     signIn(persona);
@@ -191,6 +204,16 @@ export default function SignIn() {
             </p>
           )}
 
+          {notice && !error && (
+            <p
+              role="status"
+              data-testid="text-auth-notice"
+              className="mb-4 rounded-md border border-border bg-accent px-3 py-2 text-xs font-medium leading-relaxed text-foreground"
+            >
+              {notice}
+            </p>
+          )}
+
           {phase === 'email' && (
             <form onSubmit={submitEmail} noValidate>
               <div className="space-y-4">
@@ -283,15 +306,6 @@ export default function SignIn() {
                   {error}
                 </p>
               )}
-              {notice && !error && (
-                <p
-                  data-testid="text-auth-notice"
-                  className="mt-4 rounded-md border border-border bg-accent px-3 py-2 text-xs font-medium leading-relaxed text-foreground"
-                >
-                  {notice}
-                </p>
-              )}
-
               <Button type="submit" data-testid="button-auth-verify" className="mt-4 h-10 w-full" disabled={busy}>
                 {busy ? 'Verifying…' : 'Verify and sign in'}
               </Button>

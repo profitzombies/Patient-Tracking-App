@@ -3716,6 +3716,8 @@ export const GetHqSettingsResponse = zod.object({
   "clinicalRecordDays": zod.number().min(getHqSettingsResponseRetentionClinicalRecordDaysMin).max(getHqSettingsResponseRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
+  "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
+  "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -3740,6 +3742,11 @@ export const GetHqSettingsResponse = zod.object({
   "changedByName": zod.string().nullable()
 }),zod.null()]),
   "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "security": zod.union([zod.object({
   "changedAt": zod.string(),
   "changedBy": zod.string().nullable(),
   "changedByName": zod.string().nullable()
@@ -3801,6 +3808,12 @@ export const updateHqSettingsBodyRetentionClinicalRecordDaysMax = 3650;
 
 export const updateHqSettingsBodyExportLinkHoursMax = 168;
 
+export const updateHqSettingsBodyStaffIdleTimeoutMinutesMin = 5;
+export const updateHqSettingsBodyStaffIdleTimeoutMinutesMax = 120;
+
+export const updateHqSettingsBodyHqIdleTimeoutMinutesMin = 5;
+export const updateHqSettingsBodyHqIdleTimeoutMinutesMax = 120;
+
 
 
 export const UpdateHqSettingsBody = zod.object({
@@ -3835,7 +3848,9 @@ export const UpdateHqSettingsBody = zod.object({
   "webhookEventDays": zod.number().min(updateHqSettingsBodyRetentionWebhookEventDaysMin).max(updateHqSettingsBodyRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
   "clinicalRecordDays": zod.number().min(updateHqSettingsBodyRetentionClinicalRecordDaysMin).max(updateHqSettingsBodyRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }).optional(),
-  "exportLinkHours": zod.number().min(1).max(updateHqSettingsBodyExportLinkHoursMax).optional()
+  "exportLinkHours": zod.number().min(1).max(updateHqSettingsBodyExportLinkHoursMax).optional(),
+  "staffIdleTimeoutMinutes": zod.number().min(updateHqSettingsBodyStaffIdleTimeoutMinutesMin).max(updateHqSettingsBodyStaffIdleTimeoutMinutesMax).optional(),
+  "hqIdleTimeoutMinutes": zod.number().min(updateHqSettingsBodyHqIdleTimeoutMinutesMin).max(updateHqSettingsBodyHqIdleTimeoutMinutesMax).optional()
 })
 
 export const updateHqSettingsResponseDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -3898,6 +3913,8 @@ export const UpdateHqSettingsResponse = zod.object({
   "clinicalRecordDays": zod.number().min(updateHqSettingsResponseRetentionClinicalRecordDaysMin).max(updateHqSettingsResponseRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
+  "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
+  "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -3922,6 +3939,11 @@ export const UpdateHqSettingsResponse = zod.object({
   "changedByName": zod.string().nullable()
 }),zod.null()]),
   "retention": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "security": zod.union([zod.object({
   "changedAt": zod.string(),
   "changedBy": zod.string().nullable(),
   "changedByName": zod.string().nullable()
@@ -4006,6 +4028,8 @@ export const GetOfficeSettingsResponse = zod.object({
   "clinicalRecordDays": zod.number().min(getOfficeSettingsResponseHqRetentionClinicalRecordDaysMin).max(getOfficeSettingsResponseHqRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
+  "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
+  "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4033,6 +4057,11 @@ export const GetOfficeSettingsResponse = zod.object({
   "changedAt": zod.string(),
   "changedBy": zod.string().nullable(),
   "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "security": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
 }),zod.null()])
 })
 }),
@@ -4043,6 +4072,7 @@ export const GetOfficeSettingsResponse = zod.object({
   "end": zod.string().regex(getOfficeSettingsResponseOverridesQuietHoursEndRegExp).optional()
 }),
   "escalationEmail": zod.string().nullable(),
+  "idleTimeoutMinutes": zod.number().nullable().describe('Office-shortened idle timeout in minutes; null inherits the HQ staff value.'),
   "version": zod.number(),
   "updatedAt": zod.string().nullable(),
   "updatedBy": zod.string().nullable(),
@@ -4054,9 +4084,11 @@ export const GetOfficeSettingsResponse = zod.object({
   "end": zod.string().regex(getOfficeSettingsResponseEffectiveQuietHoursOneEndRegExp)
 }),zod.null()]),
   "escalationEmail": zod.string().nullable(),
+  "idleTimeoutMinutes": zod.number(),
   "source": zod.object({
   "quietHours": zod.enum(['office', 'hq']),
-  "escalationEmail": zod.enum(['office', 'hq'])
+  "escalationEmail": zod.enum(['office', 'hq']),
+  "idleTimeoutMinutes": zod.enum(['office', 'hq'])
 })
 }),
   "canEdit": zod.boolean()
@@ -4200,6 +4232,9 @@ export const updateOfficeSettingsOverridesBodyQuietHoursStartRegExp = new RegExp
 export const updateOfficeSettingsOverridesBodyQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesBodyEscalationEmailMax = 320;
 
+export const updateOfficeSettingsOverridesBodyIdleTimeoutMinutesMin = 5;
+export const updateOfficeSettingsOverridesBodyIdleTimeoutMinutesMax = 120;
+
 
 
 export const UpdateOfficeSettingsOverridesBody = zod.object({
@@ -4209,7 +4244,8 @@ export const UpdateOfficeSettingsOverridesBody = zod.object({
   "start": zod.string().regex(updateOfficeSettingsOverridesBodyQuietHoursStartRegExp).optional(),
   "end": zod.string().regex(updateOfficeSettingsOverridesBodyQuietHoursEndRegExp).optional()
 }),
-  "escalationEmail": zod.string().max(updateOfficeSettingsOverridesBodyEscalationEmailMax).nullable()
+  "escalationEmail": zod.string().max(updateOfficeSettingsOverridesBodyEscalationEmailMax).nullable(),
+  "idleTimeoutMinutes": zod.number().min(updateOfficeSettingsOverridesBodyIdleTimeoutMinutesMin).max(updateOfficeSettingsOverridesBodyIdleTimeoutMinutesMax).nullish().describe('Shorten the idle timeout for this office (must not exceed the HQ staff value); null or omitted inherits.')
 })
 
 export const updateOfficeSettingsOverridesResponseHqDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4281,6 +4317,8 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "clinicalRecordDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
+  "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
+  "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4308,6 +4346,11 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "changedAt": zod.string(),
   "changedBy": zod.string().nullable(),
   "changedByName": zod.string().nullable()
+}),zod.null()]),
+  "security": zod.union([zod.object({
+  "changedAt": zod.string(),
+  "changedBy": zod.string().nullable(),
+  "changedByName": zod.string().nullable()
 }),zod.null()])
 })
 }),
@@ -4318,6 +4361,7 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "end": zod.string().regex(updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp).optional()
 }),
   "escalationEmail": zod.string().nullable(),
+  "idleTimeoutMinutes": zod.number().nullable().describe('Office-shortened idle timeout in minutes; null inherits the HQ staff value.'),
   "version": zod.number(),
   "updatedAt": zod.string().nullable(),
   "updatedBy": zod.string().nullable(),
@@ -4329,9 +4373,11 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "end": zod.string().regex(updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneEndRegExp)
 }),zod.null()]),
   "escalationEmail": zod.string().nullable(),
+  "idleTimeoutMinutes": zod.number(),
   "source": zod.object({
   "quietHours": zod.enum(['office', 'hq']),
-  "escalationEmail": zod.enum(['office', 'hq'])
+  "escalationEmail": zod.enum(['office', 'hq']),
+  "idleTimeoutMinutes": zod.enum(['office', 'hq'])
 })
 }),
   "canEdit": zod.boolean()

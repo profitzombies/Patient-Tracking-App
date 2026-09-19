@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

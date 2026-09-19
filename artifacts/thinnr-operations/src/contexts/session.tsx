@@ -21,6 +21,7 @@ import {
 import type { Session } from '@supabase/supabase-js';
 import { describeAuthError, supabase, supabaseConfigured } from '@/lib/supabase';
 import type { HqRole } from '@/data/hq/team';
+import { useIdleTimeout, type IdleState } from '@/hooks/useIdleTimeout';
 
 export type Persona = 'hq-admin' | 'office';
 export type AuthRole = 'hq_admin' | 'provider_staff' | 'patient';
@@ -163,6 +164,18 @@ export interface ClaimedWorkspaceInfo {
   providerId: string | null;
 }
 
+export interface StaffSessionInfo {
+  staffKind: 'hq' | 'provider' | 'team_member';
+  providerId: string | null;
+  idleTimeoutMinutes: number;
+  idleTimeoutSource: 'hq' | 'office';
+  freshCode: {
+    codeVerifiedAt: string | null;
+    fresh: boolean;
+    windowMinutes: number;
+  };
+}
+
 interface SessionValue {
   /** Resolved area: the real role first; demo persona only while signed out. */
   persona: Persona | null;
@@ -177,6 +190,11 @@ interface SessionValue {
   /** Set when the signed-in user is a claimed provider/office staffer with no demo profile. */
   claimedWorkspace: ClaimedWorkspaceInfo | null;
   roleStatus: RoleStatus;
+  idleTimeoutMinutes: number;
+  staffSession: StaffSessionInfo | null;
+  idleState: IdleState;
+  secondsLeft: number;
+  dismissIdleWarning: () => void;
   /** False when the Supabase env vars are missing (demo-only mode). */
   supabaseEnabled: boolean;
   /** Demo bypass — only meaningful while signed out. */
@@ -211,6 +229,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [claimedWorkspace, setClaimedWorkspace] = useState<ClaimedWorkspaceInfo | null>(null);
   const [roleStatus, setRoleStatus] = useState<RoleStatus>('idle');
   const [roleNonce, setRoleNonce] = useState(0);
+  const [staffSession, setStaffSession] = useState<StaffSessionInfo | null>(null);
+  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState(15);
 
   useEffect(() => {
     const client = supabase;
@@ -542,6 +562,60 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (supabase) void supabase.auth.signOut();
   }, []);
 
+  const isRealStaff = authStatus === 'signed-in' && roleStatus === 'ready' && (
+    authRole === 'hq_admin' ||
+    authRole === 'provider_staff' ||
+    claimedWorkspace?.kind === 'provider' ||
+    claimedWorkspace?.kind === 'team_member'
+  );
+
+  useEffect(() => {
+    if (!isRealStaff || !session?.access_token) {
+      setStaffSession(null);
+      setIdleTimeoutMinutes(15);
+      return;
+    }
+
+    let cancelled = false;
+    let lastFetchedAt = 0;
+    const fetchStaffSession = async () => {
+      const now = Date.now();
+      if (lastFetchedAt && now - lastFetchedAt < 60_000) return;
+      lastFetchedAt = now;
+      try {
+        const response = await fetch('/api/staff-session', {
+          cache: 'no-store',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!response.ok) throw new Error('staff session unavailable');
+        const body = (await response.json()) as StaffSessionInfo;
+        if (!Number.isFinite(body.idleTimeoutMinutes)) throw new Error('invalid idle timeout');
+        if (!cancelled) {
+          setStaffSession(body);
+          setIdleTimeoutMinutes(body.idleTimeoutMinutes);
+        }
+      } catch {
+        if (!cancelled) {
+          setStaffSession(null);
+          setIdleTimeoutMinutes(15);
+        }
+      }
+    };
+    void fetchStaffSession();
+    const refreshOnFocus = () => void fetchStaffSession();
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refreshOnFocus);
+    };
+  }, [isRealStaff, session?.access_token]);
+
+  const { idleState, secondsLeft, dismissIdleWarning } = useIdleTimeout({
+    enabled: isRealStaff,
+    idleTimeoutMinutes,
+    signOut,
+  });
+
   const requestStaffCode = useCallback(async (email: string) => {
     const failure = (message: string) => ({
       requestId: null,
@@ -656,6 +730,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       providerAccountCode,
       claimedWorkspace,
       roleStatus,
+      idleTimeoutMinutes,
+      staffSession,
+      idleState,
+      secondsLeft,
+      dismissIdleWarning,
       supabaseEnabled: supabaseConfigured,
       signIn,
       signOut,
@@ -673,6 +752,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       providerAccountCode,
       claimedWorkspace,
       roleStatus,
+      idleTimeoutMinutes,
+      staffSession,
+      idleState,
+      secondsLeft,
+      dismissIdleWarning,
       signIn,
       signOut,
       requestStaffCode,

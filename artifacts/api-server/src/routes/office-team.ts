@@ -36,6 +36,7 @@ import {
   type OfficeRole,
   type OfficeScope,
 } from "../auth/office-scope";
+import { requireFreshCode } from "../auth/fresh-code";
 import { recordAccessDenied, recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
@@ -327,6 +328,7 @@ router.patch(`${OFFICE_TEAM_PATH}/:memberId`, async (req, res) => {
       res.json({ member: memberDto(target, scope) });
       return;
     }
+    if (!(await requireFreshCode(req, res, scope.actorUserId))) return;
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/office_set_team_member_role", {
       p_member_id: target.id,
       p_role: nextRole,
@@ -361,6 +363,8 @@ async function setStatus(req: Request, res: Response, active: boolean): Promise<
       res.json({ member: memberDto(target, scope), sessionInvalidation: "not_applicable" });
       return;
     }
+    // Deactivation (offboarding) needs a fresh code; reactivation does not.
+    if (!active && !(await requireFreshCode(req, res, scope.actorUserId))) return;
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/office_set_team_member_status", {
       p_member_id: target.id,
       p_active: active,
@@ -438,6 +442,7 @@ router.post(`${OFFICE_TEAM_PATH}/:memberId/sign-out`, async (req, res) => {
       return;
     }
     if (refuseTargetEdit(res, scope, target, target.office_role === "owner")) return;
+    if (!(await requireFreshCode(req, res, scope.actorUserId))) return;
     const sessionInvalidation = await globalLogout(req, target.auth_user_id, "office_forced");
     if (sessionInvalidation === "failed") {
       res.status(502).json({ error: "Could not sign that teammate out right now." });

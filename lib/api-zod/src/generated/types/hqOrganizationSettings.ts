@@ -37,6 +37,10 @@ export interface HqOrganizationSettings {
   conversationAutoCloseDays: number;
   retention: RetentionPolicy;
   exportLinkHours: number;
+  /** Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten). */
+  staffIdleTimeoutMinutes: number;
+  /** Same window for HQ members (5–120). */
+  hqIdleTimeoutMinutes: number;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;

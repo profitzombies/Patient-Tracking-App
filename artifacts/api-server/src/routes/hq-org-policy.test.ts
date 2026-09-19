@@ -45,6 +45,8 @@ const db = vi.hoisted(() => {
     retention_webhook_event_days: 365,
     retention_clinical_record_days: 2555,
     export_link_hours: 24,
+    staff_idle_timeout_minutes: 15,
+    hq_idle_timeout_minutes: 15,
     section_changes: {},
   });
   const state = {
@@ -172,8 +174,10 @@ describe("HQ organization policy", () => {
       conversationAutoCloseDays: 14,
       retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365, clinicalRecordDays: 2555 },
       exportLinkHours: 24,
+      staffIdleTimeoutMinutes: 15,
+      hqIdleTimeoutMinutes: 15,
       version: 1,
-      sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null },
+      sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null },
     });
   });
 
@@ -221,7 +225,25 @@ describe("HQ organization policy", () => {
     expect((await putSettings({ escalationEmail: "not-an-email" })).status).toBe(400);
     expect((await putSettings({ defaultTimezone: "Mars/Olympus" })).status).toBe(400);
     expect((await putSettings({ unknownField: 1 })).status).toBe(400);
+    expect((await putSettings({ staffIdleTimeoutMinutes: 4 })).status).toBe(400);
+    expect((await putSettings({ staffIdleTimeoutMinutes: 121 })).status).toBe(400);
+    expect((await putSettings({ hqIdleTimeoutMinutes: 0 })).status).toBe(400);
+    expect((await putSettings({ hqIdleTimeoutMinutes: 12.5 })).status).toBe(400);
     expect(db.settings.version).toBe(1);
+  });
+
+  it("saves the idle timeouts through the security section within 5–120 minutes and stamps only that section", async () => {
+    const { status, json } = await putSettings({ staffIdleTimeoutMinutes: 5, hqIdleTimeoutMinutes: 120 });
+    expect(status).toBe(200);
+    expect(json).toMatchObject({ staffIdleTimeoutMinutes: 5, hqIdleTimeoutMinutes: 120, version: 2 });
+    expect(db.settings).toMatchObject({ staff_idle_timeout_minutes: 5, hq_idle_timeout_minutes: 120 });
+    expect(json.sections.security).toMatchObject({ changedByName: "Avery Admin" });
+    expect(json.sections.retention).toBeNull();
+    const fields = mocks.audit.mock.calls.map(([input]) => [input.metadata.section, input.metadata.field, input.metadata.from, input.metadata.to]);
+    expect(fields).toEqual(expect.arrayContaining([
+      ["security", "staffIdleTimeoutMinutes", 15, 5],
+      ["security", "hqIdleTimeoutMinutes", 15, 120],
+    ]));
   });
 
   it("accepts the boundary values", async () => {
@@ -399,11 +421,53 @@ describe("office settings and overrides", () => {
     expect(json.office).toEqual({ providerId: "prov-1", officeName: "Riverside" });
     expect(json.hq.defaultQuietHours).toEqual({ start: "22:00", end: "07:00" });
     expect(json.overrides).toMatchObject({ quietHours: { mode: "inherit" }, escalationEmail: null, version: 0 });
+    expect(json.overrides.idleTimeoutMinutes).toBeNull();
     expect(json.effective).toEqual({
       quietHours: { start: "22:00", end: "07:00" },
       escalationEmail: "care@thinnr.com",
-      source: { quietHours: "hq", escalationEmail: "hq" },
+      idleTimeoutMinutes: 15,
+      source: { quietHours: "hq", escalationEmail: "hq", idleTimeoutMinutes: "hq" },
     });
+  });
+
+  it("lets an office shorten the idle timeout but never lengthen it past HQ's staff value", async () => {
+    await putSettings({ staffIdleTimeoutMinutes: 20 });
+    mocks.audit.mockClear();
+    const longer = await putOverrides({ quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: 21 });
+    expect(longer.status).toBe(400);
+    expect(longer.json).toMatchObject({ field: "idleTimeoutMinutes", max: 20 });
+    expect((await putOverrides({ quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: 4 })).status).toBe(400);
+    expect((await putOverrides({ quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: "soon" })).status).toBe(400);
+    expect(mocks.audit).not.toHaveBeenCalled();
+
+    const shorter = await putOverrides({ quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: 10 });
+    expect(shorter.status).toBe(200);
+    expect(shorter.json.overrides.idleTimeoutMinutes).toBe(10);
+    expect(shorter.json.effective.idleTimeoutMinutes).toBe(10);
+    expect(shorter.json.effective.source.idleTimeoutMinutes).toBe("office");
+    expect(db.overrides.get("prov-1")?.idle_timeout_minutes).toBe(10);
+    expect(mocks.audit.mock.calls.map(([input]) => input.metadata)).toEqual([
+      expect.objectContaining({ field: "idleTimeoutMinutes", from: null, to: "10 min" }),
+    ]);
+
+    // Matching HQ exactly is allowed (it is not longer), and reads as the HQ value.
+    const same = await putOverrides({ expectedVersion: 1, quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: 20 });
+    expect(same.status).toBe(200);
+    expect(same.json.effective).toMatchObject({ idleTimeoutMinutes: 20, source: { idleTimeoutMinutes: "hq" } });
+
+    // HQ later tightens below an office's stored override: HQ's shorter value wins on read.
+    await putOverrides({ expectedVersion: 2, quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: 12 });
+    await putSettings({ expectedVersion: 2, staffIdleTimeoutMinutes: 8 });
+    const tightened = await fetch(`${base}/office/settings`, { headers: OFFICE });
+    const json = await tightened.json() as Record<string, any>;
+    expect(json.overrides.idleTimeoutMinutes).toBe(12);
+    expect(json.effective).toMatchObject({ idleTimeoutMinutes: 8, source: { idleTimeoutMinutes: "hq" } });
+
+    // Back to inheriting clears the column.
+    const inherit = await putOverrides({ expectedVersion: 3, quietHours: { mode: "inherit" }, escalationEmail: null, idleTimeoutMinutes: null });
+    expect(inherit.status).toBe(200);
+    expect(db.overrides.get("prov-1")?.idle_timeout_minutes).toBeNull();
+    expect(inherit.json.effective.source.idleTimeoutMinutes).toBe("hq");
   });
 
   it("office overrides take precedence over HQ defaults for exactly the overridable fields", async () => {
@@ -413,7 +477,8 @@ describe("office settings and overrides", () => {
     expect(custom.json.effective).toEqual({
       quietHours: { start: "20:00", end: "09:00" },
       escalationEmail: "front@riverside.com",
-      source: { quietHours: "office", escalationEmail: "office" },
+      idleTimeoutMinutes: 15,
+      source: { quietHours: "office", escalationEmail: "office", idleTimeoutMinutes: "hq" },
     });
     expect(custom.json.overrides).toMatchObject({ version: 1, updatedByName: "Dr. River" });
     // HQ default stays visible beside the effective value; non-overridable policy is HQ's.
@@ -422,7 +487,7 @@ describe("office settings and overrides", () => {
 
     // "none" is an explicit override: no quiet hours even though HQ has them.
     const none = await putOverrides({ expectedVersion: 1, quietHours: { mode: "none" }, escalationEmail: null });
-    expect(none.json.effective).toEqual({ quietHours: null, escalationEmail: "care@thinnr.com", source: { quietHours: "office", escalationEmail: "hq" } });
+    expect(none.json.effective).toEqual({ quietHours: null, escalationEmail: "care@thinnr.com", idleTimeoutMinutes: 15, source: { quietHours: "office", escalationEmail: "hq", idleTimeoutMinutes: "hq" } });
     // Back to inherit: HQ's window returns.
     const inherit = await putOverrides({ expectedVersion: 2, quietHours: { mode: "inherit" }, escalationEmail: null });
     expect(inherit.json.effective.quietHours).toEqual({ start: "22:00", end: "07:00" });

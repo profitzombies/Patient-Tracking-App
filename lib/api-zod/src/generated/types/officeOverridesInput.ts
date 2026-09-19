@@ -16,4 +16,11 @@ export interface OfficeOverridesInput {
      * @nullable
      */
   escalationEmail: string | null;
+  /**
+     * Shorten the idle timeout for this office (must not exceed the HQ staff value); null or omitted inherits.
+     * @minimum 5
+     * @maximum 120
+     * @nullable
+     */
+  idleTimeoutMinutes?: number | null;
 }

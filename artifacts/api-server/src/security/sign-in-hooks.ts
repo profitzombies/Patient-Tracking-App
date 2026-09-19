@@ -39,12 +39,16 @@ function ipOf(req: RequestLike): string {
 }
 
 /** Record the sign-in and (async) raise the new-device alert. Returns the ledger id. */
-export async function noteSignIn(req: RequestLike, input: { userId: string; realm: Realm; method: SignInMethod }): Promise<string> {
+export async function noteSignIn(
+  req: RequestLike,
+  input: { userId: string; realm: Realm; method: SignInMethod; sessionId?: string | null },
+): Promise<string> {
   const recorded = await recordSignIn({
     userId: input.userId,
     realm: input.realm,
     method: input.method,
     request: { headers: req.headers, ip: ipOf(req) },
+    sessionId: input.sessionId ?? null,
   });
   if (recorded.newDevice) {
     void describeAccount(input.userId)

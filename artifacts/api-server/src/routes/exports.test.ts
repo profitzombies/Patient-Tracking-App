@@ -15,6 +15,25 @@ vi.mock("../lib/staff-auth", async () => {
   const actual = await vi.importActual<typeof import("../lib/staff-auth")>("../lib/staff-auth");
   return { ...actual, verifyStaffToken: (token: string) => Promise.resolve(mocks.staff(token)) };
 });
+/**
+ * The fresh-code gate reads the session id claim of a real JWT and the
+ * sign-in ledger; this suite's bearers are opaque fixtures, so the gate is
+ * replaced by a switch (security.test.ts proves the real gate end to end).
+ * `gate.fresh = false` makes every gated route answer 401 reauth_required.
+ */
+const gate = vi.hoisted(() => ({ fresh: true, calls: 0 }));
+vi.mock("../auth/fresh-code", async () => {
+  const actual = await vi.importActual<typeof import("../auth/fresh-code")>("../auth/fresh-code");
+  return {
+    ...actual,
+    requireFreshCode: async (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }) => {
+      gate.calls += 1;
+      if (gate.fresh) return true;
+      res.status(401).json({ error: actual.REAUTH_REQUIRED_MESSAGE, code: actual.REAUTH_REQUIRED_CODE, windowMinutes: actual.FRESH_CODE_WINDOW_MINUTES });
+      return false;
+    },
+  };
+});
 import router, { availableKinds, exportJobDto } from "./exports";
 import { invalidateOrgPolicyCache } from "../lib/org-policy";
 
@@ -53,6 +72,8 @@ function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, 
 }
 
 beforeEach(() => {
+  gate.fresh = true;
+  gate.calls = 0;
   invalidateOrgPolicyCache();
   mocks.audit.mockReset().mockResolvedValue(undefined);
   mocks.drain.mockReset().mockResolvedValue(0);
@@ -73,6 +94,23 @@ describe("requesting exports", () => {
     expect((await call("/exports", "POST", { kind: "audit_events" })).status).toBe(400);
     expect(mocks.staff).not.toHaveBeenCalled();
   });
+  it("requires a fresh code for every export request, after authorization and before any job is written", async () => {
+    mocks.staff.mockReturnValue(hq("clinical"));
+    adminScript({});
+    gate.fresh = false;
+    const res = await call("/exports", "POST", { kind: "office_comparison", start: "2026-08-01", end: "2026-09-06" });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "reauth_required", windowMinutes: 10 });
+    expect(mocks.admin.mock.calls.some(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")).toBe(false);
+    expect(mocks.audit).not.toHaveBeenCalled();
+    // A kind the caller may not request is refused before the gate is consulted.
+    gate.calls = 0;
+    mocks.staff.mockReturnValue(hq("content"));
+    const denied = await call("/exports", "POST", { kind: "office_comparison", start: "2026-08-01", end: "2026-09-06" });
+    expect(denied.status).toBe(403);
+    expect(gate.calls).toBe(0);
+  });
+
   it("queues a network-wide comparison for HQ analytics readers, audits it, and kicks the worker", async () => {
     mocks.staff.mockReturnValue(hq("clinical"));
     adminScript({});

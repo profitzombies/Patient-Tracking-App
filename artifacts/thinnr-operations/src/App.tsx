@@ -66,6 +66,7 @@ import { AccountLocksProvider, useAccountLocks } from '@/contexts/account-locks'
 import { HqDataProvider } from '@/contexts/hq-data';
 import { TrainingDataProvider } from '@/contexts/training-data';
 import { ProviderScopeProvider } from '@/contexts/provider-scope';
+import { ReauthProvider } from '@/components/security/ReauthProvider';
 import { findSeededAccount } from '@/data/hq/accounts';
 import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import Escalations from '@/pages/admin/Escalations';
@@ -260,13 +261,15 @@ function App() {
             <Route path="/pay" nest component={PublicPayArea} />
             <Route>
               <SessionProvider>
-                <PatientSessionProvider>
-                  <DateRangeProvider>
-                    <AccountLocksProvider>
-                      <PersonaRouter />
-                    </AccountLocksProvider>
-                  </DateRangeProvider>
-                </PatientSessionProvider>
+                <ReauthProvider>
+                  <PatientSessionProvider>
+                    <DateRangeProvider>
+                      <AccountLocksProvider>
+                        <PersonaRouter />
+                      </AccountLocksProvider>
+                    </DateRangeProvider>
+                  </PatientSessionProvider>
+                </ReauthProvider>
               </SessionProvider>
             </Route>
           </Switch>

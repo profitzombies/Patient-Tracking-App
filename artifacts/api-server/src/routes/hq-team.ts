@@ -8,6 +8,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import { requireFreshCode } from "../auth/fresh-code";
 import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
@@ -293,6 +294,10 @@ router.patch(
         res.status(409).json({ error: blocked });
         return;
       }
+      // Role changes need a fresh code; a name/title-only edit does not.
+      if (parsed.data.role !== undefined && parsed.data.role !== target.role) {
+        if (!(await requireFreshCode(req, res, (res.locals.staff as StaffIdentity).userId))) return;
+      }
       const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_update_team_member", {
         p_actor_id: (res.locals.staff as StaffIdentity).userId,
         p_member_id: target.id,
@@ -332,6 +337,7 @@ router.delete(
         res.status(409).json({ error: blocked });
         return;
       }
+      if (!(await requireFreshCode(req, res, (res.locals.staff as StaffIdentity).userId))) return;
       const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_revoke_team_member", {
         p_actor_id: (res.locals.staff as StaffIdentity).userId,
         p_member_id: target.id,
@@ -431,6 +437,7 @@ router.post(
         res.status(403).json({ error: "Only a Super Admin can sign out a Super Admin." });
         return;
       }
+      if (!(await requireFreshCode(req, res, (res.locals.staff as StaffIdentity).userId))) return;
       let sessionInvalidation: "not_applicable" | "complete" | "failed" = "not_applicable";
       const reason = parsed.data.reason ?? "other";
       if (target.authUserId) {

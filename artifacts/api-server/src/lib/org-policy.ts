@@ -11,7 +11,7 @@
  */
 import { supabaseAdmin } from "./supabase-admin";
 
-export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention"] as const;
+export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention", "security"] as const;
 
 /** 6 years: HIPAA's minimum for compliance documentation and the audit trail. */
 export const AUDIT_EVENT_RETENTION_FLOOR_DAYS = 2190;
@@ -66,6 +66,13 @@ export interface OrgPolicy {
   conversationAutoCloseDays: number;
   retention: RetentionPolicy;
   exportLinkHours: number;
+  /**
+   * Minutes of no activity before the operations web app warns and then
+   * signs a staffer out. Office owners may shorten the staff value for their
+   * office (never lengthen); HQ members follow the HQ value.
+   */
+  staffIdleTimeoutMinutes: number;
+  hqIdleTimeoutMinutes: number;
   version: number;
   updatedAt: string;
 }
@@ -95,6 +102,8 @@ export const FIELD_SECTIONS = {
   conversationAutoCloseDays: "conversations",
   retention: "retention",
   exportLinkHours: "retention",
+  staffIdleTimeoutMinutes: "security",
+  hqIdleTimeoutMinutes: "security",
 } as const satisfies Record<Exclude<keyof OrgPolicy, "version" | "updatedAt">, PolicySection>;
 export type PolicyField = keyof typeof FIELD_SECTIONS;
 
@@ -120,8 +129,12 @@ export const POLICY_BOUNDS = {
   webhookEventDays: { min: 30, max: 3650 },
   clinicalRecordDays: { min: CLINICAL_RECORD_RETENTION_FLOOR_DAYS, max: 3650 },
   exportLinkHours: { min: 1, max: 168 },
+  staffIdleTimeoutMinutes: { min: 5, max: 120 },
+  hqIdleTimeoutMinutes: { min: 5, max: 120 },
 } as const;
 
+/** Idle-timeout bounds shared by both HQ values and the office override. */
+export const IDLE_TIMEOUT_BOUNDS = POLICY_BOUNDS.staffIdleTimeoutMinutes;
 export const DEFAULT_ORG_POLICY: OrgPolicy = {
   organizationName: "THINNR",
   supportEmail: null,
@@ -147,6 +160,8 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
     clinicalRecordDays: 2555,
   },
   exportLinkHours: 24,
+  staffIdleTimeoutMinutes: 15,
+  hqIdleTimeoutMinutes: 15,
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
 };
@@ -165,7 +180,7 @@ export const SETTINGS_SELECT =
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
-  "retention_clinical_record_days,export_link_hours,section_changes";
+  "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,section_changes";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -215,6 +230,8 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       clinicalRecordDays: floored(row.retention_clinical_record_days, d.retention.clinicalRecordDays, POLICY_BOUNDS.clinicalRecordDays),
     },
     exportLinkHours: int(row.export_link_hours, d.exportLinkHours),
+    staffIdleTimeoutMinutes: int(row.staff_idle_timeout_minutes, d.staffIdleTimeoutMinutes),
+    hqIdleTimeoutMinutes: int(row.hq_idle_timeout_minutes, d.hqIdleTimeoutMinutes),
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
   };
@@ -267,6 +284,8 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     retention_webhook_event_days: policy.retention.webhookEventDays,
     retention_clinical_record_days: policy.retention.clinicalRecordDays,
     export_link_hours: policy.exportLinkHours,
+    staff_idle_timeout_minutes: policy.staffIdleTimeoutMinutes,
+    hq_idle_timeout_minutes: policy.hqIdleTimeoutMinutes,
   };
 }
 
@@ -281,6 +300,8 @@ export interface OfficeOverrides {
   providerId: string;
   quietHours: QuietHoursOverride;
   escalationEmail: string | null;
+  /** Office-shortened idle timeout in minutes; null = inherit the HQ staff value. */
+  idleTimeoutMinutes: number | null;
   alertRecipientMode: "all" | "owners_admins" | "selected";
   alertRecipientMemberIds: string[];
   alertSendTime: string;
@@ -295,6 +316,7 @@ export const NO_OVERRIDES = (providerId: string): OfficeOverrides => ({
   providerId,
   quietHours: { mode: "inherit" },
   escalationEmail: null,
+  idleTimeoutMinutes: null,
   alertRecipientMode: "all",
   alertRecipientMemberIds: [],
   alertSendTime: "08:00",
@@ -306,7 +328,7 @@ export const NO_OVERRIDES = (providerId: string): OfficeOverrides => ({
 });
 
 export const OVERRIDES_SELECT =
-  "provider_id,version,quiet_hours_set,quiet_start,quiet_end,escalation_email,alert_recipient_mode,alert_recipient_member_ids,alert_send_time,alert_time_zone,updated_at,updated_by,updated_by_name";
+  "provider_id,version,quiet_hours_set,quiet_start,quiet_end,escalation_email,idle_timeout_minutes,alert_recipient_mode,alert_recipient_member_ids,alert_send_time,alert_time_zone,updated_at,updated_by,updated_by_name";
 
 export function overridesFromRow(row: Record<string, unknown>): OfficeOverrides {
   const window = quiet(row.quiet_start, row.quiet_end);
@@ -316,6 +338,7 @@ export function overridesFromRow(row: Record<string, unknown>): OfficeOverrides 
     providerId: String(row.provider_id),
     quietHours,
     escalationEmail: text(row.escalation_email),
+    idleTimeoutMinutes: Number.isInteger(row.idle_timeout_minutes) ? (row.idle_timeout_minutes as number) : null,
     alertRecipientMode:
       row.alert_recipient_mode === "owners_admins" || row.alert_recipient_mode === "selected"
         ? row.alert_recipient_mode
@@ -337,18 +360,33 @@ export function overridesFromRow(row: Record<string, unknown>): OfficeOverrides 
 export interface EffectiveOfficePolicy {
   quietHours: QuietHoursWindow | null;
   escalationEmail: string | null;
+  /** Minutes before the idle warning for this office's staff (the shorter of HQ and office). */
+  idleTimeoutMinutes: number;
   /** Whether each effective value came from the office override or HQ. */
-  source: { quietHours: "office" | "hq"; escalationEmail: "office" | "hq" };
+  source: { quietHours: "office" | "hq"; escalationEmail: "office" | "hq"; idleTimeoutMinutes: "office" | "hq" };
 }
 
+/**
+ * An office override can only ever shorten the HQ staff idle timeout. The
+ * write path refuses longer values, and this read-side min() keeps that
+ * true even after HQ lowers its value under an existing override.
+ */
+export function effectiveIdleTimeoutMinutes(org: OrgPolicy, overrides: OfficeOverrides | null): { minutes: number; source: "office" | "hq" } {
+  const override = overrides?.idleTimeoutMinutes ?? null;
+  if (override !== null && override < org.staffIdleTimeoutMinutes) return { minutes: override, source: "office" };
+  return { minutes: org.staffIdleTimeoutMinutes, source: "hq" };
+}
 export function effectivePolicyFor(org: OrgPolicy, overrides: OfficeOverrides | null): EffectiveOfficePolicy {
   const q = overrides?.quietHours ?? { mode: "inherit" as const };
+  const idle = effectiveIdleTimeoutMinutes(org, overrides);
   return {
     quietHours: q.mode === "inherit" ? org.defaultQuietHours : q.mode === "none" ? null : { start: q.start, end: q.end },
     escalationEmail: overrides?.escalationEmail ?? org.escalationEmail,
+    idleTimeoutMinutes: idle.minutes,
     source: {
       quietHours: q.mode === "inherit" ? "hq" : "office",
       escalationEmail: overrides?.escalationEmail ? "office" : "hq",
+      idleTimeoutMinutes: idle.source,
     },
   };
 }

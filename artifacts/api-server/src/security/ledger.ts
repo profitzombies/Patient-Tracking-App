@@ -62,6 +62,8 @@ export interface SignInRow {
   reported_at: string | null;
   report_token_hash: string | null;
   report_token_expires_at: string | null;
+  /** Last one-time code proof for this session (sign-in or inline re-authentication). */
+  code_verified_at?: string | null;
 }
 
 export interface SecurityStateRow {
@@ -85,7 +87,7 @@ interface AuthSessionRow {
 
 const SIGN_IN_SELECT =
   "id,user_id,realm,method,platform,user_agent,ip_region,device_fingerprint,device_label,new_device,session_id," +
-  "created_at,last_seen_at,revoked_at,revoked_reason,reported_at,report_token_hash,report_token_expires_at";
+  "created_at,last_seen_at,revoked_at,revoked_reason,reported_at,report_token_hash,report_token_expires_at,code_verified_at";
 
 /** Verify routes hand this over; it is what the request already knows. */
 export interface SignInRequestFacts {
@@ -117,6 +119,8 @@ export async function recordSignIn(input: {
   realm: Realm;
   method: SignInMethod;
   request: SignInRequestFacts;
+  /** Already-known GoTrue session (inline re-authentication of a session with no ledger row). */
+  sessionId?: string | null;
 }): Promise<RecordedSignIn> {
   const { headers, ip } = input.request;
   const platform = platformOf(headers);
@@ -145,6 +149,10 @@ export async function recordSignIn(input: {
       new_device: newDevice,
       report_token_hash: reportToken ? sha256(reportToken) : null,
       report_token_expires_at: reportToken ? new Date(Date.now() + REPORT_TOKEN_TTL_MS).toISOString() : null,
+      // Every sign-in method proves a one-time code (or a password + code),
+      // so the session starts with a fresh proof for the sensitive-action gate.
+      code_verified_at: new Date().toISOString(),
+      ...(input.sessionId ? { session_id: input.sessionId } : {}),
     },
     "return=representation",
   );

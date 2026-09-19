@@ -27,11 +27,13 @@ export function demoOfficeSettings(): OfficeSettingsDto {
     conversationAutoCloseDays: 14,
     retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365, clinicalRecordDays: 2555 },
     exportLinkHours: 24,
+    staffIdleTimeoutMinutes: 15,
+    hqIdleTimeoutMinutes: 15,
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',
-    sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null },
+    sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null },
   };
-  const overrides: OfficeOverrides = { quietHours: { mode: 'inherit' }, escalationEmail: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null };
+  const overrides: OfficeOverrides = { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null };
   return {
     office: { providerId: 'demo', officeName: 'Demo office' },
     hq,

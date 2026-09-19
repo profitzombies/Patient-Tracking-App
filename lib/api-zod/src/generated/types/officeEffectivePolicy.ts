@@ -12,5 +12,6 @@ export interface OfficeEffectivePolicy {
   quietHours: QuietHoursWindow | null;
   /** @nullable */
   escalationEmail: string | null;
+  idleTimeoutMinutes: number;
   source: OfficeEffectivePolicySource;
 }

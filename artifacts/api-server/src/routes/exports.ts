@@ -15,6 +15,7 @@ import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { objectStorage } from "../lib/objectStorage";
+import { requireFreshCode } from "../auth/fresh-code";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { parseRange } from "./operational-rollups";
 import {
@@ -150,6 +151,8 @@ router.post("/exports", async (req, res) => {
       res.status(authorized.status).json({ error: authorized.message });
       return;
     }
+    // Every export moves patient data out of the system: fresh code first.
+    if (!(await requireFreshCode(req, res, who.userId))) return;
     const scope = authorized.scope;
 
     const pending = await supabaseAdmin(

@@ -28,6 +28,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
+import { FRESH_CODE_WINDOW_MINUTES, REAUTH_REQUIRED_CODE, STAFF_REAUTH_SCOPE_PREFIX, requireFreshCode, stampCodeVerified } from "../auth/fresh-code";
 import { acquireSecuritySlot } from "../auth/limits";
 import { clientIp, holdUntilFloor, patchRow, sha256 } from "../auth/ledger";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
@@ -38,7 +39,7 @@ import { recordAdminAuditEvent, requestIdOf, type AuditActorKind } from "../lib/
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { describeAccount, resolveSecurityActor, type SecurityActor } from "../security/actor";
 import { sendPasswordChangedConfirmation } from "../security/alerts";
-import { SessionContainmentError, respondSessionContainmentFailed } from "../security/sign-in-hooks";
+import { SessionContainmentError, noteSignIn, respondSessionContainmentFailed } from "../security/sign-in-hooks";
 import {
   REPORT_TOKEN_TTL_MS,
   adminLogoutAll,
@@ -56,7 +57,7 @@ import {
   type RevokeReason,
   type SignInRow,
 } from "../security/ledger";
-import { claimCode, deliverSmsRegistered, matchCode, registerSend, spendUndelivered } from "./auth";
+import { checkCode, claimCode, deliverSmsRegistered, matchCode, registerSend, spendUndelivered } from "./auth";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -193,6 +194,129 @@ router.post(`${SECURITY_ME_PATH}/attach`, async (req, res) => {
   }
 });
 
+// ── Staff re-authentication ─────────────────────────────────────────────────
+//
+// Sensitive staff actions need a code proven within the last ten minutes
+// (auth/fresh-code.ts). The web app re-runs the code flow inline against
+// these two routes: the code goes to the staffer's own directory email (the
+// same address that signs them in), is bound to this account through the
+// send's scope key, and on success refreshes code_verified_at on the ledger
+// row backing THIS session. No new GoTrue session is minted.
+
+const STAFF_ONLY = "Only staff accounts re-authenticate this way.";
+const REAUTH_NO_EMAIL = "Your staff account has no email address on file, so we can't send a code. Contact HQ.";
+
+router.post(`${SECURITY_ME_PATH}/reauth/start`, async (req, res) => {
+  const slot = limited(req, res);
+  if (!slot) return;
+  const started = Date.now();
+  try {
+    const resolved = await resolveSecurityActor(req);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+    const { actor } = resolved;
+    if (actor.realm !== "staff") {
+      res.status(403).json({ error: STAFF_ONLY });
+      return;
+    }
+    const identifier = normalizeIdentifier(actor.email ?? "");
+    if (!identifier || identifier.kind !== "email") {
+      res.status(409).json({ error: REAUTH_NO_EMAIL });
+      return;
+    }
+    assertLiveChannelReady("email");
+    const mode = deliveryMode("email");
+    const accountType = actor.staffKind === "hq" ? "hq_admin" : actor.staffKind;
+    const registered = await registerSend({
+      purpose: "login",
+      identifier,
+      accountType,
+      candidates: [{ type: accountType, ref: actor.ref, name: actor.name, dob: null, claimed: true, auth_user_id: actor.userId }],
+      scopeKey: `${STAFF_REAUTH_SCOPE_PREFIX}${actor.userId}`,
+    });
+    if (!registered) {
+      res.status(429).json({ error: CODE_SEND_LIMIT, retryable: true });
+      return;
+    }
+    try {
+      if (registered.row.delivery === "resend" && registered.localCode) await sendClaimEmail(registered.row.identifier, registered.localCode);
+    } catch (error) {
+      req.log?.error({ err: error }, "staff re-auth code delivery rejected");
+      void spendUndelivered(registered.row).catch((spendError) => req.log?.error({ err: spendError }, "staff re-auth rejected-send mark failed"));
+      res.status(502).json({ error: CODE_SEND_ERROR, retryable: true });
+      return;
+    }
+    await holdUntilFloor(started);
+    res.json({
+      ok: true,
+      requestId: registered.row.id,
+      channel: "email",
+      destination: maskEmail(actor.email),
+      windowMinutes: FRESH_CODE_WINDOW_MINUTES,
+      ...(mode === "dev" && registered.localCode ? { devCode: registered.localCode } : {}),
+    });
+  } catch (error) {
+    if (error instanceof DeliveryNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    req.log?.error({ err: error }, "staff re-auth start failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.release();
+  }
+});
+
+router.post(`${SECURITY_ME_PATH}/reauth/verify`, async (req, res) => {
+  const slot = limited(req, res);
+  if (!slot) return;
+  try {
+    const resolved = await resolveSecurityActor(req);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+    const { actor, sessionId } = resolved;
+    if (actor.realm !== "staff") {
+      res.status(403).json({ error: STAFF_ONLY });
+      return;
+    }
+    const { requestId, code } = (req.body ?? {}) as { requestId?: unknown; code?: unknown };
+    const row = await checkCode("login", requestId, code);
+    // The code must be the one sent for THIS account's re-authentication:
+    // a plain sign-in code (or another staffer's re-auth code) proves nothing here.
+    if (!row || row.scope_key !== `${STAFF_REAUTH_SCOPE_PREFIX}${actor.userId}`) {
+      if (row) await patchRow(row.id, { consumed_at: new Date().toISOString() });
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+    const now = new Date().toISOString();
+    await patchRow(row.id, { consumed_at: now, resolved_ref: actor.ref, auth_user_id: actor.userId });
+    if (!sessionId) {
+      res.status(409).json({ error: "This session can't be re-verified. Sign out and back in.", code: REAUTH_REQUIRED_CODE });
+      return;
+    }
+    // Refresh the proof on this session's ledger row; a session that predates
+    // the ledger (or never attached) gets a row now so the gate can see it.
+    if (!(await stampCodeVerified(actor.userId, sessionId, now))) {
+      await noteSignIn(req, { userId: actor.userId, realm: "staff", method: "email_code", sessionId });
+    }
+    audit(req, actor, "security_reauthenticated", { channel: "email" });
+    res.json({ ok: true, codeVerifiedAt: now, windowMinutes: FRESH_CODE_WINDOW_MINUTES });
+  } catch (error) {
+    if (error instanceof DeliveryNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    req.log?.error({ err: error }, "staff re-auth verify failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.release();
+  }
+});
+
 router.post(`${SECURITY_ME_PATH}/sign-out-others`, async (req, res) => {
   const slot = limited(req, res);
   if (!slot) return;
@@ -202,6 +326,8 @@ router.post(`${SECURITY_ME_PATH}/sign-out-others`, async (req, res) => {
       res.status(resolved.status).json({ error: resolved.error });
       return;
     }
+    // Staff must have proven a code recently (patients re-verify by device lock).
+    if (resolved.actor.realm === "staff" && !(await requireFreshCode(req, res, resolved.actor.userId))) return;
     const ok = await logoutOthers({ userId: resolved.actor.userId, sessionId: resolved.sessionId });
     if (!ok) {
       res.status(502).json({ error: "We couldn't sign out your other devices just now. Try again in a moment." });
@@ -518,6 +644,7 @@ router.post("/office/patients/:id/sign-out", async (req, res) => {
       res.status(404).json({ error: "That patient isn't on this office's roster." });
       return;
     }
+    if (!(await requireFreshCode(req, res, scope.actorUserId))) return;
     let sessionInvalidation: "not_applicable" | "complete" | "failed" = "not_applicable";
     if (patient.auth_user_id) {
       sessionInvalidation = (await adminLogoutAll(patient.auth_user_id)) ? "complete" : "failed";

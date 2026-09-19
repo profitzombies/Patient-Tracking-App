@@ -71,4 +71,14 @@ export interface HqOrganizationSettingsInput {
      * @maximum 168
      */
   exportLinkHours?: number;
+  /**
+     * @minimum 5
+     * @maximum 120
+     */
+  staffIdleTimeoutMinutes?: number;
+  /**
+     * @minimum 5
+     * @maximum 120
+     */
+  hqIdleTimeoutMinutes?: number;
 }

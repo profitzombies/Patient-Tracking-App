@@ -11,13 +11,12 @@
  *     link on click, expired jobs stay listed but not downloadable.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle2, Clock3, Download, FileDown, Loader2, RefreshCw } from 'lucide-react';
 import {
   getExportDownloadUrl,
   getListExportsQueryKey,
   useListExports,
-  useRequestExport,
   type ExportJob,
   type ExportKind,
   type ExportKindOption,
@@ -26,7 +25,7 @@ import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
 import { openDownload } from '@/lib/training-media';
-import { expiryLabel } from '@/lib/export-jobs';
+import { expiryLabel, requestExportJob } from '@/lib/export-jobs';
 import { politeInterval } from '@/lib/polite-refetch';
 
 export interface ExportOfficeOption {
@@ -106,7 +105,9 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
       },
     },
   });
-  const requestMutation = useRequestExport();
+  const requestMutation = useMutation({
+    mutationFn: ({ data }: { data: Parameters<typeof requestExportJob>[0] }) => requestExportJob(data),
+  });
 
   const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter((option) => !kinds || kinds.includes(option.kind));
   const jobs: ExportJob[] = (listQuery.data?.jobs ?? []).filter((job) => !kinds || kinds.includes(job.kind));

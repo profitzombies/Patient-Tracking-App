@@ -5,6 +5,7 @@
  * viewing with `?office=`; a 401 is retried once after a session refresh.
  */
 import { supabase } from '@/lib/supabase';
+import { ReauthRequiredError, withReauthRetry } from '@/lib/reauth';
 
 export class OfficeApiError extends Error {
   constructor(
@@ -52,16 +53,17 @@ export async function officeRequest<T>(path: string, messages: OfficeRequestMess
     },
   });
   try {
-    response = await perform(token);
+    response = await withReauthRetry(() => perform(token));
     if (response.status === 401 && supabase) {
       const { data } = await supabase.auth.refreshSession();
       const refreshed = data.session?.access_token;
       if (refreshed) {
         token = refreshed;
-        response = await perform(token);
+        response = await withReauthRetry(() => perform(token));
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ReauthRequiredError) throw error;
     throw new OfficeApiError(messages.unreachable, 0);
   }
   let body: { error?: unknown; field?: unknown } & Partial<T> = {};

@@ -6,9 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OfficeEffectivePolicySourceEscalationEmail } from './officeEffectivePolicySourceEscalationEmail';
+import type { OfficeEffectivePolicySourceIdleTimeoutMinutes } from './officeEffectivePolicySourceIdleTimeoutMinutes';
 import type { OfficeEffectivePolicySourceQuietHours } from './officeEffectivePolicySourceQuietHours';
 
 export type OfficeEffectivePolicySource = {
   quietHours: OfficeEffectivePolicySourceQuietHours;
   escalationEmail: OfficeEffectivePolicySourceEscalationEmail;
+  idleTimeoutMinutes: OfficeEffectivePolicySourceIdleTimeoutMinutes;
 };

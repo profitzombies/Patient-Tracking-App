@@ -3,6 +3,25 @@ import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * The fresh-code gate reads the session id claim of a real JWT and the
+ * sign-in ledger; this suite's bearers are opaque fixtures, so the gate is
+ * replaced by a switch (security.test.ts proves the real gate end to end).
+ * `gate.fresh = false` makes every gated route answer 401 reauth_required.
+ */
+const gate = vi.hoisted(() => ({ fresh: true, calls: 0 }));
+vi.mock("../auth/fresh-code", async () => {
+  const actual = await vi.importActual<typeof import("../auth/fresh-code")>("../auth/fresh-code");
+  return {
+    ...actual,
+    requireFreshCode: async (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }) => {
+      gate.calls += 1;
+      if (gate.fresh) return true;
+      res.status(401).json({ error: actual.REAUTH_REQUIRED_MESSAGE, code: actual.REAUTH_REQUIRED_CODE, windowMinutes: actual.FRESH_CODE_WINDOW_MINUTES });
+      return false;
+    },
+  };
+});
 import router, { createSetupToken, safeguardMutation } from "./hq-team";
 
 type Row = Record<string, unknown>;
@@ -45,6 +64,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  gate.fresh = true;
+  gate.calls = 0;
   members = [
     {
       id: "owner-member", auth_user_id: "owner-user", name: "Owner", email: "owner@example.com",
@@ -222,6 +243,23 @@ describe("HQ team API", () => {
     const result = await api("/hq-team/owner-member", { method: "DELETE" });
     expect(result.status).toBe(409);
     expect(rpcCalls).toEqual([]);
+  });
+
+  it("gates role changes, revocations and forced sign-outs behind a fresh code, but not a title-only edit", async () => {
+    gate.fresh = false;
+    const role = await api("/hq-team/admin-member", { method: "PATCH", body: JSON.stringify({ role: "Clinical" }) });
+    expect(role.status).toBe(401);
+    expect(await role.json()).toMatchObject({ code: "reauth_required" });
+    const revoke = await api("/hq-team/admin-member", { method: "DELETE" });
+    expect(revoke.status).toBe(401);
+    const signOut = await api("/hq-team/admin-member/sign-out", { method: "POST", body: JSON.stringify({ reason: "other" }) });
+    expect(signOut.status).toBe(401);
+    expect(rpcCalls).toEqual([]);
+    expect(logoutCalls).toEqual([]);
+
+    const title = await api("/hq-team/admin-member", { method: "PATCH", body: JSON.stringify({ title: "Clinical lead" }) });
+    expect(title.status).toBe(200);
+    expect(rpcCalls).toEqual(["/rest/v1/rpc/hq_update_team_member"]);
   });
 
   it("updates an allowed member through the durable function", async () => {

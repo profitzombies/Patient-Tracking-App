@@ -332,6 +332,14 @@ args = "phi-free-push-api"
 task = "workflow.run"
 args = "phi-free-push-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "idle-timeout-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "idle-timeout-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2378,6 +2386,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:push-notifications && pnpm --filter @workspace/thinnr-mobile run test:staff-alerts && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "idle-timeout-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/auth/fresh-code.test.ts src/routes/security.test.ts src/routes/hq-org-policy.test.ts src/routes/exports.test.ts src/routes/hq-team.test.ts src/routes/office-team.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "idle-timeout-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:idle-timeout && pnpm --filter @workspace/thinnr-operations run test:reauth && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run test:office-team && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

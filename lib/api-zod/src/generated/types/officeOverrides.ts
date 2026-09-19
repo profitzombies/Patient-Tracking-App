@@ -11,6 +11,11 @@ export interface OfficeOverrides {
   quietHours: OfficeQuietHoursOverride;
   /** @nullable */
   escalationEmail: string | null;
+  /**
+     * Office-shortened idle timeout in minutes; null inherits the HQ staff value.
+     * @nullable
+     */
+  idleTimeoutMinutes: number | null;
   version: number;
   /** @nullable */
   updatedAt: string | null;

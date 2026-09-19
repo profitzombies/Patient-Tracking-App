@@ -19,6 +19,27 @@ vi.hoisted(() => {
 
 vi.mock("../claim/delivery", () => ({ sendStaffLoginInvitation: vi.fn(async () => undefined) }));
 
+/**
+ * The fresh-code gate reads the session id claim of a real JWT and the
+ * sign-in ledger; this suite's bearers are opaque fixtures, so the gate is
+ * replaced by a switch (security.test.ts proves the real gate end to end).
+ * `gate.fresh = false` makes every gated route answer 401 reauth_required.
+ */
+const gate = vi.hoisted(() => ({ fresh: true, calls: 0 }));
+vi.mock("../auth/fresh-code", async () => {
+  const actual = await vi.importActual<typeof import("../auth/fresh-code")>("../auth/fresh-code");
+  return {
+    ...actual,
+    requireFreshCode: async (_req: unknown, res: { status: (code: number) => { json: (body: unknown) => void } }) => {
+      gate.calls += 1;
+      if (gate.fresh) return true;
+      res.status(401).json({ error: actual.REAUTH_REQUIRED_MESSAGE, code: actual.REAUTH_REQUIRED_CODE, windowMinutes: actual.FRESH_CODE_WINDOW_MINUTES });
+      return false;
+    },
+  };
+});
+
+
 import teamRouter, { OWNERS_ONLY_MESSAGE, SELF_EDIT_MESSAGE, TEAM_MANAGERS_ONLY_MESSAGE } from "./office-team";
 import rosterRouter from "./office-roster";
 import { STAFF_DEACTIVATED_MESSAGE } from "../auth/office-scope";
@@ -89,6 +110,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  gate.fresh = true;
+  gate.calls = 0;
   authUsers = {
     "provider-token": "provider-user",
     "owner-token": "owner-user",
@@ -325,6 +348,34 @@ describe("PATCH /office/team/:memberId", () => {
   it("rejects unknown roles and a staff caller", async () => {
     expect((await call("PATCH", `/office/team/${STAFF_TM}`, "owner-token", { role: "superuser" })).status).toBe(400);
     expect((await call("PATCH", `/office/team/${ADMIN_TM}`, "staff-token", { role: "staff" })).status).toBe(403);
+  });
+});
+
+describe("fresh-code gate", () => {
+  it("refuses role changes, deactivation and forced sign-out without a fresh code; reactivation and same-role edits stay open", async () => {
+    gate.fresh = false;
+    const role = await call("PATCH", `/office/team/${STAFF_TM}`, "admin-token", { role: "admin" });
+    expect(role.status).toBe(401);
+    expect(role.json).toMatchObject({ code: "reauth_required", windowMinutes: 10 });
+    const deactivate = await call("POST", `/office/team/${STAFF_TM}/deactivate`, "owner-token");
+    expect(deactivate.status).toBe(401);
+    const signOut = await call("POST", `/office/team/${STAFF_TM}/sign-out`, "admin-token");
+    expect(signOut.status).toBe(401);
+    expect(audits).toHaveLength(0);
+    expect(logouts).toEqual([]);
+    expect(teamMembers.find((r) => r.id === STAFF_TM)).toMatchObject({ office_role: "staff", activation_status: "activated" });
+
+    const sameRole = await call("PATCH", `/office/team/${STAFF_TM}`, "admin-token", { role: "staff" });
+    expect(sameRole.status).toBe(200);
+    const reactivate = await call("POST", `/office/team/${DISABLED_TM}/reactivate`, "admin-token");
+    expect(reactivate.status).toBe(200);
+  });
+
+  it("a staff-role caller is refused before the gate is consulted", async () => {
+    gate.fresh = false;
+    const res = await call("PATCH", `/office/team/${STAFF_TM}`, "staff-token", { role: "admin" });
+    expect(res.status).toBe(403);
+    expect(gate.calls).toBe(0);
   });
 });
 

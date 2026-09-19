@@ -35,6 +35,14 @@ export function bearerOf(authorization: unknown): string {
   return header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
 }
 
+/**
+ * The session_id claim of a token WITHOUT verifying it. Only meaningful for
+ * a token some route already verified (the claim then came from GoTrue).
+ */
+export function sessionIdOfToken(token: string): string | null {
+  return unverifiedSessionId(token);
+}
+
 function unverifiedSessionId(token: string): string | null {
   const parts = token.split(".");
   if (parts.length < 2) return null;

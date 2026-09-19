@@ -50,6 +50,7 @@
     "test:inbox-stream": "tsx scripts/verify-inbox-stream.ts",
     "test:care-team-conversations": "tsx --tsconfig tsconfig.conversations.json scripts/verify-conversations-office.tsx",
     "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx",
+    "test:reauth": "TZ=UTC tsx --tsconfig tsconfig.reauth.json scripts/verify-reauth.tsx",
     "test:leaderboard": "TZ=UTC tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",
     "test:billing-public": "TZ=UTC tsx --tsconfig tsconfig.billing-public.json scripts/verify-billing-public.tsx",
     "test:billing-hq": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-hq.tsx",
@@ -60,7 +61,8 @@
     "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx",
     "test:photo-pages": "TZ=UTC tsx --tsconfig tsconfig.photo-pages.json scripts/verify-photo-pages.tsx",
     "test:app-usage": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-app-usage.tsx",
-    "test:patient-retention": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-patient-retention.tsx"
+    "test:patient-retention": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-patient-retention.tsx",
+    "test:idle-timeout": "TZ=UTC tsx --tsconfig tsconfig.idle-timeout.json scripts/verify-idle-timeout.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

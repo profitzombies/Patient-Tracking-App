@@ -335,6 +335,7 @@ export * from './officeConversationStartInput';
 export * from './officeEffectivePolicy';
 export * from './officeEffectivePolicySource';
 export * from './officeEffectivePolicySourceEscalationEmail';
+export * from './officeEffectivePolicySourceIdleTimeoutMinutes';
 export * from './officeEffectivePolicySourceQuietHours';
 export * from './officeIdParameter';
 export * from './officeLeaderboardResult';

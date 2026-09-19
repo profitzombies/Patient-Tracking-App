@@ -1,7 +1,7 @@
 /**
  * Office Settings — the effective organization policy as this office sees
- * it, plus the two values HQ lets an office override: quiet hours and the
- * care-team escalation destination.
+ * it, plus the values HQ lets an office override: quiet hours, the care-team
+ * escalation destination, and a shorter staff idle timeout.
  *
  * Everything else is read-only here on purpose: HQ owns the policy, and the
  * office page exists so staff can see what their patients and inbox obey
@@ -46,10 +46,12 @@ import {
   apiErrorStatus,
   describeDays,
   describeHours,
+  describeMinutes,
   describeOverrideStamp,
   describeQuietHours,
   describeSource,
   previewEffective,
+  POLICY_BOUNDS,
   quietHoursOverrideFor,
   APP_STORE_LABELS,
   STORE_LINK_MISSING,
@@ -238,19 +240,25 @@ export function PatientAlertsCard({ data, demo, preferenceReadOnly, saving, onSa
 
 // ─── Override form ───────────────────────────────────────────────────────────
 
-interface OverrideDraft { quietHours: OfficeQuietHoursOverride; escalationEmail: string }
+interface OverrideDraft {
+  quietHours: OfficeQuietHoursOverride;
+  escalationEmail: string;
+  idleTimeoutMinutes: number | null;
+}
 
 const draftFrom = (overrides: OfficeOverrides): OverrideDraft => ({
   quietHours: overrides.quietHours.mode === 'custom'
     ? { mode: 'custom', start: overrides.quietHours.start, end: overrides.quietHours.end }
     : { mode: overrides.quietHours.mode },
   escalationEmail: overrides.escalationEmail ?? '',
+  idleTimeoutMinutes: overrides.idleTimeoutMinutes,
 });
 
-function OverridesCard({ data, live, onSave, saving }: {
+function OverridesCard({ data, live, onSave, saving, saveError }: {
   data: OfficeSettingsDto;
   live: boolean;
   saving: boolean;
+  saveError: unknown;
   onSave: (draft: OverrideDraft, expectedVersion: number) => void;
 }) {
   const { toast } = useToast();
@@ -262,9 +270,29 @@ function OverridesCard({ data, live, onSave, saving }: {
     setDraft(saved);
   }
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-  const preview = previewEffective(data.hq, { quietHours: draft.quietHours, escalationEmail: draft.escalationEmail || null });
+  const preview = previewEffective(data.hq, {
+    quietHours: draft.quietHours,
+    escalationEmail: draft.escalationEmail || null,
+    idleTimeoutMinutes: draft.idleTimeoutMinutes,
+  });
   const canEdit = data.canEdit;
   const stamp = describeOverrideStamp(data.overrides.updatedAt, data.overrides.updatedByName);
+  const idleTimeoutProblem = draft.idleTimeoutMinutes !== null && (
+    !Number.isInteger(draft.idleTimeoutMinutes)
+      ? 'Use a whole number of minutes.'
+      : draft.idleTimeoutMinutes < POLICY_BOUNDS.staffIdleTimeoutMinutes.min
+        ? 'Enter at least 5 minutes.'
+        : draft.idleTimeoutMinutes > data.hq.staffIdleTimeoutMinutes
+          ? `This office’s timeout cannot exceed HQ’s ${data.hq.staffIdleTimeoutMinutes}-minute setting.`
+          : null
+  );
+  const errorData = (saveError as { data?: { field?: unknown; error?: unknown } } | null)?.data;
+  const idleTimeoutServerProblem = apiErrorStatus(saveError) === 400 &&
+    errorData?.field === 'idleTimeoutMinutes' &&
+    typeof errorData.error === 'string'
+    ? errorData.error
+    : null;
+  const shownIdleTimeoutProblem = idleTimeoutProblem ?? idleTimeoutServerProblem;
 
   const setMode = (mode: OfficeQuietHoursOverride['mode']) =>
     setDraft((current) => ({ ...current, quietHours: quietHoursOverrideFor(mode, current.quietHours, data.hq.defaultQuietHours) }));
@@ -280,7 +308,7 @@ function OverridesCard({ data, live, onSave, saving }: {
       title="Office overrides"
       sub={
         <>
-          The two values HQ lets an office set for itself. Blank or “Follow HQ” means the HQ default applies.
+          Values HQ lets an office set for itself. Blank or “Follow HQ” means the HQ default applies.
           {stamp && <span className="mt-1 block text-[11px] text-muted-foreground/80" data-testid="override-stamp">{stamp}</span>}
           {!live && <span className="mt-1 block text-[11px] text-muted-foreground/80">Demo session only — nothing is saved.</span>}
         </>
@@ -303,7 +331,9 @@ function OverridesCard({ data, live, onSave, saving }: {
               className={`${BTN_PRIMARY} h-8 px-3 disabled:cursor-not-allowed disabled:opacity-50`}
               disabled={!dirty || saving}
               data-testid="button-save-office-overrides"
-              onClick={() => onSave(draft, data.overrides.version)}
+              onClick={() => {
+                if (!idleTimeoutProblem) onSave(draft, data.overrides.version);
+              }}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-label="Saving" /> : 'Save'}
             </button>
@@ -374,6 +404,94 @@ function OverridesCard({ data, live, onSave, saving }: {
                 data-testid="input-override-quiet-end"
                 disabled={!canEdit}
               />
+            </div>
+          )}
+        </div>
+
+        <div className="border-b border-border px-5 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+            <div className="min-w-0 max-w-[46ch]">
+              <p className={PANEL_LABEL}>Idle timeout</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Sign this office’s staff out sooner after inactivity, or use HQ’s setting.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <EffectiveChip source={preview.source.idleTimeoutMinutes} />
+              <span className="text-xs font-semibold text-navy" data-testid="effective-idle-timeout">{describeMinutes(preview.idleTimeoutMinutes)}</span>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-md border border-border px-3 py-2">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">HQ default</span>
+              <span className="mt-1 block text-xs font-semibold text-navy" data-testid="idle-timeout-hq-default">{describeMinutes(data.hq.staffIdleTimeoutMinutes)}</span>
+            </div>
+            <div className="rounded-md border border-border px-3 py-2">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Office override</span>
+              <span className="mt-1 block text-xs font-semibold text-navy" data-testid="idle-timeout-office-override">
+                {data.overrides.idleTimeoutMinutes === null ? 'None' : describeMinutes(data.overrides.idleTimeoutMinutes)}
+              </span>
+            </div>
+            <div className="rounded-md border border-border px-3 py-2">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Effective</span>
+              <span className="mt-1 block text-xs font-semibold text-navy">{describeMinutes(preview.idleTimeoutMinutes)} · {describeSource(preview.source.idleTimeoutMinutes)}</span>
+            </div>
+          </div>
+          <fieldset className="mt-3 grid gap-2 sm:grid-cols-2" disabled={!canEdit}>
+            <legend className="sr-only">Idle timeout source</legend>
+            <label className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-xs ${draft.idleTimeoutMinutes === null ? 'border-primary bg-accent' : 'border-border'}`}>
+              <input
+                type="radio"
+                name="idle-timeout-mode"
+                checked={draft.idleTimeoutMinutes === null}
+                onChange={() => setDraft((current) => ({ ...current, idleTimeoutMinutes: null }))}
+                data-testid="radio-idle-inherit"
+                disabled={!canEdit}
+              />
+              <span className="font-semibold text-navy">Use HQ’s setting ({data.hq.staffIdleTimeoutMinutes} minutes)</span>
+            </label>
+            <label className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-xs ${draft.idleTimeoutMinutes !== null ? 'border-primary bg-accent' : 'border-border'}`}>
+              <input
+                type="radio"
+                name="idle-timeout-mode"
+                checked={draft.idleTimeoutMinutes !== null}
+                onChange={() => setDraft((current) => ({
+                  ...current,
+                  idleTimeoutMinutes: Math.max(POLICY_BOUNDS.staffIdleTimeoutMinutes.min, data.hq.staffIdleTimeoutMinutes - 5),
+                }))}
+                data-testid="radio-idle-shorter"
+                disabled={!canEdit}
+              />
+              <span className="font-semibold text-navy">Shorter for this office</span>
+            </label>
+          </fieldset>
+          {draft.idleTimeoutMinutes !== null && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={POLICY_BOUNDS.staffIdleTimeoutMinutes.min}
+                  max={data.hq.staffIdleTimeoutMinutes}
+                  step={1}
+                  className={`${INPUT_CLASS} h-9 w-28 tabular-nums`}
+                  value={Number.isFinite(draft.idleTimeoutMinutes) ? draft.idleTimeoutMinutes : ''}
+                  onChange={(event) => setDraft((current) => ({
+                    ...current,
+                    idleTimeoutMinutes: event.target.value === '' ? Number.NaN : Number(event.target.value),
+                  }))}
+                  aria-label="Office idle timeout minutes"
+                  aria-invalid={shownIdleTimeoutProblem ? true : undefined}
+                  data-testid="input-override-idle-timeout"
+                  disabled={!canEdit}
+                />
+                <span className="text-[11px] text-muted-foreground">minutes · 5–{data.hq.staffIdleTimeoutMinutes}</span>
+              </div>
+              {shownIdleTimeoutProblem && (
+                <p className="mt-1 text-[11px] font-medium text-destructive" role="alert" data-testid="idle-timeout-error">
+                  {shownIdleTimeoutProblem}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -472,12 +590,18 @@ export default function OfficeSettings() {
   const data = live ? query.data : signedIn ? undefined : demo;
 
   const save = (draft: OverrideDraft, expectedVersion: number) => {
-    const body = { expectedVersion, quietHours: draft.quietHours, escalationEmail: draft.escalationEmail.trim() || null };
+    const body = {
+      expectedVersion,
+      quietHours: draft.quietHours,
+      escalationEmail: draft.escalationEmail.trim() || null,
+      idleTimeoutMinutes: draft.idleTimeoutMinutes,
+    };
     if (!live) {
       const overrides: OfficeOverrides = {
         ...demo.overrides,
         quietHours: body.quietHours,
         escalationEmail: body.escalationEmail,
+        idleTimeoutMinutes: body.idleTimeoutMinutes,
         version: demo.overrides.version + 1,
         updatedAt: new Date().toISOString(),
         updatedByName: 'You',
@@ -564,7 +688,7 @@ export default function OfficeSettings() {
           {alertData && <PatientAlertsCard data={alertData} demo={!live} preferenceReadOnly={Boolean(officeParam)} saving={alertSettingsMutation.isPending || preferenceMutation.isPending} onSave={saveAlerts} onPreference={savePreference} />}
           {live && alertQuery.isPending && <div role="status" className="rounded-lg border border-border bg-card px-5 py-8 text-xs text-muted-foreground">Loading patient alert settings…</div>}
           {live && alertQuery.isError && <div role="alert" aria-live="polite" className="rounded-lg border border-[#d5a7a7] bg-[#fff0f0] px-5 py-5 text-xs text-destructive">Patient alert settings could not be loaded.</div>}
-          <OverridesCard data={data} live={live} saving={update.isPending} onSave={save} />
+           <OverridesCard data={data} live={live} saving={update.isPending} saveError={update.error} onSave={save} />
 
           <SectionCard title="Coach & care team" sub="Set by HQ for every office.">
             <PolicyRow

@@ -32,6 +32,8 @@ export const POLICY_BOUNDS = {
   /** Compliance floor: 5 years, the shortest state medical-record window. */
   clinicalRecordDays: { min: 1825, max: 3650 },
   exportLinkHours: { min: 1, max: 168 },
+  staffIdleTimeoutMinutes: { min: 5, max: 120, default: 15 },
+  hqIdleTimeoutMinutes: { min: 5, max: 120, default: 15 },
 } as const;
 
 export type PolicySectionKey = keyof HqOrganizationSettings['sections'];
@@ -74,6 +76,9 @@ export function describeHours(hours: number): string {
   return `${hours} hour${hours === 1 ? '' : 's'}`;
 }
 
+export function describeMinutes(minutes: number): string {
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
 const STAMP_FORMAT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -126,8 +131,8 @@ export function quietHoursOverrideFor(
 
 /** Same rule the server applies, so the page can preview before saving. */
 export function previewEffective(
-  hq: Pick<HqOrganizationSettings, 'defaultQuietHours' | 'escalationEmail'>,
-  overrides: { quietHours: OfficeQuietHoursOverride; escalationEmail: string | null },
+  hq: Pick<HqOrganizationSettings, 'defaultQuietHours' | 'escalationEmail' | 'staffIdleTimeoutMinutes'>,
+  overrides: { quietHours: OfficeQuietHoursOverride; escalationEmail: string | null; idleTimeoutMinutes: number | null },
 ): OfficeEffectivePolicy {
   const quiet = overrides.quietHours;
   const quietHours =
@@ -139,12 +144,16 @@ export function previewEffective(
           ? { start: quiet.start, end: quiet.end }
           : hq.defaultQuietHours;
   const escalation = overrides.escalationEmail?.trim() || null;
+  const officeIdleTimeout = overrides.idleTimeoutMinutes;
+  const usesOfficeIdleTimeout = officeIdleTimeout !== null && officeIdleTimeout < hq.staffIdleTimeoutMinutes;
   return {
     quietHours,
     escalationEmail: escalation ?? hq.escalationEmail,
+    idleTimeoutMinutes: usesOfficeIdleTimeout ? officeIdleTimeout : hq.staffIdleTimeoutMinutes,
     source: {
       quietHours: quiet.mode === 'inherit' ? 'hq' : 'office',
       escalationEmail: escalation ? 'office' : 'hq',
+      idleTimeoutMinutes: usesOfficeIdleTimeout ? 'office' : 'hq',
     },
   };
 }

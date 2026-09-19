@@ -1530,6 +1530,7 @@ export interface PolicySectionChanges {
   notifications: PolicySectionChange | null;
   conversations: PolicySectionChange | null;
   retention: PolicySectionChange | null;
+  security: PolicySectionChange | null;
 }
 
 export interface ConversationAssignInput {
@@ -1721,6 +1722,10 @@ export interface HqOrganizationSettings {
   conversationAutoCloseDays: number;
   retention: RetentionPolicy;
   exportLinkHours: number;
+  /** Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten). */
+  staffIdleTimeoutMinutes: number;
+  /** Same window for HQ members (5–120). */
+  hqIdleTimeoutMinutes: number;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;
@@ -1788,6 +1793,16 @@ export interface HqOrganizationSettingsInput {
      * @maximum 168
      */
   exportLinkHours?: number;
+  /**
+     * @minimum 5
+     * @maximum 120
+     */
+  staffIdleTimeoutMinutes?: number;
+  /**
+     * @minimum 5
+     * @maximum 120
+     */
+  hqIdleTimeoutMinutes?: number;
 }
 
 export type OfficeQuietHoursOverrideMode = typeof OfficeQuietHoursOverrideMode[keyof typeof OfficeQuietHoursOverrideMode];
@@ -1811,6 +1826,11 @@ export interface OfficeOverrides {
   quietHours: OfficeQuietHoursOverride;
   /** @nullable */
   escalationEmail: string | null;
+  /**
+     * Office-shortened idle timeout in minutes; null inherits the HQ staff value.
+     * @nullable
+     */
+  idleTimeoutMinutes: number | null;
   version: number;
   /** @nullable */
   updatedAt: string | null;
@@ -1829,6 +1849,13 @@ export interface OfficeOverridesInput {
      * @nullable
      */
   escalationEmail: string | null;
+  /**
+     * Shorten the idle timeout for this office (must not exceed the HQ staff value); null or omitted inherits.
+     * @minimum 5
+     * @maximum 120
+     * @nullable
+     */
+  idleTimeoutMinutes?: number | null;
 }
 
 export type OfficeEffectivePolicySourceQuietHours = typeof OfficeEffectivePolicySourceQuietHours[keyof typeof OfficeEffectivePolicySourceQuietHours];
@@ -1847,15 +1874,25 @@ export const OfficeEffectivePolicySourceEscalationEmail = {
   hq: 'hq',
 } as const;
 
+export type OfficeEffectivePolicySourceIdleTimeoutMinutes = typeof OfficeEffectivePolicySourceIdleTimeoutMinutes[keyof typeof OfficeEffectivePolicySourceIdleTimeoutMinutes];
+
+
+export const OfficeEffectivePolicySourceIdleTimeoutMinutes = {
+  office: 'office',
+  hq: 'hq',
+} as const;
+
 export type OfficeEffectivePolicySource = {
   quietHours: OfficeEffectivePolicySourceQuietHours;
   escalationEmail: OfficeEffectivePolicySourceEscalationEmail;
+  idleTimeoutMinutes: OfficeEffectivePolicySourceIdleTimeoutMinutes;
 };
 
 export interface OfficeEffectivePolicy {
   quietHours: QuietHoursWindow | null;
   /** @nullable */
   escalationEmail: string | null;
+  idleTimeoutMinutes: number;
   source: OfficeEffectivePolicySource;
 }
 

@@ -21,6 +21,7 @@ import {
 } from '@/components/layout/nav-config';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { AttentionBell } from '@/components/office/AttentionBell';
+import { IdleTimeoutDialog } from '@/components/layout/IdleTimeoutDialog';
 
 function ActionButton({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
   return (
@@ -167,6 +168,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`${scope ? 'h-full' : 'h-[100dvh]'} flex max-w-full overflow-hidden bg-background font-sans text-foreground`}>
+      <IdleTimeoutDialog />
       {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
       <SideMenu
         mode={menuMode}

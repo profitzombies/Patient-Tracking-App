@@ -22,6 +22,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { STAFF_REAUTH_SCOPE_PREFIX } from "../auth/fresh-code";
 import { normalizeIdentifier, type NormalizedIdentifier } from "../claim/normalize";
 import {
   PASSWORD_RESET_REQUIRED_CODE,
@@ -577,6 +578,12 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       throw error;
     }
     if (!row) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+    if ((row.scope_key ?? "").startsWith(STAFF_REAUTH_SCOPE_PREFIX)) {
+      // A staff re-authentication code proves an existing session, never a new one.
+      await patchRow(row.id, { consumed_at: new Date().toISOString() });
       res.status(400).json({ error: CODE_ERROR });
       return;
     }

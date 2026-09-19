@@ -400,6 +400,18 @@ function seedHq(role = "admin"): { user: Row } {
   return { user };
 }
 
+/**
+ * Give a session a fresh code proof on the ledger, as the sign-in rails (or
+ * the inline re-authentication flow) would. `ageMs` back-dates the proof.
+ */
+function proveCode(session: { sessionId: string; token: string }, ageMs = 0): Row {
+  const claims = claimsOf(session.token)!;
+  const at = new Date(Date.now() - ageMs).toISOString();
+  const row: Row = { id: crypto.randomUUID(), user_id: claims.sub, realm: "staff", method: "email_code", platform: "web", user_agent: MAC_CHROME_UA, ip_region: null, device_fingerprint: "f".repeat(40), device_label: "Mac · Chrome", new_device: false, session_id: session.sessionId, created_at: at, last_seen_at: at, code_verified_at: at, revoked_at: null, revoked_reason: null, reported_at: null, report_token_hash: null, report_token_expires_at: null };
+  backend.tables.auth_sign_ins.push(row);
+  return row;
+}
+
 function seedOffice(): { provider: Row; user: Row } {
   const user = backend.seedAuthUser({ email: "rivera@clinic.example" });
   const provider: Row = { provider_id: "20002", provider_name: "Dr. Rivera", office_name: "Rivera Wellness", email: "rivera@clinic.example", onboarding_code: "RIV-1", access_disabled: false, auth_user_id: user.id };
@@ -1004,6 +1016,7 @@ describe("office team sessions", () => {
   it("shows an owner the teammate's sessions and records the reason on force sign-out", async () => {
     const { office, memberUser } = seedTeam();
     const owner = backend.openSession(String(office.user.id), MAC_CHROME_UA);
+    proveCode(owner);
     const teammate = backend.openSession(String(memberUser.id), IPHONE_UA);
     backend.tables.auth_sign_ins.push({ id: crypto.randomUUID(), user_id: memberUser.id, realm: "staff", method: "email_code", platform: "ios", user_agent: IPHONE_UA, ip_region: "Austin, Texas, US", device_fingerprint: "a".repeat(40), device_label: "iPhone · THINNR app", new_device: false, session_id: teammate.sessionId, created_at: new Date().toISOString(), last_seen_at: new Date().toISOString(), revoked_at: null, revoked_reason: null, reported_at: null, report_token_hash: null, report_token_expires_at: null });
 
@@ -1011,6 +1024,7 @@ describe("office team sessions", () => {
     expect(list.status).toBe(200);
     expect(list.json.sessions).toHaveLength(1);
     expect(list.json.sessions[0]).toMatchObject({ current: false, region: "Austin, Texas, US", device: "iPhone · THINNR app" });
+    expect(list.json.signIns).toHaveLength(1);
     expect(list.json.signIns[0].current).toBe(false);
     expect(JSON.stringify(list.json)).not.toContain(teammate.sessionId);
     await settle();
@@ -1023,7 +1037,7 @@ describe("office team sessions", () => {
     expect(out.status).toBe(200);
     expect(out.json.sessionInvalidation).toBe("complete");
     expect(backend.sessions.has(teammate.sessionId)).toBe(false);
-    expect(backend.tables.auth_sign_ins[0].revoked_reason).toBe("lost_device");
+    expect(backend.tables.auth_sign_ins.find((r) => r.session_id === teammate.sessionId)!.revoked_reason).toBe("lost_device");
     await settle();
     const audit = backend.audits.find((a) => a.p_action === "office_team_signed_out")!;
     expect((audit.p_metadata as Row).reason).toBe("lost_device");
@@ -1044,6 +1058,7 @@ describe("HQ views", () => {
     const { patient, user } = seedPatient();
     const patientSession = backend.openSession(String(user.id));
     const hqSession = backend.openSession(String(hq.user.id), MAC_CHROME_UA);
+    proveCode(hqSession);
 
     const list = await api("GET", `/api/office/patients/${patient.id}/sessions?office=20002`, undefined, auth(hqSession.token));
     expect(list.status).toBe(200);
@@ -1081,6 +1096,7 @@ describe("HQ views", () => {
     const mate = backend.seedAuthUser({ email: "mate@thinnr.example" });
     backend.tables.hq_team_members.push({ id: "HQ-MATE", auth_user_id: mate.id, name: "Morgan", email: "mate@thinnr.example", title: "", role: "support", status: "active", invited_at: null, joined_at: null });
     const me = backend.openSession(String(hq.user.id), MAC_CHROME_UA);
+    proveCode(me);
     const mateSession = backend.openSession(String(mate.id));
 
     const list = await api("GET", "/api/hq-team/HQ-MATE/sessions", undefined, auth(me.token));
@@ -1094,6 +1110,135 @@ describe("HQ views", () => {
     await settle();
     expect(backend.audits.some((a) => a.p_action === "hq_team_sessions_viewed")).toBe(true);
     expect(backend.audits.some((a) => a.p_action === "hq_team_signed_out" && (a.p_metadata as Row).reason === "suspicious_activity")).toBe(true);
+  });
+});
+
+// ── Fresh-code gate + inline re-authentication ───────────────────────────────
+
+describe("fresh-code gate", () => {
+  function seedOwnerWithTeammate() {
+    const office = seedOffice();
+    const memberUser = backend.seedAuthUser({ email: "sam@clinic.example" });
+    backend.tables.team_members.push({ id: TM_ID, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "staff", activation_status: "activated", auth_user_id: memberUser.id, invited_at: null, joined_at: null, deactivated_at: null });
+    const owner = backend.openSession(String(office.user.id), MAC_CHROME_UA);
+    const teammate = backend.openSession(String(memberUser.id), IPHONE_UA);
+    return { office, owner, teammate };
+  }
+
+  it("refuses a sensitive action with reauth_required when the session never proved a code, or proved one too long ago", async () => {
+    const { owner, teammate } = seedOwnerWithTeammate();
+    const never = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(never.status).toBe(401);
+    expect(never.json).toMatchObject({ code: "reauth_required", windowMinutes: 10 });
+    expect(backend.sessions.has(teammate.sessionId)).toBe(true);
+
+    proveCode(owner, 11 * 60 * 1000);
+    const stale = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(stale.status).toBe(401);
+    expect(stale.json.code).toBe("reauth_required");
+    expect(backend.sessions.has(teammate.sessionId)).toBe(true);
+  });
+
+  it("lets a session with a code proven inside the window act, and a proof on another session of the same user does not count", async () => {
+    const { office, owner, teammate } = seedOwnerWithTeammate();
+    const otherDevice = backend.openSession(String(office.user.id), IPHONE_UA);
+    proveCode(otherDevice, 60 * 1000);
+    const wrongSession = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(wrongSession.status).toBe(401);
+
+    proveCode(owner, 9 * 60 * 1000);
+    const ok = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(ok.status).toBe(200);
+    expect(backend.sessions.has(teammate.sessionId)).toBe(false);
+  });
+
+  it("gates staff sign-out-everywhere-else but leaves the patient app's identical call untouched", async () => {
+    const { office, owner } = seedOwnerWithTeammate();
+    backend.openSession(String(office.user.id), IPHONE_UA);
+    const gated = await api("POST", "/api/security/me/sign-out-others", {}, auth(owner.token));
+    expect(gated.status).toBe(401);
+    expect(gated.json.code).toBe("reauth_required");
+
+    const { user } = seedPatient();
+    const phone = backend.openSession(String(user.id));
+    backend.openSession(String(user.id), MAC_CHROME_UA);
+    const patient = await api("POST", "/api/security/me/sign-out-others", {}, auth(phone.token));
+    expect(patient.status).toBe(200);
+  });
+
+  it("re-authenticates inline: emails a code bound to this account, verify stamps the session, and the action then succeeds", async () => {
+    const { owner, teammate } = seedOwnerWithTeammate();
+    proveCode(owner, 30 * 60 * 1000);
+
+    const start = await api("POST", "/api/security/me/reauth/start", {}, auth(owner.token));
+    expect(start.status).toBe(200);
+    expect(start.json).toMatchObject({ ok: true, channel: "email", windowMinutes: 10 });
+    expect(start.json.destination).not.toBe("rivera@clinic.example");
+    expect(typeof start.json.devCode).toBe("string");
+    const sendRow = backend.tables.claim_verifications.find((r) => r.id === start.json.requestId)!;
+    expect(sendRow.purpose).toBe("login");
+    expect(sendRow.scope_key).toBe(`staff-reauth:${claimsOf(owner.token)!.sub}`);
+    // No new GoTrue session is minted by re-authentication.
+    expect(backend.requests.filter((r) => r.includes("/auth/v1/admin/generate_link"))).toHaveLength(0);
+
+    // A re-auth code is not a sign-in code: the login rails refuse AND burn it.
+    const asLogin = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: start.json.devCode }, { "x-thinnr-device": "device-zzzz-9999" });
+    expect(asLogin.status).toBe(400);
+    const burned = await api("POST", "/api/security/me/reauth/verify", { requestId: start.json.requestId, code: start.json.devCode }, auth(owner.token));
+    expect(burned.status).toBe(400);
+
+    const again = await api("POST", "/api/security/me/reauth/start", {}, auth(owner.token));
+    expect(again.status).toBe(200);
+    const wrong = await api("POST", "/api/security/me/reauth/verify", { requestId: again.json.requestId, code: "000000" }, auth(owner.token));
+    expect(wrong.status).toBe(400);
+    const stillStale = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(stillStale.status).toBe(401);
+
+    const verified = await api("POST", "/api/security/me/reauth/verify", { requestId: again.json.requestId, code: again.json.devCode }, auth(owner.token));
+    expect(verified.status).toBe(200);
+    expect(verified.json.ok).toBe(true);
+    const ledger = backend.tables.auth_sign_ins.find((r) => r.session_id === owner.sessionId)!;
+    expect(Date.now() - new Date(String(ledger.code_verified_at)).getTime()).toBeLessThan(5_000);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "security_reauthenticated")).toBe(true);
+
+    const out = await api("POST", `/api/office/team/${TM_ID}/sign-out`, { reason: "lost_device" }, auth(owner.token));
+    expect(out.status).toBe(200);
+    expect(backend.sessions.has(teammate.sessionId)).toBe(false);
+  });
+
+  it("a re-auth code sent to one staffer proves nothing for another, and verify creates the ledger row when the session has none", async () => {
+    const { owner } = seedOwnerWithTeammate();
+    const hq = seedHq();
+    const hqSession = backend.openSession(String(hq.user.id), MAC_CHROME_UA);
+
+    const start = await api("POST", "/api/security/me/reauth/start", {}, auth(hqSession.token));
+    expect(start.status).toBe(200);
+    const crossed = await api("POST", "/api/security/me/reauth/verify", { requestId: start.json.requestId, code: start.json.devCode }, auth(owner.token));
+    expect(crossed.status).toBe(400);
+    // That attempt consumed the code; HQ starts over and lands a fresh proof on a session with no ledger row yet.
+    const again = await api("POST", "/api/security/me/reauth/start", {}, auth(hqSession.token));
+    const verified = await api("POST", "/api/security/me/reauth/verify", { requestId: again.json.requestId, code: again.json.devCode }, auth(hqSession.token));
+    expect(verified.status).toBe(200);
+    const row = backend.tables.auth_sign_ins.find((r) => r.session_id === hqSession.sessionId)!;
+    expect(row).toBeTruthy();
+    expect(typeof row.code_verified_at).toBe("string");
+  });
+
+  it("patients cannot start re-authentication, and a staffer with no email on file is told so", async () => {
+    const { user } = seedPatient();
+    const phone = backend.openSession(String(user.id));
+    const patient = await api("POST", "/api/security/me/reauth/start", {}, auth(phone.token));
+    expect(patient.status).toBe(403);
+
+    const office = seedOffice();
+    const provider = backend.tables.providers.find((p) => p.auth_user_id === office.user.id)!;
+    provider.email = null;
+    const authUser = backend.authUsers.get(String(office.user.id))!;
+    authUser.email = null;
+    const owner = backend.openSession(String(office.user.id), MAC_CHROME_UA);
+    const noEmail = await api("POST", "/api/security/me/reauth/start", {}, auth(owner.token));
+    expect(noEmail.status).toBe(409);
   });
 });
 
@@ -1144,6 +1289,7 @@ describe("local token verification", () => {
     const office = seedOffice();
     const userId = String(office.user.id);
     const phone = backend.openVerifiedSession(userId, IPHONE_UA);
+    proveCode(phone);
     const laptop = backend.openVerifiedSession(userId, MAC_CHROME_UA);
     expect((await api("GET", "/api/office/team", undefined, auth(laptop.token))).status).toBe(200);
 
@@ -1168,6 +1314,7 @@ describe("local token verification", () => {
     const userId = String(office.user.id);
     const phone = backend.openVerifiedSession(userId, IPHONE_UA);
     const laptop = backend.openVerifiedSession(userId, MAC_CHROME_UA);
+    proveCode(phone);
     backend.failRevocationWrites = true;
     const out = await api("POST", "/api/security/me/sign-out-others", {}, auth(phone.token));
     expect(out.status).toBe(502);
@@ -1183,6 +1330,7 @@ describe("local token verification", () => {
     backend.tables.team_members.push({ id: TM_MANY, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "admin", activation_status: "activated", auth_user_id: memberUser.id, invited_at: null, joined_at: null, deactivated_at: null });
     const memberId = String(memberUser.id);
     const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    proveCode(owner);
     const devices = Array.from({ length: 130 }, (_, i) => backend.openVerifiedSession(memberId, i % 2 ? IPHONE_UA : MAC_CHROME_UA));
     expect((await api("GET", "/api/office/team", undefined, auth(devices[129].token))).status).toBe(200);
 
@@ -1206,6 +1354,7 @@ describe("local token verification", () => {
     backend.tables.team_members.push({ id: TM_LATE, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "admin", activation_status: "activated", auth_user_id: memberUser.id, invited_at: null, joined_at: null, deactivated_at: null });
     const memberId = String(memberUser.id);
     const owner = backend.openVerifiedSession(String(office.user.id), MAC_CHROME_UA);
+    proveCode(owner);
     const stale = backend.openVerifiedSession(memberId, IPHONE_UA);
     expect((await api("POST", `/api/office/team/${TM_LATE}/sign-out`, { reason: "lost_device" }, auth(owner.token))).status).toBe(200);
     const fresh = backend.openVerifiedSession(memberId, MAC_CHROME_UA);

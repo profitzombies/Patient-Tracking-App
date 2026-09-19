@@ -131,6 +131,7 @@ router.put("/office/alerts/settings", async (req, res) => {
       quiet_start: current.quietHours.mode === "custom" ? current.quietHours.start : null,
       quiet_end: current.quietHours.mode === "custom" ? current.quietHours.end : null,
       escalation_email: current.escalationEmail,
+      idle_timeout_minutes: current.idleTimeoutMinutes,
       alert_recipient_mode: parsed.data.recipientMode, alert_recipient_member_ids: parsed.data.recipientMemberIds,
       alert_send_time: parsed.data.sendTime, alert_time_zone: parsed.data.timeZone,
       updated_at: new Date().toISOString(), updated_by: scope.actorUserId,

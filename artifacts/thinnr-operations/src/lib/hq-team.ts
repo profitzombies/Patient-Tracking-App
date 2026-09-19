@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { ReauthRequiredError, withReauthRetry } from '@/lib/reauth';
 import type { HqRole, HqTeamMember } from '@/data/hq/team';
 
 export interface InviteHqTeamMemberInput {
@@ -22,15 +23,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!token) throw new HqTeamError('Your session has ended. Sign in again to continue.', 401);
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await withReauthRetry(() => fetch(path, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
         ...(init?.headers ?? {}),
       },
-    });
-  } catch {
+    }));
+  } catch (error) {
+    if (error instanceof ReauthRequiredError) throw error;
     throw new HqTeamError('Could not reach the team service. Check your connection and try again.', 0);
   }
   const body = await response.json().catch(() => null) as (Record<string, unknown> & Partial<T>) | null;

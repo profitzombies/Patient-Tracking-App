@@ -118,15 +118,15 @@ console.log('lib/org-policy');
   const anon = describeSectionChange({ changedAt: '2026-09-07T15:40:00.000Z', changedBy: null, changedByName: null });
   check('unknown actor still shows when', anon.startsWith('Last changed ') && !anon.includes(' by '), anon);
 
-  const hq = { defaultQuietHours: { start: '21:00', end: '08:00' }, escalationEmail: 'care@hq.example.com' };
-  const inherit = previewEffective(hq, { quietHours: { mode: 'inherit' }, escalationEmail: null });
-  check('inherit → HQ window from HQ', JSON.stringify(inherit) === JSON.stringify({ quietHours: hq.defaultQuietHours, escalationEmail: 'care@hq.example.com', source: { quietHours: 'hq', escalationEmail: 'hq' } }), JSON.stringify(inherit));
-  const none = previewEffective(hq, { quietHours: { mode: 'none' }, escalationEmail: '  ' });
+  const hq = { defaultQuietHours: { start: '21:00', end: '08:00' }, escalationEmail: 'care@hq.example.com', staffIdleTimeoutMinutes: 15 };
+  const inherit = previewEffective(hq, { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null });
+  check('inherit → HQ values from HQ', JSON.stringify(inherit) === JSON.stringify({ quietHours: hq.defaultQuietHours, escalationEmail: 'care@hq.example.com', idleTimeoutMinutes: 15, source: { quietHours: 'hq', escalationEmail: 'hq', idleTimeoutMinutes: 'hq' } }), JSON.stringify(inherit));
+  const none = previewEffective(hq, { quietHours: { mode: 'none' }, escalationEmail: '  ', idleTimeoutMinutes: null });
   check('none → no quiet hours, from office; blank email still HQ', none.quietHours === null && none.source.quietHours === 'office' && none.escalationEmail === 'care@hq.example.com' && none.source.escalationEmail === 'hq');
-  const custom = previewEffective(hq, { quietHours: { mode: 'custom', start: '22:00', end: '07:00' }, escalationEmail: 'front@office.example.com' });
-  check('custom → office window and office email', JSON.stringify(custom) === JSON.stringify({ quietHours: { start: '22:00', end: '07:00' }, escalationEmail: 'front@office.example.com', source: { quietHours: 'office', escalationEmail: 'office' } }));
-  const noHq = previewEffective({ defaultQuietHours: null, escalationEmail: null }, { quietHours: { mode: 'inherit' }, escalationEmail: null });
-  check('inherit with no HQ window → none, still sourced HQ', noHq.quietHours === null && noHq.escalationEmail === null && noHq.source.quietHours === 'hq');
+  const custom = previewEffective(hq, { quietHours: { mode: 'custom', start: '22:00', end: '07:00' }, escalationEmail: 'front@office.example.com', idleTimeoutMinutes: 10 });
+  check('custom → office window, email, and shorter idle timeout', JSON.stringify(custom) === JSON.stringify({ quietHours: { start: '22:00', end: '07:00' }, escalationEmail: 'front@office.example.com', idleTimeoutMinutes: 10, source: { quietHours: 'office', escalationEmail: 'office', idleTimeoutMinutes: 'office' } }));
+  const noHq = previewEffective({ defaultQuietHours: null, escalationEmail: null, staffIdleTimeoutMinutes: 15 }, { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: 30 });
+  check('an office cannot preview an idle timeout longer than HQ', noHq.quietHours === null && noHq.escalationEmail === null && noHq.idleTimeoutMinutes === 15 && noHq.source.idleTimeoutMinutes === 'hq');
   check('switching to custom seeds the HQ window', JSON.stringify(quietHoursOverrideFor('custom', { mode: 'inherit' }, hq.defaultQuietHours)) === JSON.stringify({ mode: 'custom', start: '21:00', end: '08:00' }));
   check('switching to custom keeps a typed window', JSON.stringify(quietHoursOverrideFor('custom', { mode: 'custom', start: '20:00', end: '06:00' }, hq.defaultQuietHours)) === JSON.stringify({ mode: 'custom', start: '20:00', end: '06:00' }));
   check('switching to custom with no HQ window falls back to 9 PM–8 AM', JSON.stringify(quietHoursOverrideFor('custom', { mode: 'none' }, null)) === JSON.stringify({ mode: 'custom', start: '21:00', end: '08:00' }));
@@ -165,6 +165,8 @@ function hqFixture(): HqOrganizationSettings {
     conversationAutoCloseDays: 14,
     retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365, clinicalRecordDays: 2555 },
     exportLinkHours: 24,
+    staffIdleTimeoutMinutes: 15,
+    hqIdleTimeoutMinutes: 15,
     version: 3,
     updatedAt: '2026-09-06T12:00:00.000Z',
     sections: {
@@ -173,6 +175,7 @@ function hqFixture(): HqOrganizationSettings {
       notifications: { changedAt: '2026-09-06T12:00:00.000Z', changedBy: 'u2', changedByName: 'Blake Ops' },
       conversations: null,
       retention: null,
+      security: null,
     },
   };
 }
@@ -182,8 +185,8 @@ function officeFixture(): OfficeSettingsDto {
   return {
     office: { providerId: 'prov-1', officeName: 'Riverside Wellness' },
     hq,
-    overrides: { quietHours: { mode: 'inherit' }, escalationEmail: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null },
-    effective: { quietHours: hq.defaultQuietHours, escalationEmail: hq.escalationEmail, source: { quietHours: 'hq', escalationEmail: 'hq' } },
+    overrides: { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null },
+    effective: { quietHours: hq.defaultQuietHours, escalationEmail: hq.escalationEmail, idleTimeoutMinutes: 15, source: { quietHours: 'hq', escalationEmail: 'hq', idleTimeoutMinutes: 'hq' } },
     canEdit: true,
   };
 }
@@ -202,7 +205,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       return json({ error: 'Someone else saved these settings first. Reload to see the latest values.', version: hqSettings.version }, 409);
     }
     const { expectedVersion: _v, defaultCategories, retention, ...rest } = body;
-    const touched = 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'notifications';
+    const touched = 'staffIdleTimeoutMinutes' in body ? 'security' : 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'notifications';
     hqSettings = {
       ...hqSettings,
       ...rest,
@@ -219,7 +222,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       conflictNext = false;
       return json({ error: 'Someone else saved these overrides first.', version: officeSettings.overrides.version }, 409);
     }
-    const overrides = { quietHours: body.quietHours, escalationEmail: body.escalationEmail, version: officeSettings.overrides.version + 1, updatedAt: '2026-09-07T16:00:00.000Z', updatedBy: 'me', updatedByName: 'Nurse Kim' };
+    const overrides = { quietHours: body.quietHours, escalationEmail: body.escalationEmail, idleTimeoutMinutes: body.idleTimeoutMinutes, version: officeSettings.overrides.version + 1, updatedAt: '2026-09-07T16:00:00.000Z', updatedBy: 'me', updatedByName: 'Nurse Kim' };
     officeSettings = { ...officeSettings, overrides, effective: previewEffective(officeSettings.hq, overrides) };
     return json(officeSettings);
   }
@@ -305,7 +308,7 @@ console.log('HQ settings — signed-in admin');
   const { root } = await render('/admin/settings', <OrgSettings />);
   check('live page loads the persisted settings', requests.filter((request) => request.method === 'GET' && request.url.includes('/api/hq/settings')).length === 1);
   check('demo group cards are gone for live users', root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('button-save-') && !node.props['data-testid'].startsWith('button-save-policy-')).length === 0);
-  check('five policy sections, each with a Save', ['organization', 'coach', 'notifications', 'conversations', 'retention'].every((section) => byTestId(root, `button-save-policy-${section}`).length === 1));
+  check('six policy sections, each with a Save', ['organization', 'coach', 'notifications', 'conversations', 'retention', 'security'].every((section) => byTestId(root, `button-save-policy-${section}`).length === 1));
   check('organization stamp names its last editor', textOf(oneByTestId(root, 'policy-stamp-organization')).startsWith('Last changed by Avery Admin · '));
   check('notifications stamp names its last editor', textOf(oneByTestId(root, 'policy-stamp-notifications')).startsWith('Last changed by Blake Ops · '));
   check('untouched coach section reads Never changed', textOf(oneByTestId(root, 'policy-stamp-coach')) === 'Never changed');
@@ -313,6 +316,7 @@ console.log('HQ settings — signed-in admin');
   check('audit retention carries the six-year floor as its input minimum', oneByTestId(root, 'input-policy-retention-audit').props.min === 2190 && oneByTestId(root, 'input-policy-retention-audit').props.max === 3650);
   check('clinical record retention renders with its persisted value and five-to-ten-year bounds', oneByTestId(root, 'input-policy-retention-clinical-record').props.value === 2555 && oneByTestId(root, 'input-policy-retention-clinical-record').props.min === 1825 && oneByTestId(root, 'input-policy-retention-clinical-record').props.max === 3650);
   check('the clinical record field explains closed accounts and offboarded offices', root.findAll((node) => node.children.some((child) => typeof child === 'string' && child.includes('account is closed') && child.includes('offboarded'))).length === 1);
+  check('security fields show the 15-minute defaults and whole-number bounds', oneByTestId(root, 'input-policy-staff-idle-timeout').props.value === 15 && oneByTestId(root, 'input-policy-staff-idle-timeout').props.min === 5 && oneByTestId(root, 'input-policy-hq-idle-timeout').props.value === 15 && oneByTestId(root, 'input-policy-hq-idle-timeout').props.max === 120);
   check('the three ledger retention knobs render with their persisted values and bounds', oneByTestId(root, 'input-policy-retention-job-runs').props.value === 90 && oneByTestId(root, 'input-policy-retention-job-runs').props.min === 7 && oneByTestId(root, 'input-policy-retention-sign-ins').props.value === 180 && oneByTestId(root, 'input-policy-retention-sign-ins').props.min === 30 && oneByTestId(root, 'input-policy-retention-webhook-events').props.value === 365 && oneByTestId(root, 'input-policy-retention-webhook-events').props.max === 3650);
   check('coach switch reflects availability', switchOf(root, 'switch-policy-coach-available')?.props['aria-checked'] === true);
 
@@ -394,6 +398,13 @@ console.log('HQ settings — signed-in admin');
   await press(oneByTestId(root, 'button-save-policy-retention'));
   g.fetch = realFetch;
   check('400 shows the server\'s own validation message', String(lastToast()?.description) === 'Export link lifetime must be between 1 and 168 hours.', String(lastToast()?.description));
+
+  await type(oneByTestId(root, 'input-policy-staff-idle-timeout'), '20');
+  await type(oneByTestId(root, 'input-policy-hq-idle-timeout'), '10');
+  await press(oneByTestId(root, 'button-save-policy-security'));
+  const securityPut = requests.filter((request) => request.method === 'PUT').at(-1);
+  check('Security Save posts only both idle fields and the current version', securityPut !== undefined && JSON.stringify(securityPut.body) === JSON.stringify({ staffIdleTimeoutMinutes: 20, hqIdleTimeoutMinutes: 10, expectedVersion: 8 }), JSON.stringify(securityPut?.body));
+  check('security section stamp updates after saving', textOf(oneByTestId(root, 'policy-stamp-security')).startsWith('Last changed by Test Admin · '));
 }
 
 // ─── Office settings page ────────────────────────────────────────────────────
@@ -437,6 +448,14 @@ console.log('office settings — signed-in provider staff (manager)');
   check('offices see the clinical record retention window read-only', textOf(oneByTestId(root, 'policy-retention-clinical-record')) === '2555 days (7 years)');
   check('offices see the ledger retention windows read-only', textOf(oneByTestId(root, 'policy-retention-job-runs')) === '90 days (about 3 months)' && textOf(oneByTestId(root, 'policy-retention-sign-ins')) === '180 days (about 6 months)' && textOf(oneByTestId(root, 'policy-retention-webhook-events')) === '365 days (1 year)');
   check('no override rows yet → no stamp, Save disabled', byTestId(root, 'override-stamp').length === 0 && oneByTestId(root, 'button-save-office-overrides').props.disabled === true);
+  check('idle timeout initially inherits HQ', textOf(oneByTestId(root, 'effective-idle-timeout')) === '15 minutes' && textOf(oneByTestId(root, 'idle-timeout-office-override')) === 'None');
+
+  await act(async () => { oneByTestId(root, 'radio-idle-shorter').props.onChange(); });
+  await type(oneByTestId(root, 'input-override-idle-timeout'), '30');
+  const idlePutsBefore = requests.filter((request) => request.method === 'PUT').length;
+  await press(oneByTestId(root, 'button-save-office-overrides'));
+  check('an idle timeout above HQ is refused with an inline message', requests.filter((request) => request.method === 'PUT').length === idlePutsBefore && textOf(oneByTestId(root, 'idle-timeout-error')).includes('cannot exceed'));
+  await act(async () => { oneByTestId(root, 'radio-idle-inherit').props.onChange(); });
 
   // Custom window seeds from the HQ default; escalation email previews live.
   await act(async () => { oneByTestId(root, 'radio-quiet-custom').props.onChange(); });
@@ -449,7 +468,7 @@ console.log('office settings — signed-in provider staff (manager)');
   check('preview shows the office escalation email', textOf(oneByTestId(root, 'effective-escalation-email')) === 'front@riverside.example.com');
   await press(oneByTestId(root, 'button-save-office-overrides'));
   const put = requests.find((request) => request.method === 'PUT');
-  check('Save posts the overrides with the row version', put !== undefined && put.url.includes('/api/office/settings/overrides') && JSON.stringify(put.body) === JSON.stringify({ expectedVersion: 0, quietHours: { mode: 'custom', start: '22:00', end: '07:00' }, escalationEmail: 'front@riverside.example.com' }), JSON.stringify(put?.body));
+  check('Save posts the overrides with the row version', put !== undefined && put.url.includes('/api/office/settings/overrides') && JSON.stringify(put.body) === JSON.stringify({ expectedVersion: 0, quietHours: { mode: 'custom', start: '22:00', end: '07:00' }, escalationEmail: 'front@riverside.example.com', idleTimeoutMinutes: null }), JSON.stringify(put?.body));
   check('after saving, the stamp names the staffer', textOf(oneByTestId(root, 'override-stamp')).startsWith('Set by Nurse Kim · '));
   check('saved overrides win over the HQ default', textOf(oneByTestId(root, 'effective-quiet-hours')) === '10:00 PM to 7:00 AM' && officeSettings.effective.source.quietHours === 'office');
   check('Save disarms once the saved copy matches', oneByTestId(root, 'button-save-office-overrides').props.disabled === true);
@@ -460,7 +479,7 @@ console.log('office settings — signed-in provider staff (manager)');
   check('preview falls back to HQ values', textOf(oneByTestId(root, 'effective-quiet-hours')) === '9:00 PM to 8:00 AM' && textOf(oneByTestId(root, 'effective-escalation-email')) === 'care@hq.example.com');
   await press(oneByTestId(root, 'button-save-office-overrides'));
   const put2 = requests.filter((request) => request.method === 'PUT').at(-1);
-  check('clearing posts inherit + null at version 1', put2 !== undefined && JSON.stringify(put2.body) === JSON.stringify({ expectedVersion: 1, quietHours: { mode: 'inherit' }, escalationEmail: null }), JSON.stringify(put2?.body));
+  check('clearing posts inherit + null fields at version 1', put2 !== undefined && JSON.stringify(put2.body) === JSON.stringify({ expectedVersion: 1, quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null }), JSON.stringify(put2?.body));
 
   // Stale version → conflict toast, reload.
   await act(async () => { oneByTestId(root, 'radio-quiet-none').props.onChange(); });
@@ -480,7 +499,7 @@ console.log('office settings — HQ drill-in and read-only staff');
   const { root } = await render('/settings', <OfficeSettings />);
   const get = requests.find((request) => request.method === 'GET');
   check('HQ drill-in scopes the request by office', get !== undefined && get.url.includes('office=prov-1'), get?.url);
-  check('read-only role: no Save, read-only marker, inputs disabled', byTestId(root, 'button-save-office-overrides').length === 0 && byTestId(root, 'override-read-only').length === 1 && oneByTestId(root, 'input-override-escalation-email').props.disabled === true);
+  check('read-only role: no Save, read-only marker, inputs disabled', byTestId(root, 'button-save-office-overrides').length === 0 && byTestId(root, 'override-read-only').length === 1 && oneByTestId(root, 'input-override-escalation-email').props.disabled === true && oneByTestId(root, 'radio-idle-inherit').props.disabled === true);
   check('read-only role still sees the effective values', textOf(oneByTestId(root, 'effective-quiet-hours')) === '9:00 PM to 8:00 AM');
 
   __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } });

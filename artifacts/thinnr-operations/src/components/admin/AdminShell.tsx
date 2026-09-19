@@ -36,6 +36,7 @@ import { useHqData } from '@/contexts/hq-data';
 import { canHq, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { UnauthorizedState } from '@/components/admin/primitives';
+import { IdleTimeoutDialog } from '@/components/layout/IdleTimeoutDialog';
 
 interface NavItem {
   path: string;
@@ -150,6 +151,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-[100dvh] max-w-full overflow-hidden bg-background font-sans text-foreground">
+      <IdleTimeoutDialog />
       {/* Sidebar — the Porcelain menu (hidden on phones, which use the tab bar) */}
       <SideMenu
         label="Admin sidebar"

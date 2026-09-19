@@ -1,9 +1,17 @@
 import { isTokenDeadError, type ExpoPushClient, type PushMessage } from "../notifications/expo-push";
 import { inQuietWindow, localClock, parseQuietHours, quietWindowEnd } from "../notifications/policy";
+import { sendGuarded } from "../notifications/push-guard";
 import { effectivePolicyFor, loadOfficeOverrides, loadOrgPolicy } from "../lib/org-policy";
 import type { StaffNotificationRow, StaffNotificationStore } from "./store";
 import { publicOrigin } from "../billing/app-origin";
-import { renderEmailTemplate, type RenderedEmail } from "@workspace/email-templates";
+import { sendTemplatedEmail } from "../email/transport";
+import { renderEmailTemplate, type EmailTemplateId, type EmailVariables, type RenderedEmail } from "@workspace/email-templates";
+
+/** Lock-screen copy for the staff digest: a count and an instruction, never a name or a reason. */
+export const STAFF_DIGEST_PUSH_TITLE = "Patients need attention";
+export function staffDigestPushBody(flaggedCount: number): string {
+  return `${flaggedCount === 1 ? "1 patient needs" : `${flaggedCount} patients need`} attention. Open the app.`;
+}
 
 export interface StaffSenderSummary {
   claimed: number; sent: number; failed: number; suppressed: number; optedOut: number; deferred: number; leaseLost: number;
@@ -15,35 +23,34 @@ async function patch(store: StaffNotificationStore, row: StaffNotificationRow, o
 async function finish(store: StaffNotificationStore, row: StaffNotificationRow, owner: string, status: string, now: Date, reason: string | null, summary: StaffSenderSummary) {
   return patch(store, row, owner, { status, suppression_reason: reason, finalized_at: now.toISOString(), lease_owner: null, lease_until: null }, summary);
 }
-function fromAddress(): string | null {
-  const configured = process.env.CLAIM_EMAIL_FROM;
-  if (!configured) return null;
-  const match = configured.match(/<([^>]+)>/);
-  return `THINNR Weight Loss <${(match?.[1] ?? configured).trim()}>`;
-}
-interface DigestEmailPatient { name: string; reasons: Array<{ label: string; days: number | null }> }
+/** One line of the digest email: how many patients share a reason. */
+export interface DigestReasonCount { label: string; count: number }
 function digestDateLabel(digestDate: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(digestDate);
   if (!match) return digestDate;
   return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
     .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
 }
-function reasonText(reason: { label: string; days: number | null }): string {
-  if (reason.days === null) return `${reason.label} (never)`;
-  return `${reason.label} (${reason.days} day${reason.days === 1 ? "" : "s"})`;
+function reasonCountText(reason: DigestReasonCount): string {
+  return `${reason.label} · ${reason.count} patient${reason.count === 1 ? "" : "s"}`;
 }
 function formatThresholdValue(metric: string, value: number): string {
   if (metric === "p95_latency") return `p95 ${Math.round(value).toLocaleString("en-US")} ms`;
   const mb = value / (1024 * 1024);
   return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB per day` : `${mb.toFixed(1)} MB per day`;
 }
-/** HQ threshold alert: everything it needs was snapshotted on the row when the job queued it. */
-export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedEmail {
+interface StaffEmail { templateId: EmailTemplateId; variables: EmailVariables }
+/**
+ * HQ threshold alert: metric names, the numbers, and a link. Everything it
+ * needs was snapshotted on the row when the job queued it; nothing on that
+ * row identifies a patient (route families are labelled, never raw paths).
+ */
+export function systemThresholdEmail(row: StaffNotificationRow): StaffEmail {
   const data = (row.data ?? {}) as Record<string, unknown>;
   const metric = String(data.metric ?? "");
   const family = typeof data.family === "string" ? data.family : null;
   const metricLabel = metric === "p95_latency" ? `Slow route ${family ?? ""}`.trim() : metric === "db_growth" ? "Database growing fast" : metric === "storage_growth" ? "Storage growing fast" : row.title;
-  return renderEmailTemplate("system-threshold-alert", {
+  return { templateId: "system-threshold-alert", variables: {
     name: typeof data.recipientName === "string" ? data.recipientName : "",
     level: String(data.level ?? "amber"),
     metricLabel,
@@ -52,43 +59,51 @@ export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedE
     limit: formatThresholdValue(metric, Number(data.limit ?? 0)),
     day: digestDateLabel(String(data.day ?? "")),
     healthLink: `${publicOrigin()}/admin/system-health`,
-  });
+  } };
+}
+export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedEmail {
+  const email = systemThresholdEmail(row);
+  return renderEmailTemplate(email.templateId, email.variables);
 }
 export function isSystemThresholdRow(row: StaffNotificationRow): boolean {
   return row.kind === "system_threshold" || (row.provider_id === null && row.kind !== "staff_attention_digest");
 }
-/** Builds the branded digest email from the snapshot stored on the row at enqueue time. */
-export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail {
+/**
+ * The digest email from the snapshot stored on the row at enqueue time:
+ * counts per reason and a link to the Needs attention page. Names never
+ * appear; the row itself carries none (older rows that still do are ignored).
+ */
+export function staffDigestEmail(row: StaffNotificationRow): StaffEmail {
   const data = (row.data ?? {}) as Record<string, unknown>;
   const origin = publicOrigin();
   const flaggedCount = Number(data.flaggedCount ?? 0);
-  const patients = Array.isArray(data.patients) ? data.patients as DigestEmailPatient[] : [];
-  const lines = patients.map((patient) => `${patient.name} · ${patient.reasons.map(reasonText).join(", ")}`);
-  if (flaggedCount > patients.length) {
-    const more = flaggedCount - patients.length;
-    lines.push(`${more} more patient${more === 1 ? "" : "s"} · See the full list in the portal`);
-  }
+  const reasons = Array.isArray(data.reasonCounts)
+    ? (data.reasonCounts as unknown[]).filter((item): item is DigestReasonCount =>
+      !!item && typeof item === "object" && typeof (item as DigestReasonCount).label === "string" && typeof (item as DigestReasonCount).count === "number")
+    : [];
+  const lines = reasons.map(reasonCountText);
   if (!lines.length) lines.push("Open the portal · The full list is on the Needs attention page");
-  return renderEmailTemplate("staff-attention-digest", {
+  return { templateId: "staff-attention-digest", variables: {
     name: typeof data.recipientName === "string" ? data.recipientName : "",
     officeName: typeof data.officeName === "string" && data.officeName ? data.officeName : "Your office",
     digestDate: digestDateLabel(String(data.digestDate ?? "")),
     flaggedCount: String(flaggedCount),
-    patients: lines.join("\n"),
+    reasons: lines.join("\n"),
     alertsLink: `${origin}/alerts`,
     settingsLink: `${origin}/settings`,
-  });
+  } };
+}
+export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail {
+  const email = staffDigestEmail(row);
+  return renderEmailTemplate(email.templateId, email.variables);
 }
 async function sendEmail(row: StaffNotificationRow): Promise<void> {
-  const key = process.env.RESEND_API_KEY; const from = fromAddress();
-  if (!key || !from || !row.email) throw new Error("staff email delivery is not configured");
-  const rendered = isSystemThresholdRow(row) ? renderSystemThresholdEmail(row) : renderStaffDigestEmail(row);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [row.email], subject: rendered.subject, text: rendered.text, html: rendered.html }),
-    signal: AbortSignal.timeout(15_000),
+  if (!row.email) throw new Error("staff email delivery is not configured");
+  const email = isSystemThresholdRow(row) ? systemThresholdEmail(row) : staffDigestEmail(row);
+  await sendTemplatedEmail({
+    to: row.email, templateId: email.templateId, variables: email.variables, sender: "branded",
+    refs: { notificationId: row.id, kind: row.kind ?? null, providerId: row.provider_id },
   });
-  if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
 }
 
 export async function runStaffNotificationTick(input: {
@@ -150,13 +165,20 @@ export async function runStaffNotificationTick(input: {
       }
       const tokens = await input.store.activeTokens(row.auth_user_id);
       if (!tokens.length) { if (await finish(input.store, row, input.owner, "suppressed", now, "no_device", summary)) summary.suppressed += 1; continue; }
+      // Only ids and a route ride along: the row snapshot (office name,
+      // recipient name, per-reason counts) stays server-side.
+      const data = (row.data ?? {}) as Record<string, unknown>;
+      const flaggedCount = Number(data.flaggedCount ?? 0);
       const messages: PushMessage[] = tokens.map((token) => ({
-        to: token.token, title: "Patients need attention", body: row.body, sound: "default", channelId: "thinnr-messages", priority: "high",
-        data: { route: "/(tabs)/patients", kind: "staff_attention_digest", category: "staff_alerts", ...row.data, notificationId: row.id },
+        to: token.token, title: STAFF_DIGEST_PUSH_TITLE, body: staffDigestPushBody(flaggedCount), sound: "default", channelId: "thinnr-messages", priority: "high",
+        data: {
+          route: "/(tabs)/patients", kind: "staff_attention_digest", category: "staff_alerts", notificationId: row.id,
+          providerId: row.provider_id, digestDate: typeof data.digestDate === "string" ? data.digestDate : null, flaggedCount,
+        },
       }));
       let tickets;
       try {
-        tickets = await input.push.send(messages);
+        tickets = await sendGuarded(input.push, messages);
       } catch (error) {
         const attempt = row.attempts + 1;
         const failed = attempt >= (input.maxAttempts ?? 5);

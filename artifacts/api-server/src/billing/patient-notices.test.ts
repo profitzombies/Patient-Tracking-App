@@ -1,14 +1,28 @@
 import { describe, expect, it } from "vitest";
 import { MemoryNotificationStore } from "../notifications/memory-store";
+import { guardPushMessage } from "../notifications/push-guard";
 import {
   notifyOrderShipped,
   notifySubscriptionPaymentFailed,
+  ORDER_SHIPPED_BODY,
   ORDER_SHIPPED_KIND,
+  ORDER_SHIPPED_TITLE,
+  PAYMENT_FAILED_BODY,
   PAYMENT_FAILED_KIND,
+  PAYMENT_FAILED_TITLE,
+  RENEWAL_UPCOMING_BODY,
   RENEWAL_UPCOMING_KIND,
+  RENEWAL_UPCOMING_TITLE,
   runRenewalReminderEvaluation,
 } from "./patient-notices";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
+
+/** Vendor-visible copy and data must never carry what the row knows: order number, carrier, product, amount, decline reason. */
+function expectPhiFree(row: { title: string; body: string; data: Record<string, unknown> }, forbidden: string[]) {
+  const visible = `${row.title} ${row.body} ${JSON.stringify(row.data)}`;
+  for (const fragment of forbidden) expect(visible).not.toContain(fragment);
+  expect(guardPushMessage({ to: "ExponentPushToken[x]", title: row.title, body: row.body, data: row.data })).toEqual({ ok: true });
+}
 
 const PATIENT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ORDER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -42,11 +56,13 @@ describe("order shipped notice", () => {
     const rows = [...store.notifications.values()];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      patient_id: PATIENT, kind: ORDER_SHIPPED_KIND, category: "account", title: "Your order shipped",
-      body: "Order TH-1001 is on its way with USPS. Tap to track it.",
+      patient_id: PATIENT, kind: ORDER_SHIPPED_KIND, category: "account", title: ORDER_SHIPPED_TITLE,
+      body: ORDER_SHIPPED_BODY,
       data: { route: `/orders/${ORDER}`, kind: ORDER_SHIPPED_KIND, orderId: ORDER, patientId: PATIENT },
       dedupe_key: `${ORDER_SHIPPED_KIND}:${ORDER}`,
     });
+    expect(ORDER_SHIPPED_TITLE).toBe("Your order is on its way");
+    expectPhiFree(rows[0], ["TH-1001", "USPS", "9400"]);
   });
 
   it("stays silent for guest orders and for non-shipped states", async () => {
@@ -68,11 +84,12 @@ describe("payment failed notice", () => {
     const rows = [...store.notifications.values()];
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
-      kind: PAYMENT_FAILED_KIND, category: "account", title: "Control payment didn't go through",
-      body: "Your card was declined. Tap to retry with a saved card so your next shipment isn't delayed.",
+      kind: PAYMENT_FAILED_KIND, category: "account", title: PAYMENT_FAILED_TITLE,
+      body: PAYMENT_FAILED_BODY,
       data: { route: `/my-subscriptions/${SUB}`, kind: PAYMENT_FAILED_KIND, subscriptionId: SUB, patientId: PATIENT, invoiceId: "in_1" },
       dedupe_key: `${PAYMENT_FAILED_KIND}:${SUB}:in_1`,
     });
+    expectPhiFree(rows[0], ["Control", "declined"]);
     expect(await notifySubscriptionPaymentFailed({ ...input, subscription: subscription({ patient_id: null }) }, store)).toBe(false);
   });
 });
@@ -83,32 +100,29 @@ describe("renewal reminders", () => {
     const now = () => new Date("2026-09-17T15:00:00.000Z");
     let rows = [{ subscription: subscription(), productName: "Control" }];
     const load = async () => rows;
-    const shipping = async (row: BillingSubscriptionRow) => row.shipping_charge_cents;
-    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
-    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 0 });
+    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 1 });
+    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 0 });
     const [first] = [...store.notifications.values()];
     expect(first).toMatchObject({
-      patient_id: PATIENT, kind: RENEWAL_UPCOMING_KIND, category: "account", title: "Control ships Sep 20",
-      body: "Your card will be charged $72.99 before any tax. Tap to move or skip this shipment, or change your card.",
+      patient_id: PATIENT, kind: RENEWAL_UPCOMING_KIND, category: "account", title: RENEWAL_UPCOMING_TITLE,
+      body: RENEWAL_UPCOMING_BODY,
       data: { route: `/my-subscriptions/${SUB}`, kind: RENEWAL_UPCOMING_KIND, subscriptionId: SUB, patientId: PATIENT, shipDate: "2026-09-20" },
       dedupe_key: `${RENEWAL_UPCOMING_KIND}:${SUB}:2026-09-20`,
       expires_at: "2026-09-20T12:00:00.000Z",
     });
     rows = [{ subscription: subscription({ next_shipment_at: "2026-09-19T12:00:00.000Z", quantity: 2 }), productName: "Control" }];
-    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
+    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 1 });
     const second = [...store.notifications.values()][1];
-    expect(second.body).toContain("$135.98");
     expect(second.dedupe_key).toBe(`${RENEWAL_UPCOMING_KIND}:${SUB}:2026-09-19`);
   });
 
-  it("quotes the amount the renewal will actually charge for shipping, not the amount frozen at checkout", async () => {
+  it("never puts the product, the amount, or the date on the lock screen", async () => {
     const store = new MemoryNotificationStore();
     const now = () => new Date("2026-09-17T15:00:00.000Z");
-    const load = async () => [{ subscription: subscription({ shipping_charge_cents: 1000 }), productName: "Control" }];
-    // 62.99 + a live 13.77 Shipping & handling quote
-    const shipping = async () => 1377;
-    expect(await runRenewalReminderEvaluation({ store, now, load, shipping })).toEqual({ evaluated: 1, queued: 1 });
-    expect([...store.notifications.values()][0].body).toContain("$76.76");
+    const load = async () => [{ subscription: subscription({ shipping_charge_cents: 1000, unit_price_cents: 6299 }), productName: "Control" }];
+    expect(await runRenewalReminderEvaluation({ store, now, load })).toEqual({ evaluated: 1, queued: 1 });
+    const [row] = [...store.notifications.values()];
+    expectPhiFree(row, ["Control", "$", "Sep 20", "72.99", "62.99"]);
   });
 
   it("skips rows without a patient or a shipment date", async () => {

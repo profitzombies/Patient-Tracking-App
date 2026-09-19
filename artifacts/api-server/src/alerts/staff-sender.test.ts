@@ -18,6 +18,7 @@ vi.mock("../lib/org-policy", async (original) => {
 });
 
 import { FakePushClient } from "../notifications/memory-store";
+import { guardPushMessage } from "../notifications/push-guard";
 import { MemoryStaffNotificationStore } from "./memory-store";
 import type { StaffNotificationRow } from "./store";
 import { runStaffNotificationTick } from "./staff-sender";
@@ -29,7 +30,7 @@ function row(channel: "push" | "email" = "push"): StaffNotificationRow {
     channel, email: channel === "email" ? "owner@example.com" : null, status: "queued", attempts: 0,
     expires_at: "2026-10-12T12:00:00.000Z", data: {
       providerId: "office-1", digestDate: "2026-10-10", flaggedCount: 2, officeName: "Riverside Wellness", recipientName: "Sarah",
-      patients: [{ name: "Emma Smith", reasons: [{ label: "No meals logged", days: 3 }, { label: "Weight stalled", days: 5 }] }],
+      reasonCounts: [{ label: "No meals logged", count: 2 }, { label: "Weight stalled", count: 1 }],
     },
     title: "Patients need attention", body: "2 patients need attention today.", suppression_reason: null, lease_owner: null,
   };
@@ -82,31 +83,59 @@ describe("staff notification sender", () => {
     expect(harness.push.sent).toHaveLength(0);
   });
 
-  it("sends email through Resend with recipient, subject, and portal link", async () => {
+  it("sends the digest email through the shared seam with counts per reason, a portal link, and no names", async () => {
     const harness = setup(row("email"));
     const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
     await harness.tick();
     const [url, init] = fetch.mock.calls[0]!;
     expect(String(url)).toBe("https://api.resend.com/emails");
-    const payload = JSON.parse(String(init?.body)) as { to: string[]; subject: string; html: string; text: string };
-    expect(payload).toMatchObject({ to: ["owner@example.com"], subject: "2 patients need attention at Riverside Wellness" });
+    const payload = JSON.parse(String(init?.body)) as { from: string; to: string[]; subject: string; html: string; text: string };
+    expect(payload).toMatchObject({ from: "THINNR Weight Loss <mail@example.com>", to: ["owner@example.com"], subject: "2 patients need attention at Riverside Wellness" });
     expect(payload.html).toContain("<!doctype html>");
     expect(payload.html).toContain("Hello Sarah");
-    expect(payload.html).toContain("Emma Smith");
-    expect(payload.html).toContain("No meals logged (3 days)");
+    expect(payload.html).toContain("No meals logged");
+    expect(payload.html).toContain("2 patients");
     expect(payload.html).toContain("Saturday, October 10, 2026");
     expect(payload.html).toContain("https://portal.example/alerts");
     expect(payload.html).toContain("https://portal.example/settings");
-    expect(payload.text).toContain("Emma Smith — No meals logged (3 days), Weight stalled (5 days)");
+    expect(payload.text).toContain("No meals logged — 2 patients");
+    expect(payload.text).toContain("Weight stalled — 1 patient");
     expect(payload.text).not.toContain("<");
     expect(harness.store.notifications[0]?.status).toBe("sent");
+  });
+  it("ignores patient names left on older rows: the email never lists a patient", async () => {
+    const legacy = row("email");
+    legacy.data = { ...legacy.data, patients: [{ name: "Emma Smith", reasons: [{ label: "No meals logged", days: 3 }] }] };
+    const harness = setup(legacy);
+    const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    await harness.tick();
+    const payload = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as { html: string; text: string; subject: string };
+    expect(`${payload.subject}${payload.html}${payload.text}`).not.toContain("Emma");
+    expect(`${payload.subject}${payload.html}${payload.text}`).not.toContain("Smith");
+    expect(payload.text).not.toContain("3 days");
   });
   it("sends push and persists an accepted ticket", async () => {
     const harness = setup(); await harness.store.registerToken({ authUserId: row().auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });
     await harness.tick();
     expect(harness.store.notifications[0]?.status).toBe("sent");
-    expect(harness.push.sent[0]?.[0]?.data).toMatchObject({ route: "/(tabs)/patients", kind: "staff_attention_digest" });
+    const message = harness.push.sent[0]?.[0]!;
+    expect(message.title).toBe("Patients need attention");
+    expect(message.body).toBe("2 patients need attention. Open the app.");
+    expect(message.data).toEqual({
+      route: "/(tabs)/patients", kind: "staff_attention_digest", category: "staff_alerts",
+      notificationId: harness.store.notifications[0]!.id, providerId: "office-1", digestDate: "2026-10-10", flaggedCount: 2,
+    });
     expect(harness.store.attempts[0]).toMatchObject({ outcome: "ticket_ok" });
+  });
+  it("never lets the row snapshot ride the push: names, office, and reasons stay server-side", async () => {
+    const legacy = row();
+    legacy.data = { ...legacy.data, patients: [{ name: "Emma Smith", reasons: [{ label: "No meals logged", days: 3 }] }] };
+    const harness = setup(legacy);
+    await harness.store.registerToken({ authUserId: legacy.auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });
+    await harness.tick();
+    const serialized = JSON.stringify(harness.push.sent[0]?.[0]);
+    for (const fragment of ["Emma", "Smith", "Riverside", "Sarah", "No meals", "Weight stalled", "patients\":"]) expect(serialized).not.toContain(fragment);
+    expect(guardPushMessage(harness.push.sent[0]![0]!)).toEqual({ ok: true });
   });
   it("disables a dead token", async () => {
     const harness = setup(); const registered = await harness.store.registerToken({ authUserId: harness.store.notifications[0]!.auth_user_id, providerId: "office-1", token: "ExponentPushToken[dead]", deviceId: "device-123", platform: "ios" });

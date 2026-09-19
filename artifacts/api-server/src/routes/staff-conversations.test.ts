@@ -411,7 +411,8 @@ describe("care-team reply", () => {
         totalCents: 5400,
       },
     });
-    expect(rpc.p_push_body).toBe("Your care team put together a bundle of 1 products for you.");
+    expect(rpc.p_push_body).toBe("Your care team suggested something for you. Open the app to see it.");
+    expect(rpc.p_push_body).not.toContain("bundle");
     expect(result.json.event.suggestion).toEqual((rpc.p_card as { payload: unknown }).payload);
   });
 

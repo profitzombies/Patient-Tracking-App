@@ -90,9 +90,14 @@ export function composeOutreachMessage(facts: OutreachMessageFacts): string {
   return `${opener}\n\n${work} ${level}${diary}\n\n${BACK_ON_TRACK_OFFER}`;
 }
 
-export function outreachPushBody(firstName: string): string {
-  const name = firstName.trim() || "there";
-  return `${name}, I was looking at your numbers today and wanted to reach out myself. Open the chat when you have a minute.`;
+/**
+ * Lock-screen copy for the outreach push. It never carries the patient's name
+ * or anything about their progress: the push rides Expo's servers (no BAA).
+ * The personal message waits inside the coach chat.
+ */
+export const OUTREACH_PUSH_BODY = "Your coach left you a message. Open the app to read it.";
+export function outreachPushBody(): string {
+  return OUTREACH_PUSH_BODY;
 }
 
 /**
@@ -200,7 +205,7 @@ export async function evaluateAndSendOutreach(
       kind: OUTREACH_KIND,
       category: "coach_outreach" as const,
       title: OUTREACH_TITLE,
-      body: outreachPushBody(facts.firstName),
+      body: outreachPushBody(),
       data: { route: OUTREACH_ROUTE, crossingKey: crossing, messageClientId: outreachClientId(crossing) },
       dedupeKey: outreachDedupeKey(patientId, crossing),
       scheduledAt: now,

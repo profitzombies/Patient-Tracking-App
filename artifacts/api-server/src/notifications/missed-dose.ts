@@ -18,10 +18,8 @@ import {
   DEFAULT_MISSED_GRACE_MINUTES,
   indexLogs,
   localDateKey,
-  medicationLine,
   occurrenceKey,
   occurrencesBetween,
-  formatClockTime,
   type DoseLogRecord,
   type DoseOccurrence,
   type MedicationRecord,
@@ -32,7 +30,13 @@ import type { NotificationStore } from "./store";
 export const MISSED_DOSE_KIND = "medication_missed_dose";
 export const MISSED_DOSE_CATEGORY = "check_in_reminders" as const;
 export const MISSED_DOSE_ROUTE = "/check-in";
-export const MISSED_DOSE_TITLE = "Missed dose?";
+/**
+ * Lock-screen copy never names the medication, dose, or time: the push rides
+ * Expo's servers (no BAA). The specific dose is shown after the tap, in the
+ * app's check-in screen, which resolves it from the ids in `data`.
+ */
+export const MISSED_DOSE_TITLE = "Time for a dose";
+export const MISSED_DOSE_BODY = "Open the app to log it.";
 /** Occurrences older than this are never chased. */
 export const MISSED_DOSE_LOOKBACK_MS = 24 * 60 * 60_000;
 export const MISSED_DOSE_EXPIRY_MS = 24 * 60 * 60_000;
@@ -101,8 +105,8 @@ export function missedDosesFor(facts: MedicationDoseFacts, now: Date, delayMinut
     }));
 }
 
-export function missedDoseBody(medication: MedicationRecord, occurrence: DoseOccurrence): string {
-  return `Your ${formatClockTime(occurrence.dueTime)} ${medicationLine(medication)} isn't logged yet. Tap to mark it taken or skipped.`;
+export function missedDoseBody(): string {
+  return MISSED_DOSE_BODY;
 }
 
 export interface MissedDoseRunSummary {
@@ -151,7 +155,7 @@ export async function runMissedDoseEvaluation(deps: MissedDoseRunDeps): Promise<
             kind: MISSED_DOSE_KIND,
             category: MISSED_DOSE_CATEGORY,
             title: MISSED_DOSE_TITLE,
-            body: missedDoseBody(item.medication, item.occurrence),
+            body: missedDoseBody(),
             data: {
               route: MISSED_DOSE_ROUTE,
               medicationId: item.medication.id,

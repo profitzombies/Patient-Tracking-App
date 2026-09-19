@@ -1,6 +1,7 @@
-import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
+import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
+import { sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
-import { billingFromAddress, formatReceiptTimestamp } from "./receipts";
+import { formatReceiptTimestamp } from "./receipts";
 import {
   insertIgnore, selectMany, selectOne, update,
   type BillingOrderRow, type BillingPayerRow, type BillingShipmentRow, type BillingSubscriptionRow,
@@ -68,23 +69,6 @@ export const planLabel = (productName: string, quantity: number | null | undefin
 const firstName = (payer: BillingPayerRow): string => (payer.name ?? "").trim().split(/\s+/)[0] ?? "";
 const officeLabel = (office: ProviderSummary | null): string => office?.office_name || office?.provider_name || "your provider office";
 
-type Transport = (input: { to: string; subject: string; html: string; text: string }) => Promise<void>;
-let transport: Transport = async ({ to, subject, html, text }) => {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.CLAIM_EMAIL_FROM;
-  if (!key || !from) throw new Error("billing email delivery is not configured");
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: billingFromAddress(from), to: [to], subject, html, text }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
-};
-export function __setCustomerEmailTransportForTests(next: Transport | null): void {
-  transport = next ?? transport;
-}
-
 export type NotifyOutcome = "sent" | "duplicate" | "skipped" | "failed";
 interface NotifyRefs { provider_id?: string | null; subscription_id?: string | null; order_id?: string | null }
 
@@ -110,8 +94,10 @@ export async function notifyOnce(
       await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { status: "skipped", error: message ? "no email address" : "nothing to send" });
       return "skipped";
     }
-    const rendered = renderEmailTemplate(templateId, message.variables);
-    await transport({ to: message.to, subject: rendered.subject, html: rendered.html, text: rendered.text });
+    await sendTemplatedEmail({
+      to: message.to, templateId, variables: message.variables, sender: "branded",
+      refs: { dedupeKey, claimId, orderId: refs.order_id ?? null, subscriptionId: refs.subscription_id ?? null },
+    });
     await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { status: "sent", error: null });
     return "sent";
   } catch (error) {

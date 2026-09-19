@@ -13,6 +13,7 @@ import {
 } from "../../../thinnr-mobile/data/stall-nudge";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { MemoryNotificationStore, type MemoryPatient } from "./memory-store";
+import { guardPushMessage } from "./push-guard";
 import { DEFAULT_ORG_POLICY } from "../lib/org-policy";
 import type { TickPolicy } from "./tick-policy";
 import {
@@ -135,8 +136,14 @@ describe("outreach send side effects", () => {
       category: "coach_outreach",
       status: "queued",
       dedupe_key: outreachDedupeKey(P1, crossing),
+      title: "A note from your coach",
+      body: "Your coach left you a message. Open the app to read it.",
       data: { route: "/coach-chat", crossingKey: crossing, messageClientId: outreachClientId(crossing) },
     });
+    // The push rides a vendor without a BAA: the name and the numbers stay in the seeded chat message.
+    const visible = `${rows[0].title} ${rows[0].body} ${JSON.stringify(rows[0].data)}`;
+    expect(visible).not.toMatch(/Dana|170|17\.8|pounds|numbers/);
+    expect(guardPushMessage({ to: "ExponentPushToken[x]", title: rows[0].title, body: rows[0].body, data: rows[0].data })).toEqual({ ok: true });
     expect(result.notificationId).toBe(rows[0].id);
 
     const flags = store.patients.get(P1)!.flags!;

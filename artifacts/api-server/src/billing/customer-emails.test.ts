@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * In-memory PostgREST stand-in that enforces the one constraint these emails
@@ -47,13 +47,14 @@ vi.mock("../lib/supabase-admin", () => ({
   }),
 }));
 
+import { __setEmailClientForTests } from "../email/transport";
 import {
-  __setCustomerEmailTransportForTests, notifyOnce, notifyOrderConfirmationIfCartComplete, notifyRenewalReminder,
+  notifyOnce, notifyOrderConfirmationIfCartComplete, notifyRenewalReminder,
   notifyShipmentTransition, notifySubscriptionEvent, notifySubscriptionStarted, renewalReminderDays, subscriptionLinks,
 } from "./customer-emails";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 
-const sent: Array<{ to: string; subject: string; html: string; text: string }> = [];
+const sent: Array<{ from: string; to: string; subject: string; html: string; text: string }> = [];
 let transportFailure: Error | null = null;
 const SUB_ID = "0a1b2c3d-0000-4000-8000-00000000aa01";
 const subscription = (over: Partial<BillingSubscriptionRow> = {}): BillingSubscriptionRow => ({
@@ -83,9 +84,14 @@ beforeEach(() => {
   transportFailure = null;
   process.env.PATIENT_APP_URL = "https://app.example.test/";
   delete process.env.BILLING_RENEWAL_REMINDER_DAYS;
-  __setCustomerEmailTransportForTests(async (message) => {
-    if (transportFailure) throw transportFailure;
-    sent.push(message);
+  process.env.RESEND_API_KEY = "test";
+  process.env.CLAIM_EMAIL_FROM = "THINNR <hello@example.test>";
+  __setEmailClientForTests({
+    async send(message) {
+      if (transportFailure) throw transportFailure;
+      sent.push(message);
+      return { id: null };
+    },
   });
   tables = {
     billing_customer_emails: [],
@@ -95,6 +101,8 @@ beforeEach(() => {
     billing_orders: [], billing_order_items: [], billing_subscriptions: [],
   };
 });
+
+afterAll(() => __setEmailClientForTests(null));
 
 describe("notifyOnce", () => {
   it("sends exactly once per dedupe key and records the claim", async () => {

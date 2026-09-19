@@ -2,9 +2,47 @@ import { describe, expect, it } from "vitest";
 import {
   EMAIL_TEMPLATE_CATALOG,
   EMAIL_TEMPLATE_IDS,
+  EMAIL_TEMPLATE_PHI_CLASS,
+  FULL_NAME_EMAIL_TEMPLATE_IDS,
+  lintEmailTemplateCatalog,
+  lintEmailTemplateVariables,
   renderEmailTemplate,
   renderSampleEmail,
 } from "@workspace/email-templates";
+
+describe("email template PHI lint", () => {
+  it("classifies every template and finds no clinical or full-name variable in the shipped catalog", () => {
+    expect(Object.keys(EMAIL_TEMPLATE_PHI_CLASS).sort()).toEqual([...EMAIL_TEMPLATE_IDS].sort());
+    expect(lintEmailTemplateCatalog(EMAIL_TEMPLATE_CATALOG)).toEqual([]);
+    for (const id of FULL_NAME_EMAIL_TEMPLATE_IDS) expect(EMAIL_TEMPLATE_PHI_CLASS[id]).toBe("identity");
+  });
+
+  it("rejects clinical variables by key or label on any template", () => {
+    for (const [key, label] of [["medicationName", ""], ["latestWeight", ""], ["labResult", ""], ["diagnosisCode", ""], ["progressPhoto", ""], ["summary", "Weight change"], ["details", "Medication list"], ["bmi", ""]]) {
+      expect(lintEmailTemplateVariables("order-receipt", { [key]: label }, { labels: true })).toEqual([
+        { templateId: "order-receipt", variable: key, rule: "clinical_variable" },
+      ]);
+    }
+  });
+
+  it("allows a full name only on claim and invitation templates", () => {
+    expect(lintEmailTemplateVariables("patient-invitation", { patientName: "Patient full name" }, { labels: true })).toEqual([]);
+    expect(lintEmailTemplateVariables("staff-attention-digest", { patientName: "" })).toEqual([
+      { templateId: "staff-attention-digest", variable: "patientName", rule: "full_name_outside_identity" },
+    ]);
+    expect(lintEmailTemplateVariables("order-receipt", { who: "Full name" }, { labels: true })).toHaveLength(1);
+    // Product, plan, office, and first-name variables stay legal on payment templates.
+    expect(lintEmailTemplateVariables("order-receipt", { name: "First name", productName: "Product", planName: "Plan", officeName: "Office", shipTo: "Ship to" }, { labels: true })).toEqual([]);
+  });
+
+  it("keeps the staff digest to counts per reason and links: no patient list variable exists", () => {
+    const digest = EMAIL_TEMPLATE_CATALOG.find((item) => item.id === "staff-attention-digest")!;
+    expect(Object.keys(digest.variableLabels)).not.toContain("patients");
+    expect(Object.keys(digest.variableLabels)).toEqual(expect.arrayContaining(["reasons", "flaggedCount", "alertsLink"]));
+    const rendered = renderSampleEmail("staff-attention-digest");
+    expect(rendered.text).toMatch(/\d+ patients?/);
+  });
+});
 
 describe("transactional email catalog", () => {
   it("contains exactly the real email messages with complete sample output", () => {

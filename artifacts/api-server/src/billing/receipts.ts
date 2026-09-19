@@ -1,11 +1,12 @@
-import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
+import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
+import { BRANDED_EMAIL_FROM_NAME, brandedFromAddress, EmailNotConfiguredError, sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
 import { publicOrigin } from "./app-origin";
 import type { BillingOrderItemRow, BillingOrderRow, BillingPayerRow, BillingSubscriptionRow } from "./store";
 import type { ProviderSummary } from "./store-orders";
 
 /** Display name patients see on every billing email. */
-export const BILLING_EMAIL_FROM_NAME = "THINNR Weight Loss";
+export const BILLING_EMAIL_FROM_NAME = BRANDED_EMAIL_FROM_NAME;
 /** Receipt timestamps are rendered in this zone (THINNR's home office). */
 export const BILLING_EMAIL_TIME_ZONE = "America/New_York";
 
@@ -27,32 +28,18 @@ export function formatReceiptTimestamp(iso: string | null | undefined, now: Date
  * or an address that already carries a display name both work.
  */
 export function billingFromAddress(configured: string): string {
-  const bracketed = configured.match(/<([^>]+)>/);
-  const address = (bracketed ? bracketed[1] : configured).trim();
-  return `${BILLING_EMAIL_FROM_NAME} <${address}>`;
+  return brandedFromAddress(configured);
 }
-function resend(): { key: string; from: string } | null {
-  const key = process.env.RESEND_API_KEY;
-  const from = process.env.CLAIM_EMAIL_FROM;
-  return key && from ? { key, from: billingFromAddress(from) } : null;
-}
+/** Fulfillment never fails on mail: missing configuration warns, vendor errors are logged. */
 async function deliver(to: string | null, templateId: EmailTemplateId, variables: EmailVariables): Promise<void> {
   if (!to) return;
-  const credentials = resend();
-  if (!credentials) {
-    logger.warn("billing email delivery is not configured");
-    return;
-  }
   try {
-    const rendered = renderEmailTemplate(templateId, variables);
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${credentials.key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: credentials.from, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
+    await sendTemplatedEmail({ to, templateId, variables, sender: "branded" });
   } catch (error) {
+    if (error instanceof EmailNotConfiguredError) {
+      logger.warn("billing email delivery is not configured");
+      return;
+    }
     logger.error({ err: error, templateId }, "billing email delivery failed");
   }
 }

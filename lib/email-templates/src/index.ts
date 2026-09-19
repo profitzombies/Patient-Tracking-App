@@ -1,6 +1,17 @@
 import { button, escapeHtml, infoPanel, paragraph, parseLineItems, requireVariable, shell } from "./shell";
 import { SHOP_EMAIL_TEMPLATE_CATALOG, SHOP_EMAIL_TEMPLATE_IDS, renderShopEmail } from "./shop";
 
+export {
+  EMAIL_TEMPLATE_PHI_CLASS,
+  FULL_NAME_EMAIL_TEMPLATE_IDS,
+  isClinicalVariable,
+  isFullNameVariable,
+  lintEmailTemplateCatalog,
+  lintEmailTemplateVariables,
+  type EmailPhiClass,
+  type EmailTemplateLintViolation,
+} from "./phi";
+
 export const EMAIL_TEMPLATE_IDS = [
   "verification-code",
   "provider-account-ready",
@@ -249,15 +260,15 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
   {
     id: "staff-attention-digest",
     name: "Daily patient attention digest",
-    purpose: "Tells office staff which patients need follow-up today and links them into the portal.",
-    trigger: "The daily attention run finds at least one flagged patient at the office’s chosen send time.",
-    audience: "Provider owners and team members the office chose as alert recipients.",
+    purpose: "Tells office staff how many patients need follow-up today, grouped by reason, and links to the Needs attention page where the names live.",
+    trigger: "The daily staff attention digest job finds at least one flagged patient for an office with alert recipients.",
+    audience: "Office alert recipients (the owner and any teammates the office selected). Never names a patient: the email leaves through a vendor without a BAA.",
     sampleVariables: {
       name: "Sarah",
       officeName: "Example Wellness Studio",
       digestDate: "Tuesday, September 15, 2026",
       flaggedCount: "3",
-      patients: "Emma S. · No meals logged (3 days), Weight stalled (5 days)\nLiam B. · Check-in overdue (9 days)\nOlivia M. · No weight logged (7 days)",
+      reasons: "No meals logged · 1 patient\nCheck-in overdue · 1 patient\nNo weight logged · 1 patient",
       alertsLink: "https://operations.example.com/alerts",
       settingsLink: "https://operations.example.com/settings",
     },
@@ -266,7 +277,7 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       officeName: "Office name",
       digestDate: "Digest date",
       flaggedCount: "Number of flagged patients",
-      patients: "Flagged patients, one per line as “Name · reasons”",
+      reasons: "Counts per reason, one per line as “Reason · N patients”",
       alertsLink: "Needs attention page link",
       settingsLink: "Alert settings link",
     },
@@ -768,29 +779,29 @@ function renderStaffAttentionDigest(variables: EmailVariables): RenderedEmail {
   const officeName = requireVariable(variables, "officeName");
   const digestDate = requireVariable(variables, "digestDate");
   const flaggedCount = requireVariable(variables, "flaggedCount");
-  const patients = parseLineItems(requireVariable(variables, "patients"));
+  const reasons = parseLineItems(requireVariable(variables, "reasons"));
   const alertsLink = requireVariable(variables, "alertsLink");
   const settingsLink = variables.settingsLink?.trim() || "";
   const count = Number(flaggedCount);
   const headline = count === 1 ? "1 patient needs attention" : `${flaggedCount} patients need attention`;
   const subject = `${headline} at ${officeName}`;
-  const previewText = `${headline} today. Review the daily digest in THINNR operations.`;
+  const previewText = `${headline} today. Open THINNR operations to see who.`;
   const text = [
     ...(name ? [`Hello ${name},`, ""] : []),
     `${headline} at ${officeName} for ${digestDate}.`,
     "",
-    ...patients.map((item) => (item.amount ? `${item.label} — ${item.amount}` : item.label)),
+    ...reasons.map((item) => (item.amount ? `${item.label} — ${item.amount}` : item.label)),
     "",
-    `Review the digest and open patient records: ${alertsLink}`,
+    `See which patients and open their records: ${alertsLink}`,
     ...(settingsLink ? [`Change who receives these alerts or turn them off for yourself: ${settingsLink}`] : []),
     "",
-    "Alerts are informational and do not replace clinical judgment.",
+    "Patient names are never included in email. Alerts are informational and do not replace clinical judgment.",
   ].join("\n");
-  const rows = patients
+  const rows = reasons
     .map(
       (item) => `<tr>
-        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:15px;font-weight:bold;color:#203b64;vertical-align:top;white-space:nowrap;">${escapeHtml(item.label)}</td>
-        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:14px;line-height:1.5;color:#3b4a63;vertical-align:top;">${escapeHtml(item.amount)}</td>
+        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:15px;font-weight:bold;color:#203b64;vertical-align:top;">${escapeHtml(item.label)}</td>
+        <td align="right" style="padding:12px 14px;border-bottom:1px solid #d9e3f1;font-size:14px;line-height:1.5;color:#3b4a63;vertical-align:top;white-space:nowrap;">${escapeHtml(item.amount)}</td>
       </tr>`,
     )
     .join("");
@@ -803,13 +814,13 @@ function renderStaffAttentionDigest(variables: EmailVariables): RenderedEmail {
       eyebrow: "Daily patient digest",
       heading: headline,
       greeting: name || undefined,
-      bodyHtml: `${paragraph(`Here is the <strong>${escapeHtml(officeName)}</strong> attention list for <strong>${escapeHtml(digestDate)}</strong>. Each patient below has at least one recent-progress signal that calls for staff follow-up.`)}
+      bodyHtml: `${paragraph(`Here is the <strong>${escapeHtml(officeName)}</strong> attention summary for <strong>${escapeHtml(digestDate)}</strong>. Each count is the number of patients with that recent-progress signal.`)}
         ${infoPanel("Patients flagged today", flaggedCount)}
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:2px solid #203b64;">
           ${rows}
         </table>
-        ${button(alertsLink, "Review patients")}
-        ${paragraph("Open a patient’s record from the portal to see their full activity, weights, and messages. Alerts are informational and do not replace clinical judgment.")}
+        ${button(alertsLink, "See who needs attention")}
+        ${paragraph("Patient names are never included in email. Open the portal to see who is on the list and their full activity. Alerts are informational and do not replace clinical judgment.")}
         ${settingsLink ? paragraph(`<a href="${escapeHtml(settingsLink)}" style="color:#315eae;">Change who receives alerts or turn off your email digest</a> in office settings.`) : ""}`,
       closing: `You are receiving this because ${officeName} chose you as an alert recipient. Sent once a day, only when at least one patient is flagged.`,
     }),

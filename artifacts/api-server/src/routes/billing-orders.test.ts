@@ -44,7 +44,7 @@ vi.mock("../lib/admin-audit", async (original) => {
 import hqRouter from "./billing-hq-orders";
 import officeRouter from "./billing-office-orders";
 import publicRouter from "./billing-public";
-import { __setCustomerEmailTransportForTests } from "../billing/customer-emails";
+import { __setEmailClientForTests } from "../email/transport";
 import { __setCredentialsForTests, __setStripeForTests } from "../billing/stripe-client";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 
@@ -90,9 +90,10 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => server.once("listening", resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-const customerEmails = vi.fn(async (_input: { to: string; subject: string; html: string; text: string }) => undefined);
+const customerEmails = vi.fn(async (_input: { from: string; to: string; subject: string; html: string; text: string }) => ({ id: null }));
 afterAll(async () => {
   global.fetch = originalFetch;
+  __setEmailClientForTests(null);
   __setCredentialsForTests(null);
   __setStripeForTests(null);
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -101,7 +102,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   __setCredentialsForTests({ secret: "sk_test_x", publishable: "pk_test_x", account_id: "acct_platform" });
   customerEmails.mockClear();
-  __setCustomerEmailTransportForTests(customerEmails);
+  process.env.RESEND_API_KEY = "test";
+  process.env.CLAIM_EMAIL_FROM = "THINNR <hello@example.test>";
+  __setEmailClientForTests({ send: customerEmails });
   tables = {
     billing_orders: [{
       id: "0a1b2c3d-0000-4000-8000-000000000001", order_number: "TH-ABC123", provider_id: "office-1", payer_id: "payer-1",

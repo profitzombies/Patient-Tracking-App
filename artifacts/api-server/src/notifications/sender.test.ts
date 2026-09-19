@@ -9,6 +9,7 @@ import {
   backoffMs,
   CARE_TEAM_PUSH_BODY,
   CARE_TEAM_PUSH_TITLE,
+  CARE_TEAM_SUGGESTION_PUSH_BODY,
   DEFAULT_SENDER_CONFIG,
   nextClaimLimit,
   PUSH_CHANNEL_ID,
@@ -583,7 +584,7 @@ describe("outbox sender", () => {
       expect(h.push.sent[0][0].data).not.toHaveProperty("leakedText");
     });
 
-    it("uses the stored suggestion copy only when the row explicitly marks a suggestion", async () => {
+    it("uses generic suggestion copy when the row marks a suggestion, never the stored body", async () => {
       const h = harness();
       h.store.addToken(P1, TOKEN_A);
       const suggestionBody = "Your care team suggested Daily Balance for you.";
@@ -597,8 +598,9 @@ describe("outbox sender", () => {
 
       expect(h.push.sent[0][0]).toMatchObject({
         title: CARE_TEAM_PUSH_TITLE,
-        body: suggestionBody,
+        body: CARE_TEAM_SUGGESTION_PUSH_BODY,
       });
+      expect(JSON.stringify(h.push.sent[0][0])).not.toContain("Daily Balance");
     });
 
     it("uses the existing care-team preference category and current quiet hours/device state", async () => {

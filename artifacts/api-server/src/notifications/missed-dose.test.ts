@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { MedicationRecord } from "../medications/schedule";
 import { MemoryNotificationStore } from "./memory-store";
+import { guardPushMessage } from "./push-guard";
 import {
   DEFAULT_MISSED_DOSE_DAILY_CAP,
   MISSED_DOSE_CATEGORY,
@@ -148,9 +149,15 @@ describe("runMissedDoseEvaluation", () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((row) => row.patient_id === P1 && row.kind === MISSED_DOSE_KIND && row.category === MISSED_DOSE_CATEGORY)).toBe(true);
     const shot = rows.find((row) => row.dedupe_key === missedDoseDedupeKey({ medicationId: MED_SHOT, dueDate: "2026-07-01", dueTime: "09:00" }))!;
-    expect(shot.title).toBe("Missed dose?");
-    expect(shot.body).toBe("Your 9:00 AM GLP-1 injection · 0.5 mg isn't logged yet. Tap to mark it taken or skipped.");
+    expect(shot.title).toBe("Time for a dose");
+    expect(shot.body).toBe("Open the app to log it.");
     expect(shot.data).toEqual({ route: MISSED_DOSE_ROUTE, medicationId: MED_SHOT, dueDate: "2026-07-01", dueTime: "09:00" });
+    // The push rides a vendor without a BAA: no medication, dose, or time on the lock screen.
+    for (const row of rows) {
+      const visible = `${row.title} ${row.body} ${JSON.stringify(row.data)}`;
+      expect(visible).not.toMatch(/GLP-1|injection|drops|0\.5 mg|9:00 AM|8:00 AM/i);
+      expect(guardPushMessage({ to: "ExponentPushToken[x]", title: row.title, body: row.body, data: row.data })).toEqual({ ok: true });
+    }
     // 24 h past the due instant (13:00Z), not past enqueue time.
     expect(shot.expires_at).toBe("2026-07-02T13:00:00.000Z");
     expect(shot.status).toBe("queued");

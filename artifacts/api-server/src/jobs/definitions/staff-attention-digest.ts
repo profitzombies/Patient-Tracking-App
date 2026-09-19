@@ -2,10 +2,17 @@ import { loadOfficeAttention } from "../../lib/office-attention";
 import { loadOfficeOverrides, loadOrgPolicy } from "../../lib/org-policy";
 import { localClock, parseClockMinutes } from "../../notifications/policy";
 import { supabaseAdmin } from "../../lib/supabase-admin";
+import { staffDigestPushBody, type DigestReasonCount } from "../../alerts/staff-sender";
 import type { JobContext, JobDefinition } from "../types";
 
-/** Emails list at most this many patients; the portal digest always has the full list. */
-export const EMAIL_PATIENT_LIMIT = 25;
+/** Counts patients per reason label in first-seen order; this is all the email and push ever learn. */
+export function digestReasonCounts(items: ReadonlyArray<{ reasons: ReadonlyArray<{ label: string }> }>): DigestReasonCount[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    for (const label of new Set(item.reasons.map((reason) => reason.label))) counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, count]) => ({ label, count }));
+}
 
 type Row = Record<string, unknown>;
 const enc = encodeURIComponent;
@@ -77,13 +84,13 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
         (overrides.alertRecipientMode === "owners_admins" && (row.office_role === "owner" || row.office_role === "admin")) ||
         (overrides.alertRecipientMode === "selected" && overrides.alertRecipientMemberIds.includes(String(row.id))),
       );
-      const body = attention.items.length === 1 ? "1 patient needs attention today." : `${attention.items.length} patients need attention today.`;
-      // The email template renders from this snapshot so the message matches the
-      // digest exactly as it was generated, even if the roster moves on later.
-      const patients = attention.items.slice(0, EMAIL_PATIENT_LIMIT).map((item) => ({
-        patientId: item.patientId, name: item.name,
-        reasons: item.reasons.map((reason) => ({ label: reason.label, days: reason.days })),
-      }));
+      const body = staffDigestPushBody(attention.items.length);
+      // The email renders from this snapshot so the message matches the digest
+      // exactly as it was generated, even if the roster moves on later. Only
+      // counts per reason are stored: email and push leave through vendors
+      // without a BAA, so no patient name or per-patient finding may ride
+      // along. The names live in office_attention_digests for the in-app page.
+      const reasonCounts = digestReasonCounts(attention.items);
       const expires = digestExpiry(ctx.now, zone).toISOString();
       const notifications = recipients.flatMap((recipient) => (["email", "push"] as const).map((channel) => ({
         provider_id: providerId, auth_user_id: recipient.auth_user_id, channel,
@@ -93,7 +100,7 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
           digestDate, flaggedCount: attention.items.length, providerId,
           officeName: String(provider.provider_name ?? "Your office"),
           recipientName: typeof recipient.name === "string" && recipient.name.trim() ? recipient.name.trim() : null,
-          patients,
+          reasonCounts,
         },
         dedupe_key: `staff_attention:${providerId}:${digestDate}:${recipient.auth_user_id}:${channel}`,
         scheduled_at: ctx.now.toISOString(), next_attempt_at: ctx.now.toISOString(), expires_at: expires,

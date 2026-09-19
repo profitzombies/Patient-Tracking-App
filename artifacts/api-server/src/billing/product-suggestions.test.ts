@@ -107,11 +107,11 @@ describe("product suggestion snapshots", () => {
     const suggestion = await buildProductSuggestion("office-a", {
       mode: "individual", items: [{ productId: "product-a", purchase: "one_time", quantity: 1 }],
     }, load([product()]));
-    expect(suggestionPushBody(suggestion)).toBe("Your care team suggested Daily Balance for you.");
-    expect(suggestionPushBody({ ...suggestion, mode: "bundle" }))
-      .toBe("Your care team put together a bundle of 1 products for you.");
-    expect(suggestionPushBody({ ...suggestion, items: [...suggestion.items, suggestion.items[0]] }))
-      .toBe("Your care team suggested 2 products for you.");
+    // The push rides a vendor without a BAA: the product name and count stay inside the chat card.
+    expect(suggestionPushBody(suggestion)).toBe("Your care team suggested something for you. Open the app to see it.");
+    expect(suggestionPushBody(suggestion)).not.toContain("Daily Balance");
+    expect(suggestionPushBody({ ...suggestion, mode: "bundle" })).toBe(suggestionPushBody(suggestion));
+    expect(suggestionPushBody({ ...suggestion, items: [...suggestion.items, suggestion.items[0]] })).toBe(suggestionPushBody(suggestion));
     expect(suggestionPushBody({
       ...suggestion,
       items: [{ ...suggestion.items[0], name: "A".repeat(200) }],

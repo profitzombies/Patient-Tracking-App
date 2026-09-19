@@ -320,6 +320,18 @@ args = "warehouse-status-mobile"
 task = "workflow.run"
 args = "retention-floors"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "phi-free-email-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "phi-free-push-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "phi-free-push-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2333,6 +2345,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/hq-org-policy.test.ts src/privacy/coach-lifecycle.sql.test.ts src/jobs/definitions/retention.test.ts src/jobs/ledger-retention.sql.test.ts && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "phi-free-email-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/email src/claim/email-templates.test.ts src/claim/delivery.test.ts src/billing/receipts.test.ts src/billing/customer-emails.test.ts src/routes/billing-orders.test.ts src/alerts/staff-sender.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "phi-free-push-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/notifications/push-guard.test.ts src/notifications/sender.test.ts src/notifications/missed-dose.test.ts src/notifications/stall-outreach.test.ts src/billing/patient-notices.test.ts src/billing/product-suggestions.test.ts src/jobs/definitions/staff-attention-digest.test.ts src/routes/staff-conversations.test.ts"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "phi-free-push-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:push-notifications && pnpm --filter @workspace/thinnr-mobile run test:staff-alerts && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

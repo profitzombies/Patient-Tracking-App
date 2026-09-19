@@ -40,7 +40,7 @@ vi.mock("../../lib/supabase-admin", () => ({
     throw new Error(`unexpected ${method} ${path}`);
   }),
 }));
-import { runStaffAttentionDigest } from "./staff-attention-digest";
+import { digestReasonCounts, runStaffAttentionDigest } from "./staff-attention-digest";
 
 function context(at = "2026-10-11T13:00:00.000Z", dryRun = false): JobContext & { counts: Record<string, number> } {
   const counts: Record<string, number> = {};
@@ -77,7 +77,21 @@ describe("staff attention digest job", () => {
     expect(db.digests).toHaveLength(1); expect(db.notifications).toHaveLength(6);
     expect(new Set(db.notifications.map((r) => r.dedupe_key)).size).toBe(6);
     expect(db.notifications[0]?.dedupe_key).toMatch(/^staff_attention:office-1:2026-10-11:owner-user:(email|push)$/);
-    expect((db.notifications[0]?.data as Row).patients).toEqual([{ patientId: "patient-1", name: "Pat", reasons: [] }]);
+    // Only counts per reason are snapshotted: no name or per-patient finding may reach email or push.
+    for (const notification of db.notifications) {
+      const data = notification.data as Row;
+      expect(data.reasonCounts).toEqual([]);
+      expect(data).not.toHaveProperty("patients");
+      expect(JSON.stringify(notification)).not.toContain("Pat\"");
+      expect(notification.body).toBe("1 patient needs attention. Open the app.");
+    }
+  });
+  it("counts each reason once per patient, in first-seen order", () => {
+    expect(digestReasonCounts([
+      { reasons: [{ label: "No meals logged" }, { label: "Weight stalled" }, { label: "No meals logged" }] },
+      { reasons: [{ label: "Weight stalled" }] },
+      { reasons: [] },
+    ])).toEqual([{ label: "No meals logged", count: 1 }, { label: "Weight stalled", count: 2 }]);
   });
   it.each([
     ["all", [], ["owner-user", "admin-user", "staff-user"]],

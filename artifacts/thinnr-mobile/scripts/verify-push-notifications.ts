@@ -100,6 +100,23 @@ async function main() {
   assert.equal(notificationAdmittedForPatient(shippedTap, 'patient-a'), true);
   assert.equal(notificationAdmittedForPatient(shippedTap, 'patient-b'), false);
   assert.equal(notificationAdmittedForPatient(renewalTap, null), false);
+  // Generic (PHI-free) server payloads: the lock screen says nothing specific, so the deep link
+  // alone must land the patient on the right screen. These mirror the server builders exactly.
+  const genericPayloads: Array<[string, Record<string, unknown>, string]> = [
+    ['missed dose', { route: '/check-in', medicationId: '44444444-4444-4444-8444-444444444444', dueDate: '2026-07-01', dueTime: '09:00', kind: 'missed_dose', category: 'check_in_reminders', notificationId: 'n-1' }, '/check-in'],
+    ['coach outreach', { route: '/coach-chat', crossingKey: '2026-07-01', messageClientId: 'outreach:2026-07-01', kind: 'coach_outreach', category: 'coach_outreach', notificationId: 'n-2' }, '/coach-chat'],
+    ['order shipped', { route: '/orders/22222222-2222-4222-8222-222222222222', kind: 'order_shipped', orderId: '22222222-2222-4222-8222-222222222222', patientId: 'patient-a', notificationId: 'n-3', category: 'account' }, '/orders/22222222-2222-4222-8222-222222222222'],
+    ['renewal upcoming', { route: '/my-subscriptions/33333333-3333-4333-8333-333333333333', kind: 'subscription_renewal_upcoming', subscriptionId: '33333333-3333-4333-8333-333333333333', patientId: 'patient-a', shipDate: '2026-09-20' }, '/my-subscriptions/33333333-3333-4333-8333-333333333333'],
+    ['payment failed', { route: '/my-subscriptions/33333333-3333-4333-8333-333333333333', kind: 'subscription_payment_failed', subscriptionId: '33333333-3333-4333-8333-333333333333', patientId: 'patient-a', invoiceId: 'in_1' }, '/my-subscriptions/33333333-3333-4333-8333-333333333333'],
+    ['care-team suggestion', { patientId: 'patient-a', thread: 'care_team', conversationId: '11111111-1111-4111-8111-111111111111', kind: 'care_team_reply', category: 'office_reminders', suggestion: true, notificationId: 'n-4' }, '/care-team-chat?conversationId=11111111-1111-4111-8111-111111111111'],
+    ['staff digest', { route: '/(tabs)/patients', kind: 'staff_attention_digest', category: 'staff_alerts', notificationId: 'n-5', providerId: 'office-1', digestDate: '2026-10-10', flaggedCount: 2 }, '/(tabs)/patients'],
+  ];
+  for (const [label, payload, expected] of genericPayloads) {
+    assert.equal(resolveNotificationRoute(payload), expected, `${label} deep link`);
+    for (const key of Object.keys(payload)) {
+      assert.doesNotMatch(key, /name|weight|medication$|reason|patients|product|carrier|tracking|message$|text|body|title/i, `${label} payload carries ${key}`);
+    }
+  }
   const careTeamTap = {
     kind: 'care_team_reply',
     thread: 'care_team',

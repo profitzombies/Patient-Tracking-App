@@ -162,3 +162,4 @@
 - [WarehouseCraft order submission](warehousecraft-order-submission.md) — legacy /api/OrderDatas routes; trigger-made intent queue; test/live tenant guard holds real orders until the prod-only flag flips; 8-char order numbers.
 - [WarehouseCraft status feed sync](warehousecraft-status-sync.md) — feed authoritative only for sent orders, provider writes share the staff shipment path + one forward-only guard; docs ByDate route is 404, tenant uses OrderStatusDatas date-only Central days.
 - [Retention compliance floors](retention-compliance-floors.md) — floors live in bounds+OpenAPI min+DB CHECK+clamp-on-read together; clinical record window is separate from the chat timer, care-team pinned by SQL test.
+- [PHI-free push and email](phi-free-outbound.md) — all email through one transport seam with per-template PHI class + catalog lint; both push senders wrap the client in sendGuarded; copy generic, data ids-only.

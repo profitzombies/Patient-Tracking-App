@@ -13,7 +13,8 @@
  * asks for a code. No campaigns, no reminders, no password-reset emails.
  */
 import crypto from "node:crypto";
-import { renderEmailTemplate, type EmailTemplateId, type EmailVariables } from "@workspace/email-templates";
+import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
+import { EmailNotConfiguredError, isEmailConfigured, sendTemplatedEmail } from "../email/transport";
 
 export type DeliveryMode = "dev" | "live";
 const TWILIO_START_TIMEOUT_MS = 3_500;
@@ -60,11 +61,8 @@ function twilioCreds(): { sid: string; token: string; verifySid: string } | null
   return { sid, token, verifySid };
 }
 
-function resendCreds(): { apiKey: string; from: string } | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.CLAIM_EMAIL_FROM;
-  if (!apiKey || !from) return null;
-  return { apiKey, from };
+function resendCreds(): boolean {
+  return isEmailConfigured();
 }
 
 /** Throws when live mode cannot deliver on the requested channel. */
@@ -96,30 +94,21 @@ export function generateCode(): string {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+/**
+ * Sign-in and invitation mail keeps the configured sender verbatim and rides
+ * the shared email seam like every other message the system sends.
+ */
 async function sendTransactionalEmail(
   to: string,
   templateId: EmailTemplateId,
   variables: EmailVariables,
 ): Promise<void> {
-  const creds = resendCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("email");
-  const rendered = renderEmailTemplate(templateId, variables);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: creds.from,
-      to: [to],
-      subject: rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
-    }),
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Resend send failed (${response.status})`);
+  try {
+    await sendTemplatedEmail({ to, templateId, variables, sender: "configured" });
+  } catch (error) {
+    if (error instanceof EmailNotConfiguredError) throw new DeliveryNotConfiguredError("email");
+    throw error;
+  }
 }
 
 /** Live SMS: Twilio Verify creates and remembers the code itself. */

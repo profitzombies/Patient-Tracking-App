@@ -49,6 +49,7 @@ import {
   type PushTicket,
 } from "./expo-push";
 import { evaluateSendPolicy } from "./policy";
+import { sendGuarded } from "./push-guard";
 import { DEFAULT_TICK_POLICY, defaultsFor, type TickPolicy } from "./tick-policy";
 import type { AttemptInsert, NotificationStore } from "./store";
 import type { NotificationRow, NotificationStatus, PolicyContext, PushTokenRow } from "./types";
@@ -57,6 +58,8 @@ import type { NotificationRow, NotificationStatus, PolicyContext, PushTokenRow }
 export const PUSH_CHANNEL_ID = "thinnr-messages";
 export const CARE_TEAM_PUSH_TITLE = "A message from your care team";
 export const CARE_TEAM_PUSH_BODY = "You have a new care team message.";
+/** Suggestions never name the product on the lock screen; the card inside the chat does. */
+export const CARE_TEAM_SUGGESTION_PUSH_BODY = "Your care team suggested something for you. Open the app to see it.";
 
 /** The claim RPC clamps p_limit to this many rows; asking for more is a no-op. */
 export const CLAIM_LIMIT_CEILING = 200;
@@ -432,7 +435,7 @@ async function prepareRow(
   const messages: PushMessage[] = tokens.map((token) => ({
     to: token.token,
     title: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_TITLE : row.title,
-    body: row.kind === "care_team_reply" ? (isSuggestion ? row.body : CARE_TEAM_PUSH_BODY) : row.body,
+    body: row.kind === "care_team_reply" ? (isSuggestion ? CARE_TEAM_SUGGESTION_PUSH_BODY : CARE_TEAM_PUSH_BODY) : row.body,
     data: { ...careTeamData, notificationId: row.id, kind: row.kind, category: row.category },
     sound: "default",
     channelId: PUSH_CHANNEL_ID,
@@ -511,7 +514,7 @@ async function processBatch(rows: NotificationRow[], ctx: Ctx): Promise<BatchOut
   for (const chunk of packSendChunks(pending, MAX_MESSAGES_PER_REQUEST)) {
     const messages = chunk.flatMap((p) => p.messages);
     try {
-      const tickets = await ctx.push.send(messages);
+      const tickets = await sendGuarded(ctx.push, messages);
       let offset = 0;
       for (const p of chunk) {
         results.push({ pending: p, tickets: tickets.slice(offset, offset + p.messages.length), transportError: null, transportStatus: null });

@@ -10,8 +10,6 @@
  */
 import { logger } from "../lib/logger";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
-import { formatCents } from "./money";
-import { quoteRenewalShipping } from "./renewal-shipping";
 import { selectMany } from "./store";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 
@@ -22,12 +20,20 @@ export const PAYMENT_FAILED_KIND = "subscription_payment_failed";
 /** Days before the next shipment the renewal reminder goes out. */
 export const RENEWAL_REMINDER_DAYS = 3;
 
+/**
+ * Lock-screen copy. Pushes ride Expo's servers (no BAA), so none of these
+ * name a product, an amount, a carrier, or an order number: the order and
+ * subscription screens the deep link opens carry the detail.
+ */
+export const ORDER_SHIPPED_TITLE = "Your order is on its way";
+export const ORDER_SHIPPED_BODY = "Open the app to track it.";
+export const PAYMENT_FAILED_TITLE = "A payment didn't go through";
+export const PAYMENT_FAILED_BODY = "Open the app to update your card so your next shipment isn't delayed.";
+export const RENEWAL_UPCOMING_TITLE = "Your next shipment is coming up";
+export const RENEWAL_UPCOMING_BODY = "Open the app to review the date, the amount, or your card.";
+
 export function orderRoute(orderId: string): string { return `/orders/${orderId}`; }
 export function subscriptionRoute(subscriptionId: string): string { return `/my-subscriptions/${subscriptionId}`; }
-
-function shipDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-}
 
 async function queue(store: NotificationStore, what: string, input: Parameters<NotificationStore["enqueue"]>[0]): Promise<boolean> {
   try {
@@ -46,13 +52,12 @@ export async function notifyOrderShipped(
 ): Promise<boolean> {
   const { order, shipment } = input;
   if (!order.patient_id || shipment.status !== "shipped") return false;
-  const carrier = shipment.carrier ? ` with ${shipment.carrier}` : "";
   return queue(store, "order shipped", {
     patientId: order.patient_id,
     kind: ORDER_SHIPPED_KIND,
     category: "account",
-    title: "Your order shipped",
-    body: `Order ${order.order_number} is on its way${carrier}. Tap to track it.`,
+    title: ORDER_SHIPPED_TITLE,
+    body: ORDER_SHIPPED_BODY,
     data: { route: orderRoute(order.id), kind: ORDER_SHIPPED_KIND, orderId: order.id, patientId: order.patient_id },
     dedupeKey: `${ORDER_SHIPPED_KIND}:${order.id}`,
   });
@@ -63,15 +68,14 @@ export async function notifySubscriptionPaymentFailed(
   input: { subscription: BillingSubscriptionRow; productName: string; invoiceId: string; message: string },
   store: NotificationStore = supabaseNotificationStore,
 ): Promise<boolean> {
-  const { subscription, productName, invoiceId, message } = input;
+  const { subscription, invoiceId } = input;
   if (!subscription.patient_id) return false;
-  const reason = message.trim().replace(/\.?$/, ".");
   return queue(store, "payment failed", {
     patientId: subscription.patient_id,
     kind: PAYMENT_FAILED_KIND,
     category: "account",
-    title: `${productName} payment didn't go through`,
-    body: `${reason} Tap to retry with a saved card so your next shipment isn't delayed.`,
+    title: PAYMENT_FAILED_TITLE,
+    body: PAYMENT_FAILED_BODY,
     data: {
       route: subscriptionRoute(subscription.id), kind: PAYMENT_FAILED_KIND,
       subscriptionId: subscription.id, patientId: subscription.patient_id, invoiceId,
@@ -109,37 +113,26 @@ export interface RenewalReminderSummary {
  * One reminder per (subscription, shipment date): a moved or skipped shipment
  * earns a fresh reminder for its new date, a repeated tick does not.
  */
-/** The amount the renewal will actually bill for shipping: a fresh quote, or the row's last amount when quoting is impossible. */
-async function upcomingShippingCents(subscription: BillingSubscriptionRow): Promise<number> {
-  try {
-    const requote = await quoteRenewalShipping(subscription, false);
-    return requote?.quote.patient_amount_cents ?? subscription.shipping_charge_cents;
-  } catch { return subscription.shipping_charge_cents; }
-}
 export async function runRenewalReminderEvaluation(options: {
   store?: NotificationStore;
   now?: () => Date;
   days?: number;
   load?: (now: Date, days: number) => Promise<UpcomingRenewal[]>;
-  /** Today's Shipping & handling for the renewal (the renewal itself is re-quoted the same way). */
-  shipping?: (subscription: BillingSubscriptionRow) => Promise<number>;
 } = {}): Promise<RenewalReminderSummary> {
   const store = options.store ?? supabaseNotificationStore;
   const now = (options.now ?? (() => new Date()))();
   const days = options.days ?? RENEWAL_REMINDER_DAYS;
   const upcoming = await (options.load ?? loadUpcomingRenewals)(now, days);
   let queued = 0;
-  for (const { subscription, productName } of upcoming) {
+  for (const { subscription } of upcoming) {
     if (!subscription.patient_id || !subscription.next_shipment_at) continue;
     const dateKey = subscription.next_shipment_at.slice(0, 10);
-    const shipping = await (options.shipping ?? upcomingShippingCents)(subscription);
-    const total = subscription.unit_price_cents * Math.max(1, subscription.quantity ?? 1) + shipping;
     const created = await queue(store, "renewal reminder", {
       patientId: subscription.patient_id,
       kind: RENEWAL_UPCOMING_KIND,
       category: "account",
-      title: `${productName} ships ${shipDate(subscription.next_shipment_at)}`,
-      body: `Your card will be charged ${formatCents(total)} before any tax. Tap to move or skip this shipment, or change your card.`,
+      title: RENEWAL_UPCOMING_TITLE,
+      body: RENEWAL_UPCOMING_BODY,
       data: {
         route: subscriptionRoute(subscription.id), kind: RENEWAL_UPCOMING_KIND,
         subscriptionId: subscription.id, patientId: subscription.patient_id, shipDate: dateKey,

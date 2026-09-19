@@ -2,8 +2,6 @@ import { z } from "zod";
 import { officeOffering } from "./catalog";
 import type { PublicLinkProduct } from "./types";
 
-const MAX_PUSH_BODY_LENGTH = 140;
-
 export const productSuggestionInputSchema = z.object({
   mode: z.enum(["individual", "bundle"]),
   items: z.array(z.object({
@@ -89,21 +87,14 @@ export async function buildProductSuggestion(
   };
 }
 
-function trimPushBody(body: string): string {
-  const flat = body.replace(/\s+/g, " ").trim();
-  return flat.length <= MAX_PUSH_BODY_LENGTH
-    ? flat
-    : `${flat.slice(0, MAX_PUSH_BODY_LENGTH - 1).trimEnd()}…`;
-}
-
-export function suggestionPushBody(suggestion: ProductSuggestion): string {
-  if (suggestion.mode === "bundle") {
-    return trimPushBody(`Your care team put together a bundle of ${suggestion.items.length} products for you.`);
-  }
-  if (suggestion.items.length === 1) {
-    return trimPushBody(`Your care team suggested ${suggestion.items[0].name} for you.`);
-  }
-  return trimPushBody(`Your care team suggested ${suggestion.items.length} products for you.`);
+/**
+ * Lock-screen copy for a suggestion. It never names a product or says how
+ * many: the push rides Expo's servers (no BAA) and a product name sits next
+ * to a person's care. The card inside the chat carries the detail.
+ */
+export const SUGGESTION_PUSH_BODY = "Your care team suggested something for you. Open the app to see it.";
+export function suggestionPushBody(_suggestion: ProductSuggestion): string {
+  return SUGGESTION_PUSH_BODY;
 }
 
 export function suggestionFromCard(card: unknown): ProductSuggestion | null {

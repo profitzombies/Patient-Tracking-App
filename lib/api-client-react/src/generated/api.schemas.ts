@@ -1605,6 +1605,7 @@ export interface ColdArchiveSettingsStatus {
      */
   daysPending: number | null;
 }
+
 export interface ConversationAssignInput {
   /**
      * A staff user id from the staff list, "me" to claim, or null to unassign
@@ -2526,6 +2527,7 @@ export interface ColdArchiveHealth {
   /** Compressed bytes written across every archived day. */
   bytesWritten: number;
 }
+
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
@@ -5389,3 +5391,4 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
+

@@ -66,6 +66,7 @@
     "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx",
     "test:photo-pages": "TZ=UTC tsx --tsconfig tsconfig.photo-pages.json scripts/verify-photo-pages.tsx",
     "test:app-usage": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-app-usage.tsx",
+    "test:office-insights": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-office-insights.tsx",
     "test:patient-retention": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-patient-retention.tsx",
     "test:idle-timeout": "TZ=UTC tsx --tsconfig tsconfig.idle-timeout.json scripts/verify-idle-timeout.tsx"
   },

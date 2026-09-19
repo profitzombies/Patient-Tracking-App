@@ -5,14 +5,16 @@
  * Reads one office's range metrics + daily series from the API (own office
  * for provider staff, the drilled-in office for HQ), shows engagement,
  * enrollments, outcomes, and check-in adherence for the shared header range,
- * and hosts the office's Exports panel. Financial figures are deliberately
- * absent: there is no live revenue source, so nothing is projected.
+ * hosts the office's "When patients use the app" insights, and its Exports
+ * panel. Financial figures are deliberately absent: there is no live revenue
+ * source, so nothing is projected.
  */
 import { useMemo } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Sparkline } from '@/components/admin/Sparkline';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
+import { LiveOfficeAppUsageInsights } from '@/components/office/OfficeAppUsageInsights';
 import { ExportsPanel, type ExportOfficeOption } from '@/components/exports/ExportsPanel';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { useProviderScope } from '@/contexts/provider-scope';
@@ -220,6 +222,8 @@ export function LiveAnalytics({ liveOffice }: { liveOffice: string | null }) {
           )}
         </Card>
       </div>
+
+      <LiveOfficeAppUsageInsights liveOffice={liveOffice} />
 
       <ExportsPanel pinnedOffice={pinnedOffice} title="Exports" />
     </div>

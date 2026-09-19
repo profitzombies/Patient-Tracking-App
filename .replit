@@ -420,6 +420,14 @@ args = "office-bundle-api"
 task = "workflow.run"
 args = "office-bundle-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-insights-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-insights-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2729,3 +2737,24 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations 
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "office-insights-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/operational-rollups.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-insights-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-insights && pnpm --filter @workspace/thinnr-operations run test:app-usage && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

@@ -1993,6 +1993,31 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: Office unavailable }
+  /office/app-usage-insights:
+    get:
+      operationId: getOfficeAppUsageInsights
+      tags: [office]
+      summary: One practice's app-usage dataset over time, by local weekday and hour, with summary tiles and what changed
+      description: >-
+        The office-scoped twin of the HQ Insights read: the same counts, heatmap, tiles and
+        rule-based changes, pinned to the caller's own office (provider staff) or to the
+        office named by `office` (HQ). Provider staff can never widen the scope.
+      parameters:
+        - name: dataset
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/AppUsageInsightsDataset" }
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Series, heatmap, tiles and rule-based changes for the dataset at this office
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppUsageInsights" } } }
+        "400": { description: Invalid range or dataset (or HQ without an office) }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+        "404": { description: Office unavailable }
   /hq/office-comparison:
     get:
       operationId: getHqOfficeComparison

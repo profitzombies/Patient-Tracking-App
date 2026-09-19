@@ -35,7 +35,11 @@ import {
   buildAccountAnalyticsRange,
   type ScopedAnalyticsRange,
 } from '@/data/hq/scoped-analytics';
+import { demoOfficeAppUsageInsights } from '@/data/hq/app-usage-insights-demo';
 import { useProviderScope } from '@/contexts/provider-scope';
+import type { OperationsDateRange } from '@/lib/date-range-keys';
+import type { AppUsageInsights } from '@workspace/api-client-react';
+import type { InsightsDataset } from '@workspace/app-usage-insights';
 
 export function useScopedPatients(): Patient[] {
   const scope = useProviderScope();
@@ -92,5 +96,23 @@ export function useScopedChangeBadges(): { mrr: string; patients: string; avgLos
     () =>
       (scope && ACCOUNT_CHANGE_BADGES[scope.id]) || { mrr: '+12.4%', patients: '+8.7%', avgLost: '+3.2%' },
     [scope],
+  );
+}
+
+/**
+ * Demo "When patients use the app" insights for the current scope: the
+ * program-wide seed in the standalone office demo, the drilled-in account's
+ * own slice under HQ (the same slice HQ's Insights filter shows for it).
+ */
+export function useScopedAppUsageInsights(dataset: InsightsDataset, range: OperationsDateRange): AppUsageInsights {
+  const scope = useProviderScope();
+  return useMemo(
+    () =>
+      demoOfficeAppUsageInsights(
+        dataset,
+        range,
+        scope ? { id: scope.id, officeName: scope.officeName, activePatientCount: scope.activePatientCount } : null,
+      ),
+    [dataset, range, scope],
   );
 }

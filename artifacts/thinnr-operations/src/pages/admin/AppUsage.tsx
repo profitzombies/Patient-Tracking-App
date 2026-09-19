@@ -269,9 +269,7 @@ function LiveAppUsage() {
           data={insights.data}
           dataset={filters.dataset}
           onDataset={filters.setDataset}
-          offices={offices}
-          office={filters.office}
-          onOffice={filters.setOffice}
+          practice={{ offices, office: filters.office, onOffice: filters.setOffice }}
           rangeLabel={formatRangeLabel(range)}
           onRetry={() => insights.refetch()}
         />
@@ -298,9 +296,7 @@ function DemoAppUsage() {
           data={insights}
           dataset={filters.dataset}
           onDataset={filters.setDataset}
-          offices={DEMO_INSIGHTS_OFFICES}
-          office={filters.office}
-          onOffice={filters.setOffice}
+          practice={{ offices: DEMO_INSIGHTS_OFFICES, office: filters.office, onOffice: filters.setOffice }}
           rangeLabel={formatRangeLabel(range)}
         />
       }

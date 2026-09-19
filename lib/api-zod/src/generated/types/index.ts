@@ -224,6 +224,7 @@ export * from './getOfficeAlertDigestsParams';
 export * from './getOfficeAlertSettingsParams';
 export * from './getOfficeAlertsParams';
 export * from './getOfficeAnalyticsParams';
+export * from './getOfficeAppUsageInsightsParams';
 export * from './getOfficeBillingDashboardParams';
 export * from './getOfficeBundleEstimateParams';
 export * from './getOfficeConversationEventsParams';

@@ -5500,6 +5500,15 @@ end: string;
 office?: OfficeIdParameter;
 };
 
+export type GetOfficeAppUsageInsightsParams = {
+dataset: AppUsageInsightsDataset;
+start: string;
+end: string;
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
 export type GetHqOfficeComparisonParams = {
 start: string;
 end: string;
@@ -5733,4 +5742,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

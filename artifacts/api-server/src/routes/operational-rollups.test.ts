@@ -384,3 +384,88 @@ describe("HQ app usage insights", () => {
     expect((await call(`/hq/app-usage-insights?dataset=app_open&${RANGE}`)).status).toBe(502);
   });
 });
+
+describe("office app usage insights", () => {
+  const RANGE = "start=2026-09-07&end=2026-09-13"; // Mon..Sun
+  const OFFICE = "live-4f2c9a1b0d3e";
+  const bucket = (local_day: string, local_hour: number, events: number, patients = 1) => ({ local_day, local_hour, events, patients });
+  const okScope = (providerId = OFFICE) => ({ kind: "ok", scope: { providerId, officeName: "Lakeside", actorUserId: "a", actorKind: "provider" } });
+
+  it("validates range + dataset before resolving scope or touching the database", async () => {
+    mocks.scope.mockReset();
+    mocks.admin.mockReset();
+    expect((await call(`/office/app-usage-insights?dataset=food_log&start=2026-09-13&end=2026-09-07`)).status).toBe(400);
+    expect((await call(`/office/app-usage-insights?dataset=screen_taps&${RANGE}`)).status).toBe(400);
+    expect((await call(`/office/app-usage-insights?${RANGE}`)).status).toBe(400);
+    expect(mocks.scope).not.toHaveBeenCalled();
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("pins every RPC to the resolved office and never consults a provider lookup", async () => {
+    mocks.scope.mockReset().mockResolvedValue(okScope());
+    const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      calls.push({ path, body });
+      if (path.endsWith("patient_app_event_insights")) {
+        expect(body.p_provider_id).toBe(OFFICE);
+        if (body.p_start === "2026-09-07") return response([bucket("2026-09-08", 12, 10, 4), bucket("2026-09-10", 19, 14, 7), bucket("2026-09-12", -1, 8, 2)]);
+        expect(body).toMatchObject({ p_start: "2026-08-31", p_end: "2026-09-06" });
+        return response([bucket("2026-09-01", 12, 16, 5)]);
+      }
+      if (path.endsWith("patient_app_event_bounds")) {
+        expect(body).toEqual({ p_feature: "food_log", p_provider_id: OFFICE });
+        return response([{ first_day: "2026-08-01", first_hourly_day: "2026-09-08", first_live_at: "2026-09-08T12:00:00Z" }]);
+      }
+      throw new Error(`unexpected ${path}`);
+    });
+    // `office=` is forwarded to the resolver verbatim; the resolver, not the route, decides whether it counts.
+    const res = await call(`/office/app-usage-insights?dataset=food_log&${RANGE}&office=${OFFICE}`);
+    expect(res.status).toBe(200);
+    expect(mocks.scope.mock.calls[0][0]).toMatchObject({ hqPermission: "provider_read", explicitOfficeId: OFFICE, requireUnlocked: false });
+    expect(calls.map((c) => c.path.split("/").pop())).toEqual(expect.arrayContaining(["patient_app_event_insights", "patient_app_event_bounds"]));
+    expect(calls.some((c) => c.path.startsWith("/rest/v1/providers?"))).toBe(false);
+    const json = await res.json() as Record<string, any>;
+    expect(json.office).toEqual({ id: OFFICE, name: "Lakeside" });
+    expect(json.range).toEqual({ start: "2026-09-07", end: "2026-09-13" });
+    expect(json.previousRange).toEqual({ start: "2026-08-31", end: "2026-09-06" });
+    expect(json.totals).toEqual({ current: 32, previous: 16, changePct: 100, patientDays: 13 });
+    expect(json.peak).toEqual({ weekday: 4, hour: 19, count: 14 });
+    expect(json.heatmap).toHaveLength(168);
+    expect(json.hourly.since).toBe("2026-09-08");
+    expect(json.changes[0].text).toBe("Food logs are up 100% vs the previous 7 days (32 vs 16).");
+  });
+
+  it("uses the member's own office when provider staff send no office param", async () => {
+    mocks.scope.mockReset().mockResolvedValue(okScope("live-own"));
+    mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
+      expect(body.p_provider_id).toBe("live-own");
+      if (path.endsWith("patient_app_event_bounds")) return response([{ first_day: null, first_hourly_day: null, first_live_at: null }]);
+      return response([]);
+    });
+    const res = await call(`/office/app-usage-insights?dataset=order&${RANGE}`);
+    expect(res.status).toBe(200);
+    expect(mocks.scope.mock.calls[0][0]).toMatchObject({ explicitOfficeId: null });
+    const json = await res.json() as Record<string, any>;
+    expect(json.office).toEqual({ id: "live-own", name: "Lakeside" });
+    expect(json.changes[0].text).toBe("No orders were recorded in this range for Lakeside.");
+  });
+
+  it("passes scope denials straight through without touching the database", async () => {
+    mocks.admin.mockReset();
+    for (const denied of [
+      { kind: "denied", status: 400, message: "Choose an office before managing its patients.", code: "office_required" },
+      { kind: "denied", status: 403, message: "This office's account is locked. Contact THINNR support." },
+      { kind: "denied", status: 404, message: "Office not found." },
+    ]) {
+      mocks.scope.mockReset().mockResolvedValue(denied);
+      expect((await call(`/office/app-usage-insights?dataset=app_open&${RANGE}`)).status).toBe(denied.status);
+    }
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("answers 502 when the database refuses instead of showing zeroes", async () => {
+    mocks.scope.mockReset().mockResolvedValue(okScope());
+    mocks.admin.mockReset().mockResolvedValue(response({}, 500));
+    expect((await call(`/office/app-usage-insights?dataset=app_open&${RANGE}`)).status).toBe(502);
+  });
+});

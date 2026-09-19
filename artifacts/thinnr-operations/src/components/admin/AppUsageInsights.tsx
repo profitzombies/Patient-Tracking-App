@@ -1,5 +1,5 @@
 /**
- * HQ App usage — Insights section.
+ * App usage — Insights section ("When patients use the app").
  *
  * One dataset at a time (chips): the daily series with the same-length
  * previous period dashed behind it, a weekday × local-hour heatmap with a
@@ -8,6 +8,10 @@
  * engine (live API or demo seed) — this file only draws it. Readouts show
  * only while the pointer or keyboard is on a chart; nothing is pinned at
  * rest.
+ *
+ * Office-agnostic: HQ passes a `practice` selector (all practices or one);
+ * the office analytics page passes none, because its scope is already the
+ * one practice the caller belongs to (or HQ drilled into).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
@@ -35,14 +39,20 @@ export interface InsightsOfficeOption {
 
 export type InsightsViewState = 'loading' | 'error' | 'ready';
 
+/** HQ-only practice filter: "All practices" plus one option per enabled office. */
+export interface InsightsPracticeSelector {
+  offices: InsightsOfficeOption[];
+  office: string | null;
+  onOffice: (office: string | null) => void;
+}
+
 interface AppUsageInsightsSectionProps {
   state: InsightsViewState;
   data: AppUsageInsights | undefined;
   dataset: InsightsDataset;
   onDataset: (dataset: InsightsDataset) => void;
-  offices: InsightsOfficeOption[];
-  office: string | null;
-  onOffice: (office: string | null) => void;
+  /** Omit on office-scoped pages: the section then has no practice selector. */
+  practice?: InsightsPracticeSelector;
   rangeLabel: string;
   onRetry?: () => void;
 }
@@ -53,11 +63,12 @@ function longDay(key: string): string {
   return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-export function AppUsageInsightsSection({ state, data, dataset, onDataset, offices, office, onOffice, rangeLabel, onRetry }: AppUsageInsightsSectionProps) {
+export function AppUsageInsightsSection({ state, data, dataset, onDataset, practice, rangeLabel, onRetry }: AppUsageInsightsSectionProps) {
   const loading = state === 'loading';
   const failed = state === 'error';
   const meta = INSIGHTS_DATASETS.find((d) => d.key === dataset) ?? INSIGHTS_DATASETS[0];
-  const officeName = office ? offices.find((o) => o.id === office)?.name ?? null : null;
+  // Only the HQ filter names the practice in the chart caption; an office page is already about that office.
+  const officeName = practice?.office ? practice.offices.find((o) => o.id === practice.office)?.name ?? null : null;
 
   const chart = useMemo(() => {
     if (!data) return null;
@@ -89,22 +100,24 @@ export function AppUsageInsightsSection({ state, data, dataset, onDataset, offic
             Pick what to look at. Times are each patient's local time; the previous period is the same number of days immediately before {rangeLabel}.
           </p>
         </div>
-        <label className="block min-w-[200px]">
-          <span className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Practice</span>
-          <select
-            data-testid="select-insights-office"
-            className={`${INPUT_CLASS} mt-1 h-9 w-full`}
-            value={office ?? ''}
-            onChange={(event) => onOffice(event.target.value === '' ? null : event.target.value)}
-          >
-            <option value="">All practices</option>
-            {offices.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {practice && (
+          <label className="block min-w-[200px]">
+            <span className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">Practice</span>
+            <select
+              data-testid="select-insights-office"
+              className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+              value={practice.office ?? ''}
+              onChange={(event) => practice.onOffice(event.target.value === '' ? null : event.target.value)}
+            >
+              <option value="">All practices</option>
+              {practice.offices.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Dataset" data-testid="group-insights-datasets">

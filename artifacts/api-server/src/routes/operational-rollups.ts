@@ -596,4 +596,49 @@ router.get("/hq/app-usage-insights", requireHqPermission("analytics_read"), asyn
   }
 });
 
+/**
+ * Office Insights: the same dataset / range / heatmap / tiles / what-changed
+ * as the HQ read, pinned to ONE practice by the office-scope resolver (own
+ * office for provider staff; `?office=` for HQ drilling in). Provider staff
+ * can never widen the scope — the office id comes from their membership.
+ */
+router.get("/office/app-usage-insights", async (req, res) => {
+  const query = req.query as Record<string, unknown>;
+  const range = parseRange(query);
+  if (!range) {
+    res.status(400).json({ error: RANGE_ERROR });
+    return;
+  }
+  if (!isInsightsDataset(query.dataset)) {
+    res.status(400).json({ error: INSIGHTS_DATASET_ERROR });
+    return;
+  }
+  const dataset = query.dataset;
+  try {
+    const resolved = await resolveOfficeScope({
+      authorization: req.headers.authorization,
+      request: req,
+      explicitOfficeId: typeof query.office === "string" ? query.office : null,
+      hqPermission: "provider_read",
+      requireUnlocked: false,
+    });
+    if (resolved.kind !== "ok") {
+      respondOfficeScopeDenied(req, res, resolved);
+      return;
+    }
+    const providerId = resolved.scope.providerId;
+    const office = { id: providerId, name: resolved.scope.officeName };
+    const previous = previousRangeOf(range);
+    const [current, prior, bounds] = await Promise.all([
+      loadInsightBuckets(dataset, range, providerId),
+      loadInsightBuckets(dataset, previous, providerId),
+      loadInsightBounds(dataset, providerId),
+    ]);
+    res.json(assembleInsights({ dataset, range, asOf: new Date().toISOString(), office, bounds, current, previous: prior }));
+  } catch (error) {
+    req.log?.error({ err: error }, "office app usage insights failed");
+    res.status(502).json({ error: "Could not load app usage insights right now." });
+  }
+});
+
 export default router;

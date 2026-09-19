@@ -4,6 +4,7 @@ import { getRangeDayCount } from '@/data/analytics-range';
 import { useScopedAnalyticsRange, useScopedProviders } from '@/data/scoped-data';
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { LiveAnalytics, useLiveAnalyticsScope } from '@/components/office/LiveAnalytics';
+import { DemoOfficeAppUsageInsights } from '@/components/office/OfficeAppUsageInsights';
 
 const formatDelta = (value: number) => `${value > 0 ? '+' : ''}${value.toFixed(1)}%`;
 
@@ -254,6 +255,8 @@ function DemoAnalytics() {
           </div>
         </Card>
       </div>
+
+      <DemoOfficeAppUsageInsights />
     </div>
   );
 }

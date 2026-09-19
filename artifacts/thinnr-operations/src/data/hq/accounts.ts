@@ -10,7 +10,7 @@ import { MOCK_ANALYTICS } from '../mock-data';
 import { formatDateKey } from '../nutrition-data';
 import { usStateName } from '../../lib/us-contact';
 
-export type AccountStatus = 'active' | 'needs_setup' | 'locked';
+export type AccountStatus = 'active' | 'needs_setup' | 'locked' | 'offboarding' | 'offboarded';
 export type AccountPlan = 'Core' | 'Plus' | 'Concierge';
 
 export interface ProviderAccount {
@@ -42,6 +42,11 @@ export interface ProviderAccount {
   avgPoundsLost: number | null;
   goalCompletion: number | null;
   retention: number | null;
+  offboarding: {
+    status: 'active' | 'offboarding' | 'offboarded';
+    startedAt: string | null;
+    offboardedAt: string | null;
+  } | null;
 }
 
 export interface ProviderPatient {
@@ -78,6 +83,8 @@ export const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
   active: 'Active',
   needs_setup: 'Needs setup',
   locked: 'Disabled',
+  offboarding: 'Offboarding',
+  offboarded: 'Offboarded',
 };
 
 const digitsOf = (value: string) => value.replace(/\D+/g, '');

@@ -2632,6 +2632,121 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionResult" } } }
         "404": { description: Deletion request not found }
         "409": { description: Only a failed purge can be retried }
+  /provider-accounts/{id}/offboarding:
+    get:
+      operationId: getOfficeOffboarding
+      tags: [hq]
+      summary: Offboarding state of one office (stepper position, bundle, hand-over record, seal progress)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Current state
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "404": { description: Office not found }
+  /provider-accounts/{id}/offboarding/start:
+    post:
+      operationId: startOfficeOffboarding
+      tags: [hq]
+      summary: Step 1 — disable every staff sign-in of the office (idempotent; audited; fresh code required)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Already offboarding
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "201":
+          description: Offboarding started
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "404": { description: Office not found }
+  /provider-accounts/{id}/offboarding/bundle:
+    post:
+      operationId: requestOfficeOffboardingBundle
+      tags: [hq]
+      summary: Step 2 — generate the whole-office record bundle (idempotent while one is queued, running or ready)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: false
+        content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingBundleInput" } } }
+      responses:
+        "200":
+          description: A bundle already exists
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "202":
+          description: Bundle queued
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "409": { description: Step 1 has not run }
+  /provider-accounts/{id}/offboarding/bundle/download-url:
+    get:
+      operationId: getOfficeOffboardingBundleDownloadUrl
+      tags: [hq]
+      summary: Short-lived download link for one part of the offboarding bundle (audited)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: part, in: query, schema: { type: number } }
+      responses:
+        "200":
+          description: Signed link
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingDownloadUrl" } } }
+        "404": { description: No bundle or no such part }
+        "409": { description: Bundle not ready }
+        "410": { description: Bundle expired }
+  /provider-accounts/{id}/offboarding/handover:
+    post:
+      operationId: recordOfficeOffboardingHandover
+      tags: [hq]
+      summary: Step 3 — record who received the bundle, when, and the office's written retain-or-destroy choice (re-recordable until sealing starts)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingHandoverInput" } } }
+      responses:
+        "200":
+          description: Hand-over recorded
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "400": { description: Invalid hand-over form }
+        "409": { description: Bundle not ready or seal already started }
+  /provider-accounts/{id}/offboarding/seal:
+    post:
+      operationId: sealOfficeOffboarding
+      tags: [hq]
+      summary: Step 4 — seal every chart through the account-closure primitive (leased job; blocked by an office legal hold; idempotent once started)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Seal already started
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "202":
+          description: Seal started
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "409": { description: Earlier step missing or legal hold (code legal_hold) }
+  /provider-accounts/{id}/offboarding/complete:
+    post:
+      operationId: completeOfficeOffboarding
+      tags: [hq]
+      summary: Step 5 — mark the office offboarded (requires a finished seal with nothing held and no office hold)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Offboarded
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "409": { description: Seal incomplete (code seal_incomplete) or legal hold (code legal_hold) }
+  /provider-accounts/{id}/offboarding/certificate.csv:
+    get:
+      operationId: getOfficeDestructionCertificate
+      tags: [hq]
+      summary: Destruction certificate — CSV of the office's purge tombstones with counts and dates (available once offboarded; audited)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: CSV
+          content: { text/csv: { schema: { type: string } } }
+        "409": { description: Office not offboarded yet }
   /hq/legal-holds:
     get:
       operationId: getHqLegalHolds
@@ -5336,6 +5451,97 @@ components:
         liftedByName: { type: ["string", "null"] }
         liftReason: { type: ["string", "null"] }
         active: { type: boolean }
+    OfficeOffboardingStatus:
+      type: string
+      enum: [active, offboarding, offboarded]
+    OfficeOffboardingStep:
+      type: string
+      enum: [start, bundle, handover, seal, complete]
+    OfficeOffboardingSealProgress:
+      type: object
+      required: [total, sealed, held, pending, failed, destroyed]
+      properties:
+        total: { type: number }
+        sealed: { type: number }
+        held: { type: number }
+        pending: { type: number }
+        failed: { type: number }
+        destroyed: { type: number }
+    OfficeOffboardingHandover:
+      type: object
+      required: [receivedBy, receivedOn, choice, letterReference, note, recordedAt, recordedBy]
+      properties:
+        receivedBy: { type: string }
+        receivedOn: { type: string, description: Calendar date YYYY-MM-DD }
+        choice: { type: string, enum: [retain, destroy] }
+        letterReference: { type: string }
+        note: { type: string }
+        recordedAt: { type: string }
+        recordedBy: { type: ["string", "null"] }
+    OfficeOffboarding:
+      type: object
+      required: [providerId, officeName, status, nextStep, legalHold, destroyAfterDays, started, bundle, handover, seal, offboardedAt, certificateAvailable]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        status: { $ref: "#/components/schemas/OfficeOffboardingStatus" }
+        nextStep:
+          oneOf:
+            - $ref: "#/components/schemas/OfficeOffboardingStep"
+            - type: "null"
+        legalHold: { type: boolean }
+        destroyAfterDays: { type: number }
+        started:
+          type: ["object", "null"]
+          required: [at, by, sessionsRevoked]
+          properties:
+            at: { type: string }
+            by: { type: ["string", "null"] }
+            sessionsRevoked: { type: number }
+        bundle:
+          oneOf:
+            - $ref: "#/components/schemas/ExportJob"
+            - type: "null"
+        handover:
+          oneOf:
+            - $ref: "#/components/schemas/OfficeOffboardingHandover"
+            - type: "null"
+        seal:
+          type: ["object", "null"]
+          required: [startedAt, retainUntil, completedAt, progress]
+          properties:
+            startedAt: { type: string }
+            retainUntil: { type: ["string", "null"], description: Null means the clinical retention policy applies }
+            completedAt: { type: ["string", "null"] }
+            progress: { $ref: "#/components/schemas/OfficeOffboardingSealProgress" }
+        offboardedAt: { type: ["string", "null"] }
+        certificateAvailable: { type: boolean }
+    OfficeOffboardingResult:
+      type: object
+      required: [offboarding]
+      properties:
+        offboarding: { $ref: "#/components/schemas/OfficeOffboarding" }
+    OfficeOffboardingBundleInput:
+      type: object
+      properties:
+        includeTombstones: { type: boolean }
+    OfficeOffboardingHandoverInput:
+      type: object
+      required: [receivedBy, receivedOn, choice, letterReference]
+      properties:
+        receivedBy: { type: string, maxLength: 200 }
+        receivedOn: { type: string, description: Calendar date YYYY-MM-DD }
+        choice: { type: string, enum: [retain, destroy] }
+        letterReference: { type: string, maxLength: 500 }
+        note: { type: string, maxLength: 2000 }
+    OfficeOffboardingDownloadUrl:
+      type: object
+      required: [url, fileName, expiresInSeconds, part]
+      properties:
+        url: { type: string }
+        fileName: { type: ["string", "null"] }
+        expiresInSeconds: { type: number }
+        part: { type: ["number", "null"] }
     HqLegalHoldsResult:
       type: object
       required: [holds, activeCount]

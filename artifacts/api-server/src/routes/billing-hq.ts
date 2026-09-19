@@ -278,7 +278,7 @@ router.get("/billing/hq/catalog/changes", requireHqPermission("financial_read"),
 
 type Provider = { provider_id: string; office_name: string | null; provider_name: string | null; email?: string | null; phone?: string | null };
 async function providers(): Promise<Provider[]> {
-  const result = await supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,office_name,provider_name,email,phone&access_disabled=neq.true&limit=1000");
+  const result = await supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,office_name,provider_name,email,phone&access_disabled=neq.true&offboarding_status=neq.offboarded&limit=1000");
   if (result.status >= 300) throw new Error("provider list failed");
   return Array.isArray(result.json) ? result.json : [];
 }

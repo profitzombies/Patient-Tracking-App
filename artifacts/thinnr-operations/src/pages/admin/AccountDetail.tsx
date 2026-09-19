@@ -27,6 +27,7 @@ import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText }
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
+import { OfficeOffboarding } from '@/components/admin/OfficeOffboarding';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
@@ -350,6 +351,10 @@ export default function AccountDetail() {
       {/* Legal hold: HQ-only, outranks every retention timer for this office's patients. */}
       <div className="mb-5">
         <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
+      </div>
+
+      <div className="mb-5">
+        <OfficeOffboarding officeId={account.id} />
       </div>
 
       <div className="mb-5">

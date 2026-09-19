@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const LIFECYCLE = path.resolve(here, "../../../../supabase/migrations/20260928000000_patient_privacy_lifecycle.sql");
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_legal_holds.sql");
+const OFFBOARDING = path.resolve(here, "../../../../supabase/migrations/20261109000000_office_offboarding.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -41,7 +42,7 @@ create table public.patients (
   id uuid primary key, provider_id text not null references public.providers(provider_id),
   auth_user_id uuid, first_name text, last_name text, email text, phone text,
   activation_status text not null default 'activated', program_id text, program_start_date date,
-  archived_at timestamptz, created_at timestamptz not null default now());
+  archived_at timestamptz, created_at timestamptz not null default now(), record_retain_until timestamptz, closed_at timestamptz);
 create function private.guard_patient_dependency_write() returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   if not exists (select 1 from public.patients p where p.id = new.patient_id) then raise exception 'cannot attach data to an unknown patient'; end if;
@@ -127,7 +128,7 @@ const lift = (id: string) => psql(`select public.legal_hold_lift('${id}', 'Matte
 
 function seed() {
   psql(`
-    truncate public.legal_holds, public.patient_deletion_requests, public.patient_chat_messages, public.patient_chat_conversations,
+    truncate public.legal_holds, public.provider_offboardings, public.patient_deletion_requests, public.patient_chat_messages, public.patient_chat_conversations,
       public.patient_media, public.patient_notifications, public.admin_audit_events, public.admin_audit_event_archives,
       public.staff_notifications, public.office_attention_digests, public.system_job_item_failures, public.system_job_runs,
       public.auth_sign_ins, public.billing_webhook_events, public.billing_payers, public.billing_connected_accounts,
@@ -152,7 +153,13 @@ describe.skipIf(!POSTGRES_AVAILABLE)("legal holds SQL (real PostgreSQL)", () => 
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, LIFECYCLE, MIGRATION]) {
+    // Account closure adds the closed_at / retain columns the offboarding RPCs read.
+    writeFileSync(path.join(dir, "closure-columns.sql"), [
+      "alter table public.patient_deletion_requests add column if not exists closed_at timestamptz, add column if not exists retain_until timestamptz;",
+      "alter table public.patient_deletion_requests drop constraint if exists patient_deletion_requests_status_check;",
+      "alter table public.patient_deletion_requests add constraint patient_deletion_requests_status_check check (status in ('pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed'));",
+    ].join("\n"));
+    for (const file of [schemaFile, LIFECYCLE, MIGRATION, path.join(dir, "closure-columns.sql"), OFFBOARDING]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -300,5 +307,36 @@ describe.skipIf(!POSTGRES_AVAILABLE)("legal holds SQL (real PostgreSQL)", () => 
     expect(count("auth_sign_ins", `user_id = '${USER_HELD}'`)).toBe(2);
     expect(scalar<number>(`select public.retention_trim_billing_webhook_events(${CUTOFF}, 100, false)`)).toBe(2);
     expect(rows<{ id: string }>(`select stripe_event_id as id from public.billing_webhook_events order by 1`).map((r) => r.id)).toEqual(["evt_office_held", "evt_patient_held"]);
+  });
+  it("office offboarding: seal batch respects office and patient holds, is idempotent, pins retain-until, and the claim RPC leases only that office", () => {
+    const seal = (retain = "null") => scalar<number>(`select public.office_offboarding_seal_batch('office-1', ${retain}, 200)`);
+    for (const grantee of ["anon", "authenticated"]) {
+      for (const fn of ["public.office_offboarding_patients(text)", "public.office_offboarding_seal_batch(text,timestamptz,integer)",
+        "public.office_offboarding_progress(text)", "public.claim_office_patient_deletions(text,text,integer,integer)"]) {
+        expect(scalar<boolean>(`select has_function_privilege('${grantee}', '${fn}', 'execute')`), `${grantee} ${fn}`).toBe(false);
+      }
+      expect(rows(`select 1 from information_schema.role_table_grants where table_name = 'provider_offboardings' and grantee = '${grantee}'`)).toEqual([]);
+    }
+    const officeHold = held("provider", "office-1");
+    expect(() => seal()).toThrow(/legal hold/);
+    expect(count("patient_deletion_requests")).toBe(0);
+    lift(officeHold);
+    held("patient", HELD);
+    expect(seal("'2026-12-01T00:00:00Z'")).toBe(2);
+    expect(seal("'2026-12-01T00:00:00Z'")).toBe(0);
+    expect(count("patient_deletion_requests")).toBe(2);
+    expect(rows<{ status: string }>(`select status from public.patient_deletion_requests where patient_id = '${HELD}'`)[0].status).toBe("held");
+    expect(rows<{ status: string }>(`select status from public.patient_deletion_requests where patient_id = '${FREE}'`)[0].status).toBe("pending");
+    expect(rows<{ n: number }>(`select count(*)::int as n from public.patients where provider_id = 'office-1' and record_retain_until = '2026-12-01T00:00:00Z'`)[0].n).toBe(2);
+    expect(rows<{ patient_id: string; held: boolean }>(`select patient_id, held from public.office_offboarding_patients('office-1')`)).toEqual(
+      expect.arrayContaining([{ patient_id: HELD, held: true }, { patient_id: FREE, held: false }]));
+    const progress = rows<Record<string, number>>(`select * from public.office_offboarding_progress('office-1')`)[0];
+    expect({ ...progress }).toMatchObject({ total: 2, sealed: 0, held: 1, pending: 1, failed: 0, destroyed: 0 });
+    // Only office-1's due request is leased; a second claimant gets nothing while the lease holds.
+    const claimed = rows<{ patient_id: string; status: string; lease_owner: string }>(`select patient_id, status, lease_owner from public.claim_office_patient_deletions('office-1', 'worker-a', 10, 600)`);
+    expect(claimed).toEqual([{ patient_id: FREE, status: "closing", lease_owner: "worker-a" }]);
+    expect(rows(`select 1 from public.claim_office_patient_deletions('office-1', 'worker-b', 10, 600)`)).toEqual([]);
+    expect(rows(`select 1 from public.claim_office_patient_deletions('office-2', 'worker-b', 10, 600)`)).toEqual([]);
+    expect(() => psql(`select public.claim_office_patient_deletions('office-1', '', 10, 600)`)).toThrow(/lease owner/);
   });
 });

@@ -23,6 +23,7 @@
 import { Router } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { OFFICE_STATUS_COLUMNS, officeIsActive } from "../lib/office-status";
 import {
   buildLeaderboard,
   LEADERBOARD_DEFINITIONS,
@@ -45,6 +46,7 @@ interface OfficeRow {
   office_name: string | null;
   provider_name: string | null;
   access_disabled: boolean | null;
+  offboarding_status?: string | null;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -167,7 +169,7 @@ router.get("/office/leaderboard", async (req, res) => {
       }),
       supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?${providerFilter}status=in.(pending,held)&select=patient_id&limit=5000`),
       target.kind === "all"
-        ? supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,office_name,provider_name,access_disabled&order=office_name.asc.nullslast,provider_id.asc&limit=2000")
+        ? supabaseAdmin("GET", `/rest/v1/providers?select=provider_id,office_name,provider_name,${OFFICE_STATUS_COLUMNS}&order=office_name.asc.nullslast,provider_id.asc&limit=2000`)
         : Promise.resolve({ status: 200, json: [] as OfficeRow[] }),
     ]);
     if (patientsRes.status >= 300) throw new Error(`leaderboard patients load failed (${patientsRes.status})`);
@@ -178,8 +180,8 @@ router.get("/office/leaderboard", async (req, res) => {
     const offices = new Map<string, { providerId: string; officeName: string }>();
     if (target.kind === "all") {
       for (const row of Array.isArray(officesRes.json) ? (officesRes.json as OfficeRow[]) : []) {
-        // Disabled offices fail closed everywhere else; keep them off the board too.
-        if (row.access_disabled === true) continue;
+        // Disabled and offboarding/offboarded offices fail closed everywhere else; keep them off the board too.
+        if (!officeIsActive(row)) continue;
         offices.set(row.provider_id, { providerId: row.provider_id, officeName: row.office_name?.trim() || row.provider_name?.trim() || row.provider_id });
       }
     } else {

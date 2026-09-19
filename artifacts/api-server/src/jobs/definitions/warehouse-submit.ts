@@ -13,6 +13,7 @@
 import { selectMany, selectOne } from "../../billing/store";
 import { HELD_PREFIX, submitOne, type SubmissionDeps } from "../../billing/warehouse-submissions";
 import { warehouseTenantMode } from "../../shipping/warehousecraft";
+import { loadInactiveOfficeIds } from "../../lib/office-status";
 import type { JobContext, JobDefinition } from "../types";
 
 const MINUTE_MS = 60_000;
@@ -22,6 +23,8 @@ export const MAX_BATCHES = 5;
 export interface WarehouseSubmitDeps extends SubmissionDeps {
   /** Overrides the kill-switch read (tests). */
   autoSubmit?: () => Promise<boolean>;
+  /** Overrides the offboarding/offboarded office scan (tests). */
+  inactiveOffices?: () => Promise<Set<string>>;
 }
 
 async function readAutoSubmit(): Promise<boolean> {
@@ -42,10 +45,15 @@ export async function runWarehouseSubmit(ctx: JobContext, deps: WarehouseSubmitD
   // Rows already held for the live tenant cannot change verdict until the mode flips, so
   // while the connection is still in test mode they stay out of the batch budget entirely.
   const heldFilter = tenantMode === "test" ? `&or=(last_error.is.null,last_error.not.like.${encodeURIComponent(`${HELD_PREFIX}*`)})` : "";
+  // Orders of an office leaving THINNR never reach the warehouse from here; HQ settles them by hand.
+  const inactiveOffices = await (deps.inactiveOffices ?? loadInactiveOfficeIds)();
+  const offboardedFilter = inactiveOffices.size
+    ? `&provider_id=not.in.(${[...inactiveOffices].map((id) => encodeURIComponent(`"${id}"`)).join(",")})`
+    : "";
   for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
     ctx.checkpoint();
     const due = await selectMany("billing_warehouse_submissions",
-      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}${heldFilter}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
+      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}${heldFilter}${offboardedFilter}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
     if (!due.length) break;
     ctx.tally("due", due.length);
     if (ctx.dryRun) { ctx.tally("wouldSubmit", due.length); break; }

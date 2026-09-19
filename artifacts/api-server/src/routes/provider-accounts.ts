@@ -11,6 +11,7 @@ import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { sendProviderClaimInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { offboardingStatusOf } from "../lib/office-status";
 
 const router: IRouter = Router();
 
@@ -110,9 +111,9 @@ const AccountInput = z.object({
 });
 
 const PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at";
 const SUPPORT_PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at,offboarding_status,offboarding_started_at,offboarded_at";
 
 function enc(value: string): string {
   return encodeURIComponent(value);
@@ -172,6 +173,9 @@ async function loadAccounts(supportOnly = false) {
 
   const mapProvider = (row: Record<string, unknown>) => {
     const id = String(row.provider_id);
+    // Offboarding wins over every other state: the office is leaving (or has
+    // left) THINNR, so a lock or a missing sign-in is no longer the headline.
+    const offboarding = offboardingStatusOf(row.offboarding_status);
     return {
       id,
       providerId: id,
@@ -180,11 +184,18 @@ async function loadAccounts(supportOnly = false) {
       providerRole: row.provider_role ? String(row.provider_role) : "—",
       providerCode: effectiveProviderCode(row.onboarding_code, row.provider_id),
       status:
-        row.access_disabled === true || lockMap.has(id)
-          ? "locked"
-          : row.auth_user_id
-            ? "active"
-            : "needs_setup",
+        offboarding !== "active"
+          ? offboarding
+          : row.access_disabled === true || lockMap.has(id)
+            ? "locked"
+            : row.auth_user_id
+              ? "active"
+              : "needs_setup",
+      offboarding: {
+        status: offboarding,
+        startedAt: typeof row.offboarding_started_at === "string" ? row.offboarding_started_at : null,
+        offboardedAt: typeof row.offboarded_at === "string" ? row.offboarded_at : null,
+      },
       plan: row.plan ? String(row.plan) : null,
       address1: row.address_line_1 ? String(row.address_line_1) : "",
       address2: row.address_line_2 ? String(row.address_line_2) : "",
@@ -226,6 +237,7 @@ export function supportProviderAccountDto(account: Record<string, unknown>) {
     providerName: account.providerName,
     providerRole: account.providerRole,
     status: account.status,
+    offboarding: account.offboarding,
     email: account.email,
     phone: account.phone,
     address1: account.address1,

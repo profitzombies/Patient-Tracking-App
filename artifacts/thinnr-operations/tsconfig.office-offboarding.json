@@ -1,0 +1,21 @@
+{
+  // tsx config for scripts/verify-office-offboarding.tsx only.
+  // Real pages and components render under react-test-renderer with the same
+  // DOM-free Radix and context stubs as the legal-holds suite.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/contexts/account-locks": ["./scripts/a11y-stubs/account-locks.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
+      "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],
+      "@/components/ui/calendar": ["./scripts/office-admin-stubs/calendar.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

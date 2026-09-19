@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { loadInactiveOfficeIds } from "../lib/office-status";
 import { inboxMetrics } from "./staff-conversations";
 import {
   assembleInsights,
@@ -150,15 +151,22 @@ export function seriesPointDto(row: Record<string, unknown>) {
 export type SeriesPointDto = ReturnType<typeof seriesPointDto>;
 
 export async function loadOfficeRollups(providerId: string | null, range: DateRangeKeys): Promise<OfficeRollupDto[]> {
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/nonfinancial_office_rollup", {
-    p_provider_id: providerId,
-    p_start: range.start,
-    p_end: range.end,
-  });
+  const [result, inactiveOffices] = await Promise.all([
+    supabaseAdmin("POST", "/rest/v1/rpc/nonfinancial_office_rollup", {
+      p_provider_id: providerId,
+      p_start: range.start,
+      p_end: range.end,
+    }),
+    // The rollup only knows access_disabled (set once an office is fully
+    // offboarded); offices mid-offboarding leave the comparison here.
+    providerId === null ? loadInactiveOfficeIds() : Promise.resolve(new Set<string>()),
+  ]);
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`office rollup failed (${result.status})`);
   }
-  return (result.json as Record<string, unknown>[]).map((row) => officeRollupDto(row, range));
+  return (result.json as Record<string, unknown>[])
+    .filter((row) => !inactiveOffices.has(String(row.provider_id)))
+    .map((row) => officeRollupDto(row, range));
 }
 
 export async function loadOfficeSeries(providerId: string | null, range: DateRangeKeys): Promise<Map<string, SeriesPointDto[]>> {

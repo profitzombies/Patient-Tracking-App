@@ -122,6 +122,7 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
     avgPoundsLost: account.avgPoundsLost ?? null,
     goalCompletion: account.goalCompletion ?? null,
     retention: account.retention ?? null,
+    offboarding: account.offboarding ?? null,
   };
 }
 

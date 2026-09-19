@@ -90,11 +90,17 @@ export function PreviewBanner({ children }: { children: ReactNode }) {
   );
 }
 
-export function AccountStatusChip({ status }: { status: 'active' | 'needs_setup' | 'locked' }) {
+export function AccountStatusChip({ status }: { status: 'active' | 'needs_setup' | 'locked' | 'offboarding' | 'offboarded' }) {
   return status === 'active' ? (
     <span className={CHIP_COBALT}>Active</span>
   ) : status === 'locked' ? (
     <span className={CHIP_RISK}>Disabled</span>
+  ) : status === 'offboarding' ? (
+    <span className={CHIP_WARM}>Offboarding</span>
+  ) : status === 'offboarded' ? (
+    <span className="inline-flex items-center rounded-sm border border-border bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">
+      Offboarded
+    </span>
   ) : (
     <span className={CHIP_WARM}>Needs setup</span>
   );

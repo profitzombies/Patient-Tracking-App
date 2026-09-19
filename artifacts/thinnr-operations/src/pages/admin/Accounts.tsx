@@ -38,6 +38,7 @@ import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPo
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
+type StatusFilter = 'active' | 'offboarded' | 'all';
 
 const EMPTY_FORM = {
   officeName: '',
@@ -62,13 +63,29 @@ export default function Accounts() {
   // ?q= is the single source of truth for the directory search — the input's
   // value IS the parsed param, so reloads and shared URLs restore the view.
   const searchString = useSearch();
-  const query = new URLSearchParams(searchString).get('q') ?? '';
-  const setQuery = (next: string) => {
+  const searchParams = new URLSearchParams(searchString);
+  const query = searchParams.get('q') ?? '';
+  const requestedStatus = searchParams.get('status');
+  const statusFilter: StatusFilter = requestedStatus === 'all' || requestedStatus === 'offboarded'
+    ? requestedStatus
+    : 'active';
+  const updateParams = (update: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchString);
-    if (next) params.set('q', next);
-    else params.delete('q');
+    update(params);
     const encoded = params.toString();
     navigate(encoded ? `/admin/accounts?${encoded}` : '/admin/accounts', { replace: true });
+  };
+  const setQuery = (next: string) => {
+    updateParams((params) => {
+      if (next) params.set('q', next);
+      else params.delete('q');
+    });
+  };
+  const setStatusFilter = (next: StatusFilter) => {
+    updateParams((params) => {
+      if (next === 'active') params.delete('status');
+      else params.set('status', next);
+    });
   };
 
   // Corpora build once per directory load; matching is per keystroke.
@@ -80,8 +97,12 @@ export default function Accounts() {
     [accounts, isLocked],
   );
   const visibleAccounts = useMemo(
-    () => searchableAccounts.filter(({ haystack }) => accountMatchesQuery(haystack, query)).map(({ account }) => account),
-    [searchableAccounts, query],
+    () => searchableAccounts
+      .filter(({ account }) => statusFilter === 'all'
+        || (statusFilter === 'offboarded' ? account.status === 'offboarded' : account.status !== 'offboarded'))
+      .filter(({ haystack }) => accountMatchesQuery(haystack, query))
+      .map(({ account }) => account),
+    [searchableAccounts, query, statusFilter],
   );
 
   const [open, setOpen] = useState(false);
@@ -192,29 +213,41 @@ export default function Accounts() {
           )
         }
         action={
-          <div className="relative w-full sm:w-72">
-            <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <input
-              type="text"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search offices, providers, codes"
-              aria-label="Search accounts by office, provider, role, code, phone, email, address, plan, or status"
-              autoComplete="off"
-              data-testid="input-account-search"
-              className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground shadow-xs outline-none placeholder:text-muted-foreground/80 focus:ring-2 focus:ring-ring"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                aria-label="Clear account search"
-                data-testid="button-clear-account-search"
-                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
-            )}
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
+              <SelectTrigger className="h-9 w-[132px] text-xs" aria-label="Filter accounts by status" data-testid="select-account-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="offboarded">Offboarded</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="relative w-full sm:w-72">
+              <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search offices, providers, codes"
+                aria-label="Search accounts by office, provider, role, code, phone, email, address, plan, or status"
+                autoComplete="off"
+                data-testid="input-account-search"
+                className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground shadow-xs outline-none placeholder:text-muted-foreground/80 focus:ring-2 focus:ring-ring"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear account search"
+                  data-testid="button-clear-account-search"
+                  className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-sm text-muted-foreground transition hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         }
       >
@@ -283,6 +316,12 @@ export default function Accounts() {
                   <td className="px-5 py-3">
                     <b className="block text-xs font-semibold text-navy">{account.officeName}</b>
                      <small className="text-[10px] text-muted-foreground">{[account.city, account.state ? usStateName(account.state) : ''].filter(Boolean).join(', ') || '—'}</small>
+                    {statusFilter === 'offboarded' && account.offboarding && (
+                      <small className="mt-0.5 block text-[10px] text-muted-foreground">
+                        Started {account.offboarding.startedAt ? new Date(account.offboarding.startedAt).toLocaleDateString('en-US') : '—'}
+                        {' · '}Offboarded {account.offboarding.offboardedAt ? new Date(account.offboarding.offboardedAt).toLocaleDateString('en-US') : '—'}
+                      </small>
+                    )}
                   </td>
                   <td className="px-3 py-3">
                     <span className="block text-foreground">{account.providerName}</span>

@@ -27,6 +27,7 @@
 import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { supabaseAdmin, fetchAuthUser } from "../lib/supabase-admin";
+import { loadOfficeOffboardingStatus, PROGRAM_ENDED_MESSAGE } from "../lib/office-status";
 import { requestIdOf } from "../lib/admin-audit";
 import {
   afterRecoveryCompleted,
@@ -864,6 +865,16 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
     } else if (profileRow) {
       kind = "demo_patient";
       name = profileRow.display_name ?? null;
+    }
+
+    // A patient of an office that is leaving THINNR cannot sign in: one neutral
+    // message, no office or chart details (the seal destroys the login itself).
+    if (kind === "patient" && providerId) {
+      const status = await loadOfficeOffboardingStatus(providerId);
+      if (status !== null && status !== "active") {
+        res.status(403).json({ error: PROGRAM_ENDED_MESSAGE, code: "program_ended" });
+        return;
+      }
     }
 
     // A team member's welcome shows their office name; one extra lookup.

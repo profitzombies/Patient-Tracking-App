@@ -8,6 +8,7 @@
  * contracts (lease ownership guards, dedupe keys, status filters).
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { OFFICE_STATUS_COLUMNS, officeIsActive } from "../lib/office-status";
 import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 import { DOSE_LOG_SELECT, MEDICATION_SELECT, doseLogFromRow, medicationFromRow } from "../medications/store";
 import type {
@@ -599,11 +600,11 @@ export const supabaseNotificationStore: NotificationStore = {
     for (const chunk of chunked(providerIds, IN_FILTER_CHUNK)) {
       const lockIds = chunk.flatMap((id) => [id, `acct-${id}`]);
       const [providers, locks] = await Promise.all([
-        supabaseAdmin("GET", `/rest/v1/providers?provider_id=${inList(chunk)}&select=provider_id,access_disabled`),
+        supabaseAdmin("GET", `/rest/v1/providers?provider_id=${inList(chunk)}&select=provider_id,${OFFICE_STATUS_COLUMNS}`),
         supabaseAdmin("GET", `/rest/v1/provider_account_locks?account_id=${inList(lockIds)}&select=account_id`),
       ]);
       for (const providerRow of rowsOf<Record<string, unknown>>(providers, "policy office")) {
-        if (providerRow.access_disabled !== true) availableOffices.add(String(providerRow.provider_id));
+        if (officeIsActive(providerRow)) availableOffices.add(String(providerRow.provider_id));
       }
       for (const lock of rowsOf<Record<string, unknown>>(locks, "policy office lock")) {
         lockedOffices.add(String(lock.account_id).replace(/^acct-/, ""));

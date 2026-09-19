@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { OFFICE_STATUS_COLUMNS, officeIsActive } from "../lib/office-status";
 
 const enc = encodeURIComponent;
 export type StaffTokenDisableReason = "signed_out" | "account_switch" | "replaced" | "device_not_registered";
@@ -63,12 +64,12 @@ export const supabaseStaffNotificationStore: StaffNotificationStore = {
   },
   async officeState(providerId) {
     const [provider, lock] = await Promise.all([
-      supabaseAdmin("GET", `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=access_disabled&limit=1`),
+      supabaseAdmin("GET", `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=${OFFICE_STATUS_COLUMNS}&limit=1`),
       supabaseAdmin("GET", `/rest/v1/provider_account_locks?or=(account_id.eq.${enc(providerId)},account_id.eq.${enc(`acct-${providerId}`)})&select=account_id&limit=1`),
     ]);
     if (provider.status >= 300 || lock.status >= 300) throw new Error("staff office state failed");
     const row = Array.isArray(provider.json) ? provider.json[0] as Record<string, unknown> : null;
-    return { available: !!row && row.access_disabled !== true, locked: Array.isArray(lock.json) && lock.json.length > 0 };
+    return { available: officeIsActive(row), locked: Array.isArray(lock.json) && lock.json.length > 0 };
   },
   async update(id, patch, leaseOwner) {
     const result = await supabaseAdmin("PATCH", `/rest/v1/staff_notifications?id=eq.${enc(id)}&lease_owner=eq.${enc(leaseOwner)}`, { ...patch, updated_at: new Date().toISOString() }, "return=representation");

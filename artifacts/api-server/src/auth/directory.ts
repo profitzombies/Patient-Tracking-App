@@ -14,6 +14,7 @@
  * disabled offices never receive codes, and their staff cannot sign in.
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { officeIsActive } from "../lib/office-status";
 import type { NormalizedIdentifier } from "../claim/normalize";
 import type { Candidate } from "./ledger";
 
@@ -64,13 +65,16 @@ interface ProviderRow {
   office_name: string | null;
   email: string | null;
   access_disabled: boolean | null;
+  offboarding_status?: string | null;
   auth_user_id: string | null;
 }
+
+const PROVIDER_SELECT = "provider_id,provider_name,office_name,email,access_disabled,offboarding_status,auth_user_id";
 
 async function loadProviderById(providerId: string): Promise<ProviderRow | null> {
   const res = await supabaseAdmin(
     "GET",
-    `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=provider_id,provider_name,office_name,email,access_disabled,auth_user_id&limit=2`,
+    `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=${PROVIDER_SELECT}&limit=2`,
   );
   if (res.status >= 300) throw new Error(`provider lookup failed (${res.status})`);
   const rows = Array.isArray(res.json) ? (res.json as ProviderRow[]) : [];
@@ -157,11 +161,13 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
   // 2. Provider (office owner) accounts.
   const providers = await supabaseAdmin(
     "GET",
-    `/rest/v1/providers?email=ilike.${enc(email)}&select=provider_id,provider_name,office_name,email,access_disabled,auth_user_id&limit=3`,
+    `/rest/v1/providers?email=ilike.${enc(email)}&select=${PROVIDER_SELECT}&limit=3`,
   );
   if (providers.status >= 300) throw new Error(`provider lookup failed (${providers.status})`);
+  // Disabled AND offboarding/offboarded offices drop out here: their staff
+  // never receive a code, and the response stays neutral.
   const providerRows = (Array.isArray(providers.json) ? (providers.json as ProviderRow[]) : []).filter(
-    (p) => p.access_disabled !== true,
+    (p) => officeIsActive(p),
   );
   if (providerRows.length > 1) return NONE;
   if (providerRows.length === 1) {
@@ -201,7 +207,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
   };
   if (!member.provider_id) return NONE;
   const office = await loadProviderById(member.provider_id);
-  if (!office || office.access_disabled === true) return NONE;
+  if (!office || !officeIsActive(office)) return NONE;
   if (await providerLocked(member.provider_id)) return NONE;
   return {
     kind: "ok",
@@ -270,7 +276,7 @@ export async function resolveSignupOffice(code: string): Promise<SignupOffice | 
   if (/^[0-9]{6}$/.test(trimmed)) {
     const res = await supabaseAdmin(
       "GET",
-      `/rest/v1/providers?onboarding_code=eq.${enc(trimmed)}&select=provider_id,provider_name,office_name,email,access_disabled,auth_user_id&limit=2`,
+      `/rest/v1/providers?onboarding_code=eq.${enc(trimmed)}&select=${PROVIDER_SELECT}&limit=2`,
     );
     if (res.status >= 300) throw new Error(`office lookup failed (${res.status})`);
     const rows = Array.isArray(res.json) ? (res.json as ProviderRow[]) : [];
@@ -280,7 +286,7 @@ export async function resolveSignupOffice(code: string): Promise<SignupOffice | 
   } else {
     return null;
   }
-  if (!row || row.access_disabled === true) return null;
+  if (!row || !officeIsActive(row)) return null;
   if (await providerLocked(row.provider_id)) return null;
   return {
     providerId: row.provider_id,
@@ -296,7 +302,7 @@ export async function resolveSignupOffice(code: string): Promise<SignupOffice | 
  */
 export async function resolveSignupOfficeById(providerId: string): Promise<SignupOffice | null> {
   const row = await loadProviderById(providerId);
-  if (!row || row.access_disabled === true) return null;
+  if (!row || !officeIsActive(row)) return null;
   if (await providerLocked(row.provider_id)) return null;
   return {
     providerId: row.provider_id,

@@ -120,6 +120,7 @@ import type {
   GetOfficeFileDownloadParams,
   GetOfficeFilesParams,
   GetOfficeLeaderboardParams,
+  GetOfficeOffboardingBundleDownloadUrlParams,
   GetOfficeOverviewParams,
   GetOfficePatientCoachConversationParams,
   GetOfficePatientRecordParams,
@@ -191,6 +192,10 @@ import type {
   OfficeComparisonResult,
   OfficeConversationStartInput,
   OfficeLeaderboardResult,
+  OfficeOffboardingBundleInput,
+  OfficeOffboardingDownloadUrl,
+  OfficeOffboardingHandoverInput,
+  OfficeOffboardingResult,
   OfficeOverridesInput,
   OfficePatientRecord,
   OfficeRosterResult,
@@ -10421,6 +10426,606 @@ export const useRetryHqPatientDeletion = <TError = ErrorType<void>,
       > => {
       return useMutation(getRetryHqPatientDeletionMutationOptions(options));
     }
+
+export const getGetOfficeOffboardingUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding`
+}
+
+/**
+ * @summary Offboarding state of one office (stepper position, bundle, hand-over record, seal progress)
+ */
+export const getOfficeOffboarding = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getGetOfficeOffboardingUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeOffboardingQueryKey = (id: string,) => {
+    return [
+    `/api/provider-accounts/${id}/offboarding`
+    ] as const;
+    }
+
+
+export const getGetOfficeOffboardingQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeOffboarding>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboarding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeOffboardingQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeOffboarding>>> = ({ signal }) => getOfficeOffboarding(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboarding>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeOffboardingQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeOffboarding>>>
+export type GetOfficeOffboardingQueryError = ErrorType<void>
+
+
+/**
+ * @summary Offboarding state of one office (stepper position, bundle, hand-over record, seal progress)
+ */
+
+export function useGetOfficeOffboarding<TData = Awaited<ReturnType<typeof getOfficeOffboarding>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboarding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeOffboardingQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStartOfficeOffboardingUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/start`
+}
+
+/**
+ * @summary Step 1 — disable every staff sign-in of the office (idempotent; audited; fresh code required)
+ */
+export const startOfficeOffboarding = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getStartOfficeOffboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getStartOfficeOffboardingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startOfficeOffboarding>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['startOfficeOffboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startOfficeOffboarding>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  startOfficeOffboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartOfficeOffboardingMutationResult = NonNullable<Awaited<ReturnType<typeof startOfficeOffboarding>>>
+
+    export type StartOfficeOffboardingMutationError = ErrorType<void>
+
+    /**
+ * @summary Step 1 — disable every staff sign-in of the office (idempotent; audited; fresh code required)
+ */
+export const useStartOfficeOffboarding = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startOfficeOffboarding>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getStartOfficeOffboardingMutationOptions(options));
+    }
+
+export const getRequestOfficeOffboardingBundleUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/bundle`
+}
+
+/**
+ * @summary Step 2 — generate the whole-office record bundle (idempotent while one is queued, running or ready)
+ */
+export const requestOfficeOffboardingBundle = async (id: string,
+    officeOffboardingBundleInput?: OfficeOffboardingBundleInput, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getRequestOfficeOffboardingBundleUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(officeOffboardingBundleInput)
+  }
+);}
+
+
+
+
+
+export const getRequestOfficeOffboardingBundleMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>, TError,{id: string;data?: BodyType<OfficeOffboardingBundleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>, TError,{id: string;data?: BodyType<OfficeOffboardingBundleInput>}, TContext> => {
+
+const mutationKey = ['requestOfficeOffboardingBundle'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>, {id: string;data?: BodyType<OfficeOffboardingBundleInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  requestOfficeOffboardingBundle(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestOfficeOffboardingBundleMutationResult = NonNullable<Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>>
+    export type RequestOfficeOffboardingBundleMutationBody = BodyType<OfficeOffboardingBundleInput> | undefined
+    export type RequestOfficeOffboardingBundleMutationError = ErrorType<void>
+
+    /**
+ * @summary Step 2 — generate the whole-office record bundle (idempotent while one is queued, running or ready)
+ */
+export const useRequestOfficeOffboardingBundle = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>, TError,{id: string;data?: BodyType<OfficeOffboardingBundleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestOfficeOffboardingBundle>>,
+        TError,
+        {id: string;data?: BodyType<OfficeOffboardingBundleInput>},
+        TContext
+      > => {
+      return useMutation(getRequestOfficeOffboardingBundleMutationOptions(options));
+    }
+
+export const getGetOfficeOffboardingBundleDownloadUrlUrl = (id: string,
+    params?: GetOfficeOffboardingBundleDownloadUrlParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/provider-accounts/${id}/offboarding/bundle/download-url?${stringifiedParams}` : `/api/provider-accounts/${id}/offboarding/bundle/download-url`
+}
+
+/**
+ * @summary Short-lived download link for one part of the offboarding bundle (audited)
+ */
+export const getOfficeOffboardingBundleDownloadUrl = async (id: string,
+    params?: GetOfficeOffboardingBundleDownloadUrlParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingDownloadUrl> => {
+
+  return customFetch<OfficeOffboardingDownloadUrl>(getGetOfficeOffboardingBundleDownloadUrlUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeOffboardingBundleDownloadUrlQueryKey = (id: string,
+    params?: GetOfficeOffboardingBundleDownloadUrlParams,) => {
+    return [
+    `/api/provider-accounts/${id}/offboarding/bundle/download-url`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeOffboardingBundleDownloadUrlQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>, TError = ErrorType<void>>(id: string,
+    params?: GetOfficeOffboardingBundleDownloadUrlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeOffboardingBundleDownloadUrlQueryKey(id,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>> = ({ signal }) => getOfficeOffboardingBundleDownloadUrl(id,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeOffboardingBundleDownloadUrlQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>>
+export type GetOfficeOffboardingBundleDownloadUrlQueryError = ErrorType<void>
+
+
+/**
+ * @summary Short-lived download link for one part of the offboarding bundle (audited)
+ */
+
+export function useGetOfficeOffboardingBundleDownloadUrl<TData = Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>, TError = ErrorType<void>>(
+ id: string,
+    params?: GetOfficeOffboardingBundleDownloadUrlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeOffboardingBundleDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeOffboardingBundleDownloadUrlQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRecordOfficeOffboardingHandoverUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/handover`
+}
+
+/**
+ * @summary Step 3 — record who received the bundle, when, and the office's written retain-or-destroy choice (re-recordable until sealing starts)
+ */
+export const recordOfficeOffboardingHandover = async (id: string,
+    officeOffboardingHandoverInput: OfficeOffboardingHandoverInput, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getRecordOfficeOffboardingHandoverUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(officeOffboardingHandoverInput)
+  }
+);}
+
+
+
+
+
+export const getRecordOfficeOffboardingHandoverMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>, TError,{id: string;data: BodyType<OfficeOffboardingHandoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>, TError,{id: string;data: BodyType<OfficeOffboardingHandoverInput>}, TContext> => {
+
+const mutationKey = ['recordOfficeOffboardingHandover'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>, {id: string;data: BodyType<OfficeOffboardingHandoverInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  recordOfficeOffboardingHandover(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordOfficeOffboardingHandoverMutationResult = NonNullable<Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>>
+    export type RecordOfficeOffboardingHandoverMutationBody = BodyType<OfficeOffboardingHandoverInput>
+    export type RecordOfficeOffboardingHandoverMutationError = ErrorType<void>
+
+    /**
+ * @summary Step 3 — record who received the bundle, when, and the office's written retain-or-destroy choice (re-recordable until sealing starts)
+ */
+export const useRecordOfficeOffboardingHandover = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>, TError,{id: string;data: BodyType<OfficeOffboardingHandoverInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordOfficeOffboardingHandover>>,
+        TError,
+        {id: string;data: BodyType<OfficeOffboardingHandoverInput>},
+        TContext
+      > => {
+      return useMutation(getRecordOfficeOffboardingHandoverMutationOptions(options));
+    }
+
+export const getSealOfficeOffboardingUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/seal`
+}
+
+/**
+ * @summary Step 4 — seal every chart through the account-closure primitive (leased job; blocked by an office legal hold; idempotent once started)
+ */
+export const sealOfficeOffboarding = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getSealOfficeOffboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSealOfficeOffboardingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sealOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sealOfficeOffboarding>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['sealOfficeOffboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sealOfficeOffboarding>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  sealOfficeOffboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SealOfficeOffboardingMutationResult = NonNullable<Awaited<ReturnType<typeof sealOfficeOffboarding>>>
+
+    export type SealOfficeOffboardingMutationError = ErrorType<void>
+
+    /**
+ * @summary Step 4 — seal every chart through the account-closure primitive (leased job; blocked by an office legal hold; idempotent once started)
+ */
+export const useSealOfficeOffboarding = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sealOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sealOfficeOffboarding>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getSealOfficeOffboardingMutationOptions(options));
+    }
+
+export const getCompleteOfficeOffboardingUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/complete`
+}
+
+/**
+ * @summary Step 5 — mark the office offboarded (requires a finished seal with nothing held and no office hold)
+ */
+export const completeOfficeOffboarding = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getCompleteOfficeOffboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompleteOfficeOffboardingMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeOfficeOffboarding>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['completeOfficeOffboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeOfficeOffboarding>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  completeOfficeOffboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteOfficeOffboardingMutationResult = NonNullable<Awaited<ReturnType<typeof completeOfficeOffboarding>>>
+
+    export type CompleteOfficeOffboardingMutationError = ErrorType<void>
+
+    /**
+ * @summary Step 5 — mark the office offboarded (requires a finished seal with nothing held and no office hold)
+ */
+export const useCompleteOfficeOffboarding = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOfficeOffboarding>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeOfficeOffboarding>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getCompleteOfficeOffboardingMutationOptions(options));
+    }
+
+export const getGetOfficeDestructionCertificateUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/certificate.csv`
+}
+
+/**
+ * @summary Destruction certificate — CSV of the office's purge tombstones with counts and dates (available once offboarded; audited)
+ */
+export const getOfficeDestructionCertificate = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getGetOfficeDestructionCertificateUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeDestructionCertificateQueryKey = (id: string,) => {
+    return [
+    `/api/provider-accounts/${id}/offboarding/certificate.csv`
+    ] as const;
+    }
+
+
+export const getGetOfficeDestructionCertificateQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeDestructionCertificate>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeDestructionCertificate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeDestructionCertificateQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeDestructionCertificate>>> = ({ signal }) => getOfficeDestructionCertificate(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeDestructionCertificate>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeDestructionCertificateQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeDestructionCertificate>>>
+export type GetOfficeDestructionCertificateQueryError = ErrorType<void>
+
+
+/**
+ * @summary Destruction certificate — CSV of the office's purge tombstones with counts and dates (available once offboarded; audited)
+ */
+
+export function useGetOfficeDestructionCertificate<TData = Awaited<ReturnType<typeof getOfficeDestructionCertificate>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeDestructionCertificate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeDestructionCertificateQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetHqLegalHoldsUrl = (params?: GetHqLegalHoldsParams,) => {
   const normalizedParams = new URLSearchParams();

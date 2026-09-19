@@ -81,11 +81,13 @@ describe("HQ office comparison", () => {
     mocks.admin.mockReset().mockImplementation(async (_m: string, path: string, body: Record<string, unknown>) => {
       if (path.endsWith("nonfinancial_office_rollup")) {
         expect(body).toEqual({ p_provider_id: null, p_start: "2026-08-30", p_end: "2026-09-02" });
-        return response([rollupRow(), rollupRow({ provider_id: "p2", office_name: "Two", first_patient_date: null, total_patients: 0 })]);
+        return response([rollupRow(), rollupRow({ provider_id: "p2", office_name: "Two", first_patient_date: null, total_patients: 0 }), rollupRow({ provider_id: "p3", office_name: "Gone" })]);
       }
       if (path.endsWith("nonfinancial_office_daily")) {
         return response([dailyRow("p1", "2026-08-30", 0), dailyRow("p1", "2026-08-31", 0), dailyRow("p1", "2026-09-01", 1), dailyRow("p1", "2026-09-02", 2), dailyRow("p2", "2026-08-30", 0)]);
       }
+      // Offboarding / offboarded offices leave the comparison; p3 is one.
+      if (path.startsWith("/rest/v1/providers?offboarding_status=in.")) return response([{ provider_id: "p3" }]);
       throw new Error(`unexpected ${path}`);
     });
     const res = await call("/hq/office-comparison?start=2026-08-30&end=2026-09-02");

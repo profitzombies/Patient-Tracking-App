@@ -21,6 +21,7 @@ import type { Request, Response } from "express";
 import { recordAccessDenied } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
+import { OFFICE_OFFBOARDED_STAFF_MESSAGE, offboardingStatusOf } from "../lib/office-status";
 import { identifyBearer } from "./identify";
 import { verificationModeFor, type VerificationRequest } from "./verification-policy";
 import {
@@ -58,6 +59,7 @@ export type OfficeScopeDenialReason =
   | "staff_only"
   | "office_locked"
   | "office_unavailable"
+  | "office_offboarded"
   | "deactivated"
   | "permission"
   | "office_required";
@@ -98,9 +100,15 @@ interface OfficeRow {
   office_name: string | null;
   onboarding_code: string | null;
   access_disabled: boolean | null;
+  offboarding_status?: string | null;
 }
 
-const OFFICE_SELECT = "provider_id,provider_name,office_name,onboarding_code,access_disabled";
+const OFFICE_SELECT = "provider_id,provider_name,office_name,onboarding_code,access_disabled,offboarding_status";
+
+/** Staff of an office whose program is ending or ended fail closed; HQ still reads. */
+function officeEndedForStaff(row: OfficeRow): boolean {
+  return offboardingStatusOf(row.offboarding_status) !== "active";
+}
 
 async function loadOffice(providerId: string): Promise<OfficeRow | null> {
   const res = await supabaseAdmin(
@@ -176,6 +184,9 @@ export async function resolveOfficeScope(input: {
   const providerRows = Array.isArray(providers.json) ? (providers.json as OfficeRow[]) : [];
   if (providerRows.length === 1) {
     const row = providerRows[0];
+    if (officeEndedForStaff(row)) {
+      return denied(403, OFFICE_OFFBOARDED_STAFF_MESSAGE, "office_offboarded", user.id, row.provider_id);
+    }
     if (row.access_disabled === true) {
       return denied(404, OFFICE_UNAVAILABLE_MESSAGE, "office_unavailable", user.id, row.provider_id);
     }
@@ -206,6 +217,9 @@ export async function resolveOfficeScope(input: {
     }
     if (!providerId) return denied(403, STAFF_ONLY_MESSAGE, "staff_only", user.id);
     const office = await loadOffice(providerId);
+    if (office && officeEndedForStaff(office)) {
+      return denied(403, OFFICE_OFFBOARDED_STAFF_MESSAGE, "office_offboarded", user.id, providerId);
+    }
     if (!office || office.access_disabled === true) {
       return denied(404, OFFICE_UNAVAILABLE_MESSAGE, "office_unavailable", user.id, providerId);
     }
@@ -257,7 +271,8 @@ export function respondOfficeScopeDenied(req: Request, res: Response, result: Of
   if (result.status !== 403 || !result.actorUserId) return;
   const reason =
     result.reason === "deactivated" || result.reason === "office_locked" ||
-    result.reason === "office_unavailable" || result.reason === "staff_only"
+    result.reason === "office_unavailable" || result.reason === "staff_only" ||
+    result.reason === "office_offboarded"
       ? result.reason
       : "permission";
   recordAccessDenied(req, {

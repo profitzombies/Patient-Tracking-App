@@ -33,12 +33,15 @@
  * reach a patient row, so they never leave a presence trace.
  */
 import { supabaseAdmin } from "./supabase-admin";
+import { offboardingStatusOf, PROGRAM_ENDED_MESSAGE } from "./office-status";
 import { identifyBearer } from "../auth/identify";
 import { verificationModeFor, type VerificationRequest } from "../auth/verification-policy";
 import { consentDto, loadLatestConsent, type ConsentDto } from "../privacy/consent";
 import { notePatientPresence } from "./patient-presence";
 
 const enc = encodeURIComponent;
+/** Identity columns plus the office lifecycle status (named FK: a bare embed is ambiguous → PGRST201). */
+const IDENTITY_SELECT = "id,provider_id,providers!fk_patients_provider(offboarding_status)";
 
 /** What the resolver needs from a request: the headers plus enough of the
  * route (method + url) for the verification policy to pick local vs remote. */
@@ -50,11 +53,12 @@ export function bearerToken(req: { headers: Record<string, unknown> }): string |
   return token.length > 0 ? token : null;
 }
 
-export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED" | "account_closed";
+export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED" | "account_closed" | "program_ended";
 
 export type PatientAuthFailureDetails =
   | { code: "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED"; consent: ConsentDto }
-  | { code: "account_closed" };
+  | { code: "account_closed" }
+  | { code: "program_ended" };
 
 export type ResolvedPatient =
   | { ok: true; patientId: string; authUserId: string; providerId: string | null; consent: ConsentDto }
@@ -117,8 +121,8 @@ type ResolvedIdentity =
       ok: false;
       status: number;
       error: string;
-      code?: "account_closed";
-      details?: { code: "account_closed" };
+      code?: "account_closed" | "program_ended";
+      details?: { code: "account_closed" } | { code: "program_ended" };
     };
 
 /**
@@ -151,7 +155,7 @@ async function resolvePatientIdentityInternal(
   try {
     lookup = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=id,provider_id&limit=2`,
+      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=${IDENTITY_SELECT}&limit=2`,
     );
   } catch (error) {
     if (lookupFailure === "throw") throw error;
@@ -165,7 +169,7 @@ async function resolvePatientIdentityInternal(
     if (lookupFailure === "throw") throw new Error("patient lookup is ambiguous");
     return { ok: false, status: 503, error: "Account lookup is unavailable right now." };
   }
-  const row = lookup.json[0] as { id?: unknown; provider_id?: unknown } | undefined;
+  const row = lookup.json[0] as { id?: unknown; provider_id?: unknown; providers?: unknown } | undefined;
   if (!row || typeof row.id !== "string" || row.id.length === 0) {
     // Courtesy only: an unlinked session whose account was closed gets a
     // neutral "closed" message instead of the generic unlinked error. The
@@ -193,7 +197,23 @@ async function resolvePatientIdentityInternal(
     return { ok: false, status: 403, error: "This account is not linked to a patient record." };
   }
   const providerId = typeof row.provider_id === "string" && row.provider_id.length > 0 ? row.provider_id : null;
+  if (officeHasEnded(row.providers)) {
+    // The office is leaving (or has left) THINNR: its patients see one neutral
+    // message until their charts are sealed and their logins destroyed.
+    return { ok: false, status: 403, error: PROGRAM_ENDED_MESSAGE, code: "program_ended", details: { code: "program_ended" } };
+  }
   return { ok: true, patientId: row.id, authUserId: user.id, providerId };
+}
+
+/**
+ * Embedded office row of the identity lookup (`providers!fk_patients_provider`).
+ * PostgREST returns the to-one embed as an object; fixtures that never select
+ * it read as an active office.
+ */
+export function officeHasEnded(embedded: unknown): boolean {
+  const office = Array.isArray(embedded) ? embedded[0] : embedded;
+  if (!office || typeof office !== "object") return false;
+  return offboardingStatusOf((office as { offboarding_status?: unknown }).offboarding_status) !== "active";
 }
 
 /**

@@ -64,6 +64,7 @@ export type AccessDenialReason =
   | "permission"
   | "office_locked"
   | "office_unavailable"
+  | "office_offboarded"
   | "deactivated"
   | "staff_only";
 

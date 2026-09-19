@@ -2,6 +2,7 @@ import { loadOfficeAttention } from "../../lib/office-attention";
 import { loadOfficeOverrides, loadOrgPolicy } from "../../lib/org-policy";
 import { localClock, parseClockMinutes } from "../../notifications/policy";
 import { supabaseAdmin } from "../../lib/supabase-admin";
+import { officeIsActive } from "../../lib/office-status";
 import { staffDigestPushBody, type DigestReasonCount } from "../../alerts/staff-sender";
 import type { JobContext, JobDefinition } from "../types";
 
@@ -41,7 +42,7 @@ function ok(result: { status: number }, label: string) {
 
 export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
   const [providersResult, activeResult, org] = await Promise.all([
-    supabaseAdmin("GET", "/rest/v1/providers?access_disabled=eq.false&select=provider_id,provider_name,email,auth_user_id&limit=5000"),
+    supabaseAdmin("GET", "/rest/v1/providers?access_disabled=eq.false&select=provider_id,provider_name,email,auth_user_id,offboarding_status&limit=5000"),
     supabaseAdmin("GET", "/rest/v1/patients?activation_status=eq.activated&archived_at=is.null&select=provider_id&limit=10000"),
     loadOrgPolicy({ fresh: true }),
   ]);
@@ -50,6 +51,8 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
   for (const provider of (Array.isArray(providersResult.json) ? providersResult.json as Row[] : [])) {
     ctx.checkpoint();
     const providerId = String(provider.provider_id);
+    // Offices leaving THINNR get no digest: their staff cannot sign in to act on it.
+    if (!officeIsActive(provider)) continue;
     if (!active.has(providerId)) continue;
     try {
       const overrides = await loadOfficeOverrides(providerId);

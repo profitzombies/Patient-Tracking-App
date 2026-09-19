@@ -2,6 +2,7 @@ import { notifyRenewalReminder, renewalReminderDays } from "../../billing/custom
 import { accountFor } from "../../billing/subscriptions";
 import { connectedOpts, getStripe } from "../../billing/stripe-client";
 import { selectMany, type BillingSubscriptionRow } from "../../billing/store";
+import { loadInactiveOfficeIds } from "../../lib/office-status";
 import type { JobContext, JobDefinition } from "../types";
 
 /**
@@ -47,8 +48,11 @@ export async function sendRenewalReminders(ctx: JobContext): Promise<void> {
   const days = renewalReminderDays();
   const due = await dueForReminder(ctx.now, days);
   ctx.tally("due", due.length);
+  // Offices leaving THINNR send no renewal reminders; their subscriptions are wound down by HQ.
+  const inactiveOffices = due.length ? await loadInactiveOfficeIds() : new Set<string>();
   for (const row of due) {
     ctx.checkpoint();
+    if (inactiveOffices.has(row.provider_id)) { ctx.tally("skipped_offboarded"); continue; }
     if (ctx.dryRun) { ctx.tally("would_send"); continue; }
     try {
       const outcome = await notifyRenewalReminder(row, await defaultCard(row));

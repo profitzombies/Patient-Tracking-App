@@ -44,6 +44,8 @@ import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import {
   ACCOUNT_CLOSED_MESSAGE,
+  PROGRAM_ENDED_MESSAGE,
+  isProgramEndedResolutionError,
   liveEntryDecision,
 } from '../lib/live-patient-entry';
 import { describeExport, graceDaysRemaining, parsePrivacyState } from '../lib/patient-privacy';
@@ -428,6 +430,46 @@ async function main() {
   assert(
     'closed-account copy is neutral and allows same-phone signup',
     ACCOUNT_CLOSED_MESSAGE === 'This account was closed. You can create a new account with the same phone number.',
+  );
+  await unmount(tree);
+
+  section('ended program resolution: neutral notice and no cached bypass');
+  localStorageBacking.set(
+    'thinnr_account_role_v1',
+    JSON.stringify({ userId: P1.user.id, role: { kind: 'patient', patientId: 'p-1' } }),
+  );
+  failNext.set('GET claim/whoami', {
+    status: 403,
+    body: { error: PROGRAM_ENDED_MESSAGE, code: 'program_ended' },
+  });
+  tree = await mount(null);
+  await signIn(P1);
+  assert(
+    'program_ended routes to the dedicated notice without signing out first',
+    account.resolving &&
+      routerCalls.some(call => call.method === 'replace' && call.target === '/program-ended'),
+  );
+  assert(
+    'program_ended clears the remembered patient role instead of using the offline fallback',
+    !localStorageBacking.has('thinnr_account_role_v1'),
+  );
+  assert(
+    'program-ended copy matches the server refusal',
+    PROGRAM_ENDED_MESSAGE === 'This program has ended. Contact your provider.',
+  );
+  assert(
+    'program-ended predicate accepts only its exact code and status',
+    isProgramEndedResolutionError({ code: 'program_ended', status: 403 }) &&
+      !isProgramEndedResolutionError({ code: 'account_closed', status: 403 }) &&
+      !isProgramEndedResolutionError({ code: 'program_ended', status: 404 }),
+  );
+  assert(
+    'program-ended route stays visible while account resolution is blocked',
+    redirectTo(gate({
+      accountResolving: true,
+      patientHydrated: false,
+      pathname: '/program-ended',
+    })) === 'allow',
   );
   await unmount(tree);
 

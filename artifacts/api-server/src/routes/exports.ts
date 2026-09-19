@@ -76,7 +76,7 @@ const RequestBody = z.object({
   includeTombstones: z.boolean().optional(),
 });
 
-const JOB_SELECT =
+export const EXPORT_JOB_SELECT =
   "id,kind,status,requested_by,requester_kind,requester_role,provider_id,params,file_name,object_path,size_bytes,row_count,error,attempts,created_at,started_at,completed_at,expires_at,download_count,last_downloaded_at,parts,cancel_requested_at";
 
 export type ExportJobStatus = "queued" | "running" | "ready" | "failed" | "expired" | "cancelled";
@@ -175,7 +175,7 @@ async function ownJob(jobId: string, userId: string): Promise<ExportJobRow | nul
   if (!/^[0-9a-f-]{36}$/i.test(jobId)) return null;
   const res = await supabaseAdmin(
     "GET",
-    `/rest/v1/data_exports?id=eq.${enc(jobId)}&requested_by=eq.${enc(userId)}&select=${JOB_SELECT}&limit=1`,
+    `/rest/v1/data_exports?id=eq.${enc(jobId)}&requested_by=eq.${enc(userId)}&select=${EXPORT_JOB_SELECT}&limit=1`,
   );
   if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`export lookup failed (${res.status})`);
   return (res.json[0] as ExportJobRow | undefined) ?? null;
@@ -321,7 +321,7 @@ router.get("/exports", async (req, res) => {
     const patientFilter = patientId ? `&params->>patientId=eq.${enc(patientId)}` : "";
     const rows = await supabaseAdmin(
       "GET",
-      `/rest/v1/data_exports?requested_by=eq.${enc(who.userId)}${patientFilter}&select=${JOB_SELECT}&order=created_at.desc&limit=50`,
+      `/rest/v1/data_exports?requested_by=eq.${enc(who.userId)}${patientFilter}&select=${EXPORT_JOB_SELECT}&order=created_at.desc&limit=50`,
     );
     if (rows.status >= 300 || !Array.isArray(rows.json)) throw new Error(`export list failed (${rows.status})`);
     const now = Date.now();

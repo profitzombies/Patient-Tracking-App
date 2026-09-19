@@ -73,6 +73,12 @@ export const AUDIT_ACTIONS = [
   "patient_record_export_cancelled",
   "office_bundle_export_requested",
   "office_bundle_export_downloaded",
+  "office_offboarding_started",
+  "office_offboarding_bundle_requested",
+  "office_offboarding_handover_recorded",
+  "office_offboarding_seal_started",
+  "office_offboarding_completed",
+  "office_destruction_certificate_downloaded",
   "patient_consent_recorded",
   "patient_export_requested",
   "patient_export_ready",
@@ -150,6 +156,7 @@ export const AUDIT_METADATA_KEYS = [
   "part", "parts", "enabled",
   "holdId", "targetKind",
   "reportId", "conversationId", "photos",
+  "choice", "patients", "sessions", "sealed", "held", "destroyed", "retainUntil",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 

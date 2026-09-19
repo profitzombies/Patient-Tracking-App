@@ -3488,6 +3488,135 @@ export interface HqLegalHold {
   active: boolean;
 }
 
+export type OfficeOffboardingStatus = typeof OfficeOffboardingStatus[keyof typeof OfficeOffboardingStatus];
+
+
+export const OfficeOffboardingStatus = {
+  active: 'active',
+  offboarding: 'offboarding',
+  offboarded: 'offboarded',
+} as const;
+
+export type OfficeOffboardingStep = typeof OfficeOffboardingStep[keyof typeof OfficeOffboardingStep];
+
+
+export const OfficeOffboardingStep = {
+  start: 'start',
+  bundle: 'bundle',
+  handover: 'handover',
+  seal: 'seal',
+  complete: 'complete',
+} as const;
+
+export interface OfficeOffboardingSealProgress {
+  total: number;
+  sealed: number;
+  held: number;
+  pending: number;
+  failed: number;
+  destroyed: number;
+}
+
+export type OfficeOffboardingHandoverChoice = typeof OfficeOffboardingHandoverChoice[keyof typeof OfficeOffboardingHandoverChoice];
+
+
+export const OfficeOffboardingHandoverChoice = {
+  retain: 'retain',
+  destroy: 'destroy',
+} as const;
+
+export interface OfficeOffboardingHandover {
+  receivedBy: string;
+  /** Calendar date YYYY-MM-DD */
+  receivedOn: string;
+  choice: OfficeOffboardingHandoverChoice;
+  letterReference: string;
+  note: string;
+  recordedAt: string;
+  /** @nullable */
+  recordedBy: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type OfficeOffboardingStarted = {
+  at: string;
+  /** @nullable */
+  by: string | null;
+  sessionsRevoked: number;
+} | null;
+
+/**
+ * @nullable
+ */
+export type OfficeOffboardingSeal = {
+  startedAt: string;
+  /**
+     * Null means the clinical retention policy applies
+     * @nullable
+     */
+  retainUntil: string | null;
+  /** @nullable */
+  completedAt: string | null;
+  progress: OfficeOffboardingSealProgress;
+} | null;
+
+export interface OfficeOffboarding {
+  providerId: string;
+  officeName: string;
+  status: OfficeOffboardingStatus;
+  nextStep: OfficeOffboardingStep | null;
+  legalHold: boolean;
+  destroyAfterDays: number;
+  /** @nullable */
+  started: OfficeOffboardingStarted;
+  bundle: ExportJob | null;
+  handover: OfficeOffboardingHandover | null;
+  /** @nullable */
+  seal: OfficeOffboardingSeal;
+  /** @nullable */
+  offboardedAt: string | null;
+  certificateAvailable: boolean;
+}
+
+export interface OfficeOffboardingResult {
+  offboarding: OfficeOffboarding;
+}
+
+export interface OfficeOffboardingBundleInput {
+  includeTombstones?: boolean;
+}
+
+export type OfficeOffboardingHandoverInputChoice = typeof OfficeOffboardingHandoverInputChoice[keyof typeof OfficeOffboardingHandoverInputChoice];
+
+
+export const OfficeOffboardingHandoverInputChoice = {
+  retain: 'retain',
+  destroy: 'destroy',
+} as const;
+
+export interface OfficeOffboardingHandoverInput {
+  /** @maxLength 200 */
+  receivedBy: string;
+  /** Calendar date YYYY-MM-DD */
+  receivedOn: string;
+  choice: OfficeOffboardingHandoverInputChoice;
+  /** @maxLength 500 */
+  letterReference: string;
+  /** @maxLength 2000 */
+  note?: string;
+}
+
+export interface OfficeOffboardingDownloadUrl {
+  url: string;
+  /** @nullable */
+  fileName: string | null;
+  expiresInSeconds: number;
+  /** @nullable */
+  part: number | null;
+}
+
 export interface HqLegalHoldsResult {
   holds: HqLegalHold[];
   activeCount: number;
@@ -5664,6 +5793,10 @@ export const GetHqPatientDeletionsStatus = {
   purged: 'purged',
   failed: 'failed',
 } as const;
+
+export type GetOfficeOffboardingBundleDownloadUrlParams = {
+part?: number;
+};
 
 export type GetHqLegalHoldsParams = {
 status?: GetHqLegalHoldsStatus;

@@ -11,6 +11,7 @@ import type { CsvCell } from "./csv";
 import type { ExportKind, ExportScope } from "./kinds";
 import { loadOfficeRollups, type DateRangeKeys } from "../routes/operational-rollups";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { offboardingStatusOf } from "../lib/office-status";
 
 export interface ExportSheet {
   header: string[];
@@ -260,7 +261,7 @@ async function trainingCompletion(scope: ExportScope): Promise<ExportSheet> {
 async function providerDirectory(scope: ExportScope): Promise<ExportSheet> {
   const [providers, locks, activeCounts] = await Promise.all([
     pageAll(
-      "/rest/v1/providers?select=provider_id,provider_name,office_name,email,phone,city,state,postal_code,plan,provider_role,access_disabled,claimed_at,created_at&order=office_name.asc.nullslast,provider_id.asc",
+      "/rest/v1/providers?select=provider_id,provider_name,office_name,email,phone,city,state,postal_code,plan,provider_role,access_disabled,offboarding_status,claimed_at,created_at&order=office_name.asc.nullslast,provider_id.asc",
     ),
     pageAll("/rest/v1/provider_account_locks?select=account_id,locked_at&order=locked_at.asc"),
     pageAll("/rest/v1/patients?select=provider_id&activation_status=in.(activated,active)&order=provider_id.asc"),
@@ -284,7 +285,8 @@ async function providerDirectory(scope: ExportScope): Promise<ExportSheet> {
   ];
   const rows = providers.map((p): CsvCell[] => {
     const id = String(p.provider_id);
-    const status = p.access_disabled === true ? "disabled" : lockMap.has(id) ? "locked" : "active";
+    const offboarding = offboardingStatusOf(p.offboarding_status);
+    const status = offboarding !== "active" ? offboarding : p.access_disabled === true ? "disabled" : lockMap.has(id) ? "locked" : "active";
     return [
       id, p.office_name ? String(p.office_name) : "", p.provider_name ? String(p.provider_name) : "",
       p.provider_role ? String(p.provider_role) : "", p.plan ? String(p.plan) : "", status, lockMap.get(id) ?? "",

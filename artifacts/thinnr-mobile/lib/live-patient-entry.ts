@@ -25,12 +25,22 @@ export interface LiveEntryGateInput {
 export const ACCOUNT_CLOSED_MESSAGE =
   'This account was closed. You can create a new account with the same phone number.';
 
+export const PROGRAM_ENDED_MESSAGE = 'This program has ended. Contact your provider.';
+
 export function isAccountClosedResolutionError(
   error: unknown,
 ): error is { code: 'account_closed'; status: 404 } {
   if (!error || typeof error !== 'object') return false;
   const failure = error as { code?: unknown; status?: unknown };
   return failure.code === 'account_closed' && failure.status === 404;
+}
+
+export function isProgramEndedResolutionError(
+  error: unknown,
+): error is { code: 'program_ended'; status: 403 } {
+  if (!error || typeof error !== 'object') return false;
+  const failure = error as { code?: unknown; status?: unknown };
+  return failure.code === 'program_ended' && failure.status === 403;
 }
 
 /** Routes a real account may use before consent is recorded or while a deletion is pending. */
@@ -63,6 +73,7 @@ function isPatientAccessRoute(pathname: string): boolean {
     '/patient-signup',
     '/provider-login',
     '/persona',
+    '/program-ended',
     '/security-report',
   ].includes(pathname);
 }
@@ -74,7 +85,9 @@ function isPatientAccessRoute(pathname: string): boolean {
 export function liveEntryDecision(input: LiveEntryGateInput): LiveEntryDecision {
   // Alert-email security links are deliberately public and must not wait for
   // persona, account, consent, or patient-data hydration.
-  if (input.pathname === '/security-report') return { kind: 'allow' };
+  if (input.pathname === '/security-report' || input.pathname === '/program-ended') {
+    return { kind: 'allow' };
+  }
   if (
     !input.modeHydrated ||
     input.accountResolving ||

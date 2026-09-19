@@ -5573,6 +5573,595 @@ export const RetryHqPatientDeletionResponse = zod.object({
 
 
 /**
+ * @summary Offboarding state of one office (stepper position, bundle, hand-over record, seal progress)
+ */
+export const GetOfficeOffboardingParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetOfficeOffboardingResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Step 1 — disable every staff sign-in of the office (idempotent; audited; fresh code required)
+ */
+export const StartOfficeOffboardingParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const StartOfficeOffboardingResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Step 2 — generate the whole-office record bundle (idempotent while one is queued, running or ready)
+ */
+export const RequestOfficeOffboardingBundleParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const RequestOfficeOffboardingBundleBody = zod.object({
+  "includeTombstones": zod.boolean().optional()
+})
+
+export const RequestOfficeOffboardingBundleResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Short-lived download link for one part of the offboarding bundle (audited)
+ */
+export const GetOfficeOffboardingBundleDownloadUrlParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetOfficeOffboardingBundleDownloadUrlQueryParams = zod.object({
+  "part": zod.coerce.number().optional()
+})
+
+export const GetOfficeOffboardingBundleDownloadUrlResponse = zod.object({
+  "url": zod.string(),
+  "fileName": zod.string().nullable(),
+  "expiresInSeconds": zod.number(),
+  "part": zod.number().nullable()
+})
+
+
+/**
+ * @summary Step 3 — record who received the bundle, when, and the office's written retain-or-destroy choice (re-recordable until sealing starts)
+ */
+export const RecordOfficeOffboardingHandoverParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const recordOfficeOffboardingHandoverBodyReceivedByMax = 200;
+
+export const recordOfficeOffboardingHandoverBodyLetterReferenceMax = 500;
+
+export const recordOfficeOffboardingHandoverBodyNoteMax = 2000;
+
+
+
+export const RecordOfficeOffboardingHandoverBody = zod.object({
+  "receivedBy": zod.string().max(recordOfficeOffboardingHandoverBodyReceivedByMax),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string().max(recordOfficeOffboardingHandoverBodyLetterReferenceMax),
+  "note": zod.string().max(recordOfficeOffboardingHandoverBodyNoteMax).optional()
+})
+
+export const RecordOfficeOffboardingHandoverResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Step 4 — seal every chart through the account-closure primitive (leased job; blocked by an office legal hold; idempotent once started)
+ */
+export const SealOfficeOffboardingParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const SealOfficeOffboardingResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Step 5 — mark the office offboarded (requires a finished seal with nothing held and no office hold)
+ */
+export const CompleteOfficeOffboardingParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const CompleteOfficeOffboardingResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Destruction certificate — CSV of the office's purge tombstones with counts and dates (available once offboarded; audited)
+ */
+export const GetOfficeDestructionCertificateParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetOfficeDestructionCertificateResponse = zod.unknown()
+
+
+/**
  * @summary Legal holds (active by default) with who placed them, when, and why. A hold blocks every deletion path for the patient or for every patient of the office.
  */
 export const GetHqLegalHoldsQueryParams = zod.object({

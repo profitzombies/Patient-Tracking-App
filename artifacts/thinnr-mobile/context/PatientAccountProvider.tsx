@@ -44,6 +44,7 @@ import { usePatientPresenceHeartbeat } from '@/lib/patient-presence-heartbeat';
 import {
   ACCOUNT_CLOSED_MESSAGE,
   isAccountClosedResolutionError,
+  isProgramEndedResolutionError,
 } from '@/lib/live-patient-entry';
 import {
   DEMO_ACCOUNT_STATE,
@@ -88,6 +89,12 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
         setResolved({ forUserId: userId, account: accountFor(role), notice: null });
         void writeCachedAccountRole(userId, role);
       } catch (error) {
+        if (isProgramEndedResolutionError(error)) {
+          await clearCachedAccountRole().catch(() => undefined);
+          if (cancelled) return;
+          router.replace('/program-ended');
+          return;
+        }
         if (isAccountClosedResolutionError(error)) {
           await clearCachedAccountRole().catch(() => undefined);
           if (cancelled) return;

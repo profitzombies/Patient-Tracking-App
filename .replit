@@ -428,6 +428,18 @@ args = "office-insights-api"
 task = "workflow.run"
 args = "office-insights-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-offboarding-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-offboarding-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-offboarding-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2758,3 +2770,37 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations 
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "office-offboarding-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/office-offboarding.test.ts src/privacy/legal-holds.sql.test.ts src/routes/operational-rollups.test.ts src/billing/warehouse-submissions.test.ts src/routes/claim.test.ts src/routes/office-leaderboard.test.ts src/jobs/definitions/staff-attention-digest.test.ts src/jobs/definitions/billing-renewal-reminders.test.ts src/jobs/definitions/warehouse-submit.test.ts src/routes/provider-account-logic.test.ts src/routes/provider-accounts.test.ts src/routes/billing-hq.test.ts src/exports && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "office-offboarding-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-offboarding && pnpm --filter @workspace/thinnr-operations run test:legal-holds && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-offboarding-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+

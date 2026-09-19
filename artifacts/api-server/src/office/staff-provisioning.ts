@@ -23,6 +23,7 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { OFFICE_STATUS_COLUMNS, officeIsActive } from "../lib/office-status";
 import { sendStaffLoginInvitation } from "../claim/delivery";
 import type { OfficeRole } from "../auth/office-scope";
 
@@ -50,7 +51,7 @@ export function providerAcceptsNewStaff(rows: unknown, locks: unknown = []): boo
   return (
     Array.isArray(rows) &&
     rows.length === 1 &&
-    rows[0]?.access_disabled !== true &&
+    officeIsActive(rows[0]) &&
     Array.isArray(locks) &&
     locks.length === 0
   );
@@ -98,7 +99,7 @@ export async function provisionStaffLogin(input: {
       await Promise.all([
         supabaseAdmin(
           "GET",
-          `/rest/v1/providers?provider_id=eq.${enc(accountId)}&select=provider_id,access_disabled&limit=2`,
+          `/rest/v1/providers?provider_id=eq.${enc(accountId)}&select=provider_id,${OFFICE_STATUS_COLUMNS}&limit=2`,
         ),
         supabaseAdmin(
           "GET",

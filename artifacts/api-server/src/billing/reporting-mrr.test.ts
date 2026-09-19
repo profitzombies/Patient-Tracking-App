@@ -59,14 +59,22 @@ describe("monthly recurring revenue", () => {
   });
 });
 
+/** Honor the PostgREST `select=` projection the way the real API would: a column the query does not ask for never arrives. */
+function project<T extends Record<string, unknown>>(query: string, rows: T[]): Array<Partial<T>> {
+  const match = /(?:^|&)select=([^&]+)/.exec(query);
+  if (!match) return rows;
+  const columns = match[1].split(",");
+  return rows.map((row) => Object.fromEntries(columns.filter((column) => column in row).map((column) => [column, row[column]])) as Partial<T>);
+}
+
 describe("office dashboard recurring revenue fields", () => {
   it("reads plan columns for active rows, reports MRR and the failed-payment count", async () => {
     state.queries.length = 0;
     state.rows = {
       billing_orders: [],
-      billing_subscriptions: (query: string) => query.includes("status=eq.active")
-        ? [sub(7_199, 4, 2), sub(5_999, 8)]
-        : query.includes("status=in.(past_due,unpaid)") ? [{ id: "s3", status: "past_due" }, { id: "s4", status: "unpaid" }] : [],
+      billing_subscriptions: (query: string) => project(query, query.includes("status=eq.active")
+        ? [sub(7_199, 4, 2), sub(5_999, 8)] as Record<string, unknown>[]
+        : query.includes("status=in.(past_due,unpaid)") ? [{ id: "s3", status: "past_due" }, { id: "s4", status: "unpaid" }] : []),
     };
     const dashboard = await officeDashboard("office-1", { from: "2026-09-01", to: "2026-09-07" });
     const active = state.queries.find((q) => q.table === "billing_subscriptions" && q.query.includes("status=eq.active"));

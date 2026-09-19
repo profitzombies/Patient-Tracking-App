@@ -81,7 +81,7 @@ export async function officeDashboard(providerId: string, input: { from?: unknow
   const [orders, subscriptions, attention] = await Promise.all([
     selectMany("billing_orders", `provider_id=eq.${encodeURIComponent(providerId)}&created_at=gte.${range.start}&created_at=lte.${range.end}&order=created_at.asc`),
     selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=eq.active&select=id,status,unit_price_cents,quantity,cadence_weeks`),
-    selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=in.(past_due,unpaid)&select=id`),
+    selectMany("billing_subscriptions", `provider_id=eq.${encodeURIComponent(providerId)}&status=in.(past_due,unpaid)&select=id,status`),
   ]);
   const paid = orders.filter((row) => row.status === "paid" || row.status === "refunded" || row.status === "partially_refunded" || row.status === "disputed");
   const refunds = await refundsFor(paid.map((row) => row.id), range);
@@ -149,7 +149,7 @@ export async function hqOverview(input: { from?: unknown; to?: unknown }): Promi
     selectMany("billing_refunds", `created_at=gte.${range.start}&created_at=lte.${range.end}`),
     selectMany("billing_disputes", `created_at=gte.${range.start}&created_at=lte.${range.end}`),
     selectMany("billing_subscriptions", "status=eq.active&select=id"),
-    selectMany("billing_subscriptions", "status=in.(past_due,unpaid)&select=id"),
+    selectMany("billing_subscriptions", "status=in.(past_due,unpaid)&select=id,status"),
     selectMany("billing_connected_accounts", "select=provider_id,charges_enabled,payouts_enabled"),
     selectMany("billing_ledger", `occurred_at=gte.${range.start}&occurred_at=lte.${range.end}&order=occurred_at.desc,id.desc&limit=8`),
   ]);

@@ -14,7 +14,8 @@
     "harness:bloodwork-benchmark": "tsx scripts/bloodwork-benchmark/run.ts",
     "harness:bloodwork-accuracy": "tsx scripts/bloodwork-benchmark/accuracy.ts",
     "test:usda-catalog-seed": "tsx scripts/verify-usda-catalog-seed.ts",
-    "test:patient-snapshot-sql": "vitest run src/routes/patient-data.sql.test.ts"
+    "test:patient-snapshot-sql": "vitest run src/routes/patient-data.sql.test.ts",
+    "test:overview-finance-live": "tsx scripts/overview-finance-live-smoke.ts cleanup && tsx scripts/overview-finance-live-smoke.ts prepare && tsx scripts/overview-finance-live-smoke.ts verify"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.0.1",

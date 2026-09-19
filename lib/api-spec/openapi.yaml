@@ -2113,6 +2113,19 @@ paths:
         "404": { description: "Not the caller's export, or no such part" }
         "409": { description: Export not ready }
         "410": { description: Export expired }
+  /exports/{exportId}/cancel:
+    post:
+      operationId: cancelExport
+      tags: [exports]
+      summary: Stop one of the caller's queued or running exports (a running build stops at its next part boundary and its written parts are deleted)
+      parameters:
+        - $ref: "#/components/parameters/ExportId"
+      responses:
+        "200":
+          description: The job after the cancel (cancelled, or running with cancelRequested while the worker stops)
+          content: { application/json: { schema: { $ref: "#/components/schemas/ExportJobResult" } } }
+        "404": { description: Not the caller's export }
+        "409": { description: "Export already finished, failed, expired or cancelled" }
   /hq/overview:
     get:
       operationId: getHqOverview
@@ -3435,12 +3448,12 @@ components:
         partsTotal: { type: ["number", "null"] }
     ExportJob:
       type: object
-      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable, parts, progress, omittedFiles]
+      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable, parts, progress, omittedFiles, cancelRequested]
       properties:
         id: { type: string }
         kind: { $ref: "#/components/schemas/ExportKind" }
         label: { type: string }
-        status: { type: string, enum: [queued, running, ready, failed, expired] }
+        status: { type: string, enum: [queued, running, ready, failed, expired, cancelled] }
         scope:
           type: object
           required: [providerId, officeName, patientId, patientName]
@@ -3471,6 +3484,7 @@ components:
             - $ref: "#/components/schemas/ExportProgress"
             - type: "null"
         omittedFiles: { type: ["number", "null"], description: "Stored files the archive names in its manifest but could not include" }
+        cancelRequested: { type: boolean, description: "True while a running job has been asked to stop and the worker has not yet confirmed" }
     ExportKindOption:
       type: object
       required: [kind, label, ranged, needsOffice, needsPatient]

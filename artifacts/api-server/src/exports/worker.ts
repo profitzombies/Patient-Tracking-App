@@ -1,7 +1,7 @@
 /**
  * Export job worker — runs inside the API server process.
  *
- * Lifecycle: queued -> running -> ready | failed -> expired.
+ * Lifecycle: queued -> running -> ready | failed | cancelled -> expired.
  *   * `drainQueuedExports` claims one job at a time through the
  *     `claim_next_data_export` RPC (FOR UPDATE SKIP LOCKED, so two server
  *     instances never build the same file), generates the CSV, writes it to
@@ -12,6 +12,13 @@
  *     expiry, then flips the row to `expired` with its path cleared. Delete
  *     is strict: a storage failure keeps the row (and its path) so the next
  *     sweep retries. Rows are pruned entirely once they are well past expiry.
+ *   * Cancellation is cooperative. The route flips a QUEUED job straight to
+ *     `cancelled`; for a RUNNING job it stamps `cancel_requested_at` and the
+ *     worker notices at the next checkpoint (between parts and before each
+ *     stored file), deletes every part it already wrote, and marks the row
+ *     cancelled. A job that finishes in the same instant never lands as
+ *     ready: the ready flip is conditional on no cancel request, and a lost
+ *     flip deletes the files again.
  *
  * Both entry points are idempotent and safe to call concurrently with the
  * request handlers; the route kicks a drain right after inserting a job so
@@ -52,6 +59,46 @@ export interface ExportJobRow {
   last_downloaded_at: string | null;
   /** Multi-part archives (patient records): every part, in order. */
   parts: ExportPartRow[] | null;
+  /** Set by the cancel route while running; the worker stops at its next checkpoint. */
+  cancel_requested_at: string | null;
+}
+
+/** Thrown inside a build when the requester cancelled the job. */
+export class ExportCancelledError extends Error {
+  constructor() {
+    super("Export cancelled by the requester.");
+    this.name = "ExportCancelledError";
+  }
+}
+
+/** How often (at most) a running build re-reads its row for a cancel request. */
+const CANCEL_CHECK_EVERY_MS = 1_500;
+
+/**
+ * A checkpoint the archive builder awaits between files and parts. Reads
+ * the job row (throttled) and throws ExportCancelledError once the
+ * requester has cancelled or the row otherwise stopped being ours to
+ * finish (expired/pruned mid-run). A read failure is NOT a cancel: the
+ * build continues and the conditional ready flip stays the backstop.
+ */
+export function cancelCheckpoint(jobId: string, everyMs = CANCEL_CHECK_EVERY_MS, now = () => Date.now()): () => Promise<void> {
+  let lastChecked = 0;
+  let cancelled = false;
+  return async () => {
+    if (cancelled) throw new ExportCancelledError();
+    const at = now();
+    if (at - lastChecked < everyMs) return;
+    lastChecked = at;
+    try {
+      const res = await supabaseAdmin("GET", `/rest/v1/data_exports?id=eq.${enc(jobId)}&select=status,cancel_requested_at&limit=1`);
+      if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`export cancel check failed (${res.status})`);
+      const row = res.json[0] as { status: string; cancel_requested_at: string | null } | undefined;
+      if (!row || row.status !== "running" || row.cancel_requested_at) cancelled = true;
+    } catch (error) {
+      logger.warn({ err: error, jobId }, "export cancel check failed; continuing");
+    }
+    if (cancelled) throw new ExportCancelledError();
+  };
 }
 
 export interface ExportPartRow {
@@ -97,9 +144,9 @@ export function scopeFromJob(job: ExportJobRow): ExportScope {
   };
 }
 
-async function patchJob(jobId: string, patch: Record<string, unknown>, expectStatus?: string): Promise<boolean> {
+async function patchJob(jobId: string, patch: Record<string, unknown>, expectStatus?: string, extraFilter = ""): Promise<boolean> {
   const filter = expectStatus ? `&status=eq.${enc(expectStatus)}` : "";
-  const res = await supabaseAdmin("PATCH", `/rest/v1/data_exports?id=eq.${enc(jobId)}${filter}`, patch, "return=representation");
+  const res = await supabaseAdmin("PATCH", `/rest/v1/data_exports?id=eq.${enc(jobId)}${filter}${extraFilter}`, patch, "return=representation");
   if (res.status >= 300) throw new Error(`export job update failed (${res.status})`);
   return Array.isArray(res.json) && res.json.length === 1;
 }
@@ -108,6 +155,20 @@ function shortError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   // Keep storage/DB internals out of the row; the log has the full error.
   return message.replace(/https?:\/\/\S+/g, "[url]").slice(0, 300) || "Export failed.";
+}
+
+/** The ready flip only lands while the job is running AND nobody cancelled it. */
+const NOT_CANCELLED = "&cancel_requested_at=is.null";
+
+/** Remove every object a build wrote (best effort, every failure logged). */
+async function removeWritten(jobId: string, paths: Iterable<string>, why: string): Promise<void> {
+  for (const path of paths) {
+    try {
+      await objectStorage.deleteObjectStrict(path);
+    } catch (cleanupError) {
+      logger.error({ err: cleanupError, jobId, objectPath: path }, `${why} export part not removed`);
+    }
+  }
 }
 
 /**
@@ -119,6 +180,7 @@ async function runPatientRecordJob(job: ExportJobRow, scope: ExportScope): Promi
   const patient = scope.patient;
   if (!patient) throw new Error("patient record export without a patient");
   const objectPaths = new Map<number, string>();
+  const checkpoint = cancelCheckpoint(job.id);
   const stem = (job.file_name ?? `thinnr_patient-record_${job.id}`).replace(/\.zip$/i, "");
   const progress = async (patch: Record<string, unknown>) => {
     try {
@@ -141,6 +203,7 @@ async function runPatientRecordJob(job: ExportJobRow, scope: ExportScope): Promi
       onPartWritten: async (done, total) => {
         await progress({ stage: "writing", partsDone: done, partsTotal: total });
       },
+      checkpoint,
     });
     const parts: ExportPartRow[] = result.parts.map((part: WrittenRecordPart) => ({
       part: part.part,
@@ -162,21 +225,34 @@ async function runPatientRecordJob(job: ExportJobRow, scope: ExportScope): Promi
         error: null,
       },
       "running",
+      NOT_CANCELLED,
     );
     if (!landed) {
-      for (const path of objectPaths.values()) await objectStorage.deleteObjectStrict(path);
+      // Cancelled (or expired/pruned) in the last instant: the row is not
+      // ours to finish, and a cancelled record owns no files.
+      await removeWritten(job.id, [...objectPaths.values()], "cancelled");
+      objectPaths.clear();
+      throw new ExportCancelledError();
     }
   } catch (error) {
-    // Never leave half a record behind: a failed build owns no files.
-    for (const path of objectPaths.values()) {
-      try {
-        await objectStorage.deleteObjectStrict(path);
-      } catch (cleanupError) {
-        logger.error({ err: cleanupError, jobId: job.id, objectPath: path }, "failed export part not removed");
-      }
-    }
+    // Never leave half a record behind: a failed or cancelled build owns no files.
+    await removeWritten(job.id, objectPaths.values(), error instanceof ExportCancelledError ? "cancelled" : "failed");
     throw error;
   }
+}
+
+/**
+ * Terminal state for a build that stopped on a cancel request. The row may
+ * already be cancelled (queued cancel) or gone (pruned); either way there is
+ * nothing more to record.
+ */
+async function markCancelled(jobId: string): Promise<void> {
+  const landed = await patchJob(
+    jobId,
+    { status: "cancelled", object_path: null, parts: null, size_bytes: null, row_count: null, error: null, completed_at: new Date().toISOString() },
+    "running",
+  );
+  if (!landed) logger.info({ jobId }, "export cancelled; row already moved on");
 }
 
 /** Generate one claimed job to completion. Exported for tests. */
@@ -189,6 +265,8 @@ export async function runExportJob(job: ExportJobRow): Promise<void> {
       return;
     }
     const sheet = await GENERATORS[kind as ExportKind](scopeFromJob(job));
+    // A CSV has one checkpoint: after the rows are gathered, before any file exists.
+    await cancelCheckpoint(job.id, 0)();
     const rows = sheet.rows.slice(0, MAX_EXPORT_ROWS);
     const buffer = csvBuffer(sheet.header, rows);
     const objectPath = exportObjectPath(job.id);
@@ -197,12 +275,23 @@ export async function runExportJob(job: ExportJobRow): Promise<void> {
       job.id,
       { status: "ready", object_path: objectPath, size_bytes: buffer.byteLength, row_count: rows.length, completed_at: new Date().toISOString(), error: null },
       "running",
+      NOT_CANCELLED,
     );
     if (!landed) {
-      // The row moved on without us (expired/pruned mid-run): don't orphan the file.
+      // The row moved on without us (cancelled/expired/pruned mid-run): don't orphan the file.
       await objectStorage.deleteObjectStrict(objectPath);
+      throw new ExportCancelledError();
     }
   } catch (error) {
+    if (error instanceof ExportCancelledError) {
+      logger.info({ jobId: job.id, kind }, "export job cancelled");
+      try {
+        await markCancelled(job.id);
+      } catch (patchError) {
+        logger.error({ err: patchError, jobId: job.id }, "export cancellation not recorded");
+      }
+      return;
+    }
     logger.error({ err: error, jobId: job.id, kind }, "export job failed");
     try {
       await patchJob(job.id, { status: "failed", error: shortError(error), completed_at: new Date().toISOString() }, "running");
@@ -249,7 +338,7 @@ export async function sweepExpiredExports(now = new Date()): Promise<{ expired: 
   const nowIso = now.toISOString();
   const due = await supabaseAdmin(
     "GET",
-    `/rest/v1/data_exports?select=id,object_path,parts,status&status=in.(queued,running,ready,failed)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
+    `/rest/v1/data_exports?select=id,object_path,parts,status&status=in.(queued,running,ready,failed,cancelled)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
   );
   if (due.status >= 300 || !Array.isArray(due.json)) throw new Error(`export expiry scan failed (${due.status})`);
   let expired = 0;

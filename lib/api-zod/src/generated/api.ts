@@ -3508,7 +3508,7 @@ export const ListExportsResponse = zod.object({
   "id": zod.string(),
   "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
   "officeName": zod.string().nullable(),
@@ -3539,7 +3539,8 @@ export const ListExportsResponse = zod.object({
   "partsDone": zod.number().nullable(),
   "partsTotal": zod.number().nullable()
 }),zod.null()]),
-  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
 })),
   "available": zod.array(zod.object({
   "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
@@ -3568,7 +3569,7 @@ export const RequestExportResponse = zod.object({
   "id": zod.string(),
   "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
   "officeName": zod.string().nullable(),
@@ -3599,7 +3600,8 @@ export const RequestExportResponse = zod.object({
   "partsDone": zod.number().nullable(),
   "partsTotal": zod.number().nullable()
 }),zod.null()]),
-  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
 })
 })
 
@@ -3616,7 +3618,7 @@ export const GetExportResponse = zod.object({
   "id": zod.string(),
   "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
-  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
   "officeName": zod.string().nullable(),
@@ -3647,7 +3649,8 @@ export const GetExportResponse = zod.object({
   "partsDone": zod.number().nullable(),
   "partsTotal": zod.number().nullable()
 }),zod.null()]),
-  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
 })
 })
 
@@ -3668,6 +3671,55 @@ export const GetExportDownloadUrlResponse = zod.object({
   "fileName": zod.string().nullable(),
   "expiresInSeconds": zod.number(),
   "part": zod.number().nullish().describe('Which numbered part was signed (null for single-file exports)')
+})
+
+
+/**
+ * @summary Stop one of the caller's queued or running exports (a running build stops at its next part boundary and its written parts are deleted)
+ */
+export const CancelExportParams = zod.object({
+  "exportId": zod.coerce.string()
+})
+
+export const CancelExportResponse = zod.object({
+  "job": zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable()
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
+})
 })
 
 

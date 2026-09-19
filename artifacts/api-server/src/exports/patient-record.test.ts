@@ -250,6 +250,54 @@ describe("patient record archive", () => {
       }),
     ).rejects.toThrow(/storage hiccup/);
   });
+  it("awaits the checkpoint before writing, before every later part, and before every stored file, and stops where it throws", async () => {
+    const events: string[] = [];
+    let checks = 0;
+    const written: number[] = [];
+    let cancelAt = Number.POSITIVE_INFINITY;
+    const build = () =>
+      buildPatientRecordArchive("p-1", {
+        sections: sections(),
+        chart,
+        fileNameStem: "x",
+        partBudgetBytes: 2_500_000,
+        statMedia: async (path) => {
+          const object = OBJECTS[path];
+          if (!object) throw new Error("not found");
+          return object.byteLength;
+        },
+        readMedia: async (path) => {
+          events.push(`read ${path.split("/").pop()}`);
+          return OBJECTS[path];
+        },
+        writePart: async (part, stream) => {
+          events.push(`part ${part.part}`);
+          const buffer = await collect(stream);
+          written.push(part.part);
+          return { sizeBytes: buffer.byteLength };
+        },
+        checkpoint: async () => {
+          checks += 1;
+          events.push("check");
+          if (checks >= cancelAt) throw new Error("cancelled by test");
+        },
+      });
+    await build();
+    // One check before any part, one before parts 2-4, one before each of the 5 stored files.
+    expect(checks).toBe(1 + 3 + 5);
+    expect(events[0]).toBe("check");
+    expect(events.indexOf("part 1")).toBeLessThan(events.indexOf("read photo-1.jpg"));
+    for (let i = 0; i < events.length; i += 1) if (events[i].startsWith("read ")) expect(events[i - 1]).toBe("check");
+    // Now cancel at the check that opens part 2: part 1 is complete, nothing later is written or read.
+    events.length = 0;
+    written.length = 0;
+    checks = 0;
+    cancelAt = 4; // check#1 plan, #2/#3 photo-1/photo-2 reads (part 1), #4 = before part 2
+    await expect(build()).rejects.toThrow(/cancelled by test/);
+    expect(written).toEqual([1]);
+    expect(events.filter((event) => event.startsWith("part "))).toEqual(["part 1"]);
+    expect(events).not.toContain("read photo-3.jpg");
+  });
 });
 
 describe("record summary pdf", () => {

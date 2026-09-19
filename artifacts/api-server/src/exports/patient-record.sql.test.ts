@@ -10,13 +10,14 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261106000000_patient_record_exports.sql");
+const CANCEL_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_data_export_cancellation.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -31,7 +32,7 @@ create role anon nologin; create role authenticated nologin; create role service
 create table public.data_exports (
   id uuid primary key default gen_random_uuid(),
   kind text not null check (kind in ('office_comparison','patient_activity','audit_events','training_completion','provider_directory')),
-  status text not null default 'queued',
+  status text not null default 'queued' check (status in ('queued','running','ready','failed','expired')),
   requested_by uuid not null default gen_random_uuid(),
   requester_kind text not null default 'hq',
   provider_id text,
@@ -102,7 +103,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient record export SQL (real PostgreSQL
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, CANCEL_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -146,6 +147,17 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient record export SQL (real PostgreSQL
     // Once the sweep clears the row, nothing lingers in the ledger.
     psql(`update public.data_exports set status = 'expired', object_path = null, parts = null where id = '${JOB}'`);
     expect(rows(`select object_path from public.storage_ledger_paths('/objects/exports/${JOB}/', null, 100)`)).toEqual([]);
+  });
+
+  it("admits the cancelled status and the cancel flag after the cancellation migration, still refusing unknown states", () => {
+    const CANCELLED = uuid(4);
+    psql(`insert into public.data_exports (id, kind, status, cancel_requested_at) values ('${CANCELLED}', 'patient_record', 'running', now())`);
+    psql(`update public.data_exports set status = 'cancelled' where id = '${CANCELLED}' and status = 'running'`);
+    expect(rows<{ status: string; flagged: boolean }>(`select status, cancel_requested_at is not null as flagged from public.data_exports where id = '${CANCELLED}'`)).toEqual([{ status: "cancelled", flagged: true }]);
+    expect(fails(`update public.data_exports set status = 'stopped' where id = '${CANCELLED}'`)).toContain("data_exports_status_check");
+    // Re-running the migration is harmless (idempotent DDL).
+    expect(fails(readFileSync(CANCEL_MIGRATION, "utf8"))).toBe("");
+    psql(`delete from public.data_exports where id = '${CANCELLED}'`);
   });
 
   it("keeps the helpers service-role only", () => {

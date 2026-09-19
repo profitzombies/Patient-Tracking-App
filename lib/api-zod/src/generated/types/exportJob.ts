@@ -44,4 +44,6 @@ export interface ExportJob {
      * @nullable
      */
   omittedFiles: number | null;
+  /** True while a running job has been asked to stop and the worker has not yet confirmed */
+  cancelRequested: boolean;
 }

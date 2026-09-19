@@ -1,3 +1,4 @@
+// hint: Logic changed on both sides. Requires understanding intent of each change.
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
 - [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
@@ -169,3 +170,4 @@
 - [Legal holds](legal-holds.md) — hold predicate inside every delete statement (office resolves via provider); deletion requests park as `held`; HQ UI reads holds endpoint, office badge rides a computed column.
 - [Shared dev DB drift in live checks](shared-db-live-verification.md) — concurrent tasks seed fixtures mid-run; testers must compare tiles to the app's own response, not a stale baseline; disposable HQ admin recipe.
 - [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.
+- [Export job cancellation](export-cancellation.md) — cooperative stop at part boundaries, ready-flip CAS on cancel_requested_at null, cancelled never keeps files; live test:exports fails on main (fresh-code gate).

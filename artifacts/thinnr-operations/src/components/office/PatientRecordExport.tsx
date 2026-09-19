@@ -9,12 +9,14 @@
  *
  * The dialog explains what leaves the office, asks for confirmation, then
  * lists this patient's record exports with build progress and one download
- * per numbered ZIP part. Every request and every download is audited
- * against the patient.
+ * per numbered ZIP part. A queued or running build can be cancelled from
+ * the list: the worker stops at its next part boundary and removes every
+ * part it wrote. Every request, cancel, and download is audited against
+ * the patient.
  */
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Archive, CheckCircle2, Clock3, Loader2 } from 'lucide-react';
+import { AlertCircle, Archive, Ban, CheckCircle2, Clock3, Loader2 } from 'lucide-react';
 import {
   getListExportsQueryKey,
   useListExports,
@@ -31,19 +33,11 @@ import {
 import { BTN_PRIMARY, BTN_SECONDARY, PANEL_LABEL } from '@/components/patient/heritage';
 import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
-import { countLabel, expiryLabel, formatBytes, progressLabel, requestExportJob } from '@/lib/export-jobs';
+import { EXPORT_STATUS_LABELS, countLabel, expiryLabel, formatBytes, progressLabel, requestExportJob } from '@/lib/export-jobs';
 import { politeInterval } from '@/lib/polite-refetch';
-import { ExportDownloadButtons, apiErrorMessage, useExportDownload } from '@/components/exports/ExportDownloads';
+import { ExportCancelButton, ExportDownloadButtons, apiErrorMessage, useExportCancel, useExportDownload } from '@/components/exports/ExportDownloads';
 
 const PENDING: ReadonlySet<ExportJob['status']> = new Set(['queued', 'running']);
-
-const STATUS_LABELS: Record<ExportJob['status'], string> = {
-  queued: 'Queued',
-  running: 'Generating',
-  ready: 'Ready',
-  failed: 'Failed',
-  expired: 'Expired',
-};
 
 const STATUS_STYLES: Record<ExportJob['status'], string> = {
   queued: 'border-border bg-secondary text-muted-foreground',
@@ -51,6 +45,7 @@ const STATUS_STYLES: Record<ExportJob['status'], string> = {
   ready: 'border-[#bfe3c5] bg-[#eaf7ec] text-[#1f6b34]',
   failed: 'border-destructive/40 bg-destructive/10 text-destructive',
   expired: 'border-border bg-secondary text-muted-foreground',
+  cancelled: 'border-border bg-secondary text-muted-foreground',
 };
 
 function formatWhen(iso: string): string {
@@ -86,6 +81,7 @@ export function PatientRecordExport({ patientId, patientName, office }: {
   // re-auth-aware office client so a fresh-code challenge can retry it.
   const request = useMutation({ mutationFn: (data: Parameters<typeof requestExportJob>[0]) => requestExportJob(data) });
   const { download, downloading } = useExportDownload();
+  const { cancel, cancelling } = useExportCancel();
 
   const allowed = (list.data?.available ?? []).some((option) => option.kind === 'patient_record');
   if (!signedIn || !allowed) return null;
@@ -160,19 +156,27 @@ export function PatientRecordExport({ patientId, patientName, office }: {
                           className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[.08em] ${STATUS_STYLES[job.status]}`}
                           data-testid={`status-record-export-${job.id}`}
                         >
-                          {pending ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : job.status === 'ready' ? <CheckCircle2 size={10} aria-hidden="true" /> : job.status === 'failed' ? <AlertCircle size={10} aria-hidden="true" /> : <Clock3 size={10} aria-hidden="true" />}
-                          {STATUS_LABELS[job.status]}
+                          {pending ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : job.status === 'ready' ? <CheckCircle2 size={10} aria-hidden="true" /> : job.status === 'failed' ? <AlertCircle size={10} aria-hidden="true" /> : job.status === 'cancelled' ? <Ban size={10} aria-hidden="true" /> : <Clock3 size={10} aria-hidden="true" />}
+                          {EXPORT_STATUS_LABELS[job.status]}
                         </span>
                         <span className="ml-auto text-[10px] font-normal text-muted-foreground" data-testid={`text-record-export-expiry-${job.id}`}>
-                          {job.status === 'expired' ? 'Expired' : job.status === 'failed' ? '' : expiryLabel(job.expiresAt)}
+                          {job.status === 'expired' ? 'Expired' : job.status === 'failed' || job.status === 'cancelled' ? '' : expiryLabel(job.expiresAt)}
                         </span>
                       </div>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {[count, size, job.parts && job.parts.length > 1 ? `${job.parts.length} parts` : null, job.downloadCount > 0 ? `downloaded ${job.downloadCount}×` : null].filter(Boolean).join(' · ') || 'Archive'}
                       </p>
                       {pending && (
-                        <p className="mt-1 text-[11px] text-primary" aria-live="polite" data-testid={`text-record-export-progress-${job.id}`}>
-                          {progressLabel(job.status, job.progress)}
+                        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] text-primary" aria-live="polite" data-testid={`text-record-export-progress-${job.id}`}>
+                            {progressLabel(job.status, job.progress, job.cancelRequested)}
+                          </p>
+                          <ExportCancelButton job={job} cancelling={cancelling} onCancel={(target) => void cancel(target)} />
+                        </div>
+                      )}
+                      {job.status === 'cancelled' && (
+                        <p className="mt-1 text-[11px] text-muted-foreground" data-testid={`text-record-export-cancelled-${job.id}`}>
+                          Cancelled before it finished; nothing was kept. Build it again if you still need it.
                         </p>
                       )}
                       {job.status === 'ready' && job.omittedFiles ? (

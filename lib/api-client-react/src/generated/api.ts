@@ -7697,6 +7697,77 @@ export function useGetExportDownloadUrl<TData = Awaited<ReturnType<typeof getExp
 
 
 
+export const getCancelExportUrl = (exportId: string,) => {
+
+
+
+
+  return `/api/exports/${exportId}/cancel`
+}
+
+/**
+ * @summary Stop one of the caller's queued or running exports (a running build stops at its next part boundary and its written parts are deleted)
+ */
+export const cancelExport = async (exportId: string, options?: Parameters<typeof customFetch>[1]): Promise<ExportJobResult> => {
+
+  return customFetch<ExportJobResult>(getCancelExportUrl(exportId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCancelExportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelExport>>, TError,{exportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cancelExport>>, TError,{exportId: string}, TContext> => {
+
+const mutationKey = ['cancelExport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cancelExport>>, {exportId: string}> = (props) => {
+          const {exportId} = props ?? {};
+
+          return  cancelExport(exportId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CancelExportMutationResult = NonNullable<Awaited<ReturnType<typeof cancelExport>>>
+
+    export type CancelExportMutationError = ErrorType<void>
+
+    /**
+ * @summary Stop one of the caller's queued or running exports (a running build stops at its next part boundary and its written parts are deleted)
+ */
+export const useCancelExport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cancelExport>>, TError,{exportId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cancelExport>>,
+        TError,
+        {exportId: string},
+        TContext
+      > => {
+      return useMutation(getCancelExportMutationOptions(options));
+    }
+
 export const getGetHqOverviewUrl = () => {
 
 

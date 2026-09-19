@@ -157,6 +157,13 @@ export interface BuildPatientRecordOptions {
   fileNameStem: string;
   /** Called after each part lands (progress reporting). */
   onPartWritten?: (done: number, total: number) => Promise<void> | void;
+  /**
+   * Cooperative cancellation: awaited once the plan is known (before any
+   * part is written), before every part, and before every stored file's
+   * bytes are fetched. Throw to stop the build; the caller owns clean-up of
+   * parts already written.
+   */
+  checkpoint?: () => Promise<void>;
 }
 
 export interface BuildPatientRecordResult {
@@ -376,10 +383,13 @@ export async function buildPatientRecordArchive(
     omitted,
   };
   const manifestJson = JSON.stringify(manifest, null, 2);
+  const checkpoint = options.checkpoint ?? (async () => {});
+  await checkpoint();
 
   // ── Write: one part at a time, each streamed straight to its sink ───────
   const written: WrittenRecordPart[] = [];
   for (let part = 1; part <= totalParts; part += 1) {
+    if (part > 1) await checkpoint();
     const zip = new JSZip();
     zip.file("manifest.json", manifestJson);
     if (part === 1) {
@@ -392,7 +402,14 @@ export async function buildPatientRecordArchive(
       const objectPath = entry.objectPath as string;
       // Stored files are already compressed formats; STORE keeps part size
       // predictable and avoids a second pass over every byte.
-      zip.file(entry.file, new LazyObjectStream(() => readMedia(objectPath)), { compression: "STORE" });
+      zip.file(
+        entry.file,
+        new LazyObjectStream(async () => {
+          await checkpoint();
+          return readMedia(objectPath);
+        }),
+        { compression: "STORE" },
+      );
       count += 1;
     }
     // JSZip's output stream is a legacy readable-stream; hand consumers a

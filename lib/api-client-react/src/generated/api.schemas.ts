@@ -719,6 +719,7 @@ export const ExportJobStatus = {
   ready: 'ready',
   failed: 'failed',
   expired: 'expired',
+  cancelled: 'cancelled',
 } as const;
 
 export type ExportJobScope = {
@@ -764,6 +765,8 @@ export interface ExportJob {
      * @nullable
      */
   omittedFiles: number | null;
+  /** True while a running job has been asked to stop and the worker has not yet confirmed */
+  cancelRequested: boolean;
 }
 
 export interface ExportKindOption {

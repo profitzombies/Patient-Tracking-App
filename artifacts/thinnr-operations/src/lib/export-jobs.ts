@@ -18,6 +18,37 @@ export function requestExportJob(input: ExportRequestInput): Promise<ExportJobRe
   });
 }
 
+const CANCEL_MESSAGES = {
+  unconfigured: EXPORT_MESSAGES.unconfigured,
+  signedOut: 'Your session has ended. Sign in again to cancel an export.',
+  unreachable: EXPORT_MESSAGES.unreachable,
+  failed: 'The export could not be cancelled',
+};
+
+/**
+ * Stop one of the caller's queued/running exports. A queued job comes back
+ * cancelled; a running one comes back with `cancelRequested` while the
+ * worker stops at its next part boundary and removes what it wrote.
+ */
+export function cancelExportJob(exportId: string): Promise<ExportJobResult> {
+  return officeRequest<ExportJobResult>(`/api/exports/${encodeURIComponent(exportId)}/cancel`, CANCEL_MESSAGES, { method: 'POST' });
+}
+
+/** Status pill copy shared by the Exports panel and the patient record dialog. */
+export const EXPORT_STATUS_LABELS: Record<ExportJobResult['job']['status'], string> = {
+  queued: 'Queued',
+  running: 'Generating',
+  ready: 'Ready',
+  failed: 'Failed',
+  expired: 'Expired',
+  cancelled: 'Cancelled',
+};
+
+/** True while the job can still be cancelled (queued, or running and not yet asked to stop). */
+export function cancellable(job: { status: string; cancelRequested: boolean }): boolean {
+  return job.status === 'queued' || (job.status === 'running' && !job.cancelRequested);
+}
+
 /** "Expires in 23 h", "Expires in 40 min", or "Expired". */
 export function expiryLabel(expiresAt: string, now: number = Date.now()): string {
   const ms = new Date(expiresAt).getTime() - now;
@@ -62,7 +93,8 @@ export function partLabel(part: { part: number; sizeBytes: number; fileCount: nu
  * while the second part streams; once every part is written the worker is
  * only finalising the job row.
  */
-export function progressLabel(status: string, progress: ExportProgressLike | null): string {
+export function progressLabel(status: string, progress: ExportProgressLike | null, cancelRequested = false): string {
+  if (cancelRequested && status === 'running') return 'Stopping… removing what was written';
   if (status === 'queued' || !progress) return status === 'queued' ? 'Waiting to start' : 'Generating…';
   if (progress.stage === 'collecting') return 'Collecting the record…';
   if (progress.stage === 'ready') return 'Finishing…';

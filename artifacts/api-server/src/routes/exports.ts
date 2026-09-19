@@ -5,6 +5,7 @@
  *   GET  /exports                    the caller's recent jobs
  *   GET  /exports/:id                poll one job
  *   GET  /exports/:id/download-url   short-lived signed link for a ready job
+ *   POST /exports/:id/cancel         stop a queued/running job (audited)
  *
  * Scope is authorised and frozen at request time (see exports/kinds.ts);
  * every later read is pinned to `requested_by = caller`, so a job id alone
@@ -69,7 +70,9 @@ const RequestBody = z.object({
 });
 
 const JOB_SELECT =
-  "id,kind,status,requested_by,requester_kind,requester_role,provider_id,params,file_name,object_path,size_bytes,row_count,error,attempts,created_at,started_at,completed_at,expires_at,download_count,last_downloaded_at,parts";
+  "id,kind,status,requested_by,requester_kind,requester_role,provider_id,params,file_name,object_path,size_bytes,row_count,error,attempts,created_at,started_at,completed_at,expires_at,download_count,last_downloaded_at,parts,cancel_requested_at";
+
+export type ExportJobStatus = "queued" | "running" | "ready" | "failed" | "expired" | "cancelled";
 
 function progressOf(params: Record<string, unknown>): { stage: "collecting" | "writing" | "ready"; partsDone: number | null; partsTotal: number | null } | null {
   const raw = params.progress;
@@ -85,12 +88,12 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
   const params = row.params ?? {};
   const expiresMs = Date.parse(row.expires_at);
   const expired = row.status === "expired" || (Number.isFinite(expiresMs) && expiresMs <= now);
-  const status = expired && (row.status === "ready" || row.status === "failed") ? "expired" : row.status;
+  const status = expired && (row.status === "ready" || row.status === "failed" || row.status === "cancelled") ? "expired" : row.status;
   return {
     id: row.id,
     kind: row.kind as ExportKind,
     label: EXPORT_KIND_LABELS[row.kind as ExportKind] ?? row.kind,
-    status: status as "queued" | "running" | "ready" | "failed" | "expired",
+    status: status as ExportJobStatus,
     scope: {
       providerId: row.provider_id,
       officeName: typeof params.officeName === "string" ? params.officeName : null,
@@ -119,6 +122,8 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
     progress: status === "queued" || status === "running" ? progressOf(params) : null,
     /** Stored files the archive names but could not include (missing sources). */
     omittedFiles: typeof params.omitted === "number" ? params.omitted : null,
+    /** True while a running job has been asked to stop and the worker has not yet confirmed. */
+    cancelRequested: status === "running" && Boolean(row.cancel_requested_at),
   };
 }
 
@@ -350,6 +355,91 @@ router.get("/exports/:id/download-url", async (req, res) => {
   } catch (error) {
     req.log?.error({ err: error }, "export download failed");
     res.status(502).json({ error: "Could not prepare that download right now." });
+  }
+});
+
+/**
+ * Cancel one of the caller's own exports that has not finished. A queued
+ * job is flipped to cancelled here (the claim RPC only takes queued rows, so
+ * it can never start); a running job is stamped `cancel_requested_at` and the
+ * worker stops at its next checkpoint, deletes the parts it wrote, and marks
+ * the row cancelled. Both are audited against the patient (record exports)
+ * or the export itself, with the export id alongside.
+ */
+router.post("/exports/:id/cancel", async (req, res) => {
+  try {
+    const who = await requester(req);
+    if (!who) return;
+    const job = await ownJob(req.params.id, who.userId);
+    if (!job) {
+      res.status(404).json({ error: "That export isn't available." });
+      return;
+    }
+    const before = exportJobDto(job);
+    if (before.status !== "queued" && before.status !== "running") {
+      res.status(409).json({ error: before.status === "ready" ? "That export already finished." : "That export is no longer running." });
+      return;
+    }
+    const now = new Date().toISOString();
+    let outcome: "cancelled" | "stopping" | null = null;
+    if (job.status === "queued") {
+      const flipped = await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/data_exports?id=eq.${enc(job.id)}&status=eq.queued`,
+        { status: "cancelled", cancel_requested_at: now, completed_at: now, error: null },
+        "return=representation",
+      );
+      if (flipped.status >= 300) throw new Error(`export cancel failed (${flipped.status})`);
+      if (Array.isArray(flipped.json) && flipped.json.length === 1) outcome = "cancelled";
+    }
+    if (!outcome) {
+      // Queued a moment ago but claimed since, or running all along: ask the worker.
+      const stamped = await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/data_exports?id=eq.${enc(job.id)}&status=eq.running&cancel_requested_at=is.null`,
+        { cancel_requested_at: now },
+        "return=representation",
+      );
+      if (stamped.status >= 300) throw new Error(`export cancel request failed (${stamped.status})`);
+      if (Array.isArray(stamped.json) && stamped.json.length === 1) outcome = "stopping";
+    }
+    const fresh = (await ownJob(job.id, who.userId)) ?? job;
+    if (!outcome) {
+      const dto = exportJobDto(fresh);
+      if (dto.status === "running" && dto.cancelRequested) {
+        // Already asked: idempotent.
+        res.json({ job: dto });
+        return;
+      }
+      res.status(409).json({ error: dto.status === "ready" ? "That export already finished." : "That export is no longer running." });
+      return;
+    }
+    const patientId = typeof job.params?.patientId === "string" ? job.params.patientId : null;
+    await recordAdminAuditEvent(
+      PATIENT_KINDS.has(job.kind as ExportKind) && patientId
+        ? {
+            action: "patient_record_export_cancelled",
+            ...auditActor(who),
+            providerId: job.provider_id,
+            targetKind: "patient",
+            targetId: patientId,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: job.kind, office: job.provider_id ?? "all", exportId: job.id, wasRunning: outcome === "stopping" },
+          }
+        : {
+            action: "data_export_cancelled",
+            ...auditActor(who),
+            providerId: job.provider_id,
+            targetKind: "data_export",
+            targetId: job.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: job.kind, office: job.provider_id ?? "all", wasRunning: outcome === "stopping" },
+          },
+    );
+    res.json({ job: exportJobDto(fresh) });
+  } catch (error) {
+    req.log?.error({ err: error }, "export cancel failed");
+    res.status(502).json({ error: "Could not cancel that export right now." });
   }
 });
 

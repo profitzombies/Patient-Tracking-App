@@ -15,7 +15,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Clock3, FileDown, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Ban, CheckCircle2, Clock3, FileDown, Loader2, RefreshCw } from 'lucide-react';
 import {
   getListExportsQueryKey,
   useListExports,
@@ -26,9 +26,9 @@ import {
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
-import { countLabel, expiryLabel, formatBytes, progressLabel, requestExportJob } from '@/lib/export-jobs';
+import { EXPORT_STATUS_LABELS, countLabel, expiryLabel, formatBytes, progressLabel, requestExportJob } from '@/lib/export-jobs';
 import { politeInterval } from '@/lib/polite-refetch';
-import { ExportDownloadButtons, apiErrorMessage, useExportDownload } from './ExportDownloads';
+import { ExportCancelButton, ExportDownloadButtons, apiErrorMessage, useExportCancel, useExportDownload } from './ExportDownloads';
 
 export interface ExportOfficeOption {
   /** Provider account id; an empty id means "whatever office the server pins me to". */
@@ -56,14 +56,7 @@ const STATUS_STYLES: Record<ExportJob['status'], string> = {
   ready: 'border-[#bfe3c5] bg-[#eaf7ec] text-[#1f6b34]',
   failed: 'border-destructive/40 bg-destructive/10 text-destructive',
   expired: 'border-border bg-secondary text-muted-foreground',
-};
-
-const STATUS_LABELS: Record<ExportJob['status'], string> = {
-  queued: 'Queued',
-  running: 'Generating',
-  ready: 'Ready',
-  failed: 'Failed',
-  expired: 'Expired',
+  cancelled: 'border-border bg-secondary text-muted-foreground',
 };
 function formatWhen(iso: string): string {
   const date = new Date(iso);
@@ -101,6 +94,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
   const [officeId, setOfficeId] = useState<string>(pinnedOffice?.id ?? '');
   const [formError, setFormError] = useState<string | null>(null);
   const { download, downloading } = useExportDownload();
+  const { cancel, cancelling } = useExportCancel();
 
   useEffect(() => {
     if (!kind && available.length > 0) setKind(available[0].kind);
@@ -266,8 +260,8 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
                     className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[.08em] ${STATUS_STYLES[job.status]}`}
                     data-testid={`status-export-${job.id}`}
                   >
-                    {pending ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : job.status === 'ready' ? <CheckCircle2 size={10} aria-hidden="true" /> : job.status === 'failed' ? <AlertCircle size={10} aria-hidden="true" /> : <Clock3 size={10} aria-hidden="true" />}
-                    {STATUS_LABELS[job.status]}
+                    {pending ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : job.status === 'ready' ? <CheckCircle2 size={10} aria-hidden="true" /> : job.status === 'failed' ? <AlertCircle size={10} aria-hidden="true" /> : job.status === 'cancelled' ? <Ban size={10} aria-hidden="true" /> : <Clock3 size={10} aria-hidden="true" />}
+                    {EXPORT_STATUS_LABELS[job.status]}
                   </span>
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`text-export-scope-${job.id}`}>
@@ -281,7 +275,12 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
                 </p>
                 {pending && (
                   <p className="mt-1 text-[11px] text-primary" aria-live="polite" data-testid={`text-export-progress-${job.id}`}>
-                    {progressLabel(job.status, job.progress)}
+                    {progressLabel(job.status, job.progress, job.cancelRequested)}
+                  </p>
+                )}
+                {job.status === 'cancelled' && (
+                  <p className="mt-1 text-[11px] text-muted-foreground" data-testid={`text-export-cancelled-${job.id}`}>
+                    Cancelled before it finished; nothing was kept. Request it again if you still need it.
                   </p>
                 )}
                 {job.status === 'ready' && job.omittedFiles ? (
@@ -300,8 +299,9 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-[10px] text-muted-foreground" data-testid={`text-export-expiry-${job.id}`}>
-                  {job.status === 'expired' ? 'Expired' : job.status === 'failed' ? '' : expiryLabel(job.expiresAt)}
+                  {job.status === 'expired' ? 'Expired' : job.status === 'failed' || job.status === 'cancelled' ? '' : expiryLabel(job.expiresAt)}
                 </span>
+                <ExportCancelButton job={job} cancelling={cancelling} onCancel={(target) => void cancel(target)} />
                 <ExportDownloadButtons job={job} downloading={downloading} onDownload={(target, part) => void download(target, part)} />
               </div>
             </li>

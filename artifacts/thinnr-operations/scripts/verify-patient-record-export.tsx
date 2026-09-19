@@ -14,6 +14,9 @@
  *     while queued/running, one download button per ZIP part when ready,
  *     the omitted-files note, and failed/expired copy;
  *   - a part download mints a signed link for that part (?part=N);
+ *   - queued/running jobs carry a Cancel button: a queued cancel lands as
+ *     cancelled at once, a running cancel shows "Stopping…" until the worker
+ *     confirms, and cancelled jobs explain that nothing was kept;
  *   - the Exports panel hides patient-level kinds from its request dropdown
  *     but lists the job with the patient's name and per-part downloads;
  *   - audit labels for both new actions; the office audit filter offers them.
@@ -33,7 +36,7 @@ import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import type { OfficePatientDetail } from '../src/lib/office-roster';
-import { countLabel, formatBytes, partLabel, progressLabel } from '../src/lib/export-jobs';
+import { cancellable, countLabel, formatBytes, partLabel, progressLabel } from '../src/lib/export-jobs';
 import { auditActionLabel } from '../src/lib/audit-labels';
 import PatientDetail from '../src/pages/PatientDetail';
 import { ExportsPanel } from '../src/components/exports/ExportsPanel';
@@ -97,7 +100,7 @@ const baseJob = (id: string, status: string, extra: Record<string, unknown> = {}
   scope: { providerId: OFFICE.providerId, officeName: OFFICE.officeName, patientId: PATIENT_ID, patientName: 'Devon Records' },
   range: null, fileName: `patient-record-${PATIENT_ID.slice(0, 8)}-part1.zip`, sizeBytes: null, rowCount: null, error: null,
   createdAt: '2026-09-17T14:05:00Z', completedAt: null, expiresAt: expires, downloadCount: 0, downloadable: false,
-  parts: null, progress: null, omittedFiles: null, ...extra,
+  parts: null, progress: null, omittedFiles: null, cancelRequested: false, ...extra,
 });
 const READY_PARTS = [
   { part: 1, fileName: 'patient-record-bbbbbbbb-part1.zip', sizeBytes: 871_000_000, fileCount: 214 },
@@ -123,6 +126,15 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const job = baseJob(`exp-${requests.length}`, 'queued');
     jobs = [job, ...jobs];
     return json({ job }, 202);
+  }
+  const cancel = /\/api\/exports\/([^/]+)\/cancel$/.exec(parsed.pathname);
+  if (cancel && method === 'POST') {
+    const job = jobs.find((entry) => entry.id === cancel[1]);
+    if (!job) return json({ error: 'Export not found.' }, 404);
+    if (job.status === 'queued') Object.assign(job, { status: 'cancelled', completedAt: '2026-09-17T14:06:00Z' });
+    else if (job.status === 'running') Object.assign(job, { cancelRequested: true });
+    else return json({ error: 'This export already finished.' }, 409);
+    return json({ job });
   }
   const download = /\/api\/exports\/([^/]+)\/download-url$/.exec(parsed.pathname);
   if (download && method === 'GET') {
@@ -178,6 +190,9 @@ console.log('pure: labels');
   check('part label', partLabel(READY_PARTS[1], 2) === 'Part 2 of 2 · 298.0 MB · 61 files', partLabel(READY_PARTS[1], 2));
   check('GB formatting', formatBytes(1_400_000_000) === '1.30 GB' && formatBytes(null) === null);
   check('archives count files, CSVs count rows', countLabel({ kind: 'patient_record', rowCount: 275 }) === '275 files' && countLabel({ kind: 'patient_activity', rowCount: 1 }) === '1 row' && countLabel({ kind: 'x', rowCount: null }) === null);
+  check('a running job asked to stop reads as stopping', progressLabel('running', { stage: 'writing', partsDone: 1, partsTotal: 3 }, true) === 'Stopping… removing what was written');
+  check('cancellable = queued, or running and not yet asked to stop', cancellable({ status: 'queued', cancelRequested: false }) && cancellable({ status: 'running', cancelRequested: false }) && !cancellable({ status: 'running', cancelRequested: true }) && !cancellable({ status: 'ready', cancelRequested: false }));
+  check('audit label names the cancel action', auditActionLabel('patient_record_export_cancelled') === "Cancelled a patient's full-record export" && auditActionLabel('data_export_cancelled') === 'Cancelled a data export', `${auditActionLabel('patient_record_export_cancelled')} | ${auditActionLabel('data_export_cancelled')}`);
   check('audit labels name the patient record actions', auditActionLabel('patient_record_export_requested') === "Requested a patient's full record" && auditActionLabel('patient_record_export_downloaded') === "Downloaded a patient's full record");
 }
 
@@ -208,8 +223,31 @@ console.log('\nrecord page: owner requests, watches progress, downloads parts');
   check('queued job appears with progress text', byTestId(root, `record-export-${queuedId}`).length === 1 && textOf(one(root, `text-record-export-progress-${queuedId}`)) === 'Waiting to start');
   check('confirm is held while an archive is in progress', one(root, 'button-record-export-confirm').props.disabled === true && textOf(one(root, 'button-record-export-confirm')).includes('Archive in progress'));
 
+  const cancelButton = one(root, `button-cancel-export-${queuedId}`);
+  check('queued job offers Cancel', textOf(cancelButton) === 'Cancel' && cancelButton.props['data-state'] === 'idle' && cancelButton.props['aria-label'] === "Cancel Devon Records's Patient full record export", textOf(cancelButton));
+  requests.length = 0;
+  await press(cancelButton);
+  const cancelCall = requests.find((r) => r.method === 'POST' && r.url.includes('/cancel'));
+  check('Cancel posts to /api/exports/:id/cancel with no body', Boolean(cancelCall) && cancelCall!.url.endsWith(`/api/exports/${queuedId}/cancel`) && cancelCall!.body === null, cancelCall?.url);
+  check('a queued cancel lands as cancelled: no Cancel button, no progress, the nothing-kept note', byTestId(root, `button-cancel-export-${queuedId}`).length === 0 && byTestId(root, `text-record-export-progress-${queuedId}`).length === 0 && textOf(one(root, `text-record-export-cancelled-${queuedId}`)).includes('nothing was kept'));
+  check('confirm unlocks once the archive is cancelled', one(root, 'button-record-export-confirm').props.disabled === false);
+
   await press(one(root, 'button-record-export-cancel'));
   check('close hides the dialog', byTestId(root, 'dialog-patient-record-export').length === 0);
+
+  // A running job: Cancel asks the worker to stop; the row reads "Stopping…" until it confirms.
+  jobs = [{ ...jobs[0], status: 'running', completedAt: null, progress: { stage: 'writing', partsDone: 1, partsTotal: 2 } }];
+  const stopping = await render(`/patients/${PATIENT_ID}`, record());
+  await press(one(stopping.root, 'button-download-full-record'));
+  await press(one(stopping.root, `button-cancel-export-${queuedId}`));
+  const stopButton = one(stopping.root, `button-cancel-export-${queuedId}`);
+  check('a running cancel shows Stopping… (held, aria-disabled) until the worker confirms', textOf(stopButton) === 'Stopping…' && stopButton.props['data-state'] === 'stopping' && stopButton.props['aria-disabled'] === true, `${textOf(stopButton)} ${stopButton.props['data-state']}`);
+  check('progress explains what is happening', textOf(one(stopping.root, `text-record-export-progress-${queuedId}`)) === 'Stopping… removing what was written');
+  check('confirm stays held while the worker unwinds', one(stopping.root, 'button-record-export-confirm').props.disabled === true);
+  requests.length = 0;
+  await press(stopButton);
+  check('a second click while stopping sends nothing', !requests.some((r) => r.url.includes('/cancel')));
+  jobs = [{ ...jobs[0], status: 'running', cancelRequested: false, progress: { stage: 'writing', partsDone: 1, partsTotal: 2 } }];
 
   // Worker progress: running, part 2 of 2 in flight. The list polls on its
   // own interval; a fresh mount stands in for the next poll.
@@ -217,6 +255,7 @@ console.log('\nrecord page: owner requests, watches progress, downloads parts');
   const second = await render(`/patients/${PATIENT_ID}`, record());
   await press(one(second.root, 'button-download-full-record'));
   check('running job shows which part is being written', textOf(one(second.root, `text-record-export-progress-${queuedId}`)) === 'Writing part 2 of 2');
+  check('running job still offers Cancel', byTestId(second.root, `button-cancel-export-${queuedId}`).length === 1);
 
   // Ready: two parts, one file missing from storage.
   jobs = [{ ...jobs[0], status: 'ready', progress: null, downloadable: true, sizeBytes: 1_183_500_000, rowCount: 275, parts: READY_PARTS, omittedFiles: 1, completedAt: '2026-09-17T14:12:00Z' }];
@@ -228,6 +267,7 @@ console.log('\nrecord page: owner requests, watches progress, downloads parts');
   check('omitted-file note points at the manifest', textOf(one(third.root, `text-record-export-omitted-${queuedId}`)).includes('1 stored file was not found in storage') && textOf(one(third.root, `text-record-export-omitted-${queuedId}`)).includes('manifest.json'));
   check('summary line counts files and parts', textOf(one(third.root, `record-export-${queuedId}`)).includes('275 files') && textOf(one(third.root, `record-export-${queuedId}`)).includes('2 parts'));
   check('confirm unlocks again once ready', one(third.root, 'button-record-export-confirm').props.disabled === false);
+  check('a ready job has no Cancel button', byTestId(third.root, `button-cancel-export-${queuedId}`).length === 0);
   requests.length = 0;
   opened.length = 0;
   await withDocument(() => press(one(third.root, `button-download-export-${queuedId}-part-2`)));
@@ -239,11 +279,13 @@ console.log('\nrecord page: owner requests, watches progress, downloads parts');
   jobs = [
     { ...baseJob('exp-failed', 'failed', { error: 'Storage unavailable while writing part 1.' }) },
     { ...baseJob('exp-expired', 'expired', { expiresAt: new Date(Date.now() - 3600_000).toISOString() }) },
+    { ...baseJob('exp-cancelled', 'cancelled', { completedAt: '2026-09-17T14:06:00Z' }) },
   ];
   const fourth = await render(`/patients/${PATIENT_ID}`, record());
   await press(one(fourth.root, 'button-download-full-record'));
   check('failed job shows the worker error', textOf(one(fourth.root, 'text-record-export-failed-exp-failed')) === 'Storage unavailable while writing part 1.');
   check('expired job explains and offers no download', textOf(one(fourth.root, 'record-export-exp-expired')).includes('expired and was removed') && byTestId(fourth.root, 'button-download-export-exp-expired').length === 0);
+  check('cancelled job reads Cancelled with the nothing-kept note and no download or cancel', textOf(one(fourth.root, 'record-export-exp-cancelled')).includes('Cancelled') && textOf(one(fourth.root, 'text-record-export-cancelled-exp-cancelled')).includes('nothing was kept') && byTestId(fourth.root, 'button-download-export-exp-cancelled').length === 0 && byTestId(fourth.root, 'button-cancel-export-exp-cancelled').length === 0);
 }
 
 console.log('\nrecord page: office staff (not owner/admin) see no button');
@@ -295,7 +337,9 @@ console.log('\nexports panel: patient kinds hidden from the picker, jobs listed 
   jobs = [
     { ...baseJob('exp-ready', 'ready', { downloadable: true, sizeBytes: 1_183_500_000, rowCount: 275, parts: READY_PARTS, completedAt: '2026-09-17T14:12:00Z' }) },
     { ...baseJob('exp-running', 'running', { progress: { stage: 'collecting', partsDone: null, partsTotal: null } }) },
-    { id: 'exp-csv', kind: 'patient_activity', label: 'Patient activity', status: 'ready', scope: { providerId: 'office-1', officeName: OFFICE.officeName, patientId: null, patientName: null }, range: { start: '2026-09-01', end: '2026-09-17' }, fileName: 'patient-activity.csv', sizeBytes: 2048, rowCount: 12, error: null, createdAt: '2026-09-17T13:00:00Z', completedAt: '2026-09-17T13:00:05Z', expiresAt: expires, downloadCount: 0, downloadable: true, parts: null, progress: null, omittedFiles: null },
+    { ...baseJob('exp-cancelled', 'cancelled', { completedAt: '2026-09-17T14:06:00Z' }) },
+    { id: 'exp-csv-queued', kind: 'patient_activity', label: 'Patient activity', status: 'queued', scope: { providerId: 'office-1', officeName: OFFICE.officeName, patientId: null, patientName: null }, range: { start: '2026-09-01', end: '2026-09-17' }, fileName: 'patient-activity.csv', sizeBytes: null, rowCount: null, error: null, createdAt: '2026-09-17T13:00:00Z', completedAt: null, expiresAt: expires, downloadCount: 0, downloadable: false, parts: null, progress: null, omittedFiles: null, cancelRequested: false },
+    { id: 'exp-csv', kind: 'patient_activity', label: 'Patient activity', status: 'ready', scope: { providerId: 'office-1', officeName: OFFICE.officeName, patientId: null, patientName: null }, range: { start: '2026-09-01', end: '2026-09-17' }, fileName: 'patient-activity.csv', sizeBytes: 2048, rowCount: 12, error: null, createdAt: '2026-09-17T13:00:00Z', completedAt: '2026-09-17T13:00:05Z', expiresAt: expires, downloadCount: 0, downloadable: true, parts: null, progress: null, omittedFiles: null, cancelRequested: false },
   ];
   const { root } = await render('/analytics', <ExportsPanel pinnedOffice={{ id: '', name: OFFICE.officeName }} />);
   const options = one(root, 'select-export-kind').findAll((node) => node.type === 'option').map((node) => node.props.value);
@@ -308,6 +352,17 @@ console.log('\nexports panel: patient kinds hidden from the picker, jobs listed 
   await withDocument(() => press(one(root, 'button-download-export-exp-ready-part-1')));
   const dl = requests.find((r) => r.url.includes('/download-url'));
   check('panel part download requests ?part=1', Boolean(dl) && new URL(dl!.url, 'https://ops.test').searchParams.get('part') === '1', dl?.url);
+
+  // Cancel from the panel: the queued CSV and the running record both offer it; finished rows do not.
+  check('panel offers Cancel on queued and running jobs only', byTestId(root, 'button-cancel-export-exp-csv-queued').length === 1 && byTestId(root, 'button-cancel-export-exp-running').length === 1 && byTestId(root, 'button-cancel-export-exp-ready').length === 0 && byTestId(root, 'button-cancel-export-exp-csv').length === 0 && byTestId(root, 'button-cancel-export-exp-cancelled').length === 0);
+  check('panel names the office export in the cancel label', one(root, 'button-cancel-export-exp-csv-queued').props['aria-label'] === 'Cancel Patient activity export', one(root, 'button-cancel-export-exp-csv-queued').props['aria-label']);
+  check('panel explains a cancelled job', textOf(one(root, 'text-export-cancelled-exp-cancelled')).includes('nothing was kept') && textOf(one(root, 'text-export-scope-exp-cancelled')).length > 0);
+  requests.length = 0;
+  await press(one(root, 'button-cancel-export-exp-csv-queued'));
+  check('panel cancel posts for that job', requests.some((r) => r.method === 'POST' && r.url.endsWith('/api/exports/exp-csv-queued/cancel')));
+  check('the queued CSV is now cancelled in the panel', byTestId(root, 'button-cancel-export-exp-csv-queued').length === 0 && byTestId(root, 'text-export-cancelled-exp-csv-queued').length === 1);
+  await press(one(root, 'button-cancel-export-exp-running'));
+  check('the running record reads Stopping… in the panel', one(root, 'button-cancel-export-exp-running').props['data-state'] === 'stopping' && textOf(one(root, 'text-export-progress-exp-running')) === 'Stopping… removing what was written');
 }
 
 for (const renderer of renderers) await act(async () => { renderer.unmount(); });

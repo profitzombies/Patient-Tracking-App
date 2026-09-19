@@ -28,7 +28,7 @@ const REQUIRED_ACTIONS = [
   "training_published", "training_unpublished", "training_deleted", "training_media_deleted", "training_attachment_downloaded",
   // AI support usage, transcript reads, exports, denials
   "ai_support_used", "conversation_transcript_read", "data_export_requested", "data_export_downloaded", "access_denied",
-  "patient_record_export_requested", "patient_record_export_downloaded",
+  "patient_record_export_requested", "patient_record_export_downloaded", "patient_record_export_cancelled", "data_export_cancelled",
   // record access (staff reads of a patient's chart)
   "patient_record_viewed", "patient_photos_viewed", "patient_bloodwork_viewed", "bloodwork_report_opened",
   "patient_medications_viewed", "conversation_transcript_opened",
@@ -51,7 +51,7 @@ describe("audit action vocabulary", () => {
     for (const hqOnly of ["hq_team_invited", "hq_team_updated", "hq_team_revoked", "hq_settings_updated", "hq_file_uploaded", "hq_file_downloaded", "hq_file_deleted", "knowledge_document_uploaded", "training_published", "ai_support_used"]) {
       expect(officeVisibleActions.has(hqOnly)).toBe(false);
     }
-    for (const officeAction of ["office_team_deactivated", "patient_note_added", "data_export_downloaded", "patient_record_export_requested", "patient_record_export_downloaded", "access_denied", "billing_refund_issued", "billing_payment_link_created", "patient_record_viewed", "bloodwork_report_opened", "conversation_transcript_opened"]) {
+    for (const officeAction of ["office_team_deactivated", "patient_note_added", "data_export_downloaded", "patient_record_export_requested", "patient_record_export_downloaded", "patient_record_export_cancelled", "access_denied", "billing_refund_issued", "billing_payment_link_created", "patient_record_viewed", "bloodwork_report_opened", "conversation_transcript_opened"]) {
       expect(officeVisibleActions.has(officeAction)).toBe(true);
     }
   });

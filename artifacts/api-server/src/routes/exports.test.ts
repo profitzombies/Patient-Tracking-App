@@ -52,7 +52,7 @@ const jobRow = (overrides: Record<string, unknown> = {}) => ({
   provider_id: null, params: { start: "2026-08-01", end: "2026-09-06" }, file_name: "thinnr_office-comparison_all-offices_2026-08-01_2026-09-06.csv",
   object_path: `/objects/exports/${JOB_ID}/export-22222222-2222-4222-8222-222222222222.csv`, size_bytes: 120, row_count: 1, error: null, attempts: 1,
   created_at: "2026-09-06T10:00:00Z", started_at: "2026-09-06T10:00:01Z", completed_at: "2026-09-06T10:00:02Z",
-  expires_at: new Date(Date.now() + 3_600_000).toISOString(), download_count: 0, last_downloaded_at: null, parts: null, ...overrides,
+  expires_at: new Date(Date.now() + 3_600_000).toISOString(), download_count: 0, last_downloaded_at: null, parts: null, cancel_requested_at: null, ...overrides,
 });
 const PATIENT_ID = "55555555-5555-4555-8555-555555555555";
 const recordParts = [
@@ -359,6 +359,100 @@ describe("downloading exports", () => {
   });
 });
 
+describe("cancelling exports", () => {
+  /** A live-ish row: PATCHes apply their filters and body to the one row the GETs return. */
+  function liveRow(initial: Record<string, unknown>) {
+    let row: Record<string, unknown> = { ...initial };
+    const patches: Array<{ path: string; body: Record<string, unknown> }> = [];
+    mocks.admin.mockReset().mockImplementation(async (method: string, path: string, body?: unknown) => {
+      if (method === "GET" && path.startsWith(`/rest/v1/data_exports?id=eq.${JOB_ID}`)) {
+        return response(path.includes(`requested_by=eq.${row.requested_by}`) ? [row] : []);
+      }
+      if (method === "PATCH" && path.startsWith(`/rest/v1/data_exports?id=eq.${JOB_ID}`)) {
+        patches.push({ path, body: body as Record<string, unknown> });
+        const status = /status=eq\.([a-z]+)/.exec(path)?.[1];
+        if (status && row.status !== status) return response([]);
+        if (path.includes("cancel_requested_at=is.null") && row.cancel_requested_at) return response([]);
+        row = { ...row, ...(body as Record<string, unknown>) };
+        return response([row]);
+      }
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    return { patches, current: () => row };
+  }
+  it("flips a queued record export straight to cancelled and audits it against the patient with the export id", async () => {
+    mocks.staff.mockReturnValue(null);
+    mocks.scope.mockResolvedValue(officeScope);
+    const live = liveRow(recordRow({ status: "queued", object_path: null, parts: null, size_bytes: null, row_count: null, completed_at: null }));
+    const res = await call(`/exports/${JOB_ID}/cancel`, "POST");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { job: { status: string; cancelRequested: boolean; downloadable: boolean; progress: unknown } };
+    expect(body.job).toMatchObject({ status: "cancelled", cancelRequested: false, downloadable: false, progress: null });
+    expect(live.current()).toMatchObject({ status: "cancelled" });
+    expect(live.patches).toHaveLength(1);
+    expect(live.patches[0].path).toContain("status=eq.queued");
+    expect(mocks.audit).toHaveBeenCalledTimes(1);
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "patient_record_export_cancelled", actorKind: "provider", targetKind: "patient", targetId: PATIENT_ID, providerId: "p1",
+      metadata: { kind: "patient_record", office: "p1", exportId: JOB_ID, wasRunning: false },
+    }));
+    // Nothing in the audit row names the patient.
+    expect(JSON.stringify(mocks.audit.mock.calls[0][0])).not.toContain("Ann");
+    // No fresh code is needed to STOP data leaving the office.
+    expect(gate.calls).toBe(0);
+  });
+  it("asks the worker to stop a running job (cancelRequested until it confirms) and is idempotent", async () => {
+    mocks.staff.mockReturnValue(hq("admin"));
+    const live = liveRow(jobRow({ status: "running", object_path: null, completed_at: null }));
+    const res = await call(`/exports/${JOB_ID}/cancel`, "POST");
+    expect(res.status).toBe(200);
+    expect((await res.json() as { job: { status: string; cancelRequested: boolean } }).job).toMatchObject({ status: "running", cancelRequested: true });
+    expect(live.current().status).toBe("running");
+    expect(typeof live.current().cancel_requested_at).toBe("string");
+    expect(live.patches.map((patch) => patch.path)).toEqual([expect.stringContaining("status=eq.running&cancel_requested_at=is.null")]);
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "data_export_cancelled", actorKind: "hq", targetKind: "data_export", targetId: JOB_ID,
+      metadata: { kind: "office_comparison", office: "all", wasRunning: true },
+    }));
+    // A second click while the worker unwinds: same answer, no second stamp, no second audit row.
+    const again = await call(`/exports/${JOB_ID}/cancel`, "POST");
+    expect(again.status).toBe(200);
+    expect((await again.json() as { job: { cancelRequested: boolean } }).job.cancelRequested).toBe(true);
+    expect(live.patches.filter((patch) => patch.body.cancel_requested_at && !patch.body.status)).toHaveLength(2);
+    expect(mocks.audit).toHaveBeenCalledTimes(1);
+  });
+  it("refuses to cancel finished, failed, or expired jobs, and hides other people's jobs", async () => {
+    mocks.staff.mockReturnValue(hq("admin"));
+    for (const [row, message] of [
+      [jobRow(), "already finished"],
+      [jobRow({ status: "failed", object_path: null }), "no longer running"],
+      [jobRow({ status: "expired", object_path: null }), "no longer running"],
+      [jobRow({ status: "cancelled", object_path: null }), "no longer running"],
+    ] as Array<[Record<string, unknown>, string]>) {
+      const live = liveRow(row);
+      const res = await call(`/exports/${JOB_ID}/cancel`, "POST");
+      expect(res.status).toBe(409);
+      expect((await res.json() as { error: string }).error).toContain(message);
+      expect(live.patches).toHaveLength(0);
+    }
+    liveRow(jobRow({ status: "queued", requested_by: "someone-else" }));
+    expect((await call(`/exports/${JOB_ID}/cancel`, "POST")).status).toBe(404);
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+  it("loses the race gracefully: a job that finished between the read and the cancel answers 409, unaudited", async () => {
+    mocks.staff.mockReturnValue(hq("admin"));
+    let reads = 0;
+    mocks.admin.mockReset().mockImplementation(async (method: string, path: string) => {
+      if (method === "GET") { reads += 1; return response([jobRow(reads === 1 ? { status: "running", object_path: null } : {})]); }
+      if (method === "PATCH") return response([]);
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    const res = await call(`/exports/${JOB_ID}/cancel`, "POST");
+    expect(res.status).toBe(409);
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
+});
+
 describe("job DTO and kind menu", () => {
   it("reports a ready job past its expiry as expired and not downloadable", () => {
     const dto = exportJobDto(jobRow({ expires_at: "2026-09-01T00:00:00Z" }), Date.parse("2026-09-02T00:00:00Z"));
@@ -371,6 +465,13 @@ describe("job DTO and kind menu", () => {
     expect(ready.parts).toEqual(recordParts.map(({ part, fileName, sizeBytes, fileCount }) => ({ part, fileName, sizeBytes, fileCount })));
     expect(ready.progress).toBeNull();
     const running = exportJobDto(recordRow({ status: "running", object_path: null, parts: null, params: { patientId: PATIENT_ID, progress: { stage: "writing", partsDone: 1, partsTotal: 3 } } }), Date.parse("2026-01-01T00:00:00Z"));
+    expect(running.cancelRequested).toBe(false);
+    const stopping = exportJobDto(recordRow({ status: "running", object_path: null, parts: null, cancel_requested_at: "2026-01-01T00:00:00Z" }), Date.parse("2026-01-01T00:00:00Z"));
+    expect(stopping).toMatchObject({ status: "running", cancelRequested: true });
+    const cancelled = exportJobDto(recordRow({ status: "cancelled", object_path: null, parts: null, cancel_requested_at: "2026-01-01T00:00:00Z" }), Date.parse("2026-01-01T00:00:00Z"));
+    expect(cancelled).toMatchObject({ status: "cancelled", cancelRequested: false, downloadable: false, parts: null, progress: null, error: null });
+    // A cancelled row past its expiry reads as expired, like failed rows do.
+    expect(exportJobDto(recordRow({ status: "cancelled", object_path: null, parts: null, expires_at: "2025-12-01T00:00:00Z" }), Date.parse("2026-01-01T00:00:00Z")).status).toBe("expired");
     expect(running.progress).toEqual({ stage: "writing", partsDone: 1, partsTotal: 3 });
     expect(running.parts).toBeNull();
     expect(exportJobDto(jobRow(), Date.parse("2026-01-01T00:00:00Z")).parts).toBeNull();

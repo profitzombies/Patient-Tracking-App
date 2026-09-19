@@ -15,4 +15,5 @@ export const ExportJobStatus = {
   ready: 'ready',
   failed: 'failed',
   expired: 'expired',
+  cancelled: 'cancelled',
 } as const;

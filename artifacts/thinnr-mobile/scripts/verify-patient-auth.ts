@@ -208,6 +208,41 @@ reset();on('login/start',()=>({status:200,body:{ok:true,requestId:'p1',message:n
    await type(t,'provider-email','staff@example.com');await press(t,'provider-send');
    frameLayout(t,'Provider code',false);
    await type(t,'provider-otp','111111');await press(t,'provider-verify');assert('staff mode preserved',storage.get('thinnr_app_mode_v1')==='staff');assert('staff destination preserved',routerCalls.some(x=>x.target==='/'));t.unmount();
+
+  reset();
+  on('login/start',()=>({status:200,body:{ok:true,requestId:'p2',message:null,devCode:null}}));
+  on('login/verify',()=>({status:200,body:{ok:true,realm:'staff',secondFactor:{stepToken:'a'.repeat(64),mode:'enroll',destination:null}}}));
+  on('login/phone/start',()=>({status:200,body:{ok:true,mode:'enroll',requestId:'sms-enroll',destination:'•••-•••-1212',devCode:'222222'}}));
+  on('login/phone/verify',()=>({status:200,body:{ok:true,realm:'staff',tokenHash:'phone-hash',signInId:'phone-signin'}}));
+  let enroll=await render(ProviderLogin);
+  await type(enroll,'provider-email','owner@example.com');await press(enroll,'provider-send');
+  await type(enroll,'provider-otp','111111');await press(enroll,'provider-verify');
+  assert('staff enrollment asks for a phone',exists(enroll,'input-provider-phone'));
+  await press(enroll,'button-provider-phone-send');
+  assert('staff enrollment requires a plausible phone',called('login/phone/start').length===0&&exists(enroll,'provider-error'));
+  await type(enroll,'input-provider-phone','8135551212');await press(enroll,'button-provider-phone-send');
+  const phoneStart=called('login/phone/start')[0];
+  assert('phone start carries step token and normalized phone',phoneStart.body.stepToken==='a'.repeat(64)&&phoneStart.body.phone==='+18135551212');
+  assert('enrollment advances to text code',exists(enroll,'input-provider-sms-code')&&exists(enroll,'provider-sms-devcode'));
+  await type(enroll,'input-provider-sms-code','222222');await press(enroll,'button-provider-sms-verify');
+  const phoneVerify=called('login/phone/verify')[0];
+  assert('phone verify carries step token and request',phoneVerify.body.stepToken==='a'.repeat(64)&&phoneVerify.body.requestId==='sms-enroll');
+  assert('phone success redeems token hash',verifyOtpCalls[0]?.token_hash==='phone-hash');
+  enroll.unmount();
+
+  reset();
+  on('login/start',()=>({status:200,body:{ok:true,requestId:'p3',message:null,devCode:null}}));
+  on('login/verify',()=>({status:200,body:{ok:true,realm:'staff',secondFactor:{stepToken:'b'.repeat(64),mode:'sms',destination:'•••-•••-3434'}}}));
+  on('login/phone/start',()=>({status:200,body:{ok:true,mode:'sms',requestId:'sms-existing',destination:'•••-•••-3434',devCode:null}}));
+  on('login/phone/verify',()=>({status:400,body:{error:'This step expired.',code:'STEP_EXPIRED'}}));
+  const sms=await render(ProviderLogin);
+  await type(sms,'provider-email','staff@example.com');await press(sms,'provider-send');
+  await type(sms,'provider-otp','111111');await press(sms,'provider-verify');
+  assert('existing phone auto-sends and shows sms phase',called('login/phone/start')[0].body.phone===undefined&&exists(sms,'input-provider-sms-code'));
+  await type(sms,'input-provider-sms-code','333333');await press(sms,'button-provider-sms-verify');
+  assert('expired phone step returns to email',exists(sms,'provider-email')&&!exists(sms,'input-provider-sms-code'));
+  assert('expired phone step shows neutral notice',exists(sms,'provider-notice'));
+  sms.unmount();
 }
 function routing(){
  console.log('· welcome, deep-link guard, demo admission, onboarding filtering');

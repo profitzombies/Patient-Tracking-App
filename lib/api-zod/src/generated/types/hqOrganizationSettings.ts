@@ -10,6 +10,7 @@ import type { NotificationCategoryDefaults } from './notificationCategoryDefault
 import type { PolicySectionChanges } from './policySectionChanges';
 import type { QuietHoursWindow } from './quietHoursWindow';
 import type { RetentionPolicy } from './retentionPolicy';
+import type { StaffSecondFactorPolicy } from './staffSecondFactorPolicy';
 
 export interface HqOrganizationSettings {
   organizationName: string;
@@ -44,6 +45,7 @@ export interface HqOrganizationSettings {
   staffIdleTimeoutMinutes: number;
   /** Same window for HQ members (5–120). */
   hqIdleTimeoutMinutes: number;
+  secondFactor: StaffSecondFactorPolicy;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;

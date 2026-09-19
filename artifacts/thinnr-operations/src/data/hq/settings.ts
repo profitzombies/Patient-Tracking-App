@@ -120,6 +120,28 @@ export const HQ_SETTINGS_GROUPS: HqSettingsGroup[] = [
     ],
   },
   {
+    id: 'security',
+    title: 'Sign-in security',
+    description: 'Require phone verification at sign-in for:',
+    fields: [
+      {
+        id: 'hq-users', kind: 'toggle', label: 'HQ users',
+        defaultValue: true,
+        help: 'Require every headquarters user to confirm a texted code.',
+      },
+      {
+        id: 'office-managers', kind: 'toggle', label: 'Office owners and admins',
+        defaultValue: true,
+        help: 'Require people who manage an office or its team to confirm a texted code.',
+      },
+      {
+        id: 'all-staff', kind: 'toggle', label: 'All staff',
+        defaultValue: false,
+        help: 'Require every office teammate to confirm a texted code.',
+      },
+    ],
+  },
+  {
     id: 'notifications',
     title: 'HQ notifications',
     description: 'What the HQ team hears about, and when.',

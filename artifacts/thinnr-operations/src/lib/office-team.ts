@@ -33,12 +33,13 @@ export interface OfficeTeamMember {
   invitedAt: string | null;
   claimedAt: string | null;
   isSelf: boolean;
+  secondFactorPhone?: string | null;
 }
 
 export interface OfficeTeam {
   office: { id: string; name: string };
   me: { role: OfficeRole; kind: 'provider' | 'team_member' | 'hq'; teamMemberId: string | null };
-  accountOwner: { name: string; email: string; status: 'active' | 'invited' };
+  accountOwner: { name: string; email: string; status: 'active' | 'invited'; secondFactorPhone?: string | null };
   members: OfficeTeamMember[];
 }
 
@@ -100,6 +101,23 @@ export async function signOutTeammate(
   return officeRequest(`${base}/${encodeURIComponent(memberId)}/sign-out${officeQuery(office)}`, MESSAGES, {
     method: 'POST',
     body: JSON.stringify({ ...(reason ? { reason } : {}) }),
+  });
+}
+
+export async function clearTeammateSecondFactor(memberId: string, office?: string | null): Promise<{
+  member: OfficeTeamMember;
+  cleared: boolean;
+}> {
+  return officeRequest(`${base}/${encodeURIComponent(memberId)}/second-factor/clear${officeQuery(office)}`, MESSAGES, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function clearAccountOwnerSecondFactor(office: string): Promise<{ ok: true; cleared: boolean }> {
+  return officeRequest(`${base}/account-owner/second-factor/clear${officeQuery(office)}`, MESSAGES, {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 

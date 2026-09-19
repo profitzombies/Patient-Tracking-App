@@ -174,6 +174,10 @@ export function usePatientLogin() {
           if (result.code === 'PASSWORD_RESET_REQUIRED') setPhase('recovery-identify');
           return;
         }
+        if ('secondFactor' in result) {
+          setError('Restart sign-in and use the provider sign-in screen.');
+          return;
+        }
         const sessionError = await signInWithTokenHash(result.tokenHash);
         if (genRef.current !== gen) return;
         if (sessionError) setError(sessionError);

@@ -52,6 +52,7 @@
     "test:care-team-conversations": "tsx --tsconfig tsconfig.conversations.json scripts/verify-conversations-office.tsx",
     "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx",
     "test:reauth": "TZ=UTC tsx --tsconfig tsconfig.reauth.json scripts/verify-reauth.tsx",
+    "test:staff-sign-in": "TZ=UTC tsx --tsconfig tsconfig.staff-sign-in.json scripts/verify-staff-sign-in.tsx",
     "test:leaderboard": "TZ=UTC tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",
     "test:billing-public": "TZ=UTC tsx --tsconfig tsconfig.billing-public.json scripts/verify-billing-public.tsx",
     "test:billing-hq": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-hq.tsx",

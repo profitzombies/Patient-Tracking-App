@@ -49,34 +49,65 @@ export interface RetentionPolicy {
   clinicalRecordDays: number;
 }
 
+/**
+ * Who must prove a phone (texted code) after the emailed sign-in code.
+ * HQ users and office owners/admins default on; "all staff" extends the rule
+ * to every office teammate. Any staff member may also opt in individually.
+ */
+export interface SecondFactorPolicy {
+  hqUsers: boolean;
+  officeManagers: boolean;
+  allStaff: boolean;
+}
 export interface OrgPolicy {
   organizationName: string;
+
   supportEmail: string | null;
+
   supportPhone: string | null;
+
   defaultTimezone: string;
   /** App Store / Google Play listing links; offices render QR codes from these. */
+
   appStoreUrl: string | null;
+
   googlePlayUrl: string | null;
+
   coachAvailable: boolean;
+
   escalationEmail: string | null;
+
   defaultCategories: CategoryDefaults;
+
   defaultQuietHours: QuietHoursWindow | null;
+
   outreachCooldownDays: number;
+
   outreachDailyCap: number;
+
   conversationAutoCloseDays: number;
+
   retention: RetentionPolicy;
+
   exportLinkHours: number;
   /**
    * Minutes of no activity before the operations web app warns and then
    * signs a staffer out. Office owners may shorten the staff value for their
    * office (never lengthen); HQ members follow the HQ value.
    */
+
   staffIdleTimeoutMinutes: number;
+
   hqIdleTimeoutMinutes: number;
   /** Nightly cold archive of raw events and business rows to object storage (off by default; needs COLD_ARCHIVE_OBJECT_DIR). */
+
   coldArchiveEnabled: boolean;
+
   version: number;
+
   updatedAt: string;
+
+  secondFactor: SecondFactorPolicy;
 }
 
 export interface SectionChange {
@@ -107,6 +138,7 @@ export const FIELD_SECTIONS = {
   staffIdleTimeoutMinutes: "security",
   hqIdleTimeoutMinutes: "security",
   coldArchiveEnabled: "archive",
+  secondFactor: "security",
 } as const satisfies Record<Exclude<keyof OrgPolicy, "version" | "updatedAt">, PolicySection>;
 export type PolicyField = keyof typeof FIELD_SECTIONS;
 
@@ -166,6 +198,7 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
   staffIdleTimeoutMinutes: 15,
   hqIdleTimeoutMinutes: 15,
   coldArchiveEnabled: false,
+  secondFactor: { hqUsers: true, officeManagers: true, allStaff: false },
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
 };
@@ -184,7 +217,8 @@ export const SETTINGS_SELECT =
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
-  "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled,section_changes";
+  "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled," +
+  "second_factor_hq_users,second_factor_office_managers,second_factor_all_staff,section_changes";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -237,6 +271,11 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
     staffIdleTimeoutMinutes: int(row.staff_idle_timeout_minutes, d.staffIdleTimeoutMinutes),
     hqIdleTimeoutMinutes: int(row.hq_idle_timeout_minutes, d.hqIdleTimeoutMinutes),
     coldArchiveEnabled: row.cold_archive_enabled === true,
+    secondFactor: {
+      hqUsers: row.second_factor_hq_users !== false,
+      officeManagers: row.second_factor_office_managers !== false,
+      allStaff: row.second_factor_all_staff === true,
+    },
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
   };
@@ -292,6 +331,9 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     staff_idle_timeout_minutes: policy.staffIdleTimeoutMinutes,
     hq_idle_timeout_minutes: policy.hqIdleTimeoutMinutes,
     cold_archive_enabled: policy.coldArchiveEnabled,
+    second_factor_hq_users: policy.secondFactor.hqUsers,
+    second_factor_office_managers: policy.secondFactor.officeManagers,
+    second_factor_all_staff: policy.secondFactor.allStaff,
   };
 }
 

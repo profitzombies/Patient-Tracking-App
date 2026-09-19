@@ -26,6 +26,7 @@ class FakeBackend {
   twilioStartFailure: { status: number; code?: number } | null = null;
   deletedUsers: string[] = [];
   adminLogouts: string[] = [];
+  audits: Row[] = [];
   failHqAccept = false;
   failProvision = false;
   failRejectedSendSpend = false;
@@ -50,8 +51,16 @@ class FakeBackend {
       auth_sign_ins: [],
       account_security_state: [],
       auth_session_revocations: [],
+      staff_second_factors: [],
+      // Policy singleton: tests start with every second-factor rule OFF and
+      // switch the relevant rule on explicitly, so the pre-existing sign-in
+      // expectations stay a faithful picture of an uncovered staff member.
+      hq_organization_settings: [
+        { singleton: true, second_factor_hq_users: false, second_factor_office_managers: false, second_factor_all_staff: false },
+      ],
     };
     this.authUsers.clear();
+    this.audits = [];
     this.sentEmails = [];
     this.twilioStarts = [];
     this.twilioApprovedCode = null;
@@ -299,6 +308,10 @@ class FakeBackend {
     }
     // No live GoTrue sessions are modelled here; the atomic revoke-and-end
     // RPC therefore touches nothing, and the sweep proceeds as before.
+    if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") {
+      this.audits.push(body as Row);
+      return json(200, null);
+    }
     if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
       this.adminLogouts.push(String((body as Row).p_user_id));
       return json(200, 0);
@@ -428,7 +441,7 @@ class FakeBackend {
       if (method === "DELETE") {
         const doomed = new Set(this.matchRows(table, conditions, orGroups));
         this.tables[table] = this.tables[table].filter((row) => !doomed.has(row));
-        return json(200, []);
+        return json(200, [...doomed]);
       }
       if (method === "PATCH") {
         if (
@@ -465,6 +478,16 @@ class FakeBackend {
         if (table === "account_security_state") {
           // Upsert on user_id (Prefer: resolution=merge-duplicates).
           const existing = this.tables[table].find((row) => row.user_id === body?.user_id);
+          if (existing) {
+            Object.assign(existing, body);
+            return json(200, [existing]);
+          }
+        }
+        if (table === "staff_second_factors") {
+          // Upsert on (staff_kind, staff_ref).
+          const existing = this.tables[table].find(
+            (row) => row.staff_kind === body?.staff_kind && row.staff_ref === body?.staff_ref,
+          );
           if (existing) {
             Object.assign(existing, body);
             return json(200, [existing]);
@@ -1292,6 +1315,240 @@ describe("staff login verify", () => {
       code: start.json.devCode,
     });
     expect(second.status).toBe(400);
+  });
+});
+
+describe("staff second factor (texted code after the emailed code)", () => {
+  const policy = () => backend.tables.hq_organization_settings[0];
+  const setPolicy = (flags: Partial<{ hq: boolean; managers: boolean; all: boolean }>) => {
+    const row = policy();
+    if (flags.hq !== undefined) row.second_factor_hq_users = flags.hq;
+    if (flags.managers !== undefined) row.second_factor_office_managers = flags.managers;
+    if (flags.all !== undefined) row.second_factor_all_staff = flags.all;
+  };
+  const OWNER_PHONE = "+15557001001";
+
+  function seedTeamMember(overrides: Row = {}): Row {
+    const row: Row = {
+      id: crypto.randomUUID(),
+      provider_id: "20002",
+      name: "Sam Staffer",
+      email: "sam@clinic.example",
+      activation_status: "activated",
+      office_role: "staff",
+      auth_user_id: null,
+      ...overrides,
+    };
+    backend.tables.team_members.push(row);
+    return row;
+  }
+
+  function seedHqMember(overrides: Row = {}): Row {
+    const row: Row = {
+      id: "mem-hq-1",
+      email: "boss@thinnr.example",
+      display_name: "The Boss",
+      status: "active",
+      auth_user_id: "hq-user-1",
+      ...overrides,
+    };
+    backend.tables.hq_memberships.push(row);
+    backend.seedAuthUser({ id: String(row.auth_user_id), email: row.email });
+    return row;
+  }
+
+  function seedFactor(kind: string, ref: string, phone = OWNER_PHONE, enabled = true): Row {
+    const row: Row = { staff_kind: kind, staff_ref: ref, phone, verified_at: new Date().toISOString(), enabled };
+    backend.tables.staff_second_factors.push(row);
+    return row;
+  }
+
+  /** Emailed code proven; returns the verify response body. */
+  async function proveEmail(email: string) {
+    const start = await startLogin("staff", email);
+    expect(start.status).toBe(200);
+    return api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: start.json.devCode });
+  }
+
+  async function completeSms(stepToken: string, phone?: string) {
+    const start = await api("POST", "/api/auth/login/phone/start", { stepToken, ...(phone ? { phone } : {}) });
+    expect(start.status).toBe(200);
+    expect(start.json.devCode).toMatch(/^\d{6}$/);
+    return { start, verify: await api("POST", "/api/auth/login/phone/verify", { stepToken, requestId: start.json.requestId, code: start.json.devCode }) };
+  }
+
+  it("does not open the second step for an office owner while the policy is off and nobody opted in", async () => {
+    seedProvider();
+    const verify = await proveEmail("rivera@clinic.example");
+    expect(verify.status).toBe(200);
+    expect(verify.json.tokenHash).toBe("hashed-rivera@clinic.example");
+    expect(verify.json.secondFactor).toBeUndefined();
+  });
+
+  it("asks an office owner covered by the policy to enrol a phone, then signs in as email+sms", async () => {
+    setPolicy({ managers: true });
+    const provider = seedProvider();
+    const verify = await proveEmail("rivera@clinic.example");
+    expect(verify.status).toBe(200);
+    // No session yet — only the step handle.
+    expect(verify.json).toEqual({
+      ok: true,
+      realm: "staff",
+      secondFactor: { stepToken: expect.stringMatching(/^[0-9a-f]{64}$/), mode: "enroll", destination: null },
+    });
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(provider.auth_user_id).toBeNull();
+
+    // Enrolment needs a phone number.
+    const noPhone = await api("POST", "/api/auth/login/phone/start", { stepToken: verify.json.secondFactor.stepToken });
+    expect(noPhone.status).toBe(400);
+    expect(noPhone.json.field).toBe("phone");
+
+    const { start, verify: done } = await completeSms(verify.json.secondFactor.stepToken, "(555) 700-1001");
+    expect(start.json).toMatchObject({ mode: "enroll", destination: "•••-•••-1001" });
+    expect(done.status).toBe(200);
+    expect(done.json).toEqual({
+      ok: true,
+      realm: "staff",
+      tokenHash: "hashed-rivera@clinic.example",
+      signInId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+    expect(backend.tables.auth_sign_ins).toHaveLength(1);
+    expect(backend.tables.auth_sign_ins[0]).toMatchObject({ realm: "staff", method: "email_sms_code", user_id: provider.auth_user_id });
+    expect(backend.tables.staff_second_factors).toEqual([
+      expect.objectContaining({ staff_kind: "provider", staff_ref: "20002", phone: OWNER_PHONE, enabled: true }),
+    ]);
+    expect(backend.audits.some((a) => a.p_action === "security_second_factor_enrolled" && a.p_target_id === "20002")).toBe(true);
+    // Both ledger rows are finished; neither step can be replayed.
+    const rows = backend.tables.claim_verifications;
+    expect(rows.filter((r) => r.purpose === "login")[0].consumed_at).toBeTruthy();
+    expect(rows.filter((r) => r.purpose === "staff_sms")[0].consumed_at).toBeTruthy();
+    const replay = await api("POST", "/api/auth/login/phone/verify", { stepToken: verify.json.secondFactor.stepToken, requestId: start.json.requestId, code: start.json.devCode });
+    expect(replay.status).toBe(400);
+  });
+
+  it("texts the phone on file (never a supplied one) and refuses a stale phone binding", async () => {
+    setPolicy({ managers: true });
+    seedProvider();
+    seedFactor("provider", "20002");
+    const verify = await proveEmail("rivera@clinic.example");
+    expect(verify.json.secondFactor).toMatchObject({ mode: "sms", destination: "•••-•••-1001" });
+    const token = verify.json.secondFactor.stepToken;
+
+    const repoint = await api("POST", "/api/auth/login/phone/start", { stepToken: token, phone: "+15559990000" });
+    expect(repoint.status).toBe(409);
+
+    const start = await api("POST", "/api/auth/login/phone/start", { stepToken: token });
+    expect(start.status).toBe(200);
+    expect(start.json.mode).toBe("sms");
+    const smsRow = backend.tables.claim_verifications.find((r) => r.purpose === "staff_sms")!;
+    expect(smsRow.identifier).toBe(OWNER_PHONE);
+
+    // HQ clears the phone mid-step: the on-file code must not re-enrol it.
+    backend.tables.staff_second_factors = [];
+    const done = await api("POST", "/api/auth/login/phone/verify", { stepToken: token, requestId: start.json.requestId, code: start.json.devCode });
+    expect(done.status).toBe(409);
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(backend.tables.staff_second_factors).toEqual([]);
+  });
+
+  it("applies the HQ rule to HQ members and the all-staff rule to ordinary teammates", async () => {
+    seedProvider();
+    const hq = seedHqMember();
+    seedTeamMember();
+
+    // Rule off for everyone → plain sign-ins.
+    expect((await proveEmail("boss@thinnr.example")).json.tokenHash).toBeTruthy();
+    expect((await proveEmail("sam@clinic.example")).json.tokenHash).toBeTruthy();
+
+    setPolicy({ hq: true });
+    backend.tables.claim_verifications = [];
+    const hqStep = await proveEmail("boss@thinnr.example");
+    expect(hqStep.json.secondFactor?.mode).toBe("enroll");
+    expect((await proveEmail("sam@clinic.example")).json.tokenHash).toBeTruthy();
+    const { verify: hqDone } = await completeSms(hqStep.json.secondFactor.stepToken, "+15557002002");
+    expect(hqDone.status).toBe(200);
+    expect(backend.tables.staff_second_factors).toContainEqual(expect.objectContaining({ staff_kind: "hq", staff_ref: String(hq.id) }));
+
+    setPolicy({ hq: false, all: true });
+    backend.tables.claim_verifications = [];
+    expect((await proveEmail("sam@clinic.example")).json.secondFactor?.mode).toBe("enroll");
+  });
+
+  it("covers office admins under the managers rule, and a personal opt-in covers anyone", async () => {
+    setPolicy({ managers: true });
+    seedProvider();
+    const admin = seedTeamMember({ id: crypto.randomUUID(), email: "ada@clinic.example", office_role: "admin" });
+    const staff = seedTeamMember();
+    expect((await proveEmail("ada@clinic.example")).json.secondFactor?.mode).toBe("enroll");
+    expect((await proveEmail("sam@clinic.example")).json.tokenHash).toBeTruthy();
+    expect(admin.id).toBeTruthy();
+
+    // Ordinary staff who enrolled from their Security page get the step too.
+    seedFactor("team_member", String(staff.id), "+15557003003", true);
+    backend.tables.claim_verifications = [];
+    const step = await proveEmail("sam@clinic.example");
+    expect(step.json.secondFactor).toMatchObject({ mode: "sms", destination: "•••-•••-3003" });
+    const { verify: done } = await completeSms(step.json.secondFactor.stepToken);
+    expect(done.status).toBe(200);
+    expect(backend.tables.auth_sign_ins.at(-1)?.method).toBe("email_sms_code");
+
+    // Opt-in switched off (and no rule) → emailed code alone again.
+    backend.tables.staff_second_factors[0].enabled = false;
+    backend.tables.claim_verifications = [];
+    expect((await proveEmail("sam@clinic.example")).json.tokenHash).toBeTruthy();
+  });
+
+  it("shares the per-phone hourly send pot with every other rail and answers 429 past it", async () => {
+    setPolicy({ managers: true });
+    seedProvider();
+    seedFactor("provider", "20002");
+    const token = (await proveEmail("rivera@clinic.example")).json.secondFactor.stepToken;
+    for (let i = 0; i < 3; i += 1) {
+      expect((await api("POST", "/api/auth/login/phone/start", { stepToken: token })).status).toBe(200);
+    }
+    const fourth = await api("POST", "/api/auth/login/phone/start", { stepToken: token });
+    expect(fourth.status).toBe(429);
+    expect(fourth.json.retryable).toBe(true);
+    expect(backend.tables.claim_verifications.filter((r) => r.purpose === "staff_sms")).toHaveLength(3);
+  });
+
+  it("treats an unknown, patient, expired, or finished step token like an expired session", async () => {
+    setPolicy({ managers: true });
+    seedProvider();
+    const unknown = await api("POST", "/api/auth/login/phone/start", { stepToken: "f".repeat(64), phone: OWNER_PHONE });
+    expect(unknown.status).toBe(400);
+    expect(unknown.json.code).toBe("STEP_EXPIRED");
+
+    const verify = await proveEmail("rivera@clinic.example");
+    const token = verify.json.secondFactor.stepToken;
+    backend.tables.claim_verifications[0].verified_at = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const stale = await api("POST", "/api/auth/login/phone/start", { stepToken: token, phone: OWNER_PHONE });
+    expect(stale.status).toBe(400);
+    expect(stale.json.code).toBe("STEP_EXPIRED");
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+  });
+
+  it("falls back to the default rule (HQ + managers on) when the policy cannot be read", async () => {
+    backend.tables.hq_organization_settings = [];
+    seedProvider();
+    seedTeamMember();
+    expect((await proveEmail("rivera@clinic.example")).json.secondFactor?.mode).toBe("enroll");
+    expect((await proveEmail("sam@clinic.example")).json.tokenHash).toBeTruthy();
+  });
+
+  it("rejects a texted code that belongs to a different step", async () => {
+    setPolicy({ managers: true });
+    seedProvider();
+    seedProvider({ provider_id: "20003", email: "other@clinic.example", provider_name: "Dr. Other" });
+    const a = (await proveEmail("rivera@clinic.example")).json.secondFactor.stepToken;
+    const b = (await proveEmail("other@clinic.example")).json.secondFactor.stepToken;
+    const startB = await api("POST", "/api/auth/login/phone/start", { stepToken: b, phone: "+15557004004" });
+    expect(startB.status).toBe(200);
+    const crossed = await api("POST", "/api/auth/login/phone/verify", { stepToken: a, requestId: startB.json.requestId, code: startB.json.devCode });
+    expect(crossed.status).toBe(400);
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(backend.tables.staff_second_factors).toEqual([]);
   });
 });
 

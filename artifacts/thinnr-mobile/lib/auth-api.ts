@@ -23,8 +23,32 @@ export type CodeRequestResult =
   | { ok: false; error: string; code?: string };
 
 export type LoginVerifyResult =
-  | { ok: true; realm: 'staff' | 'patient'; tokenHash: string; signInId: string | null }
+  | { ok: true; realm: 'patient'; tokenHash: string; signInId: string | null }
+  | { ok: true; realm: 'staff'; tokenHash: string; signInId: string | null }
+  | {
+      ok: true;
+      realm: 'staff';
+      secondFactor: {
+        stepToken: string;
+        mode: 'sms' | 'enroll';
+        destination: string | null;
+      };
+    }
   | { ok: false; error: string; code?: string };
+
+export type StaffPhoneStartResult =
+  | {
+      ok: true;
+      mode: 'sms' | 'enroll';
+      requestId: string;
+      destination: string;
+      devCode: string | null;
+    }
+  | { ok: false; error: string; expired?: true; retryable?: true };
+
+export type StaffPhoneVerifyResult =
+  | { ok: true; realm: 'staff'; tokenHash: string; signInId: string | null }
+  | { ok: false; error: string; expired?: true };
 
 export type OfficeLookupResult =
   | { ok: true; officeName: string }
@@ -152,6 +176,27 @@ export async function verifyLoginCode(input: {
   const result = await postJson('/auth/login/verify', input, true);
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
+  const secondFactor = json?.secondFactor;
+  if (
+    status === 200
+    && json?.realm === 'staff'
+    && secondFactor
+    && typeof secondFactor === 'object'
+    && typeof (secondFactor as Record<string, unknown>).stepToken === 'string'
+    && ((secondFactor as Record<string, unknown>).mode === 'sms'
+      || (secondFactor as Record<string, unknown>).mode === 'enroll')
+  ) {
+    const factor = secondFactor as Record<string, unknown>;
+    return {
+      ok: true,
+      realm: 'staff',
+      secondFactor: {
+        stepToken: factor.stepToken as string,
+        mode: factor.mode as 'sms' | 'enroll',
+        destination: typeof factor.destination === 'string' ? factor.destination : null,
+      },
+    };
+  }
   if (status !== 200 || typeof json?.tokenHash !== 'string') {
     return {
       ok: false,
@@ -159,9 +204,57 @@ export async function verifyLoginCode(input: {
       ...(typeof json?.code === 'string' ? { code: json.code } : {}),
     };
   }
+  const signInId = typeof json.signInId === 'string' ? json.signInId : null;
+  return json.realm === 'staff'
+    ? { ok: true, realm: 'staff', tokenHash: json.tokenHash, signInId }
+    : { ok: true, realm: 'patient', tokenHash: json.tokenHash, signInId };
+}
+
+export async function startStaffPhoneStep(input: {
+  stepToken: string;
+  phone?: string;
+}): Promise<StaffPhoneStartResult> {
+  const result = await postJson('/auth/login/phone/start', input, true);
+  if ('failed' in result) return { ok: false, error: result.failed };
+  const { status, json } = result;
+  if (status === 400 && json?.code === 'STEP_EXPIRED') {
+    return { ok: false, expired: true, error: errorFrom(json, 'That sign-in step expired.') };
+  }
+  if (status !== 200 || typeof json?.requestId !== 'string' || typeof json.destination !== 'string') {
+    return {
+      ok: false,
+      error: errorFrom(json, status === 429
+        ? 'Too many text codes were requested. Try again later.'
+        : 'Could not send a text code right now. Try again in a moment.'),
+      ...(status === 429 || json?.retryable === true ? { retryable: true as const } : {}),
+    };
+  }
   return {
     ok: true,
-    realm: json.realm === 'staff' ? 'staff' : 'patient',
+    mode: json.mode === 'enroll' ? 'enroll' : 'sms',
+    requestId: json.requestId,
+    destination: json.destination,
+    devCode: typeof json.devCode === 'string' ? json.devCode : null,
+  };
+}
+
+export async function verifyStaffPhoneCode(input: {
+  stepToken: string;
+  requestId: string;
+  code: string;
+}): Promise<StaffPhoneVerifyResult> {
+  const result = await postJson('/auth/login/phone/verify', input, true);
+  if ('failed' in result) return { ok: false, error: result.failed };
+  const { status, json } = result;
+  if ((status === 400 && json?.code === 'STEP_EXPIRED') || status === 409) {
+    return { ok: false, expired: true, error: errorFrom(json, 'That sign-in step expired.') };
+  }
+  if (status !== 200 || typeof json?.tokenHash !== 'string') {
+    return { ok: false, error: errorFrom(json, 'That code didn’t work. Request a fresh one and try again.') };
+  }
+  return {
+    ok: true,
+    realm: 'staff',
     tokenHash: json.tokenHash,
     signInId: typeof json.signInId === 'string' ? json.signInId : null,
   };

@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { UserPlus } from 'lucide-react';
 import { ManagedSessionsState } from '@/components/team/ManagedSessions';
 import { fetchHqTeamMemberSessions, signOutHqTeamMember, type SecurityReason } from '@/lib/office-api';
@@ -32,6 +32,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AdminPage, PageHeader, TeamStatusChip } from '@/components/admin/primitives';
 import { useHqData } from '@/contexts/hq-data';
+import { HQ_TEAM_QUERY_KEY } from '@/contexts/hq-data';
+import { useSession } from '@/contexts/session';
+import { clearHqTeamMemberSecondFactor } from '@/lib/hq-team';
 import { HQ_ROLE_NOTES, INVITABLE_HQ_ROLES, type HqRole, type HqTeamMember } from '@/data/hq/team';
 
 const NEUTRAL_CHIP =
@@ -44,6 +47,8 @@ function RoleChip({ role }: { role: HqRole }) {
 export default function Team() {
   const { team, teamStatus, teamError, inviteTeamMember, updateTeamMember, removeTeamMember, teamMutationPending } = useHqData();
   const { toast } = useToast();
+  const { authUser } = useSession();
+  const queryClient = useQueryClient();
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
@@ -58,6 +63,7 @@ export default function Team() {
   const [removing, setRemoving] = useState<HqTeamMember | null>(null);
   const [sessionMember, setSessionMember] = useState<HqTeamMember | null>(null);
   const [profileMember, setProfileMember] = useState<HqTeamMember | null>(null);
+  const [clearingPhone, setClearingPhone] = useState<HqTeamMember | null>(null);
 
   // Deep link from audit trails (?member=<roster id>): open that teammate's
   // profile once the live roster is in, then drop the param so a refresh or
@@ -88,6 +94,15 @@ export default function Team() {
       await sessionsQuery.refetch();
     },
     onError: (error) => toast({ variant: 'destructive', title: 'Could not force sign-out', description: error instanceof Error ? error.message : 'Try again.' }),
+  });
+  const clearPhone = useMutation({
+    mutationFn: () => clearHqTeamMemberSecondFactor(clearingPhone!.id),
+    onSuccess: async () => {
+      toast({ variant: 'success', title: 'Sign-in phone cleared', description: 'They’ll add a phone at their next sign-in.' });
+      setClearingPhone(null);
+      await queryClient.invalidateQueries({ queryKey: HQ_TEAM_QUERY_KEY });
+    },
+    onError: (error) => toast({ variant: 'destructive', title: 'Could not clear sign-in phone', description: error instanceof Error ? error.message : 'Try again.' }),
   });
 
   const submitInvite = async () => {
@@ -176,6 +191,7 @@ export default function Team() {
                 <th className="px-3 py-3 font-bold">Title</th>
                 <th className="px-3 py-3 font-bold">Role</th>
                 <th className="px-3 py-3 font-bold">Status</th>
+                <th className="px-3 py-3 font-bold">Sign-in phone</th>
                 <th className="px-3 py-3 font-bold">Joined</th>
                 <th className="px-5 py-3 text-right font-bold">Actions</th>
               </tr>
@@ -197,6 +213,7 @@ export default function Team() {
                   <td className="px-3 py-3 text-foreground">{member.title || '—'}</td>
                   <td className="px-3 py-3"><RoleChip role={member.role} /></td>
                   <td className="px-3 py-3"><TeamStatusChip status={member.status} /></td>
+                  <td className="px-3 py-3 text-muted-foreground">{member.secondFactorPhone ?? 'No phone'}</td>
                   <td className="px-3 py-3 text-muted-foreground">{member.joinedLabel}</td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2">
@@ -223,6 +240,15 @@ export default function Team() {
                         onClick={() => { setSignOutReason('staff_request'); setSessionMember(member); }}
                       >
                         Sessions
+                      </button>
+                      <button
+                        type="button"
+                        className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive`}
+                        data-testid={`button-clear-phone-${member.id}`}
+                        disabled={!member.secondFactorPhone || member.authUserId === authUser?.id}
+                        onClick={() => setClearingPhone(member)}
+                      >
+                        Clear sign-in phone
                       </button>
                       {member.role === 'Super Admin' ? (
                         <span className="text-[10px] text-muted-foreground" title="Super Admin access is protected.">
@@ -454,6 +480,25 @@ export default function Team() {
       </Dialog>
 
       {/* Remove confirmation */}
+      <AlertDialog open={clearingPhone !== null} onOpenChange={(open) => !open && setClearingPhone(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-serif text-navy">Clear {clearingPhone?.name}’s sign-in phone?</AlertDialogTitle>
+            <AlertDialogDescription>They’ll need to add and verify a mobile number at their next sign-in.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-clear-phone-confirm"
+              onClick={(event) => { event.preventDefault(); clearPhone.mutate(); }}
+              disabled={clearPhone.isPending}
+            >
+              {clearPhone.isPending ? 'Clearing…' : 'Clear sign-in phone'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

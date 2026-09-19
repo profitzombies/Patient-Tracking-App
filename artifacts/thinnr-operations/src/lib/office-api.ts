@@ -89,7 +89,7 @@ export function officeQuery(office?: string | null, extra?: URLSearchParams): st
   return text ? `?${text}` : '';
 }
 
-export type SignInMethod = 'email_code' | 'sms_code' | 'password_sms_code' | 'password_email_code' | 'signup' | 'claim';
+export type SignInMethod = 'email_code' | 'email_sms_code' | 'sms_code' | 'password_sms_code' | 'password_email_code' | 'signup' | 'claim';
 export type SecurityPlatform = 'ios' | 'android' | 'web' | 'unknown';
 export type SecurityReason = 'lost_device' | 'suspicious_activity' | 'staff_request' | 'patient_request' | 'other';
 
@@ -128,6 +128,12 @@ export interface MySecurity {
   currentSessionKnown: boolean;
   sessions: SecuritySession[];
   signIns: SecuritySignIn[];
+  secondFactor: {
+    policyRequired: boolean;
+    enabled: boolean;
+    phone: string | null;
+    verifiedAt: string | null;
+  } | null;
 }
 
 export interface ManagedSecurity {
@@ -150,6 +156,13 @@ export const reportMySignIn = (id: string) => officeRequest<{ ok: true; signedOu
   SECURITY_MESSAGES,
   { method: 'POST' },
 );
+
+export const startMySecondFactorPhone = (phone: string) => officeRequest<{
+  ok: true; requestId: string; destination: string; devCode?: string | null;
+}>('/api/security/me/second-factor/phone/start', SECURITY_MESSAGES, {
+  method: 'POST',
+  body: JSON.stringify({ phone }),
+});
 export const fetchOfficeTeamMemberSessions = (memberId: string) => officeRequest<ManagedSecurity & { member: unknown }>(
   `/api/office/team/${encodeURIComponent(memberId)}/sessions`,
   SECURITY_MESSAGES,
@@ -188,3 +201,17 @@ export async function submitSecurityReport(token: string): Promise<{ ok: true; s
   if (!response.ok) throw new OfficeApiError(typeof body?.error === 'string' ? body.error : `The security report failed (${response.status}).`, response.status);
   return body as unknown as { ok: true; signedOut: true; realm: 'patient' | 'staff'; forcedReset: boolean };
 }
+
+export const setMySecondFactorEnabled = (enabled: boolean) => officeRequest<{
+  ok: true; secondFactor: NonNullable<MySecurity['secondFactor']>;
+}>('/api/security/me/second-factor', SECURITY_MESSAGES, {
+  method: 'POST',
+  body: JSON.stringify({ enabled }),
+});
+
+export const completeMySecondFactorPhone = (requestId: string, code: string) => officeRequest<{
+  ok: true; secondFactor: NonNullable<MySecurity['secondFactor']>;
+}>('/api/security/me/second-factor/phone/complete', SECURITY_MESSAGES, {
+  method: 'POST',
+  body: JSON.stringify({ requestId, code }),
+});

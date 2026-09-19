@@ -17,6 +17,7 @@ const text = (node: ReactTestInstance): string => node.children.map((child) => t
 const settle = async () => { for (let i = 0; i < 10; i++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 4)); }); };
 const fixture = {
   realm: 'staff', canChangePassword: false, contact: { phone: null, email: 's•••@x.com' }, passwordChangedAt: null, currentSessionKnown: true,
+  secondFactor: { policyRequired: true, enabled: true, phone: '•••-•••-4471', verifiedAt: '2026-08-01T12:00:00Z' },
   signIns: [
     { id: 'signin-1', at: '2026-08-18T14:30:00Z', method: 'email_code', methodLabel: 'Emailed code', platform: 'web', device: 'Chrome on Mac', region: 'Austin, Texas, US', newDevice: true, current: true, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
     { id: 'signin-2', at: '2026-08-12T09:10:00Z', method: 'email_code', methodLabel: 'Emailed code', platform: 'web', device: 'Safari on iPhone', region: null, newDevice: false, current: false, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
@@ -48,6 +49,7 @@ __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', signOut() {}
 responses = [[200, fixture]];
 let view = await render(<Security />, '/security');
 check('live sign-ins, sessions, Current and New device render', text(view.root).includes('Chrome on Mac') && text(view.root).includes('Safari on iPhone') && text(view.root).includes('Current') && text(view.root).includes('New device'));
+check('staff sign-in phone card shows required verified phone', text(view.root).includes('Sign-in phone') && text(view.root).includes('Required for your role') && text(view.root).includes('•••-•••-4471'));
 responses = [[200, { ok: true }], [200, fixture]];
 await click(buttonNamed(view.root, 'Sign out everywhere else'));
 await click(view.root.findByProps({ 'data-testid': 'button-security-confirm' }));
@@ -91,6 +93,7 @@ check('HQ team panel shares the managed sessions view and sends reason', hqTeamS
 check('office team panel and reason are wired', teamSource.includes('fetchOfficeTeamMemberSessions') && teamSource.includes("signOutTeammate(member.id, liveOffice, signOutReason)"));
 check('HQ patient card is gated and sends reason', patientSource.includes('{isHq && (') && patientSource.includes('signOutPatientSessions(id, office!, securityReason)'));
 check('staff verification sends stable device headers and attaches sign-in', sessionSource.includes("'x-thinnr-device': getOrCreateDeviceId()") && sessionSource.includes("'x-thinnr-platform': 'web'") && sessionSource.includes('/api/security/me/attach'));
+check('phone verification sends stable device headers', sessionSource.includes('/api/auth/login/phone/verify') && sessionSource.split("'x-thinnr-device': getOrCreateDeviceId()").length >= 3 && sessionSource.split("'x-thinnr-platform': 'web'").length >= 3);
 
 console.log(failures ? `\n${failures} account security check(s) failed.` : '\nAll account security checks passed.');
 process.exit(failures ? 1 : 0);

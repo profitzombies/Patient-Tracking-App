@@ -45,6 +45,7 @@ export const Text = hostComponent('Text');
 export const TextInput = hostComponent('TextInput');
 export const ScrollView = hostComponent('ScrollView');
 export const Pressable = hostComponent('Pressable') as React.FC<PressableProps>;
+export const Switch = hostComponent('Switch');
 /**
  * Image also carries RN's static resolveAssetSource: a bundled require()
  * (a number on native, a sentinel object here) becomes a {uri} descriptor,

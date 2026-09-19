@@ -40,6 +40,7 @@ import { requireFreshCode } from "../auth/fresh-code";
 import { recordAccessDenied, recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
+import { clearStaffSecondFactor, loadStaffSecondFactor, loadStaffSecondFactors, maskPhone } from "../auth/second-factor";
 import {
   OFFICE_ROLES,
   PROVISIONING_FAILED_MESSAGE,
@@ -67,6 +68,8 @@ export interface OfficeTeamMemberDto {
   claimedAt: string | null;
   /** True for the caller's own row. */
   isSelf: boolean;
+  /** Masked verified sign-in phone (texted-code step); null when none is enrolled. */
+  secondFactorPhone: string | null;
 }
 
 interface TeamMemberRow {
@@ -89,7 +92,7 @@ export function memberStatus(row: Pick<TeamMemberRow, "activation_status" | "aut
   return "active";
 }
 
-function memberDto(row: TeamMemberRow, scope: OfficeScope): OfficeTeamMemberDto {
+function memberDto(row: TeamMemberRow, scope: OfficeScope, factorPhone: string | null = null): OfficeTeamMemberDto {
   return {
     id: String(row.id),
     name: String(row.name ?? "").trim() || "Unnamed teammate",
@@ -99,7 +102,13 @@ function memberDto(row: TeamMemberRow, scope: OfficeScope): OfficeTeamMemberDto 
     invitedAt: row.created_at ?? null,
     claimedAt: row.claimed_at ?? null,
     isSelf: scope.teamMemberId === String(row.id),
+    secondFactorPhone: factorPhone,
   };
+}
+
+async function memberDtoWithFactor(row: TeamMemberRow, scope: OfficeScope): Promise<OfficeTeamMemberDto> {
+  const factor = await loadStaffSecondFactor("team_member", String(row.id));
+  return memberDto(row, scope, factor ? maskPhone(factor.phone) : null);
 }
 
 async function scoped(req: Request): Promise<Awaited<ReturnType<typeof resolveOfficeScope>>> {
@@ -226,6 +235,10 @@ router.get(OFFICE_TEAM_PATH, async (req, res) => {
     const providerRow = (Array.isArray(provider.json) ? provider.json[0] : null) as
       | { provider_name?: string | null; email?: string | null; auth_user_id?: string | null }
       | null;
+    const [factors, ownerFactor] = await Promise.all([
+      loadStaffSecondFactors("team_member", rows.map((row) => String(row.id))),
+      loadStaffSecondFactor("provider", scope.providerId),
+    ]);
     res.json({
       office: { id: scope.providerId, name: scope.officeName },
       me: { role: scope.officeRole, kind: scope.actorKind, teamMemberId: scope.teamMemberId },
@@ -233,8 +246,12 @@ router.get(OFFICE_TEAM_PATH, async (req, res) => {
         name: String(providerRow?.provider_name ?? scope.providerName),
         email: String(providerRow?.email ?? ""),
         status: providerRow?.auth_user_id ? "active" : "invited",
+        secondFactorPhone: ownerFactor ? maskPhone(ownerFactor.phone) : null,
       },
-      members: rows.map((row) => memberDto(row, scope)),
+      members: rows.map((row) => {
+        const factor = factors.get(String(row.id));
+        return memberDto(row, scope, factor ? maskPhone(factor.phone) : null);
+      }),
     });
   } catch (error) {
     req.log?.error({ err: error }, "office team list failed");
@@ -295,6 +312,7 @@ router.post(`${OFFICE_TEAM_PATH}/invitations`, async (req, res) => {
         invitedAt: new Date().toISOString(),
         claimedAt: null,
         isSelf: false,
+        secondFactorPhone: null,
       } satisfies OfficeTeamMemberDto,
     });
   } catch (error) {
@@ -415,7 +433,7 @@ router.get(`${OFFICE_TEAM_PATH}/:memberId/sessions`, async (req, res) => {
     }
     const overview = target.auth_user_id ? await securityOverview(target.auth_user_id, null) : { signIns: [], sessions: [] };
     audit(req, scope, "office_team_sessions_viewed", target.id, { sessions: overview.sessions.length });
-    res.json({ member: memberDto(target, scope), linked: Boolean(target.auth_user_id), sessions: overview.sessions, signIns: overview.signIns });
+    res.json({ member: await memberDtoWithFactor(target, scope), linked: Boolean(target.auth_user_id), sessions: overview.sessions, signIns: overview.signIns });
   } catch (error) {
     req.log?.error({ err: error }, "office team sessions read failed");
     res.status(502).json({ error: "Could not load that teammate's sessions right now." });
@@ -459,6 +477,57 @@ router.post(`${OFFICE_TEAM_PATH}/:memberId/sign-out`, async (req, res) => {
   } catch (error) {
     req.log?.error({ err: error }, "office sign-out failed");
     res.status(502).json({ error: "Could not sign that teammate out right now." });
+  }
+});
+
+// ── Sign-in phone (texted-code step) ─────────────────────────────────────────
+
+/**
+ * The office account holder's own sign-in phone. Nobody inside the office
+ * outranks the account holder, so only HQ (drilled into the office) can
+ * clear it. Registered before the :memberId route so the literal segment
+ * wins.
+ */
+router.post(`${OFFICE_TEAM_PATH}/account-owner/second-factor/clear`, async (req, res) => {
+  try {
+    const scope = await manager(req, res);
+    if (!scope) return;
+    if (scope.actorKind !== "hq") {
+      res.status(403).json({ error: "Only THINNR HQ can clear the account holder's sign-in phone." });
+      return;
+    }
+    if (!(await requireFreshCode(req, res, scope.actorUserId))) return;
+    const cleared = await clearStaffSecondFactor("provider", scope.providerId);
+    audit(req, scope, "office_team_phone_cleared", scope.providerId, { status: cleared ? "cleared" : "none_on_file", kind: "account_owner" });
+    res.json({ ok: true, cleared });
+  } catch (error) {
+    req.log?.error({ err: error }, "office account owner phone clear failed");
+    res.status(502).json({ error: "Could not clear that sign-in phone right now." });
+  }
+});
+
+/**
+ * Lost phone: drop a teammate's verified sign-in phone so their next sign-in
+ * re-enrols one. Same authority as force sign-out (owners/admins; owners
+ * only for an owner; never yourself) — the UI offers both actions together.
+ */
+router.post(`${OFFICE_TEAM_PATH}/:memberId/second-factor/clear`, async (req, res) => {
+  try {
+    const scope = await manager(req, res);
+    if (!scope) return;
+    const target = await loadMember(scope, String(req.params.memberId));
+    if (!target) {
+      res.status(404).json({ error: "That teammate isn't on this office's team." });
+      return;
+    }
+    if (refuseTargetEdit(res, scope, target, target.office_role === "owner")) return;
+    if (!(await requireFreshCode(req, res, scope.actorUserId))) return;
+    const cleared = await clearStaffSecondFactor("team_member", String(target.id));
+    audit(req, scope, "office_team_phone_cleared", target.id, { status: cleared ? "cleared" : "none_on_file" });
+    res.json({ member: memberDto(target, scope, null), cleared });
+  } catch (error) {
+    req.log?.error({ err: error }, "office phone clear failed");
+    res.status(502).json({ error: "Could not clear that teammate's sign-in phone right now." });
   }
 });
 

@@ -74,6 +74,10 @@ class FakeBackend {
       patient_push_tokens: [],
       patient_notifications: [],
       auth_session_revocations: [],
+      staff_second_factors: [],
+      hq_organization_settings: [
+        { singleton: true, second_factor_hq_users: false, second_factor_office_managers: false, second_factor_all_staff: false },
+      ],
     };
     this.authUsers.clear();
     this.sessions.clear();
@@ -324,7 +328,7 @@ class FakeBackend {
       if (method === "DELETE") {
         const doomed = new Set(this.match(table, url));
         this.tables[table] = this.tables[table].filter((r) => !doomed.has(r));
-        return json(200, []);
+        return json(200, [...doomed]);
       }
       if (method === "POST") {
         const incoming = Array.isArray(body) ? body : [body as Row];
@@ -332,6 +336,14 @@ class FakeBackend {
         for (const item of incoming) {
           if (table === "account_security_state") {
             const existing = this.tables[table].find((r) => r.user_id === item.user_id);
+            if (existing) {
+              Object.assign(existing, item);
+              out.push(existing);
+              continue;
+            }
+          }
+          if (table === "staff_second_factors") {
+            const existing = this.tables[table].find((r) => r.staff_kind === item.staff_kind && r.staff_ref === item.staff_ref);
             if (existing) {
               Object.assign(existing, item);
               out.push(existing);
@@ -1239,6 +1251,138 @@ describe("fresh-code gate", () => {
     const owner = backend.openSession(String(office.user.id), MAC_CHROME_UA);
     const noEmail = await api("POST", "/api/security/me/reauth/start", {}, auth(owner.token));
     expect(noEmail.status).toBe(409);
+  });
+});
+
+
+// ── Staff second factor: self-service + admin clear ──────────────────────────
+
+describe("staff second factor", () => {
+  const policy = () => backend.tables.hq_organization_settings[0];
+
+  async function enrolPhone(token: string, phone: string) {
+    const start = await api("POST", "/api/security/me/second-factor/phone/start", { phone }, auth(token));
+    expect(start.status).toBe(200);
+    expect(start.json.devCode).toMatch(/^\d{6}$/);
+    return api("POST", "/api/security/me/second-factor/phone/complete", { requestId: start.json.requestId, code: start.json.devCode }, auth(token));
+  }
+
+  it("lets an uncovered teammate enrol a phone, opt in, and turn it off again", async () => {
+    seedOffice();
+    const memberUser = backend.seedAuthUser({ email: "sam@clinic.example" });
+    backend.tables.team_members.push({ id: TM_ID, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "staff", activation_status: "activated", auth_user_id: memberUser.id });
+    const { token } = backend.openSession(String(memberUser.id));
+
+    const before = await api("GET", "/api/security/me", undefined, auth(token));
+    expect(before.json.secondFactor).toEqual({ policyRequired: false, enabled: false, phone: null, verifiedAt: null });
+
+    // Opting in without a phone is refused; the phone must be proven first.
+    const early = await api("POST", "/api/security/me/second-factor", { enabled: true }, auth(token));
+    expect(early.status).toBe(409);
+
+    const bad = await api("POST", "/api/security/me/second-factor/phone/start", { phone: "sam@clinic.example" }, auth(token));
+    expect(bad.status).toBe(400);
+    expect(bad.json.field).toBe("phone");
+
+    const done = await enrolPhone(token, "(555) 700-1001");
+    expect(done.status).toBe(200);
+    expect(done.json.secondFactor).toMatchObject({ policyRequired: false, enabled: true, phone: "•••-•••-1001" });
+    expect(backend.tables.staff_second_factors).toEqual([
+      expect.objectContaining({ staff_kind: "team_member", staff_ref: TM_ID, phone: "+15557001001", enabled: true }),
+    ]);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "security_second_factor_enrolled" && a.p_target_id === TM_ID)).toBe(true);
+
+    const off = await api("POST", "/api/security/me/second-factor", { enabled: false }, auth(token));
+    expect(off.status).toBe(200);
+    expect(off.json.secondFactor.enabled).toBe(false);
+    expect(backend.tables.staff_second_factors[0].enabled).toBe(false);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "security_second_factor_changed" && (a.p_metadata as Row).enabled === false)).toBe(true);
+
+    // Enrolment codes must be proven by the same signed-in identity.
+    const other = backend.seedAuthUser({ email: "rival@clinic.example" });
+    backend.tables.team_members.push({ id: TM_MANY, provider_id: "20002", name: "Rival", email: "rival@clinic.example", office_role: "staff", activation_status: "activated", auth_user_id: other.id });
+    const rival = backend.openSession(String(other.id));
+    const start = await api("POST", "/api/security/me/second-factor/phone/start", { phone: "+15557002002" }, auth(token));
+    const stolen = await api("POST", "/api/security/me/second-factor/phone/complete", { requestId: start.json.requestId, code: start.json.devCode }, auth(rival.token));
+    expect(stolen.status).toBe(400);
+    expect(backend.tables.staff_second_factors.find((r) => r.staff_ref === TM_MANY)).toBeUndefined();
+  });
+
+  it("reports the policy requirement for owners and refuses to turn it off; patients have no second factor block", async () => {
+    policy().second_factor_office_managers = true;
+    const office = seedOffice();
+    const { token } = backend.openSession(String(office.user.id));
+    const me = await api("GET", "/api/security/me", undefined, auth(token));
+    expect(me.json.secondFactor).toMatchObject({ policyRequired: true, enabled: true, phone: null });
+    const off = await api("POST", "/api/security/me/second-factor", { enabled: false }, auth(token));
+    expect(off.status).toBe(409);
+
+    const { user } = seedPatient();
+    const patient = backend.openSession(String(user.id));
+    const pm = await api("GET", "/api/security/me", undefined, auth(patient.token));
+    expect(pm.json.secondFactor).toBeNull();
+    const refused = await api("POST", "/api/security/me/second-factor/phone/start", { phone: "+15557001001" }, auth(patient.token));
+    expect(refused.status).toBe(403);
+  });
+
+  it("lets an owner clear a teammate's phone (audited) and lists the masked phone on the team", async () => {
+    const office = seedOffice();
+    const memberUser = backend.seedAuthUser({ email: "sam@clinic.example" });
+    backend.tables.team_members.push({ id: TM_ID, provider_id: "20002", name: "Sam Staff", email: "sam@clinic.example", office_role: "staff", activation_status: "activated", auth_user_id: memberUser.id });
+    backend.tables.staff_second_factors.push({ staff_kind: "team_member", staff_ref: TM_ID, phone: "+15557001001", verified_at: new Date().toISOString(), enabled: true });
+    const owner = backend.openSession(String(office.user.id), MAC_CHROME_UA);
+
+    const team = await api("GET", "/api/office/team", undefined, auth(owner.token));
+    expect(team.status).toBe(200);
+    expect(team.json.members[0].secondFactorPhone).toBe("•••-•••-1001");
+    expect(team.json.accountOwner.secondFactorPhone).toBeNull();
+    expect(JSON.stringify(team.json)).not.toContain("5557001001");
+
+    // Clearing someone's phone lowers their security: like a forced sign-out
+    // it needs a fresh code from the person at the keyboard.
+    const stale = await api("POST", `/api/office/team/${TM_ID}/second-factor/clear`, {}, auth(owner.token));
+    expect(stale.status).toBe(401);
+    expect(stale.json.code).toBe("reauth_required");
+    expect(backend.tables.staff_second_factors).toHaveLength(1);
+    proveCode(owner);
+    const cleared = await api("POST", `/api/office/team/${TM_ID}/second-factor/clear`, {}, auth(owner.token));
+    expect(cleared.status).toBe(200);
+    expect(cleared.json).toMatchObject({ cleared: true, member: { id: TM_ID, secondFactorPhone: null } });
+    expect(backend.tables.staff_second_factors).toEqual([]);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "office_team_phone_cleared" && a.p_target_id === TM_ID)).toBe(true);
+
+    // The account holder's own phone is HQ-only.
+    const ownerPhone = await api("POST", "/api/office/team/account-owner/second-factor/clear", {}, auth(owner.token));
+    expect(ownerPhone.status).toBe(403);
+  });
+
+  it("lets an HQ admin clear an HQ teammate's phone, never their own", async () => {
+    const hq = seedHq();
+    backend.tables.hq_team_members.push({ id: "HQ-ME", auth_user_id: hq.user.id, name: "Avery HQ", email: "hq@thinnr.example", title: "", role: "admin", status: "active", invited_at: null, joined_at: null });
+    const mate = backend.seedAuthUser({ email: "mate@thinnr.example" });
+    backend.tables.hq_team_members.push({ id: "HQ-MATE", auth_user_id: mate.id, name: "Morgan", email: "mate@thinnr.example", title: "", role: "support", status: "active", invited_at: null, joined_at: null });
+    backend.tables.staff_second_factors.push({ staff_kind: "hq", staff_ref: "HQ-MATE", phone: "+15557003003", verified_at: new Date().toISOString(), enabled: true });
+    const me = backend.openSession(String(hq.user.id), MAC_CHROME_UA);
+
+    const list = await api("GET", "/api/hq-team", undefined, auth(me.token));
+    expect(list.status).toBe(200);
+    expect(list.json.members.find((m: Row) => m.id === "HQ-MATE").secondFactorPhone).toBe("•••-•••-3003");
+
+    const self = await api("POST", "/api/hq-team/HQ-ME/second-factor/clear", {}, auth(me.token));
+    expect(self.status).toBe(409);
+    const stale = await api("POST", "/api/hq-team/HQ-MATE/second-factor/clear", {}, auth(me.token));
+    expect(stale.status).toBe(401);
+    expect(stale.json.code).toBe("reauth_required");
+    proveCode(me);
+    const out = await api("POST", "/api/hq-team/HQ-MATE/second-factor/clear", {}, auth(me.token));
+    expect(out.status).toBe(200);
+    expect(out.json.cleared).toBe(true);
+    expect(backend.tables.staff_second_factors).toEqual([]);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "hq_team_phone_cleared" && a.p_target_id === "HQ-MATE")).toBe(true);
   });
 });
 

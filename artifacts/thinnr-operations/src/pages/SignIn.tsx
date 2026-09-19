@@ -18,8 +18,9 @@ import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
 import { timeOfDayGreeting } from '@/lib/local-time';
 
-type Phase = 'email' | 'code';
+type Phase = 'email' | 'code' | 'phone';
 
+type PhoneStep = { stepToken: string; mode: 'sms' | 'enroll'; destination: string | null };
 const DEMO_OPTIONS: Array<{
   persona: Persona;
   icon: React.ReactNode;
@@ -47,7 +48,14 @@ const DEMO_OPTIONS: Array<{
 ];
 
 export default function SignIn() {
-  const { signIn, requestStaffCode, verifyStaffCode, supabaseEnabled } = useSession();
+  const {
+    signIn,
+    requestStaffCode,
+    verifyStaffCode,
+    startStaffPhoneStep,
+    verifyStaffPhoneCode,
+    supabaseEnabled,
+  } = useSession();
   const [, navigate] = useLocation();
 
   const [phase, setPhase] = useState<Phase>('email');
@@ -58,6 +66,10 @@ export default function SignIn() {
   const [devCode, setDevCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [phoneStep, setPhoneStep] = useState<PhoneStep | null>(null);
+  const [phone, setPhone] = useState('');
+  const [smsRequestId, setSmsRequestId] = useState<string | null>(null);
+  const [smsCode, setSmsCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
 
@@ -124,6 +136,14 @@ export default function SignIn() {
     try {
       const result = await verifyStaffCode({ requestId, code: otp.trim() });
       if (result.error) setError(result.error);
+      else if (result.secondFactor) {
+        setPhoneStep(result.secondFactor);
+        setSmsRequestId(null);
+        setSmsCode('');
+        setDevCode(null);
+        setNotice(null);
+        setPhase('phone');
+      }
       // Success: the session listener re-routes to the right workspace.
     } finally {
       setBusy(false);
@@ -150,6 +170,78 @@ export default function SignIn() {
     setDevCode(null);
     setError(null);
     setNotice(null);
+    setPhoneStep(null);
+    setSmsRequestId(null);
+    setSmsCode('');
+    setPhone('');
+  };
+
+  const expiredPhoneStep = () => {
+    backToEmail();
+    setError('That sign-in step expired. Start again with your email.');
+  };
+
+  const sendPhoneCode = async (enteredPhone?: string) => {
+    if (!phoneStep || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await startStaffPhoneStep({
+        stepToken: phoneStep.stepToken,
+        ...(enteredPhone ? { phone: enteredPhone } : {}),
+      });
+      if (result.code === 'STEP_EXPIRED') {
+        expiredPhoneStep();
+        return;
+      }
+      if (result.error || !result.requestId) {
+        setError(result.error ?? 'Could not send a text right now. Try again.');
+        return;
+      }
+      setSmsRequestId(result.requestId);
+      setDevCode(result.devCode ?? null);
+      setPhoneStep({ ...phoneStep, destination: result.destination ?? phoneStep.destination });
+      setSmsCode('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (phase === 'phone' && phoneStep?.mode === 'sms' && !smsRequestId) {
+      void sendPhoneCode();
+    }
+  }, [phase, phoneStep?.mode, phoneStep?.stepToken]);
+
+  const submitPhone = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!phoneStep) return;
+    if (!smsRequestId) {
+      const trimmed = phone.trim();
+      if (!trimmed) {
+        setError('Enter a mobile number.');
+        return;
+      }
+      await sendPhoneCode(trimmed);
+      return;
+    }
+    if (smsCode.length !== 6) {
+      setError('Enter the 6-digit code from the text.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await verifyStaffPhoneCode({
+        stepToken: phoneStep.stepToken,
+        requestId: smsRequestId,
+        code: smsCode,
+      });
+      if (result.code === 'STEP_EXPIRED') expiredPhoneStep();
+      else if (result.error) setError(result.error);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -328,6 +420,97 @@ export default function SignIn() {
                   Use a different email
                 </button>
               </div>
+            </form>
+          )}
+
+          {phase === 'phone' && phoneStep && (
+            <form onSubmit={submitPhone} noValidate>
+              <h2 className="font-serif text-lg font-bold tracking-[-.01em] text-navy">
+                {phoneStep.mode === 'enroll' && !smsRequestId ? 'Add a sign-in phone' : 'Check your phone'}
+              </h2>
+              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                {phoneStep.mode === 'enroll' && !smsRequestId
+                  ? 'Your role requires a second check at sign-in. Add a mobile number to receive a code by text.'
+                  : `Enter the code we texted to ${phoneStep.destination ?? 'your mobile number'}.`}
+              </p>
+
+              {phoneStep.mode === 'enroll' && !smsRequestId ? (
+                <div className="mt-4">
+                  <Label htmlFor="staff-phone">Mobile number</Label>
+                  <Input
+                    id="staff-phone"
+                    type="tel"
+                    autoComplete="tel"
+                    data-testid="input-staff-phone"
+                    className="mt-1.5"
+                    value={phone}
+                    onChange={(event) => setPhone(event.target.value)}
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <Label htmlFor="staff-sms-code" className="sr-only">6-digit texted code</Label>
+                  <Input
+                    id="staff-sms-code"
+                    data-testid="input-staff-sms-code"
+                    className="text-center text-lg font-semibold tracking-[.4em]"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    value={smsCode}
+                    onChange={(event) => setSmsCode(event.target.value.replace(/\D/g, ''))}
+                    disabled={busy}
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {devCode && (
+                <p data-testid="text-auth-devcode" className="mt-4 rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs font-medium leading-relaxed text-warn">
+                  Dev delivery mode — your code is {devCode}.
+                </p>
+              )}
+              {error && (
+                <p role="alert" data-testid="text-auth-error" className="mt-4 rounded-md border border-destructive-border bg-destructive/10 px-3 py-2 text-xs font-medium leading-relaxed text-destructive">
+                  {error}
+                </p>
+              )}
+
+              <Button
+                type="submit"
+                data-testid={smsRequestId ? 'button-staff-sms-verify' : 'button-staff-phone-send'}
+                className="mt-4 h-10 w-full"
+                disabled={busy}
+              >
+                {busy ? 'Working…' : smsRequestId ? 'Verify and sign in' : 'Text me a code'}
+              </Button>
+              {smsRequestId && (
+                <div className="mt-3 flex items-center justify-center gap-4">
+                  <button
+                    type="button"
+                    data-testid="button-staff-sms-resend"
+                    onClick={() => void sendPhoneCode(phoneStep.mode === 'enroll' ? phone.trim() : undefined)}
+                    disabled={busy}
+                    className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                  >
+                    Resend text
+                  </button>
+                  {phoneStep.mode === 'enroll' && (
+                    <button
+                      type="button"
+                      data-testid="button-staff-phone-change"
+                      onClick={() => { setSmsRequestId(null); setSmsCode(''); setDevCode(null); setError(null); }}
+                      disabled={busy}
+                      className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      Change number
+                    </button>
+                  )}
+                </div>
+              )}
             </form>
           )}
         </section>

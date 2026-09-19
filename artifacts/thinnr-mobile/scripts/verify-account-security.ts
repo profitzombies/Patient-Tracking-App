@@ -13,6 +13,7 @@ import { AccountSecurity } from '../components/account/AccountSecurity';
 import PatientLoginScreen from '../app/patient-login';
 import { AppModeProvider } from '../context/AppModeContext';
 import { completeSignup, requestPatientPasswordLogin, verifyLoginCode } from '../lib/auth-api';
+import type { SecurityOverview } from '../lib/security-api';
 import { routerCalls } from './onboarding-gate-stubs/expo-router';
 import { setStubAccessToken, signOutCalls } from './patient-auth-stubs/supabase';
 
@@ -20,8 +21,9 @@ let checks = 0, failures = 0;
 const assert = (label: string, ok: boolean) => { checks += 1; if (!ok) { failures += 1; console.error(`  FAIL  ${label}`); } };
 const calls: { path: string; method: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [];
 let overviewReads = 0;
-const overview = {
-  realm: 'patient', canChangePassword: true, contact: { phone: '•••-1010', email: null }, passwordChangedAt: null, currentSessionKnown: true,
+const overview: SecurityOverview = {
+  realm: 'staff', canChangePassword: true, contact: { phone: null, email: 'staff@example.com' }, passwordChangedAt: null, currentSessionKnown: true,
+  secondFactor: { policyRequired: false, enabled: false, phone: null, verifiedAt: null },
   signIns: [
     { id: 'current', at: new Date().toISOString(), method: 'password_sms_code', methodLabel: 'Password + texted code', platform: 'ios', device: 'iPhone · THINNR app', region: 'Austin, Texas, US', newDevice: false, current: true, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
     { id: 'other', at: new Date(Date.now() - 86400000).toISOString(), method: 'email_code', methodLabel: 'Emailed code', platform: 'web', device: 'Chrome on Mac', region: null, newDevice: true, current: false, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
@@ -46,6 +48,20 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (body.newPassword === 'weak') { status = 400; response = { error: 'Use at least 8 characters with a letter and number.', field: 'newPassword' }; }
     else if (body.code === '000000') { status = 400; response = { error: 'That code is incorrect or expired.', field: 'code' }; }
     else response = { ok: true, othersSignedOut: true };
+  } else if (path === 'security/me/second-factor/phone/start') {
+    response = { ok: true, requestId: 'factor-1', destination: '•••-•••-3434', devCode: '343434' };
+  } else if (path === 'security/me/second-factor/phone/complete') {
+    response = {
+      ok: true,
+      secondFactor: {
+        policyRequired: false,
+        enabled: true,
+        phone: '•••-•••-3434',
+        verifiedAt: new Date().toISOString(),
+      },
+    };
+  } else if (path === 'security/me/second-factor') {
+    response = { ok: true, secondFactor: { ...overview.secondFactor, enabled: body.enabled } };
   } else if (path === 'security/me/sign-out-others') response = { ok: true };
   else if (path === 'security/me/sign-ins/other/report') response = { ok: true, signedOut: true, forcedReset: true };
   else if (path === 'auth/patient/password/login' && body.password === 'forced') { status = 403; response = { error: 'Reset your password before signing in.', code: 'PASSWORD_RESET_REQUIRED' }; }
@@ -76,6 +92,13 @@ async function main() {
   setStubAccessToken('security-token');
   let tree = await mount(React.createElement(AccountSecurity));
   assert('live overview and sections render', has(tree, 'account-security') && has(tree, 'security-signin-0') && has(tree, 'security-session-0'));
+  assert('staff sign-in phone section renders with optional switch', has(tree, 'security-second-factor') && has(tree, 'security-second-factor-switch'));
+  await type(tree, 'security-second-factor-phone', '8135553434');
+  await press(tree, 'security-second-factor-start');
+  assert('phone enrollment posts normalized phone', calls.some(c => c.path === 'security/me/second-factor/phone/start' && c.body.phone === '+18135553434'));
+  await press(tree, 'security-second-factor-complete');
+  assert('phone enrollment posts request and code', calls.some(c => c.path === 'security/me/second-factor/phone/complete' && c.body.requestId === 'factor-1' && c.body.code === '343434'));
+  assert('verified phone is rendered', text(tree, 'security-second-factor').includes('•••-•••-3434'));
   await type(tree, 'security-current-password', 'wrong'); await press(tree, 'security-password-start');
   assert('wrong current password is inline', text(tree, 'security-current-password-error').includes('incorrect'));
   await type(tree, 'security-current-password', 'correct'); await press(tree, 'security-password-start');
@@ -89,6 +112,20 @@ async function main() {
   assert('sign out others calls endpoint and refreshes', calls.some(c => c.path === 'security/me/sign-out-others') && overviewReads > beforeSignout);
   await press(tree, 'security-report-other'); await press(tree, 'security-report-confirm-other');
   assert('report clears local session and routes to login', calls.some(c => c.path === 'security/me/sign-ins/other/report') && signOutCalls.length === 1 && routerCalls.some(c => c.method === 'replace' && c.target.includes('patient-login')));
+  tree.unmount();
+
+  overview.secondFactor = {
+    policyRequired: true,
+    enabled: true,
+    phone: '•••-•••-9999',
+    verifiedAt: new Date().toISOString(),
+  };
+  setStubAccessToken('security-token');
+  tree = await mount(React.createElement(AccountSecurity));
+  const requiredCopy = tree.root.findAll(node =>
+    node.type === 'Text' && node.children.join('').includes('Required for your role')
+  );
+  assert('required staff factor hides switch', has(tree, 'security-second-factor') && !has(tree, 'security-second-factor-switch') && requiredCopy.length > 0);
   tree.unmount();
 
   const beforeDemo = calls.length; tree = await mount(React.createElement(AccountSecurity, { demo: true }));

@@ -3824,6 +3824,11 @@ export const GetHqSettingsResponse = zod.object({
   "coldArchiveEnabled": zod.boolean().describe('Nightly cold archive of raw events and business rows to object storage (off by default).'),
   "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
   "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
+  "secondFactor": zod.object({
+  "hqUsers": zod.boolean(),
+  "officeManagers": zod.boolean().describe('Office owners and admins'),
+  "allStaff": zod.boolean().describe('Every office teammate')
+}).describe('Who must confirm a texted code after the emailed sign-in code.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -3967,7 +3972,12 @@ export const UpdateHqSettingsBody = zod.object({
   "exportLinkHours": zod.number().min(1).max(updateHqSettingsBodyExportLinkHoursMax).optional(),
   "coldArchiveEnabled": zod.boolean().optional(),
   "staffIdleTimeoutMinutes": zod.number().min(updateHqSettingsBodyStaffIdleTimeoutMinutesMin).max(updateHqSettingsBodyStaffIdleTimeoutMinutesMax).optional(),
-  "hqIdleTimeoutMinutes": zod.number().min(updateHqSettingsBodyHqIdleTimeoutMinutesMin).max(updateHqSettingsBodyHqIdleTimeoutMinutesMax).optional()
+  "hqIdleTimeoutMinutes": zod.number().min(updateHqSettingsBodyHqIdleTimeoutMinutesMin).max(updateHqSettingsBodyHqIdleTimeoutMinutesMax).optional(),
+  "secondFactor": zod.object({
+  "hqUsers": zod.boolean(),
+  "officeManagers": zod.boolean().describe('Office owners and admins'),
+  "allStaff": zod.boolean().describe('Every office teammate')
+}).optional().describe('Who must confirm a texted code after the emailed sign-in code.')
 })
 
 export const updateHqSettingsResponseDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4033,6 +4043,11 @@ export const UpdateHqSettingsResponse = zod.object({
   "coldArchiveEnabled": zod.boolean().describe('Nightly cold archive of raw events and business rows to object storage (off by default).'),
   "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
   "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
+  "secondFactor": zod.object({
+  "hqUsers": zod.boolean(),
+  "officeManagers": zod.boolean().describe('Office owners and admins'),
+  "allStaff": zod.boolean().describe('Every office teammate')
+}).describe('Who must confirm a texted code after the emailed sign-in code.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4159,6 +4174,11 @@ export const GetOfficeSettingsResponse = zod.object({
   "coldArchiveEnabled": zod.boolean().describe('Nightly cold archive of raw events and business rows to object storage (off by default).'),
   "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
   "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
+  "secondFactor": zod.object({
+  "hqUsers": zod.boolean(),
+  "officeManagers": zod.boolean().describe('Office owners and admins'),
+  "allStaff": zod.boolean().describe('Every office teammate')
+}).describe('Who must confirm a texted code after the emailed sign-in code.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4459,6 +4479,11 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "coldArchiveEnabled": zod.boolean().describe('Nightly cold archive of raw events and business rows to object storage (off by default).'),
   "staffIdleTimeoutMinutes": zod.number().describe('Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).'),
   "hqIdleTimeoutMinutes": zod.number().describe('Same window for HQ members (5–120).'),
+  "secondFactor": zod.object({
+  "hqUsers": zod.boolean(),
+  "officeManagers": zod.boolean().describe('Office owners and admins'),
+  "allStaff": zod.boolean().describe('Every office teammate')
+}).describe('Who must confirm a texted code after the emailed sign-in code.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({

@@ -8,6 +8,7 @@
 import { identifyBearer } from "../auth/identify";
 import { bearerToken } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { officeRoleOf, type StaffOfficeRole } from "../auth/directory";
 import { sessionIdOfToken } from "./device";
 
 const enc = encodeURIComponent;
@@ -28,6 +29,8 @@ export type SecurityActor =
       staffKind: "hq" | "provider" | "team_member";
       ref: string;
       providerId: string | null;
+      /** owner/admin/staff for office identities (provider = owner); null for HQ. */
+      officeRole: StaffOfficeRole | null;
       name: string | null;
       email: string | null;
     };
@@ -65,7 +68,7 @@ export async function describeAccount(userId: string): Promise<SecurityActor | n
     "hq membership lookup",
   );
   if (membership) {
-    return { realm: "staff", userId, staffKind: "hq", ref: String(membership.id), providerId: null, name: membership.display_name, email: membership.email };
+    return { realm: "staff", userId, staffKind: "hq", ref: String(membership.id), providerId: null, officeRole: null, name: membership.display_name, email: membership.email };
   }
   const provider = first<{ provider_id: string; provider_name: string | null; email: string | null }>(
     await supabaseAdmin(
@@ -75,17 +78,17 @@ export async function describeAccount(userId: string): Promise<SecurityActor | n
     "provider lookup",
   );
   if (provider) {
-    return { realm: "staff", userId, staffKind: "provider", ref: String(provider.provider_id), providerId: String(provider.provider_id), name: provider.provider_name, email: provider.email };
+    return { realm: "staff", userId, staffKind: "provider", ref: String(provider.provider_id), providerId: String(provider.provider_id), officeRole: "owner", name: provider.provider_name, email: provider.email };
   }
-  const member = first<{ id: string; provider_id: string | null; name: string | null; email: string | null }>(
+  const member = first<{ id: string; provider_id: string | null; name: string | null; email: string | null; office_role?: string | null }>(
     await supabaseAdmin(
       "GET",
-      `/rest/v1/team_members?auth_user_id=eq.${enc(userId)}&select=id,provider_id,name,email&limit=1`,
+      `/rest/v1/team_members?auth_user_id=eq.${enc(userId)}&select=id,provider_id,name,email,office_role&limit=1`,
     ),
     "team member lookup",
   );
   if (member) {
-    return { realm: "staff", userId, staffKind: "team_member", ref: String(member.id), providerId: member.provider_id ? String(member.provider_id) : null, name: member.name, email: member.email };
+    return { realm: "staff", userId, staffKind: "team_member", ref: String(member.id), providerId: member.provider_id ? String(member.provider_id) : null, officeRole: officeRoleOf(member.office_role), name: member.name, email: member.email };
   }
   return null;
 }

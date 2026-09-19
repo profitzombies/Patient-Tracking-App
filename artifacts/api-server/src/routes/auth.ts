@@ -34,7 +34,7 @@ import {
   forcedResetPending,
   noteSignIn,
 } from "../security/sign-in-hooks";
-import { requestIdOf } from "../lib/admin-audit";
+import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import {
   deliveryMode,
   DeliveryNotConfiguredError,
@@ -70,7 +70,17 @@ import {
   loadPatientById,
   resolveSignupOffice,
   resolveSignupOfficeById,
+  type StaffHit,
 } from "../auth/directory";
+import {
+  currentSecondFactorPolicy,
+  factorKindOf,
+  loadStaffSecondFactor,
+  maskPhone,
+  saveStaffSecondFactor,
+  secondFactorApplies,
+  type StaffSecondFactor,
+} from "../auth/second-factor";
 import {
   mintSessionTokenHash,
   getAuthUserEmail,
@@ -96,6 +106,8 @@ const router: IRouter = Router();
 
 export const AUTH_LOGIN_START_PATH = "/auth/login/start";
 export const AUTH_LOGIN_VERIFY_PATH = "/auth/login/verify";
+export const AUTH_LOGIN_PHONE_START_PATH = "/auth/login/phone/start";
+export const AUTH_LOGIN_PHONE_VERIFY_PATH = "/auth/login/phone/verify";
 export const AUTH_PATIENT_PASSWORD_LOGIN_PATH = "/auth/patient/password/login";
 export const AUTH_PATIENT_RECOVERY_START_PATH = "/auth/patient/recovery/start";
 export const AUTH_PATIENT_RECOVERY_VERIFY_PATH = "/auth/patient/recovery/verify";
@@ -125,6 +137,10 @@ const CODE_SEND_ERROR =
 const CODE_SEND_LIMIT =
   "Too many verification codes were requested. Wait a little while, then try again.";
 const SESSION_EXPIRED = "That session has expired. Please start over.";
+/** Step-token failures on the texted-code step: the client restarts at email. */
+const STEP_EXPIRED_CODE = "STEP_EXPIRED";
+const PHONE_ON_FILE_MESSAGE = "A verified phone is already on file for this account. Codes go to that number.";
+const PHONE_REQUIRED_MESSAGE = "Enter the mobile number that should receive your sign-in codes.";
 const SERVER_ERROR = "We couldn't process that just now. Please try again in a moment.";
 
 function patientUniqueConflict(message: string): "email" | "phone" | null {
@@ -207,7 +223,7 @@ export async function spendUndelivered(row: VerificationRow): Promise<void> {
   if (spent !== 1) throw new Error("undelivered auth send could not be spent");
 }
 
-export type CodePurpose = "login" | "signup" | "recovery" | "password_change" | "cart_pay";
+export type CodePurpose = "login" | "signup" | "recovery" | "password_change" | "cart_pay" | "staff_sms";
 
 export interface RegisterSendInput {
   purpose: CodePurpose;
@@ -628,7 +644,23 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       realm = "staff";
       if (identifier.kind === "email") {
         const staff = await lookupStaffByEmail(identifier.email);
-        if (staff.kind === "ok") userId = await ensureStaffAuthUser(staff.hit);
+        if (staff.kind === "ok") {
+          const step = await staffSecondFactorStep(staff.hit);
+          if (step) {
+            // The emailed code is proven but the session is NOT issued yet:
+            // the row keeps verified_at (so the code can never be replayed)
+            // and carries a short-lived step token the texted-code routes
+            // redeem. consumed_at lands only when the second step completes.
+            await patchRow(row.id, {
+              verified_at: new Date().toISOString(),
+              resolved_ref: staff.hit.ref,
+              claim_token_hash: sha256(step.token),
+            });
+            res.json({ ok: true, realm, secondFactor: step.body });
+            return;
+          }
+          userId = await ensureStaffAuthUser(staff.hit);
+        }
       }
     }
 
@@ -1190,6 +1222,249 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     res.json({ ok: true, tokenHash, signInId });
   } catch (error) {
     req.log?.error({ err: error, patientId: createdPatientId }, "auth signup complete failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+// ── Staff second factor (texted code after the emailed code) ────────────────
+
+/** How long a proven emailed code keeps its texted-code step open. */
+const SECOND_FACTOR_STEP_TTL_MS = CODE_TTL_MS;
+const SECOND_FACTOR_SCOPE_PREFIX = "staff-second-factor:";
+
+export interface SecondFactorStepBody {
+  stepToken: string;
+  /** "sms" = a verified phone is on file; "enroll" = the person must add one first. */
+  mode: "sms" | "enroll";
+  /** Masked phone on file (sms mode). */
+  destination: string | null;
+}
+
+/**
+ * Decide, right after the emailed code is proven, whether this staff member
+ * owes a texted code. Returns null when the emailed code alone signs them in.
+ */
+async function staffSecondFactorStep(hit: StaffHit): Promise<{ token: string; body: SecondFactorStepBody } | null> {
+  const factor = await loadStaffSecondFactor(factorKindOf(hit.class), hit.ref);
+  const policy = await currentSecondFactorPolicy();
+  if (!secondFactorApplies(policy, hit, factor)) return null;
+  const token = crypto.randomBytes(32).toString("hex");
+  return {
+    token,
+    body: {
+      stepToken: token,
+      mode: factor ? "sms" : "enroll",
+      destination: factor ? maskPhone(factor.phone) : null,
+    },
+  };
+}
+
+/**
+ * Load the proven emailed-code row behind a step token. Everything that
+ * makes the step unusable (unknown, patient, not yet proven, already
+ * finished, older than the TTL) answers the same way.
+ */
+async function loadSecondFactorStep(stepToken: unknown): Promise<VerificationRow | null> {
+  if (!isTokenShaped(stepToken)) return null;
+  const row = await loadRowByToken(stepToken);
+  if (
+    !row ||
+    row.purpose !== "login" ||
+    row.account_type === "patient" ||
+    row.identifier_kind !== "email" ||
+    !row.verified_at ||
+    row.consumed_at ||
+    !row.resolved_ref ||
+    new Date(row.verified_at).getTime() + SECOND_FACTOR_STEP_TTL_MS < Date.now()
+  ) {
+    return null;
+  }
+  return row;
+}
+
+/** Re-resolve the staff identity FRESH and require it to be the one that proved the email. */
+async function resolveStepStaff(step: VerificationRow): Promise<StaffHit | null> {
+  const identifier = normalizeIdentifier(step.identifier);
+  if (!identifier || identifier.kind !== "email") return null;
+  const staff = await lookupStaffByEmail(identifier.email);
+  if (staff.kind !== "ok" || staff.hit.ref !== step.resolved_ref) return null;
+  return staff.hit;
+}
+
+function stepScopeKey(step: VerificationRow, mode: "sms" | "enroll"): string {
+  return `${SECOND_FACTOR_SCOPE_PREFIX}${step.id}:${mode}`;
+}
+
+/**
+ * Send (or resend) the texted code for a step. With a verified phone on
+ * file the text always goes there — a supplied number is refused, otherwise
+ * possession of the mailbox alone could re-point the second factor. Without
+ * one, the supplied number is enrolled once its code is proven.
+ */
+router.post(AUTH_LOGIN_PHONE_START_PATH, async (req, res) => {
+  const slot = acquireSendSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
+    return;
+  }
+  try {
+    const { stepToken, phone } = (req.body ?? {}) as { stepToken?: unknown; phone?: unknown };
+    const step = await loadSecondFactorStep(stepToken);
+    const hit = step ? await resolveStepStaff(step) : null;
+    if (!step || !hit) {
+      res.status(400).json({ error: SESSION_EXPIRED, code: STEP_EXPIRED_CODE });
+      return;
+    }
+    const factor = await loadStaffSecondFactor(factorKindOf(hit.class), hit.ref);
+    let mode: "sms" | "enroll";
+    let identifier: NormalizedIdentifier | null;
+    if (factor) {
+      if (phone !== undefined && phone !== null && String(phone).trim() !== "") {
+        res.status(409).json({ error: PHONE_ON_FILE_MESSAGE });
+        return;
+      }
+      mode = "sms";
+      identifier = normalizeIdentifier(factor.phone);
+    } else {
+      mode = "enroll";
+      identifier = normalizeIdentifier(phone);
+      if (!identifier || identifier.kind !== "phone") {
+        res.status(400).json({ error: PHONE_REQUIRED_MESSAGE, field: "phone" });
+        return;
+      }
+    }
+    if (!identifier || identifier.kind !== "phone") {
+      res.status(400).json({ error: SESSION_EXPIRED, code: STEP_EXPIRED_CODE });
+      return;
+    }
+    try {
+      assertLiveChannelReady("sms");
+    } catch (error) {
+      if (error instanceof DeliveryNotConfiguredError) {
+        res.status(503).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    const devMode = deliveryMode("sms") === "dev";
+    const registered = await registerSend({
+      purpose: "staff_sms",
+      identifier,
+      accountType: step.account_type,
+      candidates: step.candidates,
+      scopeKey: stepScopeKey(step, mode),
+    });
+    if (!registered) {
+      res.status(429).json({ error: CODE_SEND_LIMIT, retryable: true });
+      return;
+    }
+    if (registered.row.delivery === "twilio_verify") {
+      try {
+        await deliverSmsRegistered(registered.row);
+      } catch (error) {
+        req.log?.error({ err: error }, "staff second factor sms delivery rejected");
+        await spendUndelivered(registered.row).catch((spendError) => {
+          req.log?.error({ err: spendError }, "staff second factor rejected-send ledger update failed");
+        });
+        res.status(502).json({ error: CODE_SEND_ERROR, retryable: true });
+        return;
+      }
+    }
+    res.json({
+      ok: true,
+      mode,
+      requestId: registered.row.id,
+      destination: maskPhone(identifier.e164),
+      devCode: devMode ? registered.localCode : null,
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "staff second factor start failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
+/** Texted code proven → the session is finally issued (method email+sms). */
+router.post(AUTH_LOGIN_PHONE_VERIFY_PATH, async (req, res) => {
+  const slot = acquireCheckSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message, retryable: slot.retryable });
+    return;
+  }
+  try {
+    const { stepToken, requestId, code } = (req.body ?? {}) as { stepToken?: unknown; requestId?: unknown; code?: unknown };
+    const step = await loadSecondFactorStep(stepToken);
+    if (!step) {
+      res.status(400).json({ error: SESSION_EXPIRED, code: STEP_EXPIRED_CODE });
+      return;
+    }
+    let smsRow: VerificationRow | null;
+    try {
+      smsRow = await checkCode("staff_sms", requestId, code);
+    } catch (error) {
+      if (error instanceof DeliveryNotConfiguredError) {
+        res.status(503).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    // The texted code must belong to THIS step (scope key carries the email
+    // row id + mode); any other proven code is just a wrong code here.
+    const mode: "sms" | "enroll" | null =
+      smsRow?.scope_key === stepScopeKey(step, "sms") ? "sms" : smsRow?.scope_key === stepScopeKey(step, "enroll") ? "enroll" : null;
+    if (!smsRow || !mode) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+
+    // Both codes proven. Re-resolve the account FRESH and re-check the phone
+    // binding: a phone HQ cleared (or re-pointed) mid-step must not be
+    // silently re-enrolled by an on-file code, and an enrolment must not
+    // overwrite a phone that landed meanwhile.
+    const hit = await resolveStepStaff(step);
+    const kind = hit ? factorKindOf(hit.class) : null;
+    const factor = hit && kind ? await loadStaffSecondFactor(kind, hit.ref) : null;
+    const phoneBound =
+      mode === "sms" ? factor !== null && factor.phone === smsRow.identifier : factor === null;
+    if (!hit || !kind || !phoneBound) {
+      await patchRow(smsRow.id, { consumed_at: new Date().toISOString() });
+      res.status(409).json({ error: CLINIC_MESSAGE });
+      return;
+    }
+
+    // Finish the step exactly once: the guarded PATCH loses to a parallel
+    // completion, which then owns the session.
+    const now = new Date().toISOString();
+    const finished = await patchRow(step.id, { consumed_at: now }, "&consumed_at=is.null");
+    if (finished !== 1) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+    let enrolled: StaffSecondFactor | null = factor;
+    if (mode === "enroll") enrolled = await saveStaffSecondFactor(kind, hit.ref, smsRow.identifier);
+    const userId = await ensureStaffAuthUser(hit);
+    await patchRow(step.id, { auth_user_id: userId });
+    await patchRow(smsRow.id, { consumed_at: now, resolved_ref: hit.ref, auth_user_id: userId });
+    if (mode === "enroll") {
+      await recordAdminAuditEvent({
+        action: "security_second_factor_enrolled",
+        actorUserId: userId,
+        actorKind: kind,
+        providerId: hit.providerId,
+        targetKind: kind === "hq" ? "hq_member" : kind === "provider" ? "provider_account" : "team_member",
+        targetId: hit.ref,
+        requestId: requestIdOf(req),
+        metadata: { kind: "sign_in", enabled: enrolled?.enabled ?? true },
+      }).catch((error) => req.log?.error({ err: error }, "second factor enrol audit failed"));
+    }
+    const signInId = await noteSignIn(req, { userId, realm: "staff", method: "email_sms_code" });
+    const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(userId));
+    res.json({ ok: true, realm: "staff", tokenHash, signInId });
+  } catch (error) {
+    req.log?.error({ err: error }, "staff second factor verify failed");
     res.status(502).json({ error: SERVER_ERROR });
   } finally {
     slot.ok && slot.release();

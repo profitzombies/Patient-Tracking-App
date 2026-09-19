@@ -52,6 +52,8 @@ import {
   OFFICE_ROLE_LABELS,
   OfficeTeamError,
   changeTeammateRole,
+  clearAccountOwnerSecondFactor,
+  clearTeammateSecondFactor,
   fetchOfficeTeam,
   inviteTeammate,
   officeTeamQueryKey,
@@ -117,7 +119,10 @@ export default function OfficeTeam() {
   const [inviteErrors, setInviteErrors] = useState<Partial<Record<keyof InviteTeammateInput, string>>>({});
   const [editing, setEditing] = useState<OfficeTeamMember | null>(null);
   const [editRole, setEditRole] = useState<OfficeRole>('staff');
-  const [confirming, setConfirming] = useState<{ member: OfficeTeamMember; action: 'deactivate' | 'reactivate' | 'sign-out' } | null>(null);
+  const [confirming, setConfirming] = useState<{
+    member?: OfficeTeamMember;
+    action: 'deactivate' | 'reactivate' | 'sign-out' | 'clear-phone' | 'clear-owner-phone';
+  } | null>(null);
   const [sessionMember, setSessionMember] = useState<OfficeTeamMember | null>(null);
   const [signOutReason, setSignOutReason] = useState<Exclude<SecurityReason, 'patient_request'>>('staff_request');
   const sessionsQuery = useQuery({
@@ -155,12 +160,25 @@ export default function OfficeTeam() {
     onError: (error) => failure('Role not changed', error),
   });
 
-  const statusMutation = useMutation({
-    mutationFn: ({ member, action }: NonNullable<typeof confirming>) =>
-      action === 'sign-out' ? signOutTeammate(member.id, liveOffice, signOutReason) : setTeammateActive(member.id, action === 'reactivate', liveOffice),
+  const statusMutation = useMutation<unknown, Error, NonNullable<typeof confirming>>({
+    mutationFn: ({ member, action }: NonNullable<typeof confirming>) => {
+      if (action === 'clear-owner-phone') return clearAccountOwnerSecondFactor(liveOffice!);
+      if (!member) throw new Error('Choose a teammate first.');
+      if (action === 'clear-phone') return clearTeammateSecondFactor(member.id, liveOffice);
+      return action === 'sign-out'
+        ? signOutTeammate(member.id, liveOffice, signOutReason)
+        : setTeammateActive(member.id, action === 'reactivate', liveOffice);
+    },
     onSuccess: (result, variables) => {
-      const name = result.member.name;
-      const signedOut = result.sessionInvalidation === 'complete';
+      if (variables.action === 'clear-phone' || variables.action === 'clear-owner-phone') {
+        toast({ variant: 'success', title: 'Sign-in phone cleared', description: 'They’ll add a phone at their next sign-in.' });
+        setConfirming(null);
+        void refresh();
+        return;
+      }
+      const memberResult = result as { member: OfficeTeamMember; sessionInvalidation: string };
+      const name = memberResult.member.name;
+      const signedOut = memberResult.sessionInvalidation === 'complete';
       if (variables.action === 'deactivate') {
         toast({ variant: 'success', title: `${name} deactivated`, description: signedOut ? 'Their access is off and every signed-in device was signed out.' : 'Their access is off. Any open session ends on its next request.' });
       } else if (variables.action === 'reactivate') {
@@ -243,6 +261,7 @@ export default function OfficeTeam() {
                   <th className="px-5 py-3 font-bold">Member</th>
                   <th className="px-3 py-3 font-bold">Role</th>
                   <th className="px-3 py-3 font-bold">Status</th>
+                  <th className="px-3 py-3 font-bold">Sign-in phone</th>
                   <th className="px-3 py-3 font-bold">Invited</th>
                   <th className="px-3 py-3 font-bold">Joined</th>
                   <th className="px-5 py-3 text-right font-bold">Actions</th>
@@ -255,9 +274,22 @@ export default function OfficeTeam() {
                   </td>
                   <td className="px-3 py-3"><OfficeRoleChip role="owner" /></td>
                   <td className="px-3 py-3"><MemberStatusChip status={team.accountOwner.status} /></td>
+                   <td className="px-3 py-3 text-muted-foreground">{team.accountOwner.secondFactorPhone ?? 'No phone'}</td>
                   <td className="px-3 py-3 text-muted-foreground">—</td>
                   <td className="px-3 py-3 text-muted-foreground">—</td>
-                  <td className="px-5 py-3 text-right text-[10px] text-muted-foreground" title="The account holder always owns the office.">Account holder</td>
+                  <td className="px-5 py-3 text-right text-[10px] text-muted-foreground" title="The account holder always owns the office.">
+                    {me?.kind === 'hq' ? (
+                      <button
+                        type="button"
+                        className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive`}
+                        data-testid="button-clear-phone-account-owner"
+                        disabled={!team.accountOwner.secondFactorPhone || busy}
+                        onClick={() => setConfirming({ action: 'clear-owner-phone' })}
+                      >
+                        Clear sign-in phone
+                      </button>
+                    ) : 'Account holder'}
+                  </td>
                 </tr>
                 {team.members.map((member) => {
                   const locked = member.isSelf || (member.role === 'owner' && !canEditOwners);
@@ -268,16 +300,38 @@ export default function OfficeTeam() {
                       </td>
                       <td className="px-3 py-3"><OfficeRoleChip role={member.role} /></td>
                       <td className="px-3 py-3"><MemberStatusChip status={member.status} /></td>
+                       <td className="px-3 py-3 text-muted-foreground">{member.secondFactorPhone ?? 'No phone'}</td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDay(member.invitedAt)}</td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDay(member.claimedAt)}</td>
                       <td className="px-5 py-3">
                         <div className="flex items-center justify-end gap-2">
                           {locked ? (
-                            <span className="text-[10px] text-muted-foreground" title={member.isSelf ? 'Ask another owner or admin to change your access.' : 'Only an owner can change another owner.'}>
-                              {member.isSelf ? 'Your login' : 'Owner'}
-                            </span>
+                            <>
+                              <span className="text-[10px] text-muted-foreground" title={member.isSelf ? 'Ask another owner or admin to change your access.' : 'Only an owner can change another owner.'}>
+                                {member.isSelf ? 'Your login' : 'Owner'}
+                              </span>
+                              {member.isSelf && (
+                                <button
+                                  type="button"
+                                  className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive`}
+                                  data-testid={`button-clear-phone-${member.id}`}
+                                  disabled
+                                >
+                                  Clear sign-in phone
+                                </button>
+                              )}
+                            </>
                           ) : (
                             <>
+                              <button
+                                type="button"
+                                className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px] text-destructive`}
+                                data-testid={`button-clear-phone-${member.id}`}
+                                onClick={() => setConfirming({ member, action: 'clear-phone' })}
+                                disabled={!member.secondFactorPhone || busy}
+                              >
+                                Clear sign-in phone
+                              </button>
                               <button type="button" className={`${BTN_SECONDARY} h-8 px-2.5 text-[11px]`} data-testid={`button-edit-${member.id}`} onClick={() => openEdit(member)} disabled={busy}>
                                 Change role
                               </button>
@@ -417,14 +471,17 @@ export default function OfficeTeam() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-serif text-navy">
-              {confirming?.action === 'deactivate' && `Deactivate ${confirming.member.name}?`}
-              {confirming?.action === 'reactivate' && `Reactivate ${confirming.member.name}?`}
-              {confirming?.action === 'sign-out' && `Sign ${confirming.member.name} out everywhere?`}
+              {confirming?.action === 'deactivate' && `Deactivate ${confirming.member?.name}?`}
+              {confirming?.action === 'reactivate' && `Reactivate ${confirming.member?.name}?`}
+              {confirming?.action === 'sign-out' && `Sign ${confirming.member?.name} out everywhere?`}
+              {confirming?.action === 'clear-phone' && `Clear ${confirming.member?.name}’s sign-in phone?`}
+              {confirming?.action === 'clear-owner-phone' && 'Clear the account owner’s sign-in phone?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirming?.action === 'deactivate' && 'Their login stops working immediately on every device and the dashboard. You can reactivate them later without a new invitation.'}
               {confirming?.action === 'reactivate' && 'Their existing login works again with the same email code sign-in. Nothing needs to be re-sent.'}
               {confirming?.action === 'sign-out' && 'Every signed-in device is signed out now. Their access stays on — they simply sign in again.'}
+              {(confirming?.action === 'clear-phone' || confirming?.action === 'clear-owner-phone') && 'They’ll need to add and verify a mobile number at their next sign-in.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
            {confirming?.action === 'sign-out' && (
@@ -449,7 +506,15 @@ export default function OfficeTeam() {
               onClick={(event) => { event.preventDefault(); if (confirming) statusMutation.mutate(confirming); }}
               disabled={statusMutation.isPending}
             >
-              {statusMutation.isPending ? 'Working…' : confirming?.action === 'deactivate' ? 'Deactivate' : confirming?.action === 'reactivate' ? 'Reactivate' : 'Sign out'}
+               {statusMutation.isPending
+                 ? 'Working…'
+                 : confirming?.action === 'deactivate'
+                   ? 'Deactivate'
+                   : confirming?.action === 'reactivate'
+                     ? 'Reactivate'
+                     : confirming?.action === 'clear-phone' || confirming?.action === 'clear-owner-phone'
+                       ? 'Clear sign-in phone'
+                       : 'Sign out'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

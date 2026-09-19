@@ -1,7 +1,14 @@
 import { apiBase } from '@/lib/coach-api';
 import { readStoredSession, SessionReconnectingError, supabase } from '@/lib/supabase';
 
-export type SignInMethod = 'email_code' | 'sms_code' | 'password_sms_code' | 'password_email_code' | 'signup' | 'claim';
+export type SignInMethod =
+  | 'email_code'
+  | 'email_sms_code'
+  | 'sms_code'
+  | 'password_sms_code'
+  | 'password_email_code'
+  | 'signup'
+  | 'claim';
 export type SecurityPlatform = 'ios' | 'android' | 'web' | 'unknown';
 
 export interface SignInDto {
@@ -39,6 +46,12 @@ export interface SecurityOverview {
   currentSessionKnown: boolean;
   sessions: SessionDto[];
   signIns: SignInDto[];
+  secondFactor: {
+    policyRequired: boolean;
+    enabled: boolean;
+    phone: string | null;
+    verifiedAt: string | null;
+  } | null;
 }
 
 export class SecurityApiError extends Error {
@@ -110,3 +123,23 @@ export const startPasswordChange = (currentPassword: string) =>
   );
 export const completePasswordChange = (input: { requestId: string; code: string; newPassword: string }) =>
   request<{ ok: true; othersSignedOut: boolean }>('POST', '/security/me/password/complete', input);
+
+export const startSecondFactorPhone = (phone: string) =>
+  request<{
+    ok: true;
+    requestId: string;
+    destination: string;
+    devCode?: string;
+  }>('POST', '/security/me/second-factor/phone/start', { phone });
+
+export const completeSecondFactorPhone = (input: { requestId: string; code: string }) =>
+  request<{
+    ok: true;
+    secondFactor: NonNullable<SecurityOverview['secondFactor']>;
+  }>('POST', '/security/me/second-factor/phone/complete', input);
+
+export const setSecondFactorEnabled = (enabled: boolean) =>
+  request<{
+    ok: true;
+    secondFactor: NonNullable<SecurityOverview['secondFactor']>;
+  }>('POST', '/security/me/second-factor', { enabled });

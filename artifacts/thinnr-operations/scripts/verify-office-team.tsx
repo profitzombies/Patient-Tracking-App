@@ -65,7 +65,8 @@ function check(name: string, condition: boolean, detail = '') {
 function member(id: string, name: string, overrides: Partial<OfficeTeamMember> = {}): OfficeTeamMember {
   return {
     id, name, email: `${id}@beaconhill.example`, role: 'staff', status: 'active',
-    invitedAt: '2026-08-01T15:00:00Z', claimedAt: '2026-08-02T09:30:00Z', isSelf: false, ...overrides,
+    invitedAt: '2026-08-01T15:00:00Z', claimedAt: '2026-08-02T09:30:00Z', isSelf: false,
+    secondFactorPhone: '•••-•••-1234', ...overrides,
   };
 }
 
@@ -81,7 +82,7 @@ function teamAs(role: 'owner' | 'admin', selfId: string): OfficeTeam {
   return {
     office: { id: 'office-1', name: 'Beacon Hill Aesthetics' },
     me: { role, kind: 'team_member', teamMemberId: selfId },
-    accountOwner: { name: 'Dr. Priya Raman', email: 'priya@beaconhill.example', status: 'active' },
+    accountOwner: { name: 'Dr. Priya Raman', email: 'priya@beaconhill.example', status: 'active', secondFactorPhone: '•••-•••-4471' },
     members: MEMBERS.map((m) => ({ ...m, isSelf: m.id === selfId })),
   };
 }
@@ -217,10 +218,11 @@ console.log('\noffice team: owner roster');
   check('every teammate renders as a row', MEMBERS.every((m) => Boolean(maybe(root, `row-team-${m.id}`))));
 
   const self = one(root, 'row-team-tm-owner');
-  check('own row: "(you)", locked as "Your login", no action buttons', textOf(self).includes('(you)') && textOf(self).includes('Your login') && self.findAll((n) => n.type === 'button').length === 0, textOf(self));
+  check('own row: "(you)", locked as "Your login", phone clear disabled', textOf(self).includes('(you)') && textOf(self).includes('Your login') && one(self, 'button-clear-phone-tm-owner').props.disabled === true, textOf(self));
 
   const admin = one(root, 'row-team-tm-admin');
   check('admin row: Admin chip, Change role + Sign out + Deactivate', textOf(admin).includes('Admin') && Boolean(maybe(admin, 'button-edit-tm-admin')) && Boolean(maybe(admin, 'button-sign-out-tm-admin')) && Boolean(maybe(admin, 'button-deactivate-tm-admin')));
+  check('phone column and clear control render', textOf(admin).includes('•••-•••-1234') && Boolean(maybe(admin, 'button-clear-phone-tm-admin')));
   const invited = one(root, 'row-team-tm-invited');
   check('invited row: Invited chip, no Sign out (never signed in), joined shows dash', textOf(invited).includes('Invited') && !maybe(invited, 'button-sign-out-tm-invited') && Boolean(maybe(invited, 'button-deactivate-tm-invited')) && textOf(invited).includes('—'));
   const disabled = one(root, 'row-team-tm-disabled');
@@ -340,6 +342,7 @@ console.log('\noffice team: admin limits and HQ drill-in');
   const hq = await renderTeam();
   check('HQ drill-in: names the office with ?office=', requests[0]?.url === '/api/office/team?office=office-1' && requests[0].auth === 'Bearer hq-token', JSON.stringify(requests));
   check('HQ drill-in: renders the roster with no self row locked', Boolean(maybe(hq.root, 'row-team-tm-owner')) && !textOf(hq.root).includes('Your login'));
+  check('HQ drill-in can clear the account owner phone', Boolean(maybe(hq.root, 'button-clear-phone-account-owner')));
   hq.renderer.unmount();
 
   reset();

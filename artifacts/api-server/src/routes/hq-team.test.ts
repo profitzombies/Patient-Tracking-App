@@ -106,6 +106,8 @@ beforeEach(() => {
     if (table && ["providers", "patients", "team_members", "profiles", "staff_role_assignments"].includes(table)) {
       return response(duplicates[table] ?? []);
     }
+    // Verified sign-in phones (covered end to end in security.test.ts).
+    if (table === "staff_second_factors") return response([]);
     if (url.pathname === "/auth/v1/admin/users" && (!init?.method || init.method === "GET")) {
       return response({ users: duplicates.auth ?? [] });
     }
@@ -153,7 +155,7 @@ async function api(path: string, init?: RequestInit) {
 describe("HQ mutation safeguards", () => {
   const owner = {
     id: "owner", authUserId: "u1", name: "Owner", email: "o@x.test", title: "",
-    role: "super_admin" as const, status: "active", invitedAt: null, joinedAt: null,
+    role: "super_admin" as const, status: "active", invitedAt: null, joinedAt: null, secondFactorPhone: null,
   };
   const admin = {
     ...owner, id: "admin", authUserId: "u2", email: "a@x.test", role: "admin" as const,

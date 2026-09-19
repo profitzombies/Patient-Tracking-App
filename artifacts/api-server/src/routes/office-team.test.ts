@@ -205,6 +205,9 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/patient_tombstones") return response([]);
     if (url.pathname === "/rest/v1/patient_medications") return response([]);
     if (url.pathname === "/rest/v1/patient_medication_dose_logs") return response([]);
+    // Second-factor phones are covered end to end in security.test.ts; here
+    // nobody has one on file.
+    if (url.pathname === "/rest/v1/staff_second_factors") return response([]);
     throw new Error(`unexpected ${method} ${url.pathname}${url.search}`);
   }) as typeof fetch;
 });
@@ -216,7 +219,7 @@ describe("GET /office/team", () => {
     const body = res.json as { office: Row; me: Row; accountOwner: Row; members: Row[] };
     expect(body.office).toEqual({ id: "office-1", name: "Harbor Med Spa" });
     expect(body.me).toEqual({ role: "admin", kind: "team_member", teamMemberId: ADMIN_TM });
-    expect(body.accountOwner).toEqual({ name: "Dr. Reyes", email: "reyes@harbor.example", status: "active" });
+    expect(body.accountOwner).toEqual({ name: "Dr. Reyes", email: "reyes@harbor.example", status: "active", secondFactorPhone: null });
     expect(body.members.map((m) => [m.id, m.role, m.status, m.isSelf])).toEqual([
       [OWNER_TM, "owner", "active", false],
       [ADMIN_TM, "admin", "active", true],

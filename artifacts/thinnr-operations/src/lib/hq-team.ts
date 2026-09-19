@@ -76,6 +76,7 @@ function mapMember(value: unknown): HqTeamMember {
   const active = rawStatus === 'active' || rawStatus === 'accepted';
   return {
     id: String(row.id),
+    authUserId: typeof row.authUserId === 'string' ? row.authUserId : null,
     name,
     initials: initialsOf(name),
     email,
@@ -83,6 +84,7 @@ function mapMember(value: unknown): HqTeamMember {
     title: typeof row.title === 'string' ? row.title : typeof row.jobTitle === 'string' ? row.jobTitle : null,
     status: active ? 'active' : 'pending',
     joinedLabel: active ? formatJoined(row.joinedAt ?? row.createdAt) : 'Pending',
+    secondFactorPhone: typeof row.secondFactorPhone === 'string' ? row.secondFactorPhone : null,
   };
 }
 
@@ -92,6 +94,12 @@ export async function fetchHqTeam(): Promise<HqTeamMember[]> {
   return body.members.map(mapMember);
 }
 
+export async function clearHqTeamMemberSecondFactor(id: string): Promise<{ ok: true; cleared: boolean }> {
+  return request(`/api/hq-team/${encodeURIComponent(id)}/second-factor/clear`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
 export async function inviteHqTeamMember(input: InviteHqTeamMemberInput): Promise<{
   member: HqTeamMember;
   invitation: 'sent' | 'not_configured' | 'failed';

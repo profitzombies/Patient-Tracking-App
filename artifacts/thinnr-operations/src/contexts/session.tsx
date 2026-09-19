@@ -209,7 +209,21 @@ interface SessionValue {
     error: string | null;
   }>;
   /** Trades a correct code for a real Supabase session on this device. */
-  verifyStaffCode: (input: { requestId: string; code: string }) => Promise<{ error: string | null }>;
+  verifyStaffCode: (input: { requestId: string; code: string }) => Promise<{
+    error: string | null;
+    secondFactor?: { stepToken: string; mode: 'sms' | 'enroll'; destination: string | null };
+  }>;
+  startStaffPhoneStep: (input: { stepToken: string; phone?: string }) => Promise<{
+    error: string | null;
+    code?: string;
+    requestId?: string;
+    destination?: string;
+    devCode?: string | null;
+  }>;
+  verifyStaffPhoneCode: (input: { stepToken: string; requestId: string; code: string }) => Promise<{
+    error: string | null;
+    code?: string;
+  }>;
   retryRoleFetch: () => void;
 }
 
@@ -662,6 +676,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ requestId: input.requestId, code: input.code }),
       });
       const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (
+        response.ok
+        && body?.secondFactor
+        && typeof body.secondFactor === 'object'
+      ) {
+        const secondFactor = body.secondFactor as Record<string, unknown>;
+        if (
+          typeof secondFactor.stepToken === 'string'
+          && (secondFactor.mode === 'sms' || secondFactor.mode === 'enroll')
+        ) {
+          return {
+            error: null,
+            secondFactor: {
+              stepToken: secondFactor.stepToken,
+              mode: secondFactor.mode as 'sms' | 'enroll',
+              destination: typeof secondFactor.destination === 'string'
+                ? secondFactor.destination
+                : null,
+            },
+          };
+        }
+      }
       if (!response.ok || !body || typeof body.tokenHash !== 'string') {
         return {
           error:
@@ -674,6 +710,76 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         token_hash: body.tokenHash,
         type: 'email',
       });
+      if (error) return { error: describeAuthError(error.message) };
+      if (typeof body.signInId === 'string') {
+        void supabase.auth.getSession().then(({ data }) => {
+          const accessToken = data.session?.access_token;
+          if (!accessToken) return;
+          return fetch('/api/security/me/attach', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ signInId: body.signInId }),
+          }).catch(() => undefined);
+        });
+      }
+      stampDeviceMemory();
+      return { error: null };
+    } catch {
+      return { error: 'Could not reach the sign-in service. Check your connection and try again.' };
+    }
+  }, []);
+
+  const startStaffPhoneStep = useCallback(async (input: { stepToken: string; phone?: string }) => {
+    try {
+      const response = await fetch('/api/auth/login/phone/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !body || typeof body.requestId !== 'string') {
+        return {
+          error: typeof body?.error === 'string' ? body.error : 'Could not send a text right now. Try again.',
+          code: typeof body?.code === 'string' ? body.code : undefined,
+        };
+      }
+      return {
+        error: null,
+        requestId: body.requestId,
+        destination: typeof body.destination === 'string' ? body.destination : '',
+        devCode: typeof body.devCode === 'string' ? body.devCode : null,
+      };
+    } catch {
+      return { error: 'Could not reach the sign-in service. Check your connection and try again.' };
+    }
+  }, []);
+
+  const verifyStaffPhoneCode = useCallback(async (input: {
+    stepToken: string;
+    requestId: string;
+    code: string;
+  }) => {
+    if (!supabase) return { error: 'Real sign-in isn’t configured in this environment.' };
+    try {
+      const response = await fetch('/api/auth/login/phone/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-thinnr-device': getOrCreateDeviceId(),
+          'x-thinnr-platform': 'web',
+        },
+        body: JSON.stringify(input),
+      });
+      const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !body || typeof body.tokenHash !== 'string') {
+        return {
+          error: typeof body?.error === 'string' ? body.error : 'That code didn’t work. Try again.',
+          code: response.status === 409
+            ? 'STEP_EXPIRED'
+            : typeof body?.code === 'string' ? body.code : undefined,
+        };
+      }
+      const { error } = await supabase.auth.verifyOtp({ token_hash: body.tokenHash, type: 'email' });
       if (error) return { error: describeAuthError(error.message) };
       if (typeof body.signInId === 'string') {
         void supabase.auth.getSession().then(({ data }) => {
@@ -740,6 +846,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       requestStaffCode,
       verifyStaffCode,
+      startStaffPhoneStep,
+      verifyStaffPhoneCode,
       retryRoleFetch,
     }),
     [
@@ -761,6 +869,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       signOut,
       requestStaffCode,
       verifyStaffCode,
+      startStaffPhoneStep,
+      verifyStaffPhoneCode,
       retryRoleFetch,
     ],
   );

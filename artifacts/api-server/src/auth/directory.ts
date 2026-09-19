@@ -22,6 +22,7 @@ function enc(value: string): string {
 }
 
 export type StaffClass = "hq_active" | "hq_invited" | "provider" | "team_member";
+export type StaffOfficeRole = "owner" | "admin" | "staff";
 
 export interface StaffHit {
   class: StaffClass;
@@ -32,6 +33,15 @@ export interface StaffHit {
   authUserId: string | null;
   /** Owning office for provider + team_member classes. */
   providerId: string | null;
+  /**
+   * Office role for provider (always owner) + team_member classes; null for
+   * HQ. Drives the "office owners and admins" second-factor rule.
+   */
+  officeRole: StaffOfficeRole | null;
+}
+
+export function officeRoleOf(value: unknown): StaffOfficeRole {
+  return value === "owner" || value === "admin" ? value : "staff";
 }
 
 export type StaffLookup = { kind: "ok"; hit: StaffHit } | { kind: "none" };
@@ -124,6 +134,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
           name: m.display_name,
           authUserId: m.auth_user_id,
           providerId: null,
+          officeRole: null,
         },
       };
     }
@@ -138,6 +149,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
         name: m.display_name,
         authUserId: m.auth_user_id,
         providerId: null,
+        officeRole: null,
       },
     };
   }
@@ -164,6 +176,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
         name: p.provider_name ?? p.office_name,
         authUserId: p.auth_user_id,
         providerId: p.provider_id,
+        officeRole: "owner",
       },
     };
   }
@@ -171,7 +184,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
   // 3. Office staff (team members). Their office must be active and unlocked.
   const members = await supabaseAdmin(
     "GET",
-    `/rest/v1/team_members?email=ilike.${enc(email)}&select=id,provider_id,name,email,activation_status,auth_user_id&limit=3`,
+    `/rest/v1/team_members?email=ilike.${enc(email)}&select=id,provider_id,name,email,activation_status,office_role,auth_user_id&limit=3`,
   );
   if (members.status >= 300) throw new Error(`team member lookup failed (${members.status})`);
   const memberRows = (Array.isArray(members.json) ? members.json : []).filter(
@@ -183,6 +196,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
     provider_id: string | null;
     name: string | null;
     email: string;
+    office_role?: string | null;
     auth_user_id: string | null;
   };
   if (!member.provider_id) return NONE;
@@ -198,6 +212,7 @@ export async function lookupStaffByEmail(email: string): Promise<StaffLookup> {
       name: member.name,
       authUserId: member.auth_user_id,
       providerId: member.provider_id,
+      officeRole: officeRoleOf(member.office_role),
     },
   };
 }

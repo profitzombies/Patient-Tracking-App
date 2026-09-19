@@ -1,16 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { ErrorBox, FieldLabel, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useColors } from '@/hooks/useColors';
 import {
   completePasswordChange,
+  completeSecondFactorPhone,
   fetchSecurityOverview,
   reportSignIn,
+  setSecondFactorEnabled,
   SecurityApiError,
   signOutOtherSessions,
   startPasswordChange,
+  startSecondFactorPhone,
   type SecurityOverview,
   type SessionDto,
   type SignInDto,
@@ -40,6 +43,7 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
     realm: 'patient', canChangePassword: true, contact: { phone: '•••-1212', email: 'p•••@example.com' },
     passwordChangedAt: '2026-08-20T12:00:00.000Z', currentSessionKnown: true,
     signIns: DEMO_SIGN_INS, sessions: DEMO_SESSIONS,
+    secondFactor: null,
   } : null);
   const [loading, setLoading] = useState(!demo);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +56,14 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [confirmReport, setConfirmReport] = useState<string | null>(null);
+  const [factorPhone, setFactorPhone] = useState('');
+  const [factorRequest, setFactorRequest] = useState<{
+    id: string;
+    destination: string;
+  } | null>(null);
+  const [factorCode, setFactorCode] = useState('');
+  const [factorError, setFactorError] = useState<string | null>(null);
+  const [factorSuccess, setFactorSuccess] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (demo) return;
@@ -102,6 +114,65 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
     finally { setBusy(false); }
   };
 
+  const beginFactorPhone = async () => {
+    setFactorError(null);
+    setFactorSuccess(null);
+    const digits = factorPhone.replace(/\D/g, '');
+    if (digits.length !== 10) {
+      setFactorError('Enter a 10-digit US phone number.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await startSecondFactorPhone(`+1${digits}`);
+      setFactorRequest({ id: result.requestId, destination: result.destination });
+      setFactorCode(result.devCode ?? '');
+    } catch (cause) {
+      setFactorError(cause instanceof Error ? cause.message : 'Couldn’t send a text code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finishFactorPhone = async () => {
+    if (!factorRequest) return;
+    setFactorError(null);
+    setBusy(true);
+    try {
+      const result = await completeSecondFactorPhone({
+        requestId: factorRequest.id,
+        code: factorCode,
+      });
+      setOverview(current => current
+        ? { ...current, secondFactor: result.secondFactor }
+        : current);
+      setFactorRequest(null);
+      setFactorPhone('');
+      setFactorCode('');
+      setFactorSuccess('Sign-in phone verified.');
+    } catch (cause) {
+      setFactorError(cause instanceof Error ? cause.message : 'Couldn’t verify that code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleFactor = async (enabled: boolean) => {
+    setFactorError(null);
+    setFactorSuccess(null);
+    setBusy(true);
+    try {
+      const result = await setSecondFactorEnabled(enabled);
+      setOverview(current => current
+        ? { ...current, secondFactor: result.secondFactor }
+        : current);
+    } catch (cause) {
+      setFactorError(cause instanceof Error ? cause.message : 'Couldn’t update the sign-in phone setting.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const signIns = overview?.signIns ?? [];
   const sessions = overview?.sessions ?? [];
   return (
@@ -133,6 +204,95 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
               </View>
             )}
             {success ? <Text testID="security-password-success" style={[styles.success, { color: colors.activeGreen }]}>{success}</Text> : null}
+
+            {overview.secondFactor ? (
+              <View testID="security-second-factor">
+                <Text
+                  style={[
+                    styles.heading,
+                    styles.divider,
+                    { color: colors.navy, borderTopColor: colors.border },
+                  ]}
+                >
+                  Sign-in phone
+                </Text>
+                <View style={styles.factorSummary}>
+                  <View style={styles.factorCopy}>
+                    <Text style={[styles.itemTitle, { color: colors.bodyText }]}>
+                      {overview.secondFactor.phone ?? 'Not set'}
+                    </Text>
+                    <Text style={[styles.note, { color: colors.subtleText }]}>
+                      {overview.secondFactor.phone ? 'Verified' : 'Not set'}
+                      {overview.secondFactor.policyRequired ? ' · Required for your role' : ''}
+                    </Text>
+                  </View>
+                  {!overview.secondFactor.policyRequired ? (
+                    <Switch
+                      testID="security-second-factor-switch"
+                      accessibilityLabel="Require a texted code at sign-in"
+                      value={overview.secondFactor.enabled}
+                      disabled={busy}
+                      onValueChange={value => void toggleFactor(value)}
+                    />
+                  ) : null}
+                </View>
+                {!factorRequest ? (
+                  <>
+                    <FieldLabel text={overview.secondFactor.phone ? 'Change phone' : 'Mobile phone'} />
+                    <LedgerInput
+                      testID="security-second-factor-phone"
+                      accessibilityLabel="Sign-in phone number"
+                      value={factorPhone}
+                      onChangeText={setFactorPhone}
+                      keyboardType="phone-pad"
+                      autoComplete="tel"
+                      textContentType="telephoneNumber"
+                      editable={!busy}
+                    />
+                    <PrimaryButton
+                      testID="security-second-factor-start"
+                      label={busy ? 'Sending…' : 'Text me a code'}
+                      disabled={busy}
+                      onPress={() => void beginFactorPhone()}
+                      style={styles.smallGap}
+                    />
+                  </>
+                ) : (
+                  <View testID="security-second-factor-code-step">
+                    <Text style={[styles.note, { color: colors.subtleText }]}>
+                      Enter the code sent to {factorRequest.destination}.
+                    </Text>
+                    <FieldLabel text="Texted code" />
+                    <LedgerInput
+                      testID="security-second-factor-code"
+                      accessibilityLabel="6-digit texted code"
+                      value={factorCode}
+                      onChangeText={value => setFactorCode(value.replace(/\D/g, '').slice(0, 6))}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                    />
+                    <PrimaryButton
+                      testID="security-second-factor-complete"
+                      label={busy ? 'Verifying…' : 'Verify'}
+                      disabled={busy}
+                      onPress={() => void finishFactorPhone()}
+                      style={styles.smallGap}
+                    />
+                  </View>
+                )}
+                {factorError ? (
+                  <ErrorBox testID="security-second-factor-error" message={factorError} />
+                ) : null}
+                {factorSuccess ? (
+                  <Text
+                    testID="security-second-factor-success"
+                    style={[styles.success, { color: colors.activeGreen }]}
+                  >
+                    {factorSuccess}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
 
             <Text style={[styles.heading, styles.divider, { color: colors.navy, borderTopColor: colors.border }]}>Recent sign-ins</Text>
             {signIns.length === 0 ? <Text testID="security-signins-empty" style={[styles.note, { color: colors.subtleText }]}>No recent sign-ins are available.</Text> : signIns.map((item, index) => (
@@ -175,4 +335,11 @@ const styles = StyleSheet.create({
   confirm: { gap: 7, marginTop: 8 },
   gap: { marginTop: 14 },
   smallGap: { marginTop: 9 },
+  factorSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  factorCopy: { flex: 1 },
 });

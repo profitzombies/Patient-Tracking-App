@@ -386,6 +386,9 @@ interface ArchiveDraft { coldArchiveEnabled: boolean }
 interface SecurityDraft {
   staffIdleTimeoutMinutes: number;
   hqIdleTimeoutMinutes: number;
+  hqUsers: boolean;
+  officeManagers: boolean;
+  allStaff: boolean;
 }
 const numbersComplete = (values: number[]) => (values.every((value) => Number.isFinite(value)) ? null : 'Every number needs a value before saving.');
 
@@ -566,7 +569,7 @@ export function LivePolicySettings() {
       <PolicyCard
         section="security"
         title="Security"
-        sub="When inactive staff sessions are signed out of the operations web app."
+        sub="When inactive staff sessions are signed out of the operations web app, and who must confirm a texted code at sign-in."
         settings={settings}
         fromSettings={securityFrom}
         toPayload={securityPayload}
@@ -585,7 +588,7 @@ export function LivePolicySettings() {
                 onChange={(staffIdleTimeoutMinutes) => setDraft({ staffIdleTimeoutMinutes })}
               />
             </FieldRow>
-            <FieldRow label="HQ idle timeout" help="HQ accounts are signed out of the web app after this many minutes without activity." last>
+            <FieldRow label="HQ idle timeout" help="HQ accounts are signed out of the web app after this many minutes without activity.">
               <NumberField
                 id="input-policy-hq-idle-timeout"
                 label="HQ idle timeout minutes"
@@ -594,6 +597,30 @@ export function LivePolicySettings() {
                 unit="minutes"
                 problem={idleTimeoutProblem(draft.hqIdleTimeoutMinutes)}
                 onChange={(hqIdleTimeoutMinutes) => setDraft({ hqIdleTimeoutMinutes })}
+              />
+            </FieldRow>
+            <FieldRow label="Phone verification: HQ users" help="After the emailed sign-in code, every headquarters user must also confirm a texted code.">
+              <Switch
+                checked={draft.hqUsers}
+                onCheckedChange={(hqUsers) => setDraft({ hqUsers })}
+                aria-label="Require phone verification for HQ users"
+                data-testid="switch-policy-second-factor-hq"
+              />
+            </FieldRow>
+            <FieldRow label="Phone verification: office owners and admins" help="People who manage an office or its team must also confirm a texted code at sign-in.">
+              <Switch
+                checked={draft.officeManagers}
+                onCheckedChange={(officeManagers) => setDraft({ officeManagers })}
+                aria-label="Require phone verification for office owners and admins"
+                data-testid="switch-policy-second-factor-managers"
+              />
+            </FieldRow>
+            <FieldRow label="Phone verification: all staff" help="Every office teammate, including staff without team-management access, must confirm a texted code at sign-in. Anyone may also turn this on for themselves." last>
+              <Switch
+                checked={draft.allStaff}
+                onCheckedChange={(allStaff) => setDraft({ allStaff })}
+                aria-label="Require phone verification for all staff"
+                data-testid="switch-policy-second-factor-all-staff"
               />
             </FieldRow>
           </>
@@ -688,11 +715,15 @@ const idleTimeoutProblem = (value: number): string | null => {
 const securityPayload = (d: SecurityDraft): HqOrganizationSettingsInput => ({
   staffIdleTimeoutMinutes: d.staffIdleTimeoutMinutes,
   hqIdleTimeoutMinutes: d.hqIdleTimeoutMinutes,
+  secondFactor: { hqUsers: d.hqUsers, officeManagers: d.officeManagers, allStaff: d.allStaff },
 });
 
 const securityFrom = (s: HqOrganizationSettings): SecurityDraft => ({
   staffIdleTimeoutMinutes: s.staffIdleTimeoutMinutes,
   hqIdleTimeoutMinutes: s.hqIdleTimeoutMinutes,
+  hqUsers: s.secondFactor.hqUsers,
+  officeManagers: s.secondFactor.officeManagers,
+  allStaff: s.secondFactor.allStaff,
 });
 
 const archiveFrom = (s: HqOrganizationSettings): ArchiveDraft => ({ coldArchiveEnabled: s.coldArchiveEnabled });

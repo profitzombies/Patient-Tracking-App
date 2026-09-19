@@ -471,6 +471,7 @@ export * from './slowStatement';
 export * from './slowStatements';
 export * from './staffAlertDelivery';
 export * from './staffAlertDeliveryChannel';
+export * from './staffSecondFactorPolicy';
 export * from './storagePrefixGrowth';
 export * from './supportChatInput';
 export * from './supportChatMessage';

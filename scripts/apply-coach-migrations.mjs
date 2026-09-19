@@ -27,6 +27,7 @@ const migrationNames = [
   "20261020000000_hq_file_size_limit.sql",
   "20261027000000_ledger_retention.sql",
   "20261106000000_clinical_record_retention.sql",
+  "20261106010000_staff_second_factor.sql",
   "20261107000000_cold_archive.sql",
   "20261107000000_legal_holds.sql",
 ];
@@ -161,6 +162,16 @@ await query(`
          select 1 from pg_constraint
           where conrelid = 'public.patient_deletion_requests'::regclass
             and contype = 'c' and pg_get_constraintdef(oid) like '%held%'
+       )
+       or to_regclass('public.staff_second_factors') is null
+       or (select count(*) from information_schema.columns
+           where table_schema='public' and table_name='hq_organization_settings'
+             and column_name in ('second_factor_hq_users', 'second_factor_office_managers', 'second_factor_all_staff')) <> 3
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.auth_sign_ins'::regclass
+            and conname = 'auth_sign_ins_method_check'
+            and pg_get_constraintdef(oid) like '%email_sms_code%'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

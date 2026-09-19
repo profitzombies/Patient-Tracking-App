@@ -42,7 +42,7 @@ create table public.auth_sign_ins (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   realm text not null check (realm in ('patient', 'staff')),
-  method text not null check (method in ('email_code', 'sms_code', 'password_sms_code', 'password_email_code', 'signup', 'claim')),
+  method text not null check (method in ('email_code', 'sms_code', 'password_sms_code', 'password_email_code', 'signup', 'claim', 'email_sms_code')),
   new_device boolean not null default false,
   created_at timestamptz not null default now());
 create table public.patient_app_presence (

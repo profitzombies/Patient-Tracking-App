@@ -8,6 +8,7 @@
 import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
 import type { QuietHoursWindow } from './quietHoursWindow';
 import type { RetentionPolicy } from './retentionPolicy';
+import type { StaffSecondFactorPolicy } from './staffSecondFactorPolicy';
 
 export interface HqOrganizationSettingsInput {
   /** @minimum 1 */
@@ -82,4 +83,5 @@ export interface HqOrganizationSettingsInput {
      * @maximum 120
      */
   hqIdleTimeoutMinutes?: number;
+  secondFactor?: StaffSecondFactorPolicy;
 }

@@ -30,6 +30,7 @@ export function demoOfficeSettings(): OfficeSettingsDto {
     coldArchiveEnabled: false,
     staffIdleTimeoutMinutes: 15,
     hqIdleTimeoutMinutes: 15,
+    secondFactor: { hqUsers: true, officeManagers: true, allStaff: false },
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',
     sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null, archive: null },

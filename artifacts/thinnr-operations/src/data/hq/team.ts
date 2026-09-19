@@ -2,6 +2,7 @@ export type HqRole = 'Super Admin' | 'Admin' | 'Clinical' | 'Support' | 'Content
 
 export interface HqTeamMember {
   id: string;
+  authUserId?: string | null;
   name: string;
   initials: string;
   role: HqRole;
@@ -9,6 +10,7 @@ export interface HqTeamMember {
   email: string;
   status: 'active' | 'pending';
   joinedLabel: string;
+  secondFactorPhone?: string | null;
 }
 
 export const HQ_ROLE_NOTES: Record<HqRole, string> = {

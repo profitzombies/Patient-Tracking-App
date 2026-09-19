@@ -4041,6 +4041,14 @@ components:
         changedAt: { type: string }
         changedBy: { type: ["string", "null"] }
         changedByName: { type: ["string", "null"] }
+    StaffSecondFactorPolicy:
+      type: object
+      required: [hqUsers, officeManagers, allStaff]
+      description: Who must confirm a texted code after the emailed sign-in code.
+      properties:
+        hqUsers: { type: boolean }
+        officeManagers: { type: boolean, description: Office owners and admins }
+        allStaff: { type: boolean, description: Every office teammate, including staff-role members }
     PolicySectionChanges:
       type: object
       required: [organization, coach, notifications, conversations, retention, security, archive]
@@ -4184,6 +4192,7 @@ components:
         - coldArchiveEnabled
         - staffIdleTimeoutMinutes
         - hqIdleTimeoutMinutes
+        - secondFactor
         - version
         - updatedAt
         - sections
@@ -4215,6 +4224,7 @@ components:
         hqIdleTimeoutMinutes:
           type: number
           description: Same window for HQ members (5–120).
+        secondFactor: { $ref: "#/components/schemas/StaffSecondFactorPolicy" }
         version: { type: number }
         updatedAt: { type: string }
         sections: { $ref: "#/components/schemas/PolicySectionChanges" }
@@ -4242,6 +4252,7 @@ components:
         coldArchiveEnabled: { type: boolean }
         staffIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
         hqIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
+        secondFactor: { $ref: "#/components/schemas/StaffSecondFactorPolicy" }
     OfficeQuietHoursOverride:
       type: object
       required: [mode]

@@ -29,7 +29,14 @@ import { lookupRegion, regionFromHeaders } from "./geo";
 
 const enc = encodeURIComponent;
 
-export type SignInMethod = "email_code" | "sms_code" | "password_sms_code" | "password_email_code" | "signup" | "claim";
+export type SignInMethod =
+  | "email_code"
+  | "sms_code"
+  | "password_sms_code"
+  | "password_email_code"
+  | "email_sms_code"
+  | "signup"
+  | "claim";
 export type Realm = "patient" | "staff";
 export type RevokeReason =
   | "signed_out_others"
@@ -362,6 +369,8 @@ export function methodLabel(method: SignInMethod): string {
       return "Password + texted code";
     case "password_email_code":
       return "Password + emailed code";
+    case "email_sms_code":
+      return "Emailed code + texted code";
     case "signup":
       return "Account created";
     case "claim":

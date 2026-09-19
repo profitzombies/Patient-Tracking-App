@@ -1581,6 +1581,17 @@ export interface PolicySectionChange {
   changedByName: string | null;
 }
 
+/**
+ * Who must confirm a texted code after the emailed sign-in code.
+ */
+export interface StaffSecondFactorPolicy {
+  hqUsers: boolean;
+  /** Office owners and admins */
+  officeManagers: boolean;
+  /** Every office teammate */
+  allStaff: boolean;
+}
+
 export interface PolicySectionChanges {
   organization: PolicySectionChange | null;
   coach: PolicySectionChange | null;
@@ -1804,6 +1815,7 @@ export interface HqOrganizationSettings {
   staffIdleTimeoutMinutes: number;
   /** Same window for HQ members (5–120). */
   hqIdleTimeoutMinutes: number;
+  secondFactor: StaffSecondFactorPolicy;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;
@@ -1883,6 +1895,7 @@ export interface HqOrganizationSettingsInput {
      * @maximum 120
      */
   hqIdleTimeoutMinutes?: number;
+  secondFactor?: StaffSecondFactorPolicy;
 }
 
 export type OfficeQuietHoursOverrideMode = typeof OfficeQuietHoursOverrideMode[keyof typeof OfficeQuietHoursOverrideMode];

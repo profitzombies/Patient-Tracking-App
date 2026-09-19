@@ -85,7 +85,12 @@ export function mergePolicyInput(
   input: SettingsInput,
   options: { coldArchiveConfigured?: boolean } = {},
 ): { ok: true; policy: OrgPolicy } | { ok: false; error: string } {
-  const next: OrgPolicy = { ...current, defaultCategories: { ...current.defaultCategories }, retention: { ...current.retention } };
+  const next: OrgPolicy = {
+    ...current,
+    defaultCategories: { ...current.defaultCategories },
+    retention: { ...current.retention },
+    secondFactor: { ...current.secondFactor },
+  };
   const fail = (error = INVALID_SETTINGS) => ({ ok: false as const, error });
 
   if (input.organizationName !== undefined) {
@@ -119,6 +124,7 @@ export function mergePolicyInput(
     next.googlePlayUrl = url.value;
   }
   if (input.coachAvailable !== undefined) next.coachAvailable = input.coachAvailable;
+  if (input.secondFactor !== undefined) next.secondFactor = { ...input.secondFactor };
   if (input.escalationEmail !== undefined) {
     const email = cleanEmail(input.escalationEmail);
     if (!email.ok) return fail("Check the escalation email address.");

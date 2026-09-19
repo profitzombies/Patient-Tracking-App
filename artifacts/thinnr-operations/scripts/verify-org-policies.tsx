@@ -168,6 +168,7 @@ function hqFixture(): HqOrganizationSettings {
     staffIdleTimeoutMinutes: 15,
     hqIdleTimeoutMinutes: 15,
     coldArchiveEnabled: false,
+    secondFactor: { hqUsers: true, officeManagers: true, allStaff: false },
     version: 3,
     updatedAt: '2026-09-06T12:00:00.000Z',
     sections: {
@@ -208,7 +209,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       return json({ error: 'Someone else saved these settings first. Reload to see the latest values.', version: hqSettings.version }, 409);
     }
     const { expectedVersion: _v, defaultCategories, retention, ...rest } = body;
-    const touched = 'staffIdleTimeoutMinutes' in body ? 'security' : 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'coldArchiveEnabled' in body ? 'archive' : 'notifications';
+    const touched = 'staffIdleTimeoutMinutes' in body || 'secondFactor' in body ? 'security' : 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'coldArchiveEnabled' in body ? 'archive' : 'notifications';
     hqSettings = {
       ...hqSettings,
       ...rest,
@@ -322,6 +323,7 @@ console.log('HQ settings — signed-in admin');
   check('security fields show the 15-minute defaults and whole-number bounds', oneByTestId(root, 'input-policy-staff-idle-timeout').props.value === 15 && oneByTestId(root, 'input-policy-staff-idle-timeout').props.min === 5 && oneByTestId(root, 'input-policy-hq-idle-timeout').props.value === 15 && oneByTestId(root, 'input-policy-hq-idle-timeout').props.max === 120);
   check('the three ledger retention knobs render with their persisted values and bounds', oneByTestId(root, 'input-policy-retention-job-runs').props.value === 90 && oneByTestId(root, 'input-policy-retention-job-runs').props.min === 7 && oneByTestId(root, 'input-policy-retention-sign-ins').props.value === 180 && oneByTestId(root, 'input-policy-retention-sign-ins').props.min === 30 && oneByTestId(root, 'input-policy-retention-webhook-events').props.value === 365 && oneByTestId(root, 'input-policy-retention-webhook-events').props.max === 3650);
   check('coach switch reflects availability', switchOf(root, 'switch-policy-coach-available')?.props['aria-checked'] === true);
+  check('security switches reflect persisted policy', switchOf(root, 'switch-policy-second-factor-hq')?.props['aria-checked'] === true && switchOf(root, 'switch-policy-second-factor-managers')?.props['aria-checked'] === true && switchOf(root, 'switch-policy-second-factor-all-staff')?.props['aria-checked'] === false);
 
   // App store links live on the organization card: the saved App Store link
   // shows, the blank Google Play link carries HQ's reminder.
@@ -404,9 +406,10 @@ console.log('HQ settings — signed-in admin');
 
   await type(oneByTestId(root, 'input-policy-staff-idle-timeout'), '20');
   await type(oneByTestId(root, 'input-policy-hq-idle-timeout'), '10');
+  await press(switchOf(root, 'switch-policy-second-factor-all-staff'));
   await press(oneByTestId(root, 'button-save-policy-security'));
   const securityPut = requests.filter((request) => request.method === 'PUT').at(-1);
-  check('Security Save posts only both idle fields and the current version', securityPut !== undefined && JSON.stringify(securityPut.body) === JSON.stringify({ staffIdleTimeoutMinutes: 20, hqIdleTimeoutMinutes: 10, expectedVersion: 8 }), JSON.stringify(securityPut?.body));
+  check('Security Save posts both idle fields, the secondFactor slice, and the current version, with no section key', securityPut !== undefined && !('section' in securityPut.body) && JSON.stringify(securityPut.body) === JSON.stringify({ staffIdleTimeoutMinutes: 20, hqIdleTimeoutMinutes: 10, secondFactor: { hqUsers: true, officeManagers: true, allStaff: true }, expectedVersion: 8 }), JSON.stringify(securityPut?.body));
   check('security section stamp updates after saving', textOf(oneByTestId(root, 'policy-stamp-security')).startsWith('Last changed by Test Admin · '));
   // Cold archive: off by default, the status line reads the last archived
   // day and backlog, and turning it on posts only the archive field.
@@ -566,5 +569,5 @@ console.log('live conversations — auto-close status');
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }
 console.log('\nAll organization-policy checks passed.');
-// The conversations page leaves a live-stream handle open; exit explicitly so the suite can finish.
+// The rendered screens leave query timers and a live-stream handle open; exit explicitly so the suite can finish.
 process.exit(0);

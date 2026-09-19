@@ -39,17 +39,39 @@ export default function ProviderLoginScreen() {
       banner={!supabaseConfigured ? <ErrorBox testID="provider-not-configured" message="Real sign-in isn’t configured in this environment." /> : null}
       hero={<PlateHero caption={PROVIDER_PLATE_CAPTION()} />}
       kicker="PROVIDER ACCESS"
-      title={phase === 'email' ? 'Provider sign-in' : 'Check your inbox'}
+      title={
+        phase === 'email'
+          ? 'Provider sign-in'
+          : phase === 'code'
+            ? 'Check your inbox'
+            : phase === 'phone'
+              ? 'Add a sign-in phone'
+              : `Enter the code we texted to ${login.destination ?? 'your phone'}`
+      }
       subtitle={
         phase === 'email'
           ? 'For office staff and HQ. We’ll email a 6-digit sign-in code — no password.'
-          : `If ${login.pendingEmail} has an account, a 6-digit code is on its way. It expires in 10 minutes.`
+          : phase === 'code'
+            ? `If ${login.pendingEmail} has an account, a 6-digit code is on its way. It expires in 10 minutes.`
+            : phase === 'phone'
+              ? 'Your role requires a second check at sign-in. We’ll text a code to this number each time you sign in.'
+              : 'Enter the 6-digit code from the text message.'
       }
       footer={
         <View style={styles.footer}>
           {phase === 'code' ? (
             <QuietLinkRow>
               <FooterLink testID="provider-resend" label="Send a fresh code" onPress={login.resendCode} disabled={busy} />
+              <FooterLink quiet testID="provider-back" label="Use a different email" onPress={login.backToEmail} />
+            </QuietLinkRow>
+          ) : phase === 'sms' ? (
+            <QuietLinkRow>
+              <FooterLink
+                testID="button-provider-sms-resend"
+                label="Resend text"
+                onPress={login.resendSms}
+                disabled={busy}
+              />
               <FooterLink quiet testID="provider-back" label="Use a different email" onPress={login.backToEmail} />
             </QuietLinkRow>
           ) : null}
@@ -89,10 +111,15 @@ export default function ProviderLoginScreen() {
                 onDisabledPress={supabaseConfigured ? undefined : login.explainNotConfigured}
               />
             </ActionGroup>
-            <FeedbackSlot error={login.error} errorTestID="provider-error" />
+            <FeedbackSlot
+              notice={login.error ? null : login.notice}
+              noticeTestID="provider-notice"
+              error={login.error}
+              errorTestID="provider-error"
+            />
           </FormWrap>
         </FormCard>
-      ) : (
+      ) : phase === 'code' ? (
         <FormCard>
           <FormWrap>
             <FieldStack>
@@ -124,6 +151,73 @@ export default function ProviderLoginScreen() {
               devCodeTestID="provider-devcode"
               notice={login.error ? null : login.notice}
               noticeTestID="provider-notice"
+              error={login.error}
+              errorTestID="provider-error"
+            />
+          </FormWrap>
+        </FormCard>
+      ) : phase === 'phone' ? (
+        <FormCard>
+          <FormWrap>
+            <FieldStack>
+              <Field
+                label="Mobile phone"
+                hint={<NoteText text="Use a US mobile number that can receive text messages." />}
+              >
+                <LedgerInput
+                  testID="input-provider-phone"
+                  accessibilityLabel="Sign-in phone number"
+                  value={login.phone}
+                  onChangeText={login.setPhone}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  editable={!busy}
+                  placeholder="(555) 555-1234"
+                />
+              </Field>
+            </FieldStack>
+            <ActionGroup>
+              <PrimaryButton
+                testID="button-provider-phone-send"
+                label={busy ? 'Sending…' : 'Text me a code'}
+                onPress={login.submitPhone}
+                disabled={busy}
+              />
+            </ActionGroup>
+            {login.error ? <ErrorBox testID="provider-error" message={login.error} /> : null}
+          </FormWrap>
+        </FormCard>
+      ) : (
+        <FormCard>
+          <FormWrap>
+            <FieldStack>
+              <Field label="Texted code">
+                <LedgerInput
+                  testID="input-provider-sms-code"
+                  accessibilityLabel="6-digit texted code"
+                  value={login.smsCode}
+                  onChangeText={login.setSmsCode}
+                  keyboardType="number-pad"
+                  autoComplete="sms-otp"
+                  textContentType="oneTimeCode"
+                  maxLength={6}
+                  editable={!busy}
+                  style={styles.otpInput}
+                />
+              </Field>
+            </FieldStack>
+            <ActionGroup>
+              <PrimaryButton
+                testID="button-provider-sms-verify"
+                label={busy ? 'Verifying…' : 'Verify and sign in'}
+                onPress={login.submitSmsCode}
+                disabled={busy}
+              />
+            </ActionGroup>
+            <FeedbackSlot
+              devCode={login.smsDevCode}
+              devCodeTestID="provider-sms-devcode"
               error={login.error}
               errorTestID="provider-error"
             />

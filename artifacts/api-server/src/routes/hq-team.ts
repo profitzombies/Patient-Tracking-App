@@ -14,6 +14,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
+import { clearStaffSecondFactor, loadStaffSecondFactors, maskPhone } from "../auth/second-factor";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -44,6 +45,8 @@ interface HqMember {
   status: string;
   invitedAt: string | null;
   joinedAt: string | null;
+  /** Masked verified sign-in phone (texted-code step); null when none is enrolled. */
+  secondFactorPhone: string | null;
 }
 
 function encode(value: string): string {
@@ -80,6 +83,7 @@ function mapMember(row: Record<string, unknown>): HqMember {
     status: String(row.status ?? (row.auth_user_id ? "active" : "invited")),
     invitedAt: row.invited_at ? String(row.invited_at) : null,
     joinedAt: row.joined_at ? String(row.joined_at) : null,
+    secondFactorPhone: null,
   };
 }
 
@@ -91,7 +95,13 @@ async function loadMembers(): Promise<HqMember[]> {
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`HQ team list failed (${result.status})`);
   }
-  return result.json.map((row: Record<string, unknown>) => mapMember(row));
+  const members = result.json.map((row: Record<string, unknown>) => mapMember(row));
+  const factors = await loadStaffSecondFactors("hq", members.map((member: HqMember) => member.id));
+  for (const member of members) {
+    const factor = factors.get(member.id);
+    member.secondFactorPhone = factor ? maskPhone(factor.phone) : null;
+  }
+  return members;
 }
 
 async function requireTeamManager(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -465,6 +475,52 @@ router.post(
     } catch (error) {
       req.log?.error({ err: error }, "HQ team sign-out failed");
       res.status(502).json({ error: "Could not sign that member out." });
+    }
+  },
+);
+
+/**
+ * Lost phone: drop the member's verified sign-in phone so their next sign-in
+ * re-enrols one. Their current sessions are untouched — the UI offers
+ * "sign out everywhere" right beside this action.
+ */
+router.post(
+  "/hq-team/:id/second-factor/clear",
+  requireHqPermission("team_manage"),
+  requireTeamManager,
+  async (req, res): Promise<void> => {
+    try {
+      const members = await loadMembers();
+      const target = members.find((member) => member.id === String(req.params.id));
+      if (!target) {
+        res.status(404).json({ error: "HQ team member not found." });
+        return;
+      }
+      const actor = res.locals.hqMember as { id: string; role: HqRole };
+      if (target.id === actor.id) {
+        res.status(409).json({ error: "Use your own Security page to change your sign-in phone." });
+        return;
+      }
+      if (target.role === "super_admin" && actor.role !== "super_admin") {
+        res.status(403).json({ error: "Only a Super Admin can clear a Super Admin's sign-in phone." });
+        return;
+      }
+      if (!(await requireFreshCode(req, res, (res.locals.staff as StaffIdentity).userId))) return;
+      const cleared = await clearStaffSecondFactor("hq", target.id);
+      await recordAdminAuditEvent({
+        action: "hq_team_phone_cleared",
+        actorUserId: (res.locals.staff as StaffIdentity).userId,
+        actorKind: "hq",
+        providerId: null,
+        targetKind: "hq_member",
+        targetId: target.id,
+        requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: { status: cleared ? "cleared" : "none_on_file" },
+      }).catch((error) => req.log?.error({ err: error }, "HQ phone clear audit failed"));
+      res.json({ ok: true, cleared });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ team phone clear failed");
+      res.status(502).json({ error: "Could not clear that member's sign-in phone." });
     }
   },
 );

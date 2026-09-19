@@ -58,6 +58,15 @@ import {
   type SignInRow,
 } from "../security/ledger";
 import { checkCode, claimCode, deliverSmsRegistered, matchCode, registerSend, spendUndelivered } from "./auth";
+import type { StaffClass } from "../auth/directory";
+import {
+  currentSecondFactorPolicy,
+  loadStaffSecondFactor,
+  maskPhone as maskFactorPhone,
+  saveStaffSecondFactor,
+  secondFactorRequiredByPolicy,
+  setStaffSecondFactorEnabled,
+} from "../auth/second-factor";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -75,6 +84,10 @@ const REPORT_LINK_ERROR = "That link has expired or was already used. Sign in an
 const CODE_SEND_ERROR = "We couldn't send a verification code right now. Check your connection and try again in a moment.";
 const CODE_SEND_LIMIT = "Too many verification codes were requested. Wait a little while, then try again.";
 const NO_CONTACT_ERROR = "Add a phone number or email address to your profile before changing your password.";
+const STAFF_ONLY_SECOND_FACTOR = "Only staff accounts use a texted sign-in code.";
+const PHONE_REQUIRED = "Enter the mobile number that should receive your sign-in codes.";
+const POLICY_REQUIRES_MESSAGE = "Your organization requires a texted code for your role, so it can't be turned off here.";
+const PHONE_FIRST_MESSAGE = "Verify a mobile number first, then turn the texted code on.";
 
 export const FORCE_SIGN_OUT_REASONS = ["lost_device", "suspicious_activity", "patient_request", "other"] as const;
 export type ForceSignOutReason = (typeof FORCE_SIGN_OUT_REASONS)[number];
@@ -154,11 +167,16 @@ router.get(SECURITY_ME_PATH, async (req, res) => {
       return;
     }
     const { actor, sessionId } = resolved;
-    const [overview, state] = await Promise.all([securityOverview(actor.userId, sessionId), loadSecurityState(actor.userId)]);
+    const [overview, state, secondFactor] = await Promise.all([
+      securityOverview(actor.userId, sessionId),
+      loadSecurityState(actor.userId),
+      actor.realm === "staff" ? staffSecondFactorDto(actor) : Promise.resolve(null),
+    ]);
     if (sessionId) void touchSession(sessionId);
     res.json({
       realm: actor.realm,
       canChangePassword: actor.realm === "patient",
+      secondFactor,
       contact:
         actor.realm === "patient"
           ? { phone: maskPhone(actor.phone), email: maskEmail(actor.email) }
@@ -406,6 +424,183 @@ router.post(SECURITY_REPORT_PATH, async (req, res) => {
 });
 
 // ── Change password (patients) ───────────────────────────────────────────────
+
+// ── Staff second factor (self-service) ──────────────────────────────────────
+
+type StaffActor = Extract<SecurityActor, { realm: "staff" }>;
+
+function staffClassOf(actor: StaffActor): StaffClass {
+  return actor.staffKind === "hq" ? "hq_active" : actor.staffKind;
+}
+
+/**
+ * What the security page shows a staff member: whether the organization
+ * rule already covers them, whether they opted in, and the masked phone.
+ */
+async function staffSecondFactorDto(actor: StaffActor): Promise<{
+  policyRequired: boolean;
+  enabled: boolean;
+  phone: string | null;
+  verifiedAt: string | null;
+}> {
+  const [factor, policy] = await Promise.all([loadStaffSecondFactor(actor.staffKind, actor.ref), currentSecondFactorPolicy()]);
+  const policyRequired = secondFactorRequiredByPolicy(policy, { class: staffClassOf(actor), officeRole: actor.officeRole });
+  return {
+    policyRequired,
+    enabled: policyRequired || Boolean(factor?.enabled),
+    phone: factor ? maskFactorPhone(factor.phone) : null,
+    verifiedAt: factor?.verifiedAt ?? null,
+  };
+}
+
+function staffOnly(actor: SecurityActor, res: Response): actor is StaffActor {
+  if (actor.realm === "staff") return true;
+  res.status(403).json({ error: STAFF_ONLY_SECOND_FACTOR });
+  return false;
+}
+
+/** Text a code to a new sign-in phone (replacing the current one once proven). */
+router.post(`${SECURITY_ME_PATH}/second-factor/phone/start`, async (req, res) => {
+  const slot = limited(req, res);
+  if (!slot) return;
+  try {
+    const resolved = await resolveSecurityActor(req);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+    const { actor } = resolved;
+    if (!staffOnly(actor, res)) return;
+    const identifier = normalizeIdentifier((req.body ?? {}).phone);
+    if (!identifier || identifier.kind !== "phone") {
+      res.status(400).json({ error: PHONE_REQUIRED, field: "phone" });
+      return;
+    }
+    assertLiveChannelReady("sms");
+    const mode = deliveryMode("sms");
+    const registered = await registerSend({
+      purpose: "staff_sms",
+      identifier,
+      accountType: actor.staffKind === "hq" ? "hq_admin" : actor.staffKind,
+      candidates: [{ type: actor.staffKind === "hq" ? "hq_admin" : actor.staffKind, ref: actor.ref, name: actor.name, dob: null, claimed: true, auth_user_id: actor.userId }],
+      scopeKey: `staff-phone:${actor.staffKind}:${actor.ref}`,
+    });
+    if (!registered) {
+      res.status(429).json({ error: CODE_SEND_LIMIT, retryable: true });
+      return;
+    }
+    try {
+      if (registered.row.delivery === "twilio_verify") await deliverSmsRegistered(registered.row);
+    } catch (error) {
+      req.log?.error({ err: error }, "second factor phone code delivery rejected");
+      void spendUndelivered(registered.row).catch((spendError) => req.log?.error({ err: spendError }, "second factor rejected-send mark failed"));
+      res.status(502).json({ error: CODE_SEND_ERROR, retryable: true });
+      return;
+    }
+    res.json({
+      ok: true,
+      requestId: registered.row.id,
+      destination: maskFactorPhone(identifier.e164),
+      ...(mode === "dev" && registered.localCode ? { devCode: registered.localCode } : {}),
+    });
+  } catch (error) {
+    if (error instanceof DeliveryNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    req.log?.error({ err: error }, "second factor phone start failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.release();
+  }
+});
+
+/** Code proven → phone saved and the texted-code step turned on for this person. */
+router.post(`${SECURITY_ME_PATH}/second-factor/phone/complete`, async (req, res) => {
+  const slot = limited(req, res);
+  if (!slot) return;
+  try {
+    const resolved = await resolveSecurityActor(req);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+    const { actor } = resolved;
+    if (!staffOnly(actor, res)) return;
+    const { requestId, code } = (req.body ?? {}) as { requestId?: unknown; code?: unknown };
+    let row: Awaited<ReturnType<typeof matchCode>>;
+    try {
+      row = await matchCode("staff_sms", requestId, code);
+    } catch (error) {
+      if (error instanceof DeliveryNotConfiguredError) {
+        res.status(503).json({ error: error.message });
+        return;
+      }
+      throw error;
+    }
+    // The proven code must have been requested by THIS signed-in identity.
+    if (
+      !row ||
+      row.scope_key !== `staff-phone:${actor.staffKind}:${actor.ref}` ||
+      row.candidates.length !== 1 ||
+      row.candidates[0].auth_user_id !== actor.userId ||
+      !(await claimCode(row))
+    ) {
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+    const factor = await saveStaffSecondFactor(actor.staffKind, actor.ref, row.identifier);
+    await patchRow(row.id, { consumed_at: new Date().toISOString(), resolved_ref: actor.ref, auth_user_id: actor.userId });
+    audit(req, actor, "security_second_factor_enrolled", { kind: "security_page", enabled: factor.enabled });
+    res.json({ ok: true, secondFactor: await staffSecondFactorDto(actor) });
+  } catch (error) {
+    req.log?.error({ err: error }, "second factor phone complete failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.release();
+  }
+});
+
+/** Personal opt-in switch; staff covered by the organization rule cannot turn it off. */
+router.post(`${SECURITY_ME_PATH}/second-factor`, async (req, res) => {
+  const slot = limited(req, res);
+  if (!slot) return;
+  try {
+    const resolved = await resolveSecurityActor(req);
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
+      return;
+    }
+    const { actor } = resolved;
+    if (!staffOnly(actor, res)) return;
+    const enabled = (req.body ?? {}).enabled;
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ error: "Choose whether to require a texted code.", field: "enabled" });
+      return;
+    }
+    const current = await staffSecondFactorDto(actor);
+    if (!enabled && current.policyRequired) {
+      res.status(409).json({ error: POLICY_REQUIRES_MESSAGE });
+      return;
+    }
+    if (enabled && !current.phone) {
+      res.status(409).json({ error: PHONE_FIRST_MESSAGE });
+      return;
+    }
+    const updated = await setStaffSecondFactorEnabled(actor.staffKind, actor.ref, enabled);
+    if (!updated) {
+      res.status(409).json({ error: PHONE_FIRST_MESSAGE });
+      return;
+    }
+    audit(req, actor, "security_second_factor_changed", { enabled });
+    res.json({ ok: true, secondFactor: await staffSecondFactorDto(actor) });
+  } catch (error) {
+    req.log?.error({ err: error }, "second factor toggle failed");
+    res.status(502).json({ error: SERVER_ERROR });
+  } finally {
+    slot.release();
+  }
+});
 
 router.post(`${SECURITY_ME_PATH}/password/start`, async (req, res) => {
   const slot = limited(req, res);

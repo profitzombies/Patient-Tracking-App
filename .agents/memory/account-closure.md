@@ -13,3 +13,8 @@ description: How self-service account closure splits personal vs clinical data, 
 - The "account closed" courtesy hint for an unlinked session (lookup in `patient_deletion_requests`) is best-effort: failures fall through to the normal 403, never a 502. Likewise the retention-years copy falls back to the default org policy on a policy read failure — explanatory copy must not take the diary state read down.
 - Adding a column to a shared select (e.g. identity lookup gaining `archived_at=is.null`, inbox rows gaining a `patients?id=in.(...)` seal lookup) breaks route suites whose PostgREST fakes implement a small operator set or an allow-list of paths; run the FULL api suite once and teach the fakes (`is.null`, the new path), not the route.
 - Live schema: a merged migration is not applied — push it through the management API and re-check advisors before restarting the API server.
+
+## Same-phone re-signup proof (route-level)
+- The end-to-end proof lives in a vitest route suite with one consolidated Supabase/GoTrue fake (auth + claim + privacy + patient-data + roster routers mounted together, real `drainDuePurges` with default deps, a settable fake clock instead of a zero grace knob).
+- Re-signup after closure rides the `/auth/signup/*` rail, not claim identify (identify cannot create accounts). A still-live phone (closure only pending) resolves the verified phone to the EXISTING chart at completion — a password reset, never a refusal and never a second row.
+- Closure nulls phone/email on the sealed row, so the `archived_at` fences on candidates/unique indexes are redundant in this path; the assertion that actually bites is "auth user deleted + new patient id + empty state + roster Archived filter".

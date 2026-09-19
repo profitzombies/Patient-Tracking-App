@@ -26,11 +26,28 @@ export interface RecordPatientEventOptions {
   at?: Date;
   /** One event per counted action (a multi-entry meal save); clamped to 50 by the database. */
   count?: number;
+  /**
+   * Natural keys of the counted source rows (a message id, a diary entry id).
+   * When given, the database keys each event on (feature, source key) and a
+   * replay of the same keys inserts nothing; `count` is ignored. Formats must
+   * match the backfill: `<conversation_id>:<client_id>` for chat messages,
+   * `<patient_id>:<entry_id>` for diary entries.
+   */
+  sourceKeys?: string[];
 }
 
-/** Write one (or `count`) events now; throws on failure. */
+/** Number of events a write would attempt (0 = nothing to record). */
+function attempted(options: RecordPatientEventOptions): number {
+  return options.sourceKeys ? options.sourceKeys.length : options.count ?? 1;
+}
+
+/**
+ * Write one (or `count` / one per source key) events now; throws on failure.
+ * Returns the number of rows the database actually inserted (keyed replays
+ * report 0).
+ */
 export async function writePatientEvent(patientId: string, feature: PatientEventFeature, options: RecordPatientEventOptions = {}): Promise<number> {
-  const count = options.count ?? 1;
+  const count = attempted(options);
   if (count <= 0) return 0;
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_event_record", {
     p_patient_id: patientId,
@@ -38,6 +55,7 @@ export async function writePatientEvent(patientId: string, feature: PatientEvent
     p_platform: options.platform ?? (options.headers ? platformOf(options.headers) : "unknown"),
     p_at: (options.at ?? new Date()).toISOString(),
     p_count: count,
+    p_source_keys: options.sourceKeys ?? null,
   });
   if (result.status >= 300) throw new Error(`patient event record failed (${result.status})`);
   const recorded = Number(result.json);
@@ -58,7 +76,7 @@ export function recordPatientEvent(
   options: RecordPatientEventOptions = {},
   deps: RecordPatientEventDeps = {},
 ): boolean {
-  if ((options.count ?? 1) <= 0) return false;
+  if (attempted(options) <= 0) return false;
   const write = deps.write ?? writePatientEvent;
   void write(patientId, feature, options).catch((error: unknown) => {
     logger.warn({ err: error, patientId, feature }, "patient app event write failed");

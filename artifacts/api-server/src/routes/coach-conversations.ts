@@ -17,6 +17,7 @@ import {
   parsePatientChatWireMessage,
   rowToPatientChatMessage,
   type ChatWireRow,
+  coachMessageKeys,
 } from "./patient-chat";
 import { isOwnPatientMediaPath } from "./patient-media";
 
@@ -295,8 +296,9 @@ router.post("/patient-coach/conversations/:conversationId/messages", async (req,
     if (result.json === "archived") { res.status(403).json({ error: "Restore this conversation before continuing." }); return; }
     if (result.json !== "ok") throw new Error("unexpected coach append result");
     // HQ Insights: each patient-authored row in the batch is one coach_message
-    // event (assistant rows are the coach's; a replayed batch may recount).
-    recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, count: rows.filter((row) => row.role === "user").length });
+    // event, keyed on <conversation_id>:<client_id> so a replayed batch (the
+    // app re-sends the finalized transcript) inserts nothing.
+    recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, sourceKeys: coachMessageKeys(id.data, rows) });
     res.json({ ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient coach conversation append failed");

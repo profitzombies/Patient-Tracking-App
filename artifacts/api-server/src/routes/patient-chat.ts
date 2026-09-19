@@ -111,6 +111,15 @@ export interface ChatWireRow {
 }
 
 /**
+ * Insights source keys for the patient-authored rows of a batch — the same
+ * `<conversation_id>:<client_id>` form the backfill uses, so a live event and
+ * a backfilled one for the same message can never both exist.
+ */
+export function coachMessageKeys(conversationId: string, rows: ChatWireRow[]): string[] {
+  return rows.filter((row) => row.role === "user").map((row) => `${conversationId}:${row.client_id}`);
+}
+
+/**
  * One finalized on-screen message from the app, checked field by field into
  * an RPC row. Text is stored verbatim (exactly what was revealed on screen);
  * the photo reference must point inside the calling patient's own
@@ -375,9 +384,18 @@ router.post("/patient-chat/:thread/messages", async (req, res) => {
     // Staff inbox streams hear about the new rows now, not at the next tick.
     inboxFeed.poke();
     // HQ Insights: patient-authored coach rows are coach_message events
-    // (support thread messages are not tracked).
+    // (support thread messages are not tracked). The RPC returns the
+    // conversation it wrote into; events are keyed on
+    // <conversation_id>:<client_id> so a replayed transcript inserts nothing.
     if (thread === "coach") {
-      recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, count: rows.filter((row) => row.role === "user").length });
+      // The transcript is saved either way; a missing id is an analytics
+      // gap to log, never a failed save.
+      const conversationId = typeof applied.json === "string" ? applied.json : null;
+      if (conversationId) {
+        recordPatientEvent(auth.patientId, "coach_message", { headers: req.headers, sourceKeys: coachMessageKeys(conversationId, rows) });
+      } else {
+        req.log?.warn({ patientId: auth.patientId }, "patient-chat apply returned no conversation id; coach_message events skipped");
+      }
     }
 
     res.json({ ok: true });

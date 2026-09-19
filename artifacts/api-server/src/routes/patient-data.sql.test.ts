@@ -15,6 +15,11 @@ const MIGRATION = path.resolve(
   here,
   "../../../../supabase/migrations/20261004010000_food_nutrition_snapshots.sql",
 );
+/** Same diary RPC, now reporting which entry ids were newly created (usage events). */
+const NEW_ENTRIES_MIGRATION = path.resolve(
+  here,
+  "../../../../supabase/migrations/20261108000000_diary_apply_reports_new_entries.sql",
+);
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -116,7 +121,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient snapshot RPCs (real PostgreSQL)", 
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, NEW_ENTRIES_MIGRATION]) {
       execFileSync(
         "psql",
         ["-h", dir, "-p", String(PORT), "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", file],
@@ -147,9 +152,16 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient snapshot RPCs (real PostgreSQL)", 
       fat: 10.61,
       nutrition_snapshot: SNAPSHOT,
     };
-    psql(`select public.patient_diary_apply('${PATIENT_A}', ${json([entry])}, array[]::text[], ${json(["egg"])})`);
+    // The RPC reports the entry ids it CREATED, so the route can count a food
+    // log once: a brand-new entry is reported, an edit of that entry is not.
+    expect(scalar(`select public.patient_diary_apply('${PATIENT_A}', ${json([entry])}, array[]::text[], ${json(["egg"])})`))
+      .toEqual(["entry-exact"]);
     expect(scalar(`select nutrition_snapshot from public.patient_diary_entries where patient_id='${PATIENT_A}' and entry_id='entry-exact'`))
       .toEqual(SNAPSHOT);
+    expect(scalar(`select public.patient_diary_apply('${PATIENT_A}', ${json([{ ...entry, quantity: 3, calories: 232 }, { ...entry, entry_id: "entry-second" }])}, array[]::text[], null)`))
+      .toEqual(["entry-second"]);
+    expect(scalar(`select quantity from public.patient_diary_entries where patient_id='${PATIENT_A}' and entry_id='entry-exact'`)).toBe(3);
+    expect(scalar(`select public.patient_diary_apply('${PATIENT_A}', ${json([entry])}, array['entry-second'], null)`)).toEqual([]);
     expect(scalar(`select count(*) from public.patient_diary_entries where patient_id='${PATIENT_B}'`)).toBe(0);
     expect(scalar(`select recents from public.patient_food_prefs where patient_id='${PATIENT_A}'`)).toEqual(["egg"]);
 

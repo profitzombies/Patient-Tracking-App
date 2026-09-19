@@ -38,9 +38,12 @@ class FakeBackend {
   libraryRpcCalls = 0;
   /** Every record_patient_edit_history RPC body, in order (patient-made edits to shared families). */
   historyWrites: Row[] = [];
+  /** Every patient_app_event_record RPC body, in order (HQ Insights seam). */
+  eventCalls: Array<Record<string, unknown>> = [];
   private seq = 0;
 
   reset() {
+    this.eventCalls = [];
     this.tables = {
       patients: [],
       patient_diary_entries: [],
@@ -173,6 +176,7 @@ class FakeBackend {
         p_delete_ids?: string[];
         p_recents?: unknown[] | null;
       };
+      const createdIds: string[] = [];
       for (const incoming of args.p_upsert ?? []) {
         const existing = this.tables.patient_diary_entries.find(
           row =>
@@ -188,6 +192,7 @@ class FakeBackend {
             patient_id: args.p_patient_id,
             created_at: stampAt(this.seq++),
           });
+          createdIds.push(String(incoming.entry_id));
         }
       }
       if ((args.p_delete_ids ?? []).length > 0) {
@@ -211,8 +216,15 @@ class FakeBackend {
           });
         }
       }
-      // PostgREST answers a void RPC with 204 and no body.
-      return new Response(null, { status: 204 });
+      // The RPC returns the entry ids it newly created (sorted), never the merged ones.
+      return json(200, createdIds.sort());
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_app_event_record") {
+      const args = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      this.eventCalls.push(args);
+      const keys = Array.isArray(args.p_source_keys) ? args.p_source_keys.length : Number(args.p_count ?? 1);
+      return json(200, keys);
     }
 
     if (url.pathname === "/rest/v1/rpc/patient_library_apply") {
@@ -1560,6 +1572,56 @@ describe("POST /patient-data/entries", () => {
     expect(rows[0].quantity).toBe(2.5);
     expect(rows[0].calories).toBe(577);
     expect(rows[0].created_at).toBe(created);
+  });
+
+  it("records one food_log usage event per NEW entry, keyed on the entry — edits and deletes record nothing", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const foodLogCalls = () => backend.eventCalls.filter((call) => call.p_feature === "food_log");
+
+    // Create: two new entries → two keyed events.
+    let res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      headers: { "x-thinnr-platform": "ios" },
+      body: { upsert: [entryPayload({ id: "e-1" }), entryPayload({ id: "e-2" })] },
+    });
+    expect(res.status).toBe(200);
+    await flush();
+    expect(foodLogCalls()).toEqual([
+      expect.objectContaining({
+        p_patient_id: patientId,
+        p_platform: "ios",
+        p_source_keys: [`${patientId}:e-1`, `${patientId}:e-2`],
+      }),
+    ]);
+
+    // Edit of an existing entry: the apply RPC reports nothing new → no event write at all.
+    res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "e-1", quantity: 3 })] },
+    });
+    expect(res.status).toBe(200);
+    await flush();
+    expect(foodLogCalls()).toHaveLength(1);
+
+    // Mixed batch: one edit + one new → exactly the new one is keyed.
+    res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { upsert: [entryPayload({ id: "e-2", quantity: 2 }), entryPayload({ id: "e-3" })] },
+    });
+    expect(res.status).toBe(200);
+    await flush();
+    expect(foodLogCalls()).toHaveLength(2);
+    expect(foodLogCalls()[1].p_source_keys).toEqual([`${patientId}:e-3`]);
+
+    // Deletes and recents bumps are not logs.
+    res = await api("POST", "/api/patient-data/entries", {
+      token: "tok-1",
+      body: { deleteIds: ["e-1"], recents: ["egg"] },
+    });
+    expect(res.status).toBe(200);
+    await flush();
+    expect(foodLogCalls()).toHaveLength(2);
   });
 
   it("deletes only the caller's rows, matching exotic-but-legal ids", async () => {

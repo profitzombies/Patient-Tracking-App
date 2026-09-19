@@ -31,6 +31,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PRESENCE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261026000000_patient_app_presence.sql");
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261027010000_patient_app_events.sql");
+const SOURCE_KEYS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000100_app_event_source_keys.sql");
 const TIMEZONE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260925138000_patient_activity_summary.sql");
 
 function hasBinary(name: string): boolean {
@@ -178,7 +179,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
     const tzEnd = tzSource.indexOf("create or replace function public.provider_patient_activity_summary");
     const tzFile = path.join(dir, "tz.sql");
     writeFileSync(tzFile, tzSource.slice(tzStart, tzEnd));
-    for (const file of [schemaFile, tzFile, PRESENCE_MIGRATION, MIGRATION]) {
+    for (const file of [schemaFile, tzFile, PRESENCE_MIGRATION, MIGRATION, SOURCE_KEYS_MIGRATION]) {
       execFileSync(
         "psql",
         ["-h", dir, "-p", String(PORT), "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", file],
@@ -211,7 +212,13 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
       { proname: "patient_app_event_insights" },
       { proname: "patient_app_event_record" },
       { proname: "patient_app_events_backfill" },
+      { proname: "patient_app_events_dedupe" },
       { proname: "patient_app_events_rollup" },
+    ]);
+    // Exactly one overload of the record RPC (PostgREST needs an unambiguous
+    // call) and it is the keyed one, still SECURITY DEFINER.
+    expect(rows("select pg_get_function_identity_arguments(oid) as args, prosecdef from pg_proc where proname = 'patient_app_event_record'")).toEqual([
+      { args: "p_patient_id uuid, p_feature text, p_platform text, p_at timestamp with time zone, p_count integer, p_source_keys text[]", prosecdef: true },
     ]);
     expect(
       rows("select tgname from pg_trigger where tgrelid = 'public.patient_app_events'::regclass and not tgisinternal order by 1"),
@@ -222,6 +229,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
       "public.patient_app_event_insights('food_log', '2026-09-01', '2026-09-02', null)",
       "public.patient_app_event_bounds('food_log', null)",
       "public.patient_app_events_backfill('food_log', now(), 10, true)",
+      "public.patient_app_events_dedupe('coach_message', true)",
     ]) {
       expect(fails(`select * from ${call}`, "authenticated")).toContain("service role required");
     }
@@ -401,5 +409,92 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
     expect(rows(`select first_day from public.patient_app_event_bounds('order', '${OFFICE_B}')`)).toEqual([{ first_day: null }]);
     // Backfilled day-only rows count in the series but carry no hour.
     expect(insights("water_log", "2026-08-01", "2026-08-31", null)).toEqual([{ local_day: "2026-08-03", local_hour: -1, events: 1, patients: 1 }]);
+  });
+
+  it("keyed live events: a replayed message id inserts one row, a backfilled twin collides, blank keys count nothing", () => {
+    const conv = uuid(201);
+    const record = (feature: string, keys: string[], at = "2026-09-12T13:00:00Z") =>
+      scalar(`select public.patient_app_event_record('${NY}', '${feature}', 'ios', '${at}', 1, array[${keys.map((key) => `'${key}'`).join(",")}]::text[])`);
+    // First save of two patient messages: two rows, both keyed, local-time columns as usual.
+    expect(record("coach_message", [`${conv}:m9`, `${conv}:m10`])).toBe("2");
+    // The app replays the finalized transcript: nothing new lands.
+    expect(record("coach_message", [`${conv}:m9`, `${conv}:m10`])).toBe("0");
+    // A batch mixing one seen and one new message counts exactly the new one.
+    expect(record("coach_message", [`${conv}:m10`, `${conv}:m11`])).toBe("1");
+    // The same key repeated inside one call is one row.
+    expect(record("coach_message", [`${conv}:m12`, `${conv}:m12`])).toBe("1");
+    expect(
+      rows(`select source_key, local_day::text as local_day, local_hour, platform, source from patient_app_events where feature = 'coach_message' and source = 'live' and source_key is not null order by source_key`),
+    ).toEqual([
+      { source_key: `${conv}:m10`, local_day: "2026-09-12", local_hour: 9, platform: "ios", source: "live" },
+      { source_key: `${conv}:m11`, local_day: "2026-09-12", local_hour: 9, platform: "ios", source: "live" },
+      { source_key: `${conv}:m12`, local_day: "2026-09-12", local_hour: 9, platform: "ios", source: "live" },
+      { source_key: `${conv}:m9`, local_day: "2026-09-12", local_hour: 9, platform: "ios", source: "live" },
+    ]);
+    // Live keys share the backfill's format, so a live write for an already backfilled entry collides.
+    expect(record("food_log", [`${NY}:e1`])).toBe("0");
+    expect(scalar(`select count(*) from patient_app_events where source_key = '${NY}:e1'`)).toBe("1");
+    // Blank / empty key lists record nothing; p_count is ignored in keyed mode.
+    expect(scalar(`select public.patient_app_event_record('${NY}', 'food_log', 'ios', now(), 7, array['', null]::text[])`)).toBe("0");
+    expect(scalar(`select public.patient_app_event_record('${NY}', 'food_log', 'ios', now(), 7, array[]::text[])`)).toBe("0");
+    // Keyed mode still rejects unknown / archived patients and other roles.
+    expect(fails(`select public.patient_app_event_record('${ARCHIVED}', 'food_log', 'ios', now(), 1, array['${ARCHIVED}:x']::text[])`)).toContain("unknown patient");
+    expect(fails(`select public.patient_app_event_record('${NY}', 'food_log', 'ios', now(), 1, array['${NY}:x']::text[])`, "authenticated")).toContain("service role required");
+  });
+
+  it("dedupe repairs rows recorded before keys existed: stamps the paired event, deletes the surplus, leaves history without source rows alone", () => {
+    const conv = uuid(201);
+    const live = (patient: string, at: string, feature = "coach_message") =>
+      scalar(`select public.patient_app_event_record('${patient}', '${feature}', 'web', '${at}')`);
+    psql(`
+      set test.role = 'service_role';
+      insert into patient_chat_messages (conversation_id, client_id, role, created_at) values
+        ('${conv}', 'm20', 'user', '2026-09-14T10:00:00Z'),
+        ('${conv}', 'm21', 'user', '2026-09-14T11:00:00Z'),
+        ('${conv}', 'm22', 'user', '2026-09-14T12:00:00Z'),
+        ('${conv}', 'm23', 'assistant', '2026-09-14T12:00:04Z');
+    `);
+    // m20 was recorded twice by the old seam (a replay), m21 once, m22 once by
+    // the old seam and once more by the new keyed seam.
+    live(NY, "2026-09-14T10:00:05Z"); live(NY, "2026-09-14T10:00:06Z");
+    live(NY, "2026-09-14T11:00:02Z");
+    live(NY, "2026-09-14T12:00:03Z");
+    scalar(`select public.patient_app_event_record('${NY}', 'coach_message', 'ios', '2026-09-14T12:00:03Z', 1, array['${conv}:m22']::text[])`);
+    // History that must be left alone: an unkeyed event older than NY's oldest
+    // surviving message (retention trimmed its source), and TOKYO's events
+    // (no surviving messages at all, so no floor).
+    live(NY, "2026-07-01T10:00:00Z");
+    live(TOKYO, "2026-09-13T10:00:00Z");
+    const unkeyed = () => rows(`select patient_id, occurred_at::text as at from patient_app_events where feature = 'coach_message' and source = 'live' and source_key is null order by patient_id, occurred_at`);
+    const before = unkeyed();
+    expect(before).toHaveLength(6);
+    const total = scalar("select count(*) from patient_app_events");
+    rollup("2026-09-16T15:00:00Z");
+    expect(scalar("select count(*) from patient_app_event_days where dirty")).toBe("0");
+
+    // Dry run reports the repair and writes nothing.
+    expect(rows("select keyed, removed from public.patient_app_events_dedupe('coach_message', true)")).toEqual([{ keyed: 2, removed: 2 }]);
+    expect(unkeyed()).toEqual(before);
+    expect(scalar("select count(*) from patient_app_events")).toBe(total);
+    expect(scalar("select count(*) from patient_app_event_days where dirty")).toBe("0");
+
+    // Real run: m20 and m21 get their keys (oldest event in the hour), the two surplus rows go.
+    expect(rows("select keyed, removed from public.patient_app_events_dedupe('coach_message', false)")).toEqual([{ keyed: 2, removed: 2 }]);
+    expect(rows(`select source_key, occurred_at::text as at, platform from patient_app_events where source_key in ('${conv}:m20', '${conv}:m21', '${conv}:m22') order by source_key`)).toEqual([
+      { source_key: `${conv}:m20`, at: "2026-09-14 10:00:05+00", platform: "web" },
+      { source_key: `${conv}:m21`, at: "2026-09-14 11:00:02+00", platform: "web" },
+      { source_key: `${conv}:m22`, at: "2026-09-14 12:00:03+00", platform: "ios" },
+    ]);
+    expect(unkeyed()).toEqual([
+      { patient_id: NY, at: "2026-07-01 10:00:00+00" },
+      { patient_id: TOKYO, at: "2026-09-13 10:00:00+00" },
+    ]);
+    expect(Number(scalar("select count(*) from patient_app_events"))).toBe(Number(total) - 2);
+    // The day is dirty again so the next rollup re-rolls it; a replay of a repaired message inserts nothing.
+    expect(rows("select local_day::text as local_day from patient_app_event_days where dirty")).toEqual([{ local_day: "2026-09-14" }]);
+    expect(scalar(`select public.patient_app_event_record('${NY}', 'coach_message', 'ios', now(), 1, array['${conv}:m20']::text[])`)).toBe("0");
+    // Idempotent: a second run finds nothing.
+    expect(rows("select keyed, removed from public.patient_app_events_dedupe('coach_message', false)")).toEqual([{ keyed: 0, removed: 0 }]);
+    expect(fails("select * from public.patient_app_events_dedupe('app_open', true)")).toContain("unsupported feature");
   });
 });

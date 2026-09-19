@@ -22,7 +22,24 @@ describe("patient app event recorder", () => {
       p_platform: "ios",
       p_at: at.toISOString(),
       p_count: 3,
+      p_source_keys: null,
     });
+  });
+
+  it("keys events on their source rows when keys ride along, reporting what the database really inserted", async () => {
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: 1 });
+    const keys = ["conv-1:m-1", "conv-1:m-2"];
+    await expect(writePatientEvent("pat-1", "coach_message", { sourceKeys: keys, count: 9 })).resolves.toBe(1);
+    expect(mocks.admin.mock.calls[0][2]).toMatchObject({ p_feature: "coach_message", p_count: 2, p_source_keys: keys });
+    // A full replay: the database says 0 rows landed and that is what callers see.
+    mocks.admin.mockResolvedValueOnce({ status: 200, json: 0 });
+    await expect(writePatientEvent("pat-1", "coach_message", { sourceKeys: keys })).resolves.toBe(0);
+  });
+
+  it("treats an empty key list as nothing to record, even with a count", async () => {
+    await expect(writePatientEvent("pat-1", "food_log", { sourceKeys: [], count: 4 })).resolves.toBe(0);
+    expect(recordPatientEvent("pat-1", "food_log", { sourceKeys: [], count: 4 })).toBe(false);
+    expect(mocks.admin).not.toHaveBeenCalled();
   });
 
   it("defaults to platform unknown and a single event when no headers ride along", async () => {

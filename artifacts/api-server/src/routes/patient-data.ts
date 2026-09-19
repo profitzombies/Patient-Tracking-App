@@ -1593,9 +1593,15 @@ router.post("/patient-data/entries", async (req, res) => {
       p_recents: recents ?? null,
     });
     if (applied.status >= 300) throw new Error(`diary apply failed (${applied.status})`);
-    // HQ Insights: one food_log event per saved entry (edits included — the
-    // apply RPC does not report which rows were new). Deletes are not logs.
-    recordPatientEvent(auth.patientId, "food_log", { headers: req.headers, count: rows.length });
+    // HQ Insights: one food_log event per NEWLY created entry. The apply RPC
+    // returns the entry ids it inserted, so edits of an existing entry (and
+    // deletes) record nothing; the event is keyed on the entry so a replayed
+    // create cannot count twice either.
+    const created = Array.isArray(applied.json) ? applied.json.filter((id): id is string => typeof id === "string") : [];
+    recordPatientEvent(auth.patientId, "food_log", {
+      headers: req.headers,
+      sourceKeys: created.map((entryId) => `${auth.patientId}:${entryId}`),
+    });
 
     await idem.finish(res, 200, { ok: true });
   } catch (error) {

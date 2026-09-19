@@ -171,6 +171,13 @@ describe("patient care-team HTTP contract", () => {
       p_patient_id: PATIENT, p_provider_id: "office-a", p_role: "user",
       p_sender_user_id: null, p_sender_label: null, p_client_id: "device-stable-1",
     });
+    // HQ Insights: the created message is one care_team_message event keyed
+    // on <conversation>:<client id>, so a retried send can never count twice.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls.find(call => call.path === "/rest/v1/rpc/patient_app_event_record")?.body).toMatchObject({
+      p_patient_id: PATIENT, p_feature: "care_team_message",
+      p_source_keys: [`${CONVERSATION}:device-stable-1`],
+    });
     expect((await request("POST", `/patient-care-team/${CONVERSATION}/messages`,
       { clientId: "bad id", text: "x" })).status).toBe(400);
     expect((await request("POST", `/patient-care-team/${CONVERSATION}/messages`,

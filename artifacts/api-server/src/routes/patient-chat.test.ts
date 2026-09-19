@@ -50,6 +50,8 @@ class FakeChatBackend {
   /** one-shot 500s: 'RPC patient_chat_apply' | 'GET patient_chat_messages' | 'GET patient_chat_conversations' */
   failOnce = new Set<string>();
   rpcCalls = 0;
+  /** Every patient_app_event_record RPC body, in order (HQ Insights seam). */
+  eventCalls: Array<Record<string, unknown>> = [];
   private convSeq = 0;
   private msgSeq = 0;
 
@@ -58,6 +60,7 @@ class FakeChatBackend {
     this.consents = [];
     this.conversations = [];
     this.messages = [];
+    this.eventCalls = [];
     this.tokens.clear();
     this.authOutage = false;
     this.failOnce.clear();
@@ -168,7 +171,14 @@ class FakeChatBackend {
           this.messages.push({ ...incoming, conversation_id: conv.id, seq: ++this.msgSeq });
         }
       }
-      return new Response(null, { status: 204 });
+      // The RPC returns the conversation id it wrote into.
+      return json(200, conv.id);
+    }
+
+    if (url.pathname === "/rest/v1/rpc/patient_app_event_record") {
+      const args = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      this.eventCalls.push(args);
+      return json(200, Array.isArray(args.p_source_keys) ? args.p_source_keys.length : 1);
     }
 
     if (url.pathname === "/rest/v1/patients" && method === "GET") {
@@ -538,6 +548,48 @@ describe("validation", () => {
     ]);
     expect(res.status).toBe(400);
     expect(res.json.error).toBe("That photo isn't yours to reference.");
+  });
+});
+
+describe("HQ Insights usage events", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("keys coach_message events on the legacy conversation + message id, so a replayed transcript sends the same keys", async () => {
+    const { patientId } = backend.seedSignedInPatient("tok-1");
+    const messages = [
+      { id: "u-1", role: "user", text: "What should I eat?" },
+      { id: "a-1", role: "assistant", text: "Try the grilled chicken." },
+      { id: "u-2", role: "user", text: "Thanks" },
+    ];
+    const first = await api("POST", "/api/patient-chat/coach/messages", { token: "tok-1", body: { messages } });
+    expect(first.status).toBe(200);
+    await flush();
+    const conversationId = String(backend.conversationFor(patientId, "coach").id);
+    expect(backend.eventCalls).toEqual([
+      expect.objectContaining({
+        p_patient_id: patientId, p_feature: "coach_message",
+        p_source_keys: [`${conversationId}:u-1`, `${conversationId}:u-2`],
+      }),
+    ]);
+    // The app re-sends the finalized transcript: identical keys, so the
+    // database's (feature, source_key) index makes the replay a no-op.
+    const replay = await api("POST", "/api/patient-chat/coach/messages", { token: "tok-1", body: { messages } });
+    expect(replay.status).toBe(200);
+    await flush();
+    expect(backend.eventCalls).toHaveLength(2);
+    expect(backend.eventCalls[1].p_source_keys).toEqual(backend.eventCalls[0].p_source_keys);
+  });
+
+  it("records nothing for assistant-only batches or the support thread", async () => {
+    backend.seedSignedInPatient("tok-1");
+    await api("POST", "/api/patient-chat/coach/messages", {
+      token: "tok-1", body: { messages: [{ id: "a-9", role: "assistant", text: "Hello again" }] },
+    });
+    await api("POST", "/api/patient-chat/support/messages", {
+      token: "tok-1", body: { messages: [{ id: "u-9", role: "user", text: "Billing question" }] },
+    });
+    await flush();
+    expect(backend.eventCalls).toEqual([]);
   });
 });
 

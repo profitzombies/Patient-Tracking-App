@@ -17,6 +17,7 @@ const MEMORY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/202
 const REVIEW_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261008030000_coach_review_guards.sql");
 const SENTENCE_POLICY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261008040000_coach_memory_sentence_policy.sql");
 const TITLES_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261019000000_coach_conversation_titles.sql");
+const CHAT_APPLY_ID_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000200_patient_chat_apply_conversation_id.sql");
 const has = (binary: string) => spawnSync("which", [binary], { stdio: "ignore" }).status === 0;
 const available = ["initdb", "pg_ctl", "psql"].every(has);
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -121,6 +122,22 @@ describe.skipIf(!available)("coach conversations migration (real PostgreSQL)", (
     expect(psql(`select count(*) from public.patient_chat_conversations where patient_id='${PATIENT_A}' and thread='coach'`)).toBe(before);
     expect(psql(`select count(*) from public.patient_chat_conversations where patient_id='${PATIENT_A}' and thread='coach' and legacy_compat`)).toBe("1");
     expect(psql(`select count(*) from public.patient_chat_conversations where patient_id='${PATIENT_A}' and thread='coach' and client_key='device-key' and not legacy_compat`)).toBe("1");
+  });
+
+  it("the legacy thread RPC returns the conversation it wrote into (the deterministic legacy row), still service-role only", () => {
+    // Applied here, after the replay test above re-ran the original migration
+    // (which cannot `create or replace` over a changed return type).
+    execFileSync("psql", [...args().filter(arg => arg !== "-At"), "-f", CHAT_APPLY_ID_MIGRATION], { stdio: "pipe", encoding: "utf8" });
+    expect(psql(`select public.patient_chat_apply('${PATIENT_A}','coach',
+      '[{"client_id":"legacy-2","role":"user","text":"Another legacy question","stopped":false,"hidden":false}]'::jsonb)`)).toBe(LEGACY);
+    expect(psql(`select conversation_id from public.patient_chat_messages where client_id='legacy-2'`)).toBe(LEGACY);
+    // Replaying the same client id updates in place and reports the same conversation.
+    expect(psql(`select public.patient_chat_apply('${PATIENT_A}','coach',
+      '[{"client_id":"legacy-2","role":"user","text":"Another legacy question","stopped":false,"hidden":false}]'::jsonb)`)).toBe(LEGACY);
+    expect(psql(`select count(*) from public.patient_chat_messages where client_id='legacy-2'`)).toBe("1");
+    expect(psql(`select count(*) from pg_proc where proname='patient_chat_apply' and prosecdef`)).toBe("1");
+    expect(psql(`select has_function_privilege('authenticated','public.patient_chat_apply(uuid,text,jsonb)','EXECUTE')`)).toBe("f");
+    expect(psql(`select has_function_privilege('service_role','public.patient_chat_apply(uuid,text,jsonb)','EXECUTE')`)).toBe("t");
   });
 
   it("rejects stale archive writers and installs the patient identity guard on work", () => {

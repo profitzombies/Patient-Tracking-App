@@ -186,8 +186,12 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
     // Staff inbox streams hear about the new row now, not at the next tick.
     inboxFeed.poke();
     const payload = sent.json as Row;
-    // HQ Insights: a newly created patient message is one care_team_message event.
-    if (payload.created === true) recordPatientEvent(found.auth.patientId, "care_team_message", { headers: req.headers });
+    // HQ Insights: a newly created patient message is one care_team_message
+    // event, keyed on <conversation_id>:<client_id> so a retried send that the
+    // RPC reports as created can still never count twice.
+    if (payload.created === true) {
+      recordPatientEvent(found.auth.patientId, "care_team_message", { headers: req.headers, sourceKeys: [`${id.data}:${body.data.clientId}`] });
+    }
     res.json({ message: patientMessage({
       seq: payload.seq, client_id: payload.clientId, role: payload.role,
       text: payload.text, created_at: payload.createdAt, card: null,

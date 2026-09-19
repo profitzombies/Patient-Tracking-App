@@ -133,6 +133,29 @@ describe("patient coach conversations", () => {
     expect(final.json.nextBefore).toBeNull();
   });
 
+  it("keys each patient-authored row of an append on <conversation>:<message id> for HQ Insights, so replays cannot recount", async () => {
+    const messages = [
+      { id: "u-1", role: "user", text: "Pasta?" },
+      { id: "a-1", role: "assistant", text: "Go for the zucchini noodles." },
+      { id: "u-2", role: "user", text: "Deal." },
+    ];
+    const append = await api("POST", `/patient-coach/conversations/${CONVERSATION}/messages`, { messages });
+    expect(append.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const events = calls.filter((call) => call.path === "/rest/v1/rpc/patient_app_event_record");
+    expect(events).toHaveLength(1);
+    expect(events[0].body).toMatchObject({
+      p_patient_id: PATIENT, p_feature: "coach_message",
+      p_source_keys: [`${CONVERSATION}:u-1`, `${CONVERSATION}:u-2`],
+    });
+    // Replaying the same finalized batch produces the very same keys.
+    await api("POST", `/patient-coach/conversations/${CONVERSATION}/messages`, { messages });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const replayed = calls.filter((call) => call.path === "/rest/v1/rpc/patient_app_event_record");
+    expect(replayed).toHaveLength(2);
+    expect(replayed[1].body?.p_source_keys).toEqual(events[0].body?.p_source_keys);
+  });
+
   it("maps exact SQL ownership/archive and version outcomes without trusting a body patient id", async () => {
     mocks.admin.mockImplementation(async (_method: string, path: string) => {
       if (path === "/rest/v1/rpc/coach_conversation_append") return { status: 200, json: "archived" };

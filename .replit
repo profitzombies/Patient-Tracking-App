@@ -424,6 +424,10 @@ args = "care-team-web"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
+args = "usage-event-dedup-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "demo-parity"
 
 [[workflows.workflow.tasks]]
@@ -2636,6 +2640,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history && pnpm --filter @workspace/thinnr-operations run test:patient-record-export && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "usage-event-dedup-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/app-events.sql.test.ts src/routes/patient-data.sql.test.ts src/routes/coach-conversations.sql.test.ts src/lib/patient-events.test.ts src/routes/patient-data.test.ts src/routes/patient-chat.test.ts src/routes/coach-conversations.test.ts src/routes/patient-care-team.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

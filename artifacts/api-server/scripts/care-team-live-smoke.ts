@@ -6,7 +6,15 @@
  *   CARE_TEAM_SMOKE_API_BASE_URL=http://127.0.0.1:3000/api \
  *     pnpm --filter @workspace/api-server exec tsx scripts/care-team-live-smoke.ts verify --keep
  *   pnpm --filter @workspace/api-server exec tsx scripts/care-team-live-smoke.ts helper
+ *   pnpm --filter @workspace/api-server exec tsx scripts/care-team-live-smoke.ts thread
+ *   pnpm --filter @workspace/api-server exec tsx scripts/care-team-live-smoke.ts post "<text>"
  *   pnpm --filter @workspace/api-server exec tsx scripts/care-team-live-smoke.ts cleanup
+ *
+ * `thread` starts (or resumes) the fixture patient's care-team conversation
+ * through the real patient API and prints its id; `post` sends one patient
+ * message into it the same way. Together they let a browser tester watching
+ * the staff inbox prove the live stream path (patient write → updated_at
+ * trigger → feed → SSE → screen) without ever holding a patient token.
  *
  * Passwords, sessions, Supabase values, and tester bootstrap contents are
  * written only to mode-0600 files. Output is restricted to synthetic IDs,
@@ -776,6 +784,44 @@ commit;`;
   console.log(`Removed helper directory: ${state.helper.directory}`);
 }
 
+/** Start or resume the fixture patient's care-team thread via the patient API. */
+async function patientThread(): Promise<string> {
+  const state = await loadState();
+  credentials();
+  await refreshSessions(state);
+  await assertFixtureMode();
+  const started = await api(state, "POST", "/patient-care-team/start", "patient", {});
+  const conversationId = started.body?.conversation?.id;
+  if (typeof conversationId !== "string") throw new Error("Patient care-team start returned no conversation.");
+  if (!state.ids.conversationIds.includes(conversationId)) {
+    state.ids.conversationIds.push(conversationId);
+    await saveState(state);
+  }
+  console.log(`Conversation ID: ${conversationId}`);
+  console.log(`Created: ${started.body?.created === true ? "yes" : "no (resumed)"}`);
+  return conversationId;
+}
+
+/** Send one patient message into the fixture thread via the patient API. */
+async function patientPost(text: string): Promise<void> {
+  if (!text.trim()) throw new Error("Use post \"<text>\" with a non-empty message.");
+  const state = await loadState();
+  credentials();
+  await refreshSessions(state);
+  await assertFixtureMode();
+  let conversationId = state.ids.conversationIds[0];
+  if (!conversationId) conversationId = await patientThread();
+  const clientId = `tester-${randomUUID()}`;
+  const sentAt = Date.now();
+  const sent = await api(state, "POST", `/patient-care-team/${conversationId}/messages`,
+    "patient", { clientId, text: text.trim() });
+  const seq = sent.body?.message?.seq;
+  if (!Number.isInteger(seq)) throw new Error("Patient message send returned no sequence number.");
+  console.log(`Conversation ID: ${conversationId}`);
+  console.log(`Message seq: ${seq}`);
+  console.log(`Sent at: ${new Date(sentAt).toISOString()} (${Date.now() - sentAt} ms round trip)`);
+}
+
 async function main(): Promise<void> {
   const command = process.argv[2];
   if (command === "prepare") await prepare();
@@ -783,8 +829,10 @@ async function main(): Promise<void> {
   else if (command === "helper") {
     const state = await loadState();
     await writeHelper(state);
-  } else if (command === "cleanup") await cleanup();
-  else throw new Error("Use prepare, verify [--keep], helper, or cleanup.");
+  } else if (command === "thread") await patientThread();
+  else if (command === "post") await patientPost(process.argv.slice(3).join(" "));
+  else if (command === "cleanup") await cleanup();
+  else throw new Error("Use prepare, verify [--keep], helper, thread, post \"<text>\", or cleanup.");
 }
 
 main().catch(error => {

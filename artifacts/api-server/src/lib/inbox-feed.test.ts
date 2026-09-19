@@ -4,7 +4,7 @@
  * pokes, and fans in-process notifications out immediately.
  */
 import { describe, expect, it, vi } from "vitest";
-import { InboxChangeFeed, type InboxChange } from "./inbox-feed";
+import { InboxChangeFeed, changedConversationsPath, type InboxChange } from "./inbox-feed";
 
 const row = (id: string, updatedAt: string, providerId = "office-a"): InboxChange => ({
   conversationId: id, patientId: "p1", providerId, thread: "care_team", updatedAt,
@@ -12,6 +12,15 @@ const row = (id: string, updatedAt: string, providerId = "office-a"): InboxChang
 const tick = (ms = 30) => new Promise(resolve => setTimeout(resolve, ms));
 
 describe("InboxChangeFeed", () => {
+  it("names the patient foreign key in its embed so PostgREST never answers 300 (ambiguous)", () => {
+    // Conversations also reach `patients` through the read-marker junction
+    // table; a bare `patients(...)` embed stalled the live feed on every tick.
+    const path = changedConversationsPath("2026-09-19T16:00:00.000Z");
+    expect(path).toContain("patients!patient_chat_conversations_patient_id_fkey(provider_id)");
+    expect(path).not.toMatch(/[,(]patients\(/);
+    expect(path).toContain("updated_at=gt.2026-09-19T16%3A00%3A00.000Z");
+  });
+
   it("does not touch the database until someone subscribes, then stops with the last unsubscribe", async () => {
     const fetchChanges = vi.fn(async (_since: string) => [] as InboxChange[]);
     const feed = new InboxChangeFeed({ pollMs: () => 5, fetchChanges });

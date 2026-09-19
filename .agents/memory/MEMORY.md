@@ -146,7 +146,7 @@
 - [Local JWT verification](local-jwt-verification.md) — local by default, one route-policy module for remote; sign-outs list+end sessions in ONE SQL RPC (GoTrue has no admin logout).
 - [Patient session persistence](patient-session-persistence.md) — auth-js reports session:null during retryable refresh failures; storage is truth, only SIGNED_OUT signs out; mgmt-API session timeouts are in HOURS.
 - [Patients menu badge](patients-menu-badge.md) — badge shares the roster query (no new poll); flagged = evaluator verdict; pin is URL-only; Shell-in-Node RTR recipe.
-- [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
+- [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an updated_at feed; name the FK in patients embeds (bare = PGRST201 300, invisible to fake-PostgREST tests); live proof recipe.
 - [Photo variants & pages](photo-variants-pages.md) — display is a resolver (page URL else per-photo route at same size); server reports actual signed size; medium signed only on viewer open; set media token after provider mount in suites.
 - [Roster filter model](roster-filter-model.md) — client-side AND stack in the URL; unknown facts match nothing; legacy arriving keys rewrite; RTR suites need Radix stubs + host-only testid lookups.
 - [Coach usage limits store](coach-usage-limits-store.md) — caps reserved via advisory-lock RPC after identity resolves, before paid work; only rapid bucket is process-local; vitest pins memory store; fail closed.

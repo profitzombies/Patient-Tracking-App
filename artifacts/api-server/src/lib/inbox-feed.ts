@@ -80,10 +80,19 @@ function changeFromRow(row: Record<string, unknown>): InboxChange {
   };
 }
 
+// The patient embed names its foreign key: conversations also reach
+// `patients` through the read-marker junction table, and a bare `patients(...)`
+// is ambiguous to PostgREST (HTTP 300), which would silently stall the feed.
+const PATIENT_EMBED = "patients!patient_chat_conversations_patient_id_fkey(provider_id)";
+
+/** PostgREST path of one watcher tick: conversations bumped after `sinceIso`. */
+export function changedConversationsPath(sinceIso: string): string {
+  return `/rest/v1/patient_chat_conversations?select=id,patient_id,provider_id,thread,updated_at,${PATIENT_EMBED}` +
+    `&updated_at=gt.${enc(sinceIso)}&order=updated_at.asc&limit=${PAGE}`;
+}
+
 async function fetchChangedConversations(sinceIso: string): Promise<InboxChange[]> {
-  const result = await supabaseAdmin("GET",
-    `/rest/v1/patient_chat_conversations?select=id,patient_id,provider_id,thread,updated_at,patients(provider_id)` +
-    `&updated_at=gt.${enc(sinceIso)}&order=updated_at.asc&limit=${PAGE}`);
+  const result = await supabaseAdmin("GET", changedConversationsPath(sinceIso));
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`inbox feed poll failed (${result.status})`);
   return (result.json as Record<string, unknown>[]).map(changeFromRow);
 }

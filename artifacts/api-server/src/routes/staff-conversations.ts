@@ -452,7 +452,7 @@ function escalationFromRow(row: Record<string, unknown>) {
   };
 }
 const ESCALATION_SELECT =
-  "id,conversation_id,provider_id,department,reason,status,created_by_label,created_at,resolved_by_label,resolved_at,resolution_note,patient_chat_conversations!inner(thread,patient_id,patients(first_name,last_name,name)),providers(office_name,provider_name)";
+  "id,conversation_id,provider_id,department,reason,status,created_by_label,created_at,resolved_by_label,resolved_at,resolution_note,patient_chat_conversations!inner(thread,patient_id,patients!patient_chat_conversations_patient_id_fkey(first_name,last_name,name)),providers(office_name,provider_name)";
 
 function noteFromRow(row: Record<string, unknown>) {
   return {

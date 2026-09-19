@@ -43,6 +43,7 @@ const db = vi.hoisted(() => {
     retention_job_run_days: 90,
     retention_sign_in_days: 180,
     retention_webhook_event_days: 365,
+    retention_clinical_record_days: 2555,
     export_link_hours: 24,
     section_changes: {},
   });
@@ -148,7 +149,7 @@ beforeEach(() => {
   });
 });
 
-const fullRetention = { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 };
+const fullRetention = { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365, clinicalRecordDays: 2555 };
 
 async function putSettings(body: Record<string, unknown>) {
   const response = await fetch(`${base}/hq/settings`, { method: "PUT", headers: HQ, body: JSON.stringify(body) });
@@ -169,7 +170,7 @@ describe("HQ organization policy", () => {
       outreachCooldownDays: 14,
       outreachDailyCap: 500,
       conversationAutoCloseDays: 14,
-      retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365 },
+      retention: { chatTranscriptDays: 730, progressPhotoDays: 730, notificationHistoryDays: 180, auditEventDays: 2555, jobRunDays: 90, signInDays: 180, webhookEventDays: 365, clinicalRecordDays: 2555 },
       exportLinkHours: 24,
       version: 1,
       sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null },
@@ -208,6 +209,13 @@ describe("HQ organization policy", () => {
     expect((await putSettings({ retention: { ...fullRetention, signInDays: 29 } })).status).toBe(400);
     expect((await putSettings({ retention: { ...fullRetention, webhookEventDays: 3651 } })).status).toBe(400);
     expect((await putSettings({ retention: { ...fullRetention, jobRunDays: 30.5 } })).status).toBe(400);
+    // Compliance floors: audit events may not drop below 6 years, the clinical record below 5
+    // (the request schema and the merge share the same bounds; either one refusing is a 400).
+    expect((await putSettings({ retention: { ...fullRetention, auditEventDays: 2189 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, auditEventDays: 365 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, clinicalRecordDays: 1824 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, clinicalRecordDays: 3651 } })).status).toBe(400);
+    expect((await putSettings({ retention: { ...fullRetention, clinicalRecordDays: 2555.5 } })).status).toBe(400);
     expect((await putSettings({ defaultQuietHours: { start: "22:00", end: "22:00" } })).status).toBe(400);
     expect((await putSettings({ defaultQuietHours: { start: "25:00", end: "07:00" } })).status).toBe(400);
     expect((await putSettings({ escalationEmail: "not-an-email" })).status).toBe(400);
@@ -219,12 +227,37 @@ describe("HQ organization policy", () => {
   it("accepts the boundary values", async () => {
     const { status, json } = await putSettings({
       outreachCooldownDays: 90, outreachDailyCap: 1, conversationAutoCloseDays: 365, exportLinkHours: 168,
-      retention: { chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650 },
+      retention: { chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 2190, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650, clinicalRecordDays: 1825 },
     });
     expect(status).toBe(200);
     expect(json).toMatchObject({ outreachCooldownDays: 90, outreachDailyCap: 1, conversationAutoCloseDays: 365, exportLinkHours: 168 });
-    expect(json.retention).toEqual({ chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 365, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650 });
-    expect(db.settings).toMatchObject({ retention_job_run_days: 7, retention_sign_in_days: 30, retention_webhook_event_days: 3650 });
+    expect(json.retention).toEqual({ chatTranscriptDays: 30, progressPhotoDays: 3650, notificationHistoryDays: 7, auditEventDays: 2190, jobRunDays: 7, signInDays: 30, webhookEventDays: 3650, clinicalRecordDays: 1825 });
+    expect(db.settings).toMatchObject({ retention_job_run_days: 7, retention_sign_in_days: 30, retention_webhook_event_days: 3650, retention_audit_days: 2190, retention_clinical_record_days: 1825 });
+    // Upper boundaries land too.
+    const upper = await putSettings({ expectedVersion: 2, retention: { ...fullRetention, auditEventDays: 3650, clinicalRecordDays: 3650 } });
+    expect(upper.status).toBe(200);
+    expect(upper.json.retention).toMatchObject({ auditEventDays: 3650, clinicalRecordDays: 3650 });
+  });
+
+  it("raises a stored audit window below the 6-year floor on read and writes the floor on the next save", async () => {
+    db.settings.retention_audit_days = 365;
+    const read = await fetch(`${base}/hq/settings`, { headers: HQ });
+    expect((await read.json() as Record<string, any>).retention.auditEventDays).toBe(2190);
+    expect((await loadOrgPolicy({ fresh: true })).retention.auditEventDays).toBe(2190);
+    // Offices see the floored value too.
+    const office = await fetch(`${base}/office/settings`, { headers: { authorization: "Bearer office" } });
+    expect((await office.json() as Record<string, any>).hq.retention.auditEventDays).toBe(2190);
+    // A save of an unrelated field persists the raised value; the field audits as a change from the floor, not from 365.
+    const { status, json } = await putSettings({ expectedVersion: 1, exportLinkHours: 48 });
+    expect(status).toBe(200);
+    expect(json.retention.auditEventDays).toBe(2190);
+    expect(db.settings.retention_audit_days).toBe(2190);
+    expect(mocks.audit.mock.calls.map(([input]) => input.metadata.field)).toEqual(["exportLinkHours"]);
+    // A missing clinical record column (pre-migration row) reads as the 7-year default.
+    delete db.settings.retention_clinical_record_days;
+    invalidateOrgPolicyCache();
+    const legacy = await fetch(`${base}/hq/settings`, { headers: HQ });
+    expect((await legacy.json() as Record<string, any>).retention.clinicalRecordDays).toBe(2555);
   });
 
   it("audits every changed field with section/from/to/version and stamps only the touched sections", async () => {

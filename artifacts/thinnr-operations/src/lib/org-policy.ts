@@ -24,10 +24,13 @@ export const POLICY_BOUNDS = {
   chatTranscriptDays: { min: 30, max: 3650 },
   progressPhotoDays: { min: 30, max: 3650 },
   notificationHistoryDays: { min: 7, max: 3650 },
-  auditEventDays: { min: 365, max: 3650 },
+  /** Compliance floor: 6 years, HIPAA's documentation retention minimum. */
+  auditEventDays: { min: 2190, max: 3650 },
   jobRunDays: { min: 7, max: 3650 },
   signInDays: { min: 30, max: 3650 },
   webhookEventDays: { min: 30, max: 3650 },
+  /** Compliance floor: 5 years, the shortest state medical-record window. */
+  clinicalRecordDays: { min: 1825, max: 3650 },
   exportLinkHours: { min: 1, max: 168 },
 } as const;
 

@@ -235,6 +235,57 @@ describe.skipIf(!available)("Coach lifecycle migrations on real PostgreSQL", () 
     expect(scalar<number>(`(select count(*) from public.patient_chat_messages where conversation_id='${care}')`)).toBe(1);
   });
 
+  // The chat transcript timer is an AI-transcript timer. Staff-patient (care
+  // team) messages are part of the clinical record and ride the clinical
+  // record retention setting instead; this proof pins the RPC's thread
+  // allow-list so widening it to 'care_team' fails here before it ships.
+  it("the chat transcript trim deletes coach and support messages past the cutoff but never care-team messages of the same age", () => {
+    reset();
+    const coach = createCoach(PATIENT, "timer-coach");
+    expect(append(PATIENT, coach, "coach-old", "Coach transcript")).toBe("ok");
+    const support = id(801);
+    sql(`insert into public.patient_chat_conversations(id,patient_id,thread)
+      values('${support}','${PATIENT}','support');
+      insert into public.patient_chat_messages(conversation_id,client_id,role,text)
+      values('${support}','support-old','user','Support transcript')`);
+    const care = (scalar<Record<string, unknown>>(`public.care_team_start('${PATIENT}','a')`).conversationId as string);
+    // One message each way: the patient's and a staff reply from the office owner.
+    sql(`update public.providers set auth_user_id='${id(900)}' where provider_id='a';
+      select public.care_team_send('${care}','${PATIENT}','a','care-old-1','Patient to nurse','user',null,null,false);
+      select public.care_team_send('${care}','${PATIENT}','a','care-old-2','Nurse to patient','staff','${id(900)}','Nurse Kim',false)`);
+    // Every message and conversation is the same age, well past the cutoff.
+    sql(`update public.patient_chat_messages set created_at=now()-interval '800 days'
+        where conversation_id in ('${coach}','${support}','${care}');
+      update public.patient_chat_conversations set updated_at=now()-interval '800 days'
+        where id in ('${coach}','${support}','${care}')`);
+    const threads = () => rows<{ thread: string; messages: number }>(
+      `select c.thread, count(m.*)::int as messages from public.patient_chat_conversations c
+        left join public.patient_chat_messages m on m.conversation_id=c.id
+        where c.patient_id='${PATIENT}' group by c.thread order by c.thread`,
+    );
+    expect(threads()).toEqual([
+      { thread: "care_team", messages: 2 }, { thread: "coach", messages: 1 }, { thread: "support", messages: 1 },
+    ]);
+
+    const call = (dryRun: boolean) => rows<{ messages_deleted: number; conversations_deleted: number }>(
+      `select messages_deleted, conversations_deleted from public.retention_trim_chat_transcripts(now()-interval '730 days',100,${dryRun})`,
+    )[0];
+    // The dry run reports only the AI threads as due.
+    expect(call(true)).toMatchObject({ messages_deleted: 2, conversations_deleted: 2 });
+    expect(threads()).toEqual([
+      { thread: "care_team", messages: 2 }, { thread: "coach", messages: 1 }, { thread: "support", messages: 1 },
+    ]);
+    // The real run removes exactly the coach and support rows.
+    expect(call(false)).toMatchObject({ messages_deleted: 2, conversations_deleted: 2 });
+    expect(threads()).toEqual([{ thread: "care_team", messages: 2 }]);
+    expect(rows<{ client_id: string }>(`select client_id from public.patient_chat_messages where conversation_id='${care}' order by client_id`))
+      .toEqual([{ client_id: "care-old-1" }, { client_id: "care-old-2" }]);
+    expect(scalar<number>(`(select count(*) from public.patient_chat_conversations where id='${care}' and thread='care_team')`)).toBe(1);
+    // A second pass finds nothing left on the timer: the care-team thread is not merely "not yet due".
+    expect(call(false)).toMatchObject({ messages_deleted: 0, conversations_deleted: 0 });
+    expect(threads()).toEqual([{ thread: "care_team", messages: 2 }]);
+  });
+
   it("purges archived conversations, messages, active/pending/removed facts, suppressions and queued work without touching another patient", () => {
     reset();
     const removable = createCoach(PATIENT, "remove-proof");

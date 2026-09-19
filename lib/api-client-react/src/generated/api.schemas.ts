@@ -1469,6 +1469,7 @@ export interface NotificationCategoryDefaults {
 
 export interface RetentionPolicy {
   /**
+     * Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.
      * @minimum 30
      * @maximum 3650
      */
@@ -1484,7 +1485,8 @@ export interface RetentionPolicy {
      */
   notificationHistoryDays: number;
   /**
-     * @minimum 365
+     * Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA's documentation retention minimum; a stored value below the floor reads as the floor.
+     * @minimum 2190
      * @maximum 3650
      */
   auditEventDays: number;
@@ -1506,6 +1508,12 @@ export interface RetentionPolicy {
      * @maximum 3650
      */
   webhookEventDays: number;
+  /**
+     * Days a patient's clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.
+     * @minimum 1825
+     * @maximum 3650
+     */
+  clinicalRecordDays: number;
 }
 
 export interface PolicySectionChange {

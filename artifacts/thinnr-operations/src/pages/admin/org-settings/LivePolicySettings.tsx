@@ -358,6 +358,7 @@ interface RetentionDraft {
   jobRunDays: number;
   signInDays: number;
   webhookEventDays: number;
+  clinicalRecordDays: number;
   exportLinkHours: number;
 }
 const retentionFrom = (s: HqOrganizationSettings): RetentionDraft => ({ ...s.retention, exportLinkHours: s.exportLinkHours });
@@ -370,6 +371,7 @@ const retentionPayload = (d: RetentionDraft): HqOrganizationSettingsInput => ({
     jobRunDays: d.jobRunDays,
     signInDays: d.signInDays,
     webhookEventDays: d.webhookEventDays,
+    clinicalRecordDays: d.clinicalRecordDays,
   },
   exportLinkHours: d.exportLinkHours,
 });
@@ -557,11 +559,11 @@ export function LivePolicySettings() {
         settings={settings}
         fromSettings={retentionFrom}
         toPayload={retentionPayload}
-        incomplete={(draft) => numbersComplete([draft.chatTranscriptDays, draft.progressPhotoDays, draft.notificationHistoryDays, draft.auditEventDays, draft.jobRunDays, draft.signInDays, draft.webhookEventDays, draft.exportLinkHours])}
+        incomplete={(draft) => numbersComplete([draft.chatTranscriptDays, draft.progressPhotoDays, draft.notificationHistoryDays, draft.auditEventDays, draft.jobRunDays, draft.signInDays, draft.webhookEventDays, draft.clinicalRecordDays, draft.exportLinkHours])}
       >
         {(draft, setDraft) => (
           <>
-            <FieldRow label="Chat transcripts" help="Coach and support conversations.">
+            <FieldRow label="Chat transcripts" help="AI coach and support conversations. Messages between patients and staff (care team) are never on this timer.">
               <NumberField id="input-policy-retention-chat" label="Chat transcript retention days" value={draft.chatTranscriptDays} bounds={POLICY_BOUNDS.chatTranscriptDays} unit="days" onChange={(chatTranscriptDays) => setDraft({ chatTranscriptDays })} />
             </FieldRow>
             <FieldRow label="Progress photos" help="Patient photo check-ins and guided photo sessions.">
@@ -570,7 +572,7 @@ export function LivePolicySettings() {
             <FieldRow label="Notification history" help="Delivery records for every push notification.">
               <NumberField id="input-policy-retention-notifications" label="Notification history retention days" value={draft.notificationHistoryDays} bounds={POLICY_BOUNDS.notificationHistoryDays} unit="days" onChange={(notificationHistoryDays) => setDraft({ notificationHistoryDays })} />
             </FieldRow>
-            <FieldRow label="Audit events" help="Staff and HQ audit trail. At least one year.">
+            <FieldRow label="Audit events" help="Staff and HQ audit trail. At least six years (2,190 days): HIPAA's minimum for compliance documentation. A saved value below the floor reads as the floor.">
               <NumberField id="input-policy-retention-audit" label="Audit event retention days" value={draft.auditEventDays} bounds={POLICY_BOUNDS.auditEventDays} unit="days" onChange={(auditEventDays) => setDraft({ auditEventDays })} />
             </FieldRow>
             <FieldRow label="Job run history" help="System health run ledger. The latest 50 runs of every job are always kept.">
@@ -581,6 +583,9 @@ export function LivePolicySettings() {
             </FieldRow>
             <FieldRow label="Webhook events" help="Processed Stripe webhook records. Unprocessed or failed events are always kept.">
               <NumberField id="input-policy-retention-webhook-events" label="Webhook event retention days" value={draft.webhookEventDays} bounds={POLICY_BOUNDS.webhookEventDays} unit="days" onChange={(webhookEventDays) => setDraft({ webhookEventDays })} />
+            </FieldRow>
+            <FieldRow label="Clinical record retention" help="How long a patient's clinical record (weights, medications, labs, photos, care-team messages, orders) is kept after their account is closed or their office is offboarded. Between five and ten years; seven covers most states. Open accounts are never on this timer.">
+              <NumberField id="input-policy-retention-clinical-record" label="Clinical record retention days" value={draft.clinicalRecordDays} bounds={POLICY_BOUNDS.clinicalRecordDays} unit="days" onChange={(clinicalRecordDays) => setDraft({ clinicalRecordDays })} />
             </FieldRow>
             <FieldRow label="Export link lifetime" help="How long a finished export can be downloaded before its link expires." last>
               <NumberField id="input-policy-export-hours" label="Export link lifetime hours" value={draft.exportLinkHours} bounds={POLICY_BOUNDS.exportLinkHours} unit="hours" onChange={(exportLinkHours) => setDraft({ exportLinkHours })} />

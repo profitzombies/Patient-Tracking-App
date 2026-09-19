@@ -26,6 +26,7 @@ const migrationNames = [
   "20261019010000_coach_title_requeue.sql",
   "20261020000000_hq_file_size_limit.sql",
   "20261027000000_ledger_retention.sql",
+  "20261106000000_clinical_record_retention.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -132,6 +133,16 @@ await query(`
        or to_regprocedure('public.retention_trim_job_runs(timestamptz,integer,integer,boolean)') is null
        or to_regprocedure('public.retention_trim_sign_ins(timestamptz,timestamptz,integer,boolean)') is null
        or to_regprocedure('public.retention_trim_billing_webhook_events(timestamptz,integer,boolean)') is null
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema='public' and table_name='hq_organization_settings' and column_name='retention_clinical_record_days'
+       )
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.hq_organization_settings'::regclass
+            and conname = 'hq_organization_settings_retention_audit_days_check'
+            and pg_get_constraintdef(oid) like '%2190%'
+       )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

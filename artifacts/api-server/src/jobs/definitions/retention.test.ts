@@ -56,6 +56,7 @@ const policy = (retention: RetentionOverrides = {}) => ({
     jobRunDays: 90,
     signInDays: 180,
     webhookEventDays: 365,
+    clinicalRecordDays: 2555,
     ...retention,
   },
 });

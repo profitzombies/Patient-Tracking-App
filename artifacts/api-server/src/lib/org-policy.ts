@@ -12,6 +12,11 @@
 import { supabaseAdmin } from "./supabase-admin";
 
 export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention"] as const;
+
+/** 6 years: HIPAA's minimum for compliance documentation and the audit trail. */
+export const AUDIT_EVENT_RETENTION_FLOOR_DAYS = 2190;
+/** 5 years: the shortest state medical-record window; default is 7 years. */
+export const CLINICAL_RECORD_RETENTION_FLOOR_DAYS = 1825;
 export type PolicySection = (typeof POLICY_SECTIONS)[number];
 
 export interface QuietHoursWindow {
@@ -36,6 +41,12 @@ export interface RetentionPolicy {
   signInDays: number;
   /** Processed Stripe webhook event rows (unprocessed or failed rows are always kept). */
   webhookEventDays: number;
+  /**
+   * How long a patient's clinical record is kept after the account is closed
+   * or the office is offboarded. Nothing deletes on this timer here: the
+   * closure and offboarding flows read it. Floor 5 years, ceiling 10.
+   */
+  clinicalRecordDays: number;
 }
 
 export interface OrgPolicy {
@@ -87,7 +98,15 @@ export const FIELD_SECTIONS = {
 } as const satisfies Record<Exclude<keyof OrgPolicy, "version" | "updatedAt">, PolicySection>;
 export type PolicyField = keyof typeof FIELD_SECTIONS;
 
-/** Inclusive server-side bounds; the schema carries the same CHECKs. */
+/**
+ * Inclusive server-side bounds; the schema carries the same CHECKs.
+ *
+ * Two of these are compliance floors, not tuning ranges: audit events must be
+ * kept at least 6 years (HIPAA's documentation retention minimum, 45 CFR
+ * 164.316(b)(2)) and the clinical record at least 5 years (the shortest state
+ * medical-record window served). Stored values below a floor are raised on
+ * read (`policyFromRow`) so a legacy row can never shorten the window.
+ */
 export const POLICY_BOUNDS = {
   outreachCooldownDays: { min: 1, max: 90 },
   outreachDailyCap: { min: 1, max: 10000 },
@@ -95,10 +114,11 @@ export const POLICY_BOUNDS = {
   chatTranscriptDays: { min: 30, max: 3650 },
   progressPhotoDays: { min: 30, max: 3650 },
   notificationHistoryDays: { min: 7, max: 3650 },
-  auditEventDays: { min: 365, max: 3650 },
+  auditEventDays: { min: AUDIT_EVENT_RETENTION_FLOOR_DAYS, max: 3650 },
   jobRunDays: { min: 7, max: 3650 },
   signInDays: { min: 30, max: 3650 },
   webhookEventDays: { min: 30, max: 3650 },
+  clinicalRecordDays: { min: CLINICAL_RECORD_RETENTION_FLOOR_DAYS, max: 3650 },
   exportLinkHours: { min: 1, max: 168 },
 } as const;
 
@@ -124,6 +144,7 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
     jobRunDays: 90,
     signInDays: 180,
     webhookEventDays: 365,
+    clinicalRecordDays: 2555,
   },
   exportLinkHours: 24,
   version: 1,
@@ -144,11 +165,15 @@ export const SETTINGS_SELECT =
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
-  "export_link_hours,section_changes";
+  "retention_clinical_record_days,export_link_hours,section_changes";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isInteger(n) ? n : fallback;
+}
+/** A compliance floor: a stored value below it reads as the floor itself. */
+function floored(value: unknown, fallback: number, bounds: { min: number }): number {
+  return Math.max(int(value, fallback), bounds.min);
 }
 function text(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
@@ -183,10 +208,11 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       chatTranscriptDays: int(row.retention_chat_days, d.retention.chatTranscriptDays),
       progressPhotoDays: int(row.retention_photo_days, d.retention.progressPhotoDays),
       notificationHistoryDays: int(row.retention_notification_days, d.retention.notificationHistoryDays),
-      auditEventDays: int(row.retention_audit_days, d.retention.auditEventDays),
+      auditEventDays: floored(row.retention_audit_days, d.retention.auditEventDays, POLICY_BOUNDS.auditEventDays),
       jobRunDays: int(row.retention_job_run_days, d.retention.jobRunDays),
       signInDays: int(row.retention_sign_in_days, d.retention.signInDays),
       webhookEventDays: int(row.retention_webhook_event_days, d.retention.webhookEventDays),
+      clinicalRecordDays: floored(row.retention_clinical_record_days, d.retention.clinicalRecordDays, POLICY_BOUNDS.clinicalRecordDays),
     },
     exportLinkHours: int(row.export_link_hours, d.exportLinkHours),
     version: int(row.version, 1),
@@ -239,6 +265,7 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     retention_job_run_days: policy.retention.jobRunDays,
     retention_sign_in_days: policy.retention.signInDays,
     retention_webhook_event_days: policy.retention.webhookEventDays,
+    retention_clinical_record_days: policy.retention.clinicalRecordDays,
     export_link_hours: policy.exportLinkHours,
   };
 }

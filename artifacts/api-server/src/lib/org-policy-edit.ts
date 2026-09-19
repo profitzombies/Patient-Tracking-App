@@ -140,6 +140,7 @@ export function mergePolicyInput(
     ["jobRunDays", input.retention?.jobRunDays, v => { next.retention.jobRunDays = v; }, "Job run history retention"],
     ["signInDays", input.retention?.signInDays, v => { next.retention.signInDays = v; }, "Sign-in history retention"],
     ["webhookEventDays", input.retention?.webhookEventDays, v => { next.retention.webhookEventDays = v; }, "Webhook event retention"],
+    ["clinicalRecordDays", input.retention?.clinicalRecordDays, v => { next.retention.clinicalRecordDays = v; }, "Clinical record retention"],
   ];
   for (const [key, value, set, label] of ints) {
     if (value === undefined) continue;

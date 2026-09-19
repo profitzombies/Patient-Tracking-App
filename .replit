@@ -316,6 +316,10 @@ args = "warehouse-status-web"
 task = "workflow.run"
 args = "warehouse-status-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "retention-floors"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2318,6 +2322,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "retention-floors"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/hq-org-policy.test.ts src/privacy/coach-lifecycle.sql.test.ts src/jobs/definitions/retention.test.ts src/jobs/ledger-retention.sql.test.ts && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

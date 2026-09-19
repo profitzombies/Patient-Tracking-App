@@ -596,13 +596,14 @@ export default function OfficeSettings() {
           </SectionCard>
 
           <SectionCard title="Data retention & exports" sub="How long each record class is kept, and how long a download link stays valid.">
-            <PolicyRow label="Chat transcripts" value={describeDays(data.hq.retention.chatTranscriptDays)} testId="policy-retention-chat" />
+            <PolicyRow label="Chat transcripts" value={describeDays(data.hq.retention.chatTranscriptDays)} help="AI coach and support conversations only. Your messages with patients are never on this timer." testId="policy-retention-chat" />
             <PolicyRow label="Progress photos" value={describeDays(data.hq.retention.progressPhotoDays)} testId="policy-retention-photos" />
             <PolicyRow label="Notification history" value={describeDays(data.hq.retention.notificationHistoryDays)} testId="policy-retention-notifications" />
-            <PolicyRow label="Audit events" value={describeDays(data.hq.retention.auditEventDays)} testId="policy-retention-audit" />
+            <PolicyRow label="Audit events" value={describeDays(data.hq.retention.auditEventDays)} help="Never less than six years." testId="policy-retention-audit" />
             <PolicyRow label="Job run history" value={describeDays(data.hq.retention.jobRunDays)} testId="policy-retention-job-runs" />
             <PolicyRow label="Sign-in history" value={describeDays(data.hq.retention.signInDays)} testId="policy-retention-sign-ins" />
             <PolicyRow label="Webhook events" value={describeDays(data.hq.retention.webhookEventDays)} testId="policy-retention-webhook-events" />
+            <PolicyRow label="Clinical record retention" value={describeDays(data.hq.retention.clinicalRecordDays)} help="How long a patient's clinical record is kept after their account is closed or an office is offboarded. Open accounts are never on this timer." testId="policy-retention-clinical-record" />
             <PolicyRow label="Export link lifetime" value={describeHours(data.hq.exportLinkHours)} testId="policy-export-hours" last />
           </SectionCard>
         </div>

@@ -3667,7 +3667,7 @@ export const getHqSettingsResponseRetentionProgressPhotoDaysMax = 3650;
 export const getHqSettingsResponseRetentionNotificationHistoryDaysMin = 7;
 export const getHqSettingsResponseRetentionNotificationHistoryDaysMax = 3650;
 
-export const getHqSettingsResponseRetentionAuditEventDaysMin = 365;
+export const getHqSettingsResponseRetentionAuditEventDaysMin = 2190;
 export const getHqSettingsResponseRetentionAuditEventDaysMax = 3650;
 
 export const getHqSettingsResponseRetentionJobRunDaysMin = 7;
@@ -3678,6 +3678,9 @@ export const getHqSettingsResponseRetentionSignInDaysMax = 3650;
 
 export const getHqSettingsResponseRetentionWebhookEventDaysMin = 30;
 export const getHqSettingsResponseRetentionWebhookEventDaysMax = 3650;
+
+export const getHqSettingsResponseRetentionClinicalRecordDaysMin = 1825;
+export const getHqSettingsResponseRetentionClinicalRecordDaysMax = 3650;
 
 
 
@@ -3703,13 +3706,14 @@ export const GetHqSettingsResponse = zod.object({
   "outreachDailyCap": zod.number(),
   "conversationAutoCloseDays": zod.number(),
   "retention": zod.object({
-  "chatTranscriptDays": zod.number().min(getHqSettingsResponseRetentionChatTranscriptDaysMin).max(getHqSettingsResponseRetentionChatTranscriptDaysMax),
+  "chatTranscriptDays": zod.number().min(getHqSettingsResponseRetentionChatTranscriptDaysMin).max(getHqSettingsResponseRetentionChatTranscriptDaysMax).describe('Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.'),
   "progressPhotoDays": zod.number().min(getHqSettingsResponseRetentionProgressPhotoDaysMin).max(getHqSettingsResponseRetentionProgressPhotoDaysMax),
   "notificationHistoryDays": zod.number().min(getHqSettingsResponseRetentionNotificationHistoryDaysMin).max(getHqSettingsResponseRetentionNotificationHistoryDaysMax),
-  "auditEventDays": zod.number().min(getHqSettingsResponseRetentionAuditEventDaysMin).max(getHqSettingsResponseRetentionAuditEventDaysMax),
+  "auditEventDays": zod.number().min(getHqSettingsResponseRetentionAuditEventDaysMin).max(getHqSettingsResponseRetentionAuditEventDaysMax).describe('Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA\'s documentation retention minimum; a stored value below the floor reads as the floor.'),
   "jobRunDays": zod.number().min(getHqSettingsResponseRetentionJobRunDaysMin).max(getHqSettingsResponseRetentionJobRunDaysMax).describe('Days of system job run history kept; the latest 50 runs per job are always kept.'),
   "signInDays": zod.number().min(getHqSettingsResponseRetentionSignInDaysMin).max(getHqSettingsResponseRetentionSignInDaysMax).describe('Days of sign-in history kept; each account\'s latest active session is always kept.'),
-  "webhookEventDays": zod.number().min(getHqSettingsResponseRetentionWebhookEventDaysMin).max(getHqSettingsResponseRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.')
+  "webhookEventDays": zod.number().min(getHqSettingsResponseRetentionWebhookEventDaysMin).max(getHqSettingsResponseRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
+  "clinicalRecordDays": zod.number().min(getHqSettingsResponseRetentionClinicalRecordDaysMin).max(getHqSettingsResponseRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
   "version": zod.number(),
@@ -3780,7 +3784,7 @@ export const updateHqSettingsBodyRetentionProgressPhotoDaysMax = 3650;
 export const updateHqSettingsBodyRetentionNotificationHistoryDaysMin = 7;
 export const updateHqSettingsBodyRetentionNotificationHistoryDaysMax = 3650;
 
-export const updateHqSettingsBodyRetentionAuditEventDaysMin = 365;
+export const updateHqSettingsBodyRetentionAuditEventDaysMin = 2190;
 export const updateHqSettingsBodyRetentionAuditEventDaysMax = 3650;
 
 export const updateHqSettingsBodyRetentionJobRunDaysMin = 7;
@@ -3791,6 +3795,9 @@ export const updateHqSettingsBodyRetentionSignInDaysMax = 3650;
 
 export const updateHqSettingsBodyRetentionWebhookEventDaysMin = 30;
 export const updateHqSettingsBodyRetentionWebhookEventDaysMax = 3650;
+
+export const updateHqSettingsBodyRetentionClinicalRecordDaysMin = 1825;
+export const updateHqSettingsBodyRetentionClinicalRecordDaysMax = 3650;
 
 export const updateHqSettingsBodyExportLinkHoursMax = 168;
 
@@ -3819,13 +3826,14 @@ export const UpdateHqSettingsBody = zod.object({
   "outreachDailyCap": zod.number().min(1).max(updateHqSettingsBodyOutreachDailyCapMax).optional(),
   "conversationAutoCloseDays": zod.number().min(1).max(updateHqSettingsBodyConversationAutoCloseDaysMax).optional(),
   "retention": zod.object({
-  "chatTranscriptDays": zod.number().min(updateHqSettingsBodyRetentionChatTranscriptDaysMin).max(updateHqSettingsBodyRetentionChatTranscriptDaysMax),
+  "chatTranscriptDays": zod.number().min(updateHqSettingsBodyRetentionChatTranscriptDaysMin).max(updateHqSettingsBodyRetentionChatTranscriptDaysMax).describe('Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.'),
   "progressPhotoDays": zod.number().min(updateHqSettingsBodyRetentionProgressPhotoDaysMin).max(updateHqSettingsBodyRetentionProgressPhotoDaysMax),
   "notificationHistoryDays": zod.number().min(updateHqSettingsBodyRetentionNotificationHistoryDaysMin).max(updateHqSettingsBodyRetentionNotificationHistoryDaysMax),
-  "auditEventDays": zod.number().min(updateHqSettingsBodyRetentionAuditEventDaysMin).max(updateHqSettingsBodyRetentionAuditEventDaysMax),
+  "auditEventDays": zod.number().min(updateHqSettingsBodyRetentionAuditEventDaysMin).max(updateHqSettingsBodyRetentionAuditEventDaysMax).describe('Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA\'s documentation retention minimum; a stored value below the floor reads as the floor.'),
   "jobRunDays": zod.number().min(updateHqSettingsBodyRetentionJobRunDaysMin).max(updateHqSettingsBodyRetentionJobRunDaysMax).describe('Days of system job run history kept; the latest 50 runs per job are always kept.'),
   "signInDays": zod.number().min(updateHqSettingsBodyRetentionSignInDaysMin).max(updateHqSettingsBodyRetentionSignInDaysMax).describe('Days of sign-in history kept; each account\'s latest active session is always kept.'),
-  "webhookEventDays": zod.number().min(updateHqSettingsBodyRetentionWebhookEventDaysMin).max(updateHqSettingsBodyRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.')
+  "webhookEventDays": zod.number().min(updateHqSettingsBodyRetentionWebhookEventDaysMin).max(updateHqSettingsBodyRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
+  "clinicalRecordDays": zod.number().min(updateHqSettingsBodyRetentionClinicalRecordDaysMin).max(updateHqSettingsBodyRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }).optional(),
   "exportLinkHours": zod.number().min(1).max(updateHqSettingsBodyExportLinkHoursMax).optional()
 })
@@ -3841,7 +3849,7 @@ export const updateHqSettingsResponseRetentionProgressPhotoDaysMax = 3650;
 export const updateHqSettingsResponseRetentionNotificationHistoryDaysMin = 7;
 export const updateHqSettingsResponseRetentionNotificationHistoryDaysMax = 3650;
 
-export const updateHqSettingsResponseRetentionAuditEventDaysMin = 365;
+export const updateHqSettingsResponseRetentionAuditEventDaysMin = 2190;
 export const updateHqSettingsResponseRetentionAuditEventDaysMax = 3650;
 
 export const updateHqSettingsResponseRetentionJobRunDaysMin = 7;
@@ -3852,6 +3860,9 @@ export const updateHqSettingsResponseRetentionSignInDaysMax = 3650;
 
 export const updateHqSettingsResponseRetentionWebhookEventDaysMin = 30;
 export const updateHqSettingsResponseRetentionWebhookEventDaysMax = 3650;
+
+export const updateHqSettingsResponseRetentionClinicalRecordDaysMin = 1825;
+export const updateHqSettingsResponseRetentionClinicalRecordDaysMax = 3650;
 
 
 
@@ -3877,13 +3888,14 @@ export const UpdateHqSettingsResponse = zod.object({
   "outreachDailyCap": zod.number(),
   "conversationAutoCloseDays": zod.number(),
   "retention": zod.object({
-  "chatTranscriptDays": zod.number().min(updateHqSettingsResponseRetentionChatTranscriptDaysMin).max(updateHqSettingsResponseRetentionChatTranscriptDaysMax),
+  "chatTranscriptDays": zod.number().min(updateHqSettingsResponseRetentionChatTranscriptDaysMin).max(updateHqSettingsResponseRetentionChatTranscriptDaysMax).describe('Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.'),
   "progressPhotoDays": zod.number().min(updateHqSettingsResponseRetentionProgressPhotoDaysMin).max(updateHqSettingsResponseRetentionProgressPhotoDaysMax),
   "notificationHistoryDays": zod.number().min(updateHqSettingsResponseRetentionNotificationHistoryDaysMin).max(updateHqSettingsResponseRetentionNotificationHistoryDaysMax),
-  "auditEventDays": zod.number().min(updateHqSettingsResponseRetentionAuditEventDaysMin).max(updateHqSettingsResponseRetentionAuditEventDaysMax),
+  "auditEventDays": zod.number().min(updateHqSettingsResponseRetentionAuditEventDaysMin).max(updateHqSettingsResponseRetentionAuditEventDaysMax).describe('Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA\'s documentation retention minimum; a stored value below the floor reads as the floor.'),
   "jobRunDays": zod.number().min(updateHqSettingsResponseRetentionJobRunDaysMin).max(updateHqSettingsResponseRetentionJobRunDaysMax).describe('Days of system job run history kept; the latest 50 runs per job are always kept.'),
   "signInDays": zod.number().min(updateHqSettingsResponseRetentionSignInDaysMin).max(updateHqSettingsResponseRetentionSignInDaysMax).describe('Days of sign-in history kept; each account\'s latest active session is always kept.'),
-  "webhookEventDays": zod.number().min(updateHqSettingsResponseRetentionWebhookEventDaysMin).max(updateHqSettingsResponseRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.')
+  "webhookEventDays": zod.number().min(updateHqSettingsResponseRetentionWebhookEventDaysMin).max(updateHqSettingsResponseRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
+  "clinicalRecordDays": zod.number().min(updateHqSettingsResponseRetentionClinicalRecordDaysMin).max(updateHqSettingsResponseRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
   "version": zod.number(),
@@ -3936,7 +3948,7 @@ export const getOfficeSettingsResponseHqRetentionProgressPhotoDaysMax = 3650;
 export const getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMin = 7;
 export const getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMax = 3650;
 
-export const getOfficeSettingsResponseHqRetentionAuditEventDaysMin = 365;
+export const getOfficeSettingsResponseHqRetentionAuditEventDaysMin = 2190;
 export const getOfficeSettingsResponseHqRetentionAuditEventDaysMax = 3650;
 
 export const getOfficeSettingsResponseHqRetentionJobRunDaysMin = 7;
@@ -3947,6 +3959,9 @@ export const getOfficeSettingsResponseHqRetentionSignInDaysMax = 3650;
 
 export const getOfficeSettingsResponseHqRetentionWebhookEventDaysMin = 30;
 export const getOfficeSettingsResponseHqRetentionWebhookEventDaysMax = 3650;
+
+export const getOfficeSettingsResponseHqRetentionClinicalRecordDaysMin = 1825;
+export const getOfficeSettingsResponseHqRetentionClinicalRecordDaysMax = 3650;
 
 export const getOfficeSettingsResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -3981,13 +3996,14 @@ export const GetOfficeSettingsResponse = zod.object({
   "outreachDailyCap": zod.number(),
   "conversationAutoCloseDays": zod.number(),
   "retention": zod.object({
-  "chatTranscriptDays": zod.number().min(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMin).max(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMax),
+  "chatTranscriptDays": zod.number().min(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMin).max(getOfficeSettingsResponseHqRetentionChatTranscriptDaysMax).describe('Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.'),
   "progressPhotoDays": zod.number().min(getOfficeSettingsResponseHqRetentionProgressPhotoDaysMin).max(getOfficeSettingsResponseHqRetentionProgressPhotoDaysMax),
   "notificationHistoryDays": zod.number().min(getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMin).max(getOfficeSettingsResponseHqRetentionNotificationHistoryDaysMax),
-  "auditEventDays": zod.number().min(getOfficeSettingsResponseHqRetentionAuditEventDaysMin).max(getOfficeSettingsResponseHqRetentionAuditEventDaysMax),
+  "auditEventDays": zod.number().min(getOfficeSettingsResponseHqRetentionAuditEventDaysMin).max(getOfficeSettingsResponseHqRetentionAuditEventDaysMax).describe('Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA\'s documentation retention minimum; a stored value below the floor reads as the floor.'),
   "jobRunDays": zod.number().min(getOfficeSettingsResponseHqRetentionJobRunDaysMin).max(getOfficeSettingsResponseHqRetentionJobRunDaysMax).describe('Days of system job run history kept; the latest 50 runs per job are always kept.'),
   "signInDays": zod.number().min(getOfficeSettingsResponseHqRetentionSignInDaysMin).max(getOfficeSettingsResponseHqRetentionSignInDaysMax).describe('Days of sign-in history kept; each account\'s latest active session is always kept.'),
-  "webhookEventDays": zod.number().min(getOfficeSettingsResponseHqRetentionWebhookEventDaysMin).max(getOfficeSettingsResponseHqRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.')
+  "webhookEventDays": zod.number().min(getOfficeSettingsResponseHqRetentionWebhookEventDaysMin).max(getOfficeSettingsResponseHqRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
+  "clinicalRecordDays": zod.number().min(getOfficeSettingsResponseHqRetentionClinicalRecordDaysMin).max(getOfficeSettingsResponseHqRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
   "version": zod.number(),
@@ -4207,7 +4223,7 @@ export const updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMa
 export const updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMin = 7;
 export const updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMax = 3650;
 
-export const updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin = 365;
+export const updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin = 2190;
 export const updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMax = 3650;
 
 export const updateOfficeSettingsOverridesResponseHqRetentionJobRunDaysMin = 7;
@@ -4218,6 +4234,9 @@ export const updateOfficeSettingsOverridesResponseHqRetentionSignInDaysMax = 365
 
 export const updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMin = 30;
 export const updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMax = 3650;
+
+export const updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMin = 1825;
+export const updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMax = 3650;
 
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4252,13 +4271,14 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "outreachDailyCap": zod.number(),
   "conversationAutoCloseDays": zod.number(),
   "retention": zod.object({
-  "chatTranscriptDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMax),
+  "chatTranscriptDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionChatTranscriptDaysMax).describe('Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.'),
   "progressPhotoDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionProgressPhotoDaysMax),
   "notificationHistoryDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionNotificationHistoryDaysMax),
-  "auditEventDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMax),
+  "auditEventDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionAuditEventDaysMax).describe('Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA\'s documentation retention minimum; a stored value below the floor reads as the floor.'),
   "jobRunDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionJobRunDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionJobRunDaysMax).describe('Days of system job run history kept; the latest 50 runs per job are always kept.'),
   "signInDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionSignInDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionSignInDaysMax).describe('Days of sign-in history kept; each account\'s latest active session is always kept.'),
-  "webhookEventDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.')
+  "webhookEventDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMax).describe('Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.'),
+  "clinicalRecordDays": zod.number().min(updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMin).max(updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMax).describe('Days a patient\'s clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.')
 }),
   "exportLinkHours": zod.number(),
   "version": zod.number(),

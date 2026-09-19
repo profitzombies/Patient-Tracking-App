@@ -3891,12 +3891,20 @@ components:
         officeReminders: { type: boolean }
     RetentionPolicy:
       type: object
-      required: [chatTranscriptDays, progressPhotoDays, notificationHistoryDays, auditEventDays, jobRunDays, signInDays, webhookEventDays]
+      required: [chatTranscriptDays, progressPhotoDays, notificationHistoryDays, auditEventDays, jobRunDays, signInDays, webhookEventDays, clinicalRecordDays]
       properties:
-        chatTranscriptDays: { type: number, minimum: 30, maximum: 3650 }
+        chatTranscriptDays:
+          type: number
+          minimum: 30
+          maximum: 3650
+          description: Days AI coach and support transcripts are kept. Staff-patient (care team) messages are never on this timer.
         progressPhotoDays: { type: number, minimum: 30, maximum: 3650 }
         notificationHistoryDays: { type: number, minimum: 7, maximum: 3650 }
-        auditEventDays: { type: number, minimum: 365, maximum: 3650 }
+        auditEventDays:
+          type: number
+          minimum: 2190
+          maximum: 3650
+          description: Days audit events are kept in detail before monthly summarization. Floor 6 years (2,190 days), HIPAA's documentation retention minimum; a stored value below the floor reads as the floor.
         jobRunDays:
           type: number
           minimum: 7
@@ -3912,6 +3920,11 @@ components:
           minimum: 30
           maximum: 3650
           description: Days processed Stripe webhook event rows are kept; unprocessed or failed rows are always kept.
+        clinicalRecordDays:
+          type: number
+          minimum: 1825
+          maximum: 3650
+          description: Days a patient's clinical record is kept after account closure or office offboarding. Default 7 years (2,555 days), allowed 5-10 years. Read by the closure and offboarding flows; nothing deletes on it elsewhere.
     PolicySectionChange:
       type: object
       required: [changedAt, changedBy, changedByName]

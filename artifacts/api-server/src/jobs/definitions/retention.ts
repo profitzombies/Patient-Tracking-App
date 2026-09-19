@@ -4,8 +4,9 @@
  * that could trim too eagerly), derives its cutoff from the run's `now`, and
  * calls a batched SQL function that honours dry runs itself.
  *
- *   retention-chat            patient chat messages (+ emptied conversations
- *                             and unreferenced chat photos)
+ *   retention-chat            AI coach + support chat messages (+ emptied
+ *                             conversations and unreferenced chat photos);
+ *                             care-team threads are never touched
  *   retention-notifications   terminal notification rows
  *   retention-audit           audit events → compact monthly summaries, then
  *                             deleted (the only delete path the append-only
@@ -211,7 +212,7 @@ export async function sweepSessionRevocations(ctx: JobContext): Promise<void> {
 export const retentionChatJob: JobDefinition = {
   name: "retention-chat",
   title: "Chat transcript retention",
-  description: "Removes patient coach-chat messages older than the organization's chat transcript retention period, along with emptied conversations and their unreferenced photos.",
+  description: "Removes AI coach and support chat messages older than the organization's chat transcript retention period, along with emptied conversations and their unreferenced photos. Staff-patient (care team) messages are never on this timer.",
   intervalMs: 24 * HOUR_MS,
   leaseSeconds: 30 * 60,
   run: trimChatTranscripts,

@@ -20,6 +20,10 @@ vi.mock("../lib/supabase-admin", () => ({
 }));
 vi.mock("../lib/objectStorage", () => ({
   objectStorage: {
+    async deleteObjectStrict(path: string) {
+      if (mocks.failStorage) throw mocks.failStorage;
+      mocks.storage.delete(path);
+    },
     async deletePrefixStrict(prefix: string) {
       if (mocks.failStorage) throw mocks.failStorage;
       let n = 0;
@@ -38,6 +42,7 @@ import {
   patientStoragePrefix,
   retryDelaySeconds,
   runPurge,
+  runClosure,
   type DeletionRequestRow,
   type PurgeDeps,
 } from "./purge";
@@ -57,6 +62,8 @@ function request(overrides: Partial<DeletionRequestRow> = {}): DeletionRequestRo
     cancelled_at: null,
     started_at: "2026-09-08T00:00:01.000Z",
     purged_at: null,
+    closed_at: null,
+    retain_until: null,
     attempts: 1,
     next_attempt_at: null,
     lease_owner: "w",
@@ -76,6 +83,18 @@ function deps(overrides: Partial<PurgeDeps> = {}) {
     cancelBillingSubscriptions: vi.fn(async () => { calls.push("billingSubscriptions"); return 2; }),
     scrubBillingCustomers: vi.fn(async () => { calls.push("billingCustomers"); return 1; }),
     deleteStoragePrefix: vi.fn(async () => { calls.push("storage"); return 3; }),
+    deleteStorageObjects: vi.fn(async (paths) => { calls.push("storageObjects"); return paths.length; }),
+    closeRows: vi.fn(async () => {
+      calls.push("closeRows");
+      return {
+        tables: { patient_diary_entries: 2 },
+        mediaPaths: ["/objects/patient-media/one/food-a"],
+        authUserId: "auth-1",
+        closedAt: "2026-09-08T00:00:05.000Z",
+        retainUntil: "2033-09-06T00:00:05.000Z",
+        alreadyClosed: false,
+      };
+    }),
     purgeRows: vi.fn(async () => { calls.push("rows"); return { patientRowDeleted: true, tombstone: true, analyticsDetached: 2, tables: { patient_diary_entries: 4, patient_media: 1 }, authUserId: "auth-1" }; }),
     deleteAuthUser: vi.fn(async () => { calls.push("auth"); return "deleted" as const; }),
     finish,
@@ -183,6 +202,40 @@ describe("runPurge", () => {
       audit: vi.fn(async () => { throw new Error("audit down"); }),
     });
     await expect(runPurge(request(), d)).resolves.toBe("failed");
+  });
+});
+
+describe("runClosure", () => {
+  it("cancels billing, closes rows, deletes only returned objects, then deletes auth", async () => {
+    const { d, calls, finish, audit } = deps();
+    expect(await runClosure(request({ status: "closing" }), d)).toBe("closed");
+    expect(calls).toEqual([
+      "billingSubscriptions",
+      "billingCustomers",
+      "closeRows",
+      "storageObjects",
+      "auth",
+      "finish",
+      "audit",
+    ]);
+    expect(d.deleteStorageObjects).toHaveBeenCalledWith(["/objects/patient-media/one/food-a"]);
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ status: "closed" }));
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "patient_account_closed" }));
+  });
+
+  it("records a pre-seal closure failure for retry without running later steps", async () => {
+    const failed = deps({
+      closeRows: vi.fn(async () => {
+        throw new Error("database unavailable");
+      }),
+    });
+    expect(await runClosure(request({ status: "closing", closed_at: null }), failed.d)).toBe("failed");
+    expect(failed.d.deleteStorageObjects).not.toHaveBeenCalled();
+    expect(failed.d.deleteAuthUser).not.toHaveBeenCalled();
+    expect(failed.finish).toHaveBeenCalledWith(expect.objectContaining({
+      status: "failed",
+      error: "rows: database unavailable",
+    }));
   });
 });
 

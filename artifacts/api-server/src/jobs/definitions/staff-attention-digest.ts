@@ -42,7 +42,7 @@ function ok(result: { status: number }, label: string) {
 export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
   const [providersResult, activeResult, org] = await Promise.all([
     supabaseAdmin("GET", "/rest/v1/providers?access_disabled=eq.false&select=provider_id,provider_name,email,auth_user_id&limit=5000"),
-    supabaseAdmin("GET", "/rest/v1/patients?activation_status=eq.activated&select=provider_id&limit=10000"),
+    supabaseAdmin("GET", "/rest/v1/patients?activation_status=eq.activated&archived_at=is.null&select=provider_id&limit=10000"),
     loadOrgPolicy({ fresh: true }),
   ]);
   ok(providersResult, "staff digest provider scan"); ok(activeResult, "staff digest patient scan");

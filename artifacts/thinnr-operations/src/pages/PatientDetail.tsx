@@ -130,6 +130,7 @@ function DemoPatientDetail() {
   const [subscriptionStatus, setSubscriptionStatus] = useState(subscription?.status ?? "active");
   const [manageOpen, setManageOpen] = useState(false);
   const noteSequenceRef = useRef(0);
+  const sealed = patient?.closure ?? null;
 
   useEffect(() => {
     setProfile({ email: patient?.email ?? "", phone: patient?.phone ?? "" });
@@ -209,9 +210,10 @@ function DemoPatientDetail() {
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{profile.email}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{profile.phone}</span></div>
             </div>
           </div>
-          <div className="flex gap-2"><button type="button" disabled className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button><button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button></div>
+          {!sealed && <div className="flex gap-2"><button type="button" disabled className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button><button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button></div>}
         </div>
-        {isEditing && <form className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary p-4 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); setIsEditing(false); toast({ variant: "success", title: "Patient profile updated", description: "The synthetic record was updated for this session." }); }}>
+        {sealed && <p role="status" data-testid="patient-closure-banner" className="mt-5 rounded-md border border-border bg-secondary px-4 py-3 text-sm font-semibold text-navy">Account closed on {formatDate(sealed.closedAt, true)}; record retained until {formatDate(sealed.recordRetainUntil, true)}</p>}
+        {!sealed && isEditing && <form className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary p-4 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(event) => { event.preventDefault(); setIsEditing(false); toast({ variant: "success", title: "Patient profile updated", description: "The synthetic record was updated for this session." }); }}>
           <label className={PANEL_LABEL}>Email<input type="email" required value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} className={`${INPUT_CLASS} mt-1 block h-9 w-full`} /></label>
           <label className={PANEL_LABEL}>Phone<input type="tel" required value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} className={`${INPUT_CLASS} mt-1 block h-9 w-full`} /></label>
           <button className={`${BTN_PRIMARY} h-9 self-end px-4`}>Save changes</button>
@@ -236,10 +238,10 @@ function DemoPatientDetail() {
           <SectionCard
             title="Weight trend"
             sub="Logged history from enrollment through the latest reading — full record, independent of the selected range."
-            action={<button onClick={() => setWeightEntryOpen((open) => !open)} className={`${BTN_SECONDARY} h-8 px-3`}>{weightEntryOpen ? "Cancel" : "Log weight"}</button>}
+            action={!sealed ? <button onClick={() => setWeightEntryOpen((open) => !open)} className={`${BTN_SECONDARY} h-8 px-3`}>{weightEntryOpen ? "Cancel" : "Log weight"}</button> : undefined}
           >
             <div className="p-5">
-              {weightEntryOpen && <form className="mb-5 flex flex-col gap-2 rounded-md border border-border bg-secondary p-3 sm:flex-row sm:items-end" onSubmit={addWeight}><label className={`flex-1 ${PANEL_LABEL}`}>Current weight (lbs)<input type="number" min="50" max="800" step="0.1" required value={weightDraft} onChange={(event) => setWeightDraft(event.target.value)} className={`${INPUT_CLASS} mt-1 block h-9 w-full font-mono`} /></label><button className={`${BTN_PRIMARY} h-9 px-4`}>Add entry</button></form>}
+              {!sealed && weightEntryOpen && <form className="mb-5 flex flex-col gap-2 rounded-md border border-border bg-secondary p-3 sm:flex-row sm:items-end" onSubmit={addWeight}><label className={`flex-1 ${PANEL_LABEL}`}>Current weight (lbs)<input type="number" min="50" max="800" step="0.1" required value={weightDraft} onChange={(event) => setWeightDraft(event.target.value)} className={`${INPUT_CLASS} mt-1 block h-9 w-full font-mono`} /></label><button className={`${BTN_PRIMARY} h-9 px-4`}>Add entry</button></form>}
               <WeightTrend entries={sortedWeights} goalWeight={patient.goalWeight} startingWeight={patient.startingWeight} patientName={patient.name} />
               <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[460px] text-left text-xs"><caption className="sr-only">Logged weigh-ins for {patient.name}</caption><thead className="bg-secondary text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2 font-bold">Date</th><th className="px-3 py-2 font-bold">Weight</th><th className="px-3 py-2 font-bold">From baseline</th><th className="px-3 py-2 font-bold">To goal</th></tr></thead><tbody>{orderedWeights.map((entry, index) => { const loss = patient.startingWeight - entry.weight; const change = loss === 0 ? "Baseline" : loss > 0 ? `${loss.toFixed(1)} lbs lost` : `${Math.abs(loss).toFixed(1)} lbs above baseline`; return <tr key={`${entry.date}-${index}`} className="border-t border-border"><td className="px-3 py-2.5 text-muted-foreground">{formatDate(entry.date, true)}</td><td className="px-3 py-2.5 font-mono font-semibold text-navy">{entry.weight.toFixed(1)} lbs</td><td className="px-3 py-2.5 text-primary">{change}</td><td className="px-3 py-2.5 text-muted-foreground">{Math.max(0, entry.weight - patient.goalWeight).toFixed(1)} lbs</td></tr>; })}</tbody></table></div>
             </div>
@@ -248,7 +250,7 @@ function DemoPatientDetail() {
           <BodyMeasurementsCard
             visits={getBodyMeasurements(patient)}
             patientName={patient.name}
-            canEdit
+            canEdit={!sealed}
             todayKey={TODAY_KEY}
             onSave={async (draft) => {
               const visit: MeasurementVisit = { id: `visit-${Date.now()}-${Math.floor(Math.random() * 1e6)}`, ...draft, recordedByName: provider?.name ?? "Care team" };
@@ -272,7 +274,7 @@ function DemoPatientDetail() {
                   </ul>
                 ) : <p className="mt-2 text-xs text-muted-foreground">No care-summary notes recorded.</p>}
               </div>
-              {noteOpen ? <form className="mb-4 rounded-md border border-border bg-secondary p-3" onSubmit={addNote}><label className={PANEL_LABEL}>Internal note<textarea required value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Add a concise internal note" className={`${INPUT_CLASS} mt-1 min-h-20 w-full resize-y p-3`} /></label><div className="mt-2 flex items-center gap-3"><button className={`${BTN_PRIMARY} px-4 py-2`}>Save note</button><button type="button" onClick={() => setNoteOpen(false)} className="rounded-sm text-xs font-semibold text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Cancel</button></div></form> : <button onClick={() => setNoteOpen(true)} className={`mb-3 inline-flex items-center gap-1 ${LINK_ACTION}`}><FileText size={13} />Add note</button>}
+              {sealed ? null : noteOpen ? <form className="mb-4 rounded-md border border-border bg-secondary p-3" onSubmit={addNote}><label className={PANEL_LABEL}>Internal note<textarea required value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} placeholder="Add a concise internal note" className={`${INPUT_CLASS} mt-1 min-h-20 w-full resize-y p-3`} /></label><div className="mt-2 flex items-center gap-3"><button className={`${BTN_PRIMARY} px-4 py-2`}>Save note</button><button type="button" onClick={() => setNoteOpen(false)} className="rounded-sm text-xs font-semibold text-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Cancel</button></div></form> : <button onClick={() => setNoteOpen(true)} className={`mb-3 inline-flex items-center gap-1 ${LINK_ACTION}`}><FileText size={13} />Add note</button>}
               <div className="divide-y divide-border">{orderedActivities.length ? orderedActivities.map((activity) => <div key={activity.id} className="flex gap-3 py-3 first:pt-0 last:pb-0"><div className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md ${activity.type === "check_in" ? "bg-accent text-primary" : "bg-secondary text-muted-foreground"}`}>{activity.type === "check_in" ? <CheckCircle2 size={15} /> : activity.type === "fulfillment" ? <Truck size={15} /> : <FileText size={15} />}</div><div><p className="text-sm text-foreground">{activity.description}</p><p className="mt-1 text-[10px] text-muted-foreground">{formatDate(activity.date, true)} · {activity.user}</p></div></div>) : <p className="text-xs text-muted-foreground">No activity has been recorded.</p>}</div>
             </div>
           </SectionCard>
@@ -331,8 +333,8 @@ function DemoPatientDetail() {
           <SectionCard title="Fulfillment">
             <div className="p-5">
               <div className="flex items-start justify-between gap-3"><div><p className="font-mono text-xl text-navy">${subscription?.monthlyValue ?? 0}<span className="ml-1 font-sans text-xs text-muted-foreground">/mo</span></p><p className="mt-1 text-xs capitalize text-muted-foreground">{subscription?.cadence ?? "Monthly"} fulfillment · next shipment {subscription?.nextShipment ? formatDate(subscription.nextShipment) : "N/A"}</p></div><StatusBadge status={subscriptionStatus} /></div>
-              {manageOpen && <label className={`mt-4 block border-t border-border pt-3 ${PANEL_LABEL}`}>Delivery status<select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value as typeof subscriptionStatus)} className={`${INPUT_CLASS} mt-1 block h-9 w-full px-2`}><option value="active">Active</option><option value="paused">Paused</option><option value="overdue">Overdue</option><option value="cancelled">Cancelled</option></select></label>}
-              <button onClick={() => { if (manageOpen) toast({ variant: "success", title: "Fulfillment updated", description: `Status set to ${subscriptionStatus} for this session.` }); setManageOpen((open) => !open); }} className={`${BTN_SECONDARY} mt-4 h-9 w-full`}>{manageOpen ? "Save fulfillment" : "Manage fulfillment"}</button>
+               {!sealed && manageOpen && <label className={`mt-4 block border-t border-border pt-3 ${PANEL_LABEL}`}>Delivery status<select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value as typeof subscriptionStatus)} className={`${INPUT_CLASS} mt-1 block h-9 w-full px-2`}><option value="active">Active</option><option value="paused">Paused</option><option value="overdue">Overdue</option><option value="cancelled">Cancelled</option></select></label>}
+               {!sealed && <button onClick={() => { if (manageOpen) toast({ variant: "success", title: "Fulfillment updated", description: `Status set to ${subscriptionStatus} for this session.` }); setManageOpen((open) => !open); }} className={`${BTN_SECONDARY} mt-4 h-9 w-full`}>{manageOpen ? "Save fulfillment" : "Manage fulfillment"}</button>}
             </div>
           </SectionCard>
         </aside>
@@ -407,7 +409,6 @@ function LiveDiaryDay({ day, totals }: { day: { dateKey: string; waterOz?: numbe
 }
 
 function LivePatientDetail({ id, office, isHq }: { id: string; office: string | null; isHq: boolean }) {
-  const canEdit = useCanEditLiveRecord();
   const { toast } = useToast();
   const [weightEntryOpen, setWeightEntryOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
@@ -421,6 +422,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
     queryFn: () => fetchOfficePatient(id, office),
     refetchInterval: 30_000,
   });
+  const canEdit = useCanEditLiveRecord(detail.data?.patient);
   const notificationTimeline = useQuery({
     queryKey: ['office-patient-notifications', office ?? 'own', id],
     queryFn: () => fetchOfficePatientNotifications(id, office),
@@ -469,6 +471,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
   if (!detail.data) return null;
 
   const record: OfficePatientDetail = detail.data;
+  const closure = record.patient.closure ?? null;
   const identity = record.patient.identity;
   const program = record.patient.program;
   const weights = [...record.weights].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
@@ -509,16 +512,17 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => setSellOpen(true)} className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button>
-            {!isHq && <button onClick={handleMessage} disabled={startConv.isPending} className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-message-patient">{startConv.isPending ? 'Starting...' : 'Message'}</button>}
+            {!closure && <button type="button" onClick={() => setSellOpen(true)} className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button>}
+            {!isHq && !closure && <button onClick={handleMessage} disabled={startConv.isPending} className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-message-patient">{startConv.isPending ? 'Starting...' : 'Message'}</button>}
             {canEdit && <EditPatientProfile patient={record.patient} office={office} />}
             <PatientRecordExport patientId={identity.id} patientName={identity.name} office={office} />
           </div>
         </div>
-        {isHq && <div className="mt-5"><LegalHoldControls targetKind="patient" targetId={identity.id} providerId={office} label={identity.name} /></div>}
+        {closure && <p role="status" data-testid="patient-closure-banner" className="mt-5 rounded-md border border-border bg-secondary px-4 py-3 text-sm font-semibold text-navy">Account closed on {formatDate(closure.closedAt, true)}; record retained until {formatDate(closure.recordRetainUntil, true)}</p>}
+        {isHq && !closure && <div className="mt-5"><LegalHoldControls targetKind="patient" targetId={identity.id} providerId={office} label={identity.name} /></div>}
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>
-      <SellToPatientDialog open={sellOpen} onOpenChange={setSellOpen} patient={{ id: identity.id, name: identity.name }} office={office} />
+      {!closure && <SellToPatientDialog open={sellOpen} onOpenChange={setSellOpen} patient={{ id: identity.id, name: identity.name }} office={office} />}
       <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Patient record sections">
         {(['record', 'history'] as const).map((key) => (
           <button
@@ -582,7 +586,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           </SectionCard>
         </div>
         <aside className="space-y-5">
-          {isHq && (
+          {isHq && !closure && (
             <SectionCard title="Sessions" sub="Patient account access. Visible to HQ only.">
               <div className="p-5" data-testid="patient-security-card">
                 {security.isPending && <p className="text-xs text-muted-foreground">Loading sessions…</p>}
@@ -666,7 +670,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           </SectionCard>
         </div>
         <div className="lg:col-span-3">
-          <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} />
+          {!closure && <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} />}
         </div>
       </main>
     </div>

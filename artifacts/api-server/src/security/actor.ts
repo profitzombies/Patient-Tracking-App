@@ -45,7 +45,7 @@ export async function describeAccount(userId: string): Promise<SecurityActor | n
   const patient = first<{ id: string; provider_id: string | null; name: string | null; email: string | null; phone: string | null }>(
     await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?auth_user_id=eq.${enc(userId)}&select=id,provider_id,name,email,phone&limit=1`,
+      `/rest/v1/patients?auth_user_id=eq.${enc(userId)}&archived_at=is.null&select=id,provider_id,name,email,phone&limit=1`,
     ),
     "patient lookup",
   );

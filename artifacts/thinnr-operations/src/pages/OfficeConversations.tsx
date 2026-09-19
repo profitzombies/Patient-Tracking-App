@@ -9,7 +9,7 @@ import { useSession } from '@/contexts/session';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { useInboxStream } from '@/hooks/use-inbox-stream';
 import { useToast } from '@/hooks/use-toast';
-import { InitialsAvatar, formatRelativeTime, LiveMessageRow, ThreadNotesPanel, ThreadNotesToggle, useThreadNotesPanel, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
+import { InitialsAvatar, formatRelativeTime, LiveMessageRow, SealedConversationNotice, ThreadNotesPanel, ThreadNotesToggle, useThreadNotesPanel, scrollThreadToNewest, planThreadFollow, refreshThreadFollowBaseline, type ThreadFollowState } from '@/components/conversations/shared';
 import {
   useGetOfficeConversations,
   useGetOfficeConversationEvents,
@@ -317,7 +317,8 @@ export default function OfficeConversations() {
 
   const explicit = openId;
   const selectedSummary = eventsData?.conversation ?? conversations.find(c => c.id === openId);
-  const notes = useGetOfficeConversationNotes(openId ?? '', officeParams, { query: { enabled: live && !!openId, queryKey: [accountKey, ...getGetOfficeConversationNotesQueryKey(openId ?? '', officeParams)] } });
+  const patientSealed = (selectedSummary as (typeof selectedSummary & { patientSealed?: boolean }))?.patientSealed === true;
+  const notes = useGetOfficeConversationNotes(openId ?? '', officeParams, { query: { enabled: live && !!openId && !patientSealed, queryKey: [accountKey, ...getGetOfficeConversationNotesQueryKey(openId ?? '', officeParams)] } });
   const assign = useAssignOfficeConversation();
   const setStatus = useSetOfficeConversationStatus();
   const reply = useReplyOfficeConversation();
@@ -672,7 +673,7 @@ export default function OfficeConversations() {
                         </span>
                          <span className="mt-1 flex flex-wrap gap-1 text-[9px] font-semibold uppercase">
                            <span className={CHIP_WARM}>{channel === 'ai' ? conv.thread : 'Care Team'}</span>
-                           {conv.archivedAt && <span className="rounded bg-secondary px-1.5 py-0.5 text-muted-foreground border border-border">Archived</span>}
+                            {(conv.archivedAt || (conv as typeof conv & { patientSealed?: boolean }).patientSealed) && <span className="rounded border border-border bg-secondary px-1.5 py-0.5 text-muted-foreground">Archived</span>}
                            <span className="rounded bg-secondary px-1.5 py-0.5" data-testid={conv.autoClosed ? `chip-conversation-auto-closed-${conv.id}` : undefined}>{conv.autoClosed ? 'closed · quiet' : conv.status.replace('_', ' ')}</span>
                            {conv.openEscalation && <span className="rounded bg-warn-bg px-1.5 py-0.5 text-warn">Escalated · {conv.openEscalation.department}</span>}
                          </span>
@@ -751,7 +752,7 @@ export default function OfficeConversations() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <ThreadNotesToggle ref={notesPanel.toggleRef} open={notesPanel.open} count={notes.data?.notes.length ?? selectedSummary?.noteCount} onClick={notesPanel.toggle} />
+              {!patientSealed && <ThreadNotesToggle ref={notesPanel.toggleRef} open={notesPanel.open} count={notes.data?.notes.length ?? selectedSummary?.noteCount} onClick={notesPanel.toggle} />}
               <Link href={`/patients/${selectedSummary?.patientId}`} className={`${BTN_SECONDARY} h-8 px-3 py-1.5 text-xs max-sm:hidden`}>
                 View Profile
               </Link>
@@ -764,7 +765,7 @@ export default function OfficeConversations() {
                <span>{selectedSummary.status === 'closed' ? (selectedSummary.autoClosed ? `Closed after ${autoCloseDays ?? '—'}d quiet` : 'Closed') : selectedSummary.status === 'waiting_patient' ? 'Waiting on patient' : 'Open'}</span>
              </div>
            )}
-           {selectedSummary && !(hqDrillIn && selectedSummary.thread === 'care_team') && (
+            {selectedSummary && !patientSealed && !(hqDrillIn && selectedSummary.thread === 'care_team') && (
              <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2 md:px-6">
                <button className={`${BTN_SECONDARY} h-8 px-3 text-xs`} disabled={assign.isPending} onClick={() => changeAssignment('me')}>Claim</button>
                <Select value={selectedSummary.assignee?.userId ?? 'unassigned'} onValueChange={value => changeAssignment(value === 'unassigned' ? null : value)}>
@@ -825,7 +826,9 @@ export default function OfficeConversations() {
           </div>
 
            <footer className="shrink-0 border-t border-border bg-card px-4 py-3 md:px-6">
-             {hqDrillIn ? (
+              {patientSealed ? (
+                <div className="mx-auto max-w-[820px]"><SealedConversationNotice /></div>
+              ) : hqDrillIn ? (
                <p className="mx-auto max-w-[820px] text-xs text-muted-foreground" data-testid="text-hq-read-only">
                  HQ view is read-only. Care-team replies are sent by the office’s own staff.
                </p>
@@ -904,7 +907,7 @@ export default function OfficeConversations() {
              )}
            </footer>
            </div>
-           <ThreadNotesPanel
+            {!patientSealed && <ThreadNotesPanel
              open={notesPanel.open}
              onClose={notesPanel.close}
              caption="Internal — patients never see notes"
@@ -918,7 +921,7 @@ export default function OfficeConversations() {
                  </div>
                </>
              ) : undefined}
-           />
+            />}
            </div>
         </>
       ) : (

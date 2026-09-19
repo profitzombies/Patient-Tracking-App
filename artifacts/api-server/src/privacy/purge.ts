@@ -4,10 +4,13 @@
  *   request (grace period) ──cancel-on-sign-in──▶ cancelled
  *          │ purge_after passes
  *          ▼
- *   claim (leased) ─▶ purge steps ─▶ purged
- *                          │ any step throws
- *                          ▼
- *                       failed (retry with backoff; HQ can retry by hand)
+ *   closing ─▶ account closed / clinical chart sealed
+ *                    │ record retention passes
+ *                    ▼
+ *                 purging ─▶ purged
+ *                    │ any step throws
+ *                    ▼
+ *                 failed (retry with backoff; HQ can retry by hand)
  *
  * Purge steps, in this order and each idempotent on re-run:
  *   1. tombstone — persist the PII-free purge marker before destructive work.
@@ -43,7 +46,7 @@ import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-cli
 const enc = encodeURIComponent;
 
 export const DELETION_SELECT =
-  "id,patient_id,provider_id,auth_user_id,status,requested_at,purge_after,cancelled_at,started_at,purged_at,attempts,next_attempt_at,lease_owner,lease_until,last_error,steps,held_at";
+  "id,patient_id,provider_id,auth_user_id,status,requested_at,purge_after,cancelled_at,started_at,purged_at,attempts,next_attempt_at,lease_owner,lease_until,last_error,steps,held_at,closed_at,retain_until";
 
 export interface DeletionRequestRow {
   id: string;
@@ -51,7 +54,7 @@ export interface DeletionRequestRow {
   provider_id: string | null;
   auth_user_id: string | null;
   /** `held` = a legal hold parked the request; the grace clock resumes when the hold lifts. */
-  status: "pending" | "held" | "cancelled" | "purging" | "purged" | "failed";
+  status: "pending" | "held" | "closing" | "closed" | "cancelled" | "purging" | "purged" | "failed";
   requested_at: string;
   purge_after: string;
   cancelled_at: string | null;
@@ -62,6 +65,8 @@ export interface DeletionRequestRow {
   lease_owner: string | null;
   lease_until: string | null;
   held_at?: string | null;
+  closed_at: string | null;
+  retain_until: string | null;
   last_error: string | null;
   steps: Record<string, unknown>;
 }
@@ -97,16 +102,26 @@ export interface PurgeSummary {
   authUserId: string | null;
 }
 
+export interface ClosureSummary {
+  tables: Record<string, number>;
+  mediaPaths: string[];
+  authUserId: string | null;
+  closedAt: string;
+  retainUntil: string;
+  alreadyClosed: boolean;
+}
 export interface PurgeDeps {
   prepareTombstone: (requestId: string) => Promise<boolean>;
   cancelBillingSubscriptions: (patientId: string) => Promise<number>;
   scrubBillingCustomers: (patientId: string) => Promise<number>;
   deleteStoragePrefix: (prefix: string) => Promise<number>;
+  deleteStorageObjects: (paths: string[]) => Promise<number>;
+  closeRows: (requestId: string) => Promise<ClosureSummary>;
   purgeRows: (requestId: string) => Promise<PurgeSummary>;
   deleteAuthUser: (userId: string) => Promise<"deleted" | "absent">;
   finish: (input: {
     requestId: string;
-    status: "purged" | "failed";
+    status: "closed" | "purged" | "failed";
     error?: string | null;
     steps: Record<string, unknown>;
     retryAfterSeconds?: number | null;
@@ -219,6 +234,32 @@ export const defaultPurgeDeps: PurgeDeps = {
     return scrubbed;
   },
   deleteStoragePrefix: (prefix) => objectStorage.deletePrefixStrict(prefix),
+  async deleteStorageObjects(paths) {
+    for (const path of paths) {
+      await objectStorage.deleteObjectStrict(path);
+    }
+    return paths.length;
+  },
+  async closeRows(requestId) {
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_close_rows", { p_request_id: requestId });
+    if (result.status >= 300 || !result.json || typeof result.json !== "object") {
+      throw new Error(`row closure failed (${result.status})`);
+    }
+    const summary = result.json as Record<string, unknown>;
+    if (typeof summary.closedAt !== "string" || typeof summary.retainUntil !== "string") {
+      throw new Error("row closure returned invalid seal dates");
+    }
+    return {
+      tables: (summary.tables && typeof summary.tables === "object" ? summary.tables : {}) as Record<string, number>,
+      mediaPaths: Array.isArray(summary.mediaPaths)
+        ? summary.mediaPaths.filter((path): path is string => typeof path === "string")
+        : [],
+      authUserId: typeof summary.authUserId === "string" ? summary.authUserId : null,
+      closedAt: summary.closedAt,
+      retainUntil: summary.retainUntil,
+      alreadyClosed: summary.alreadyClosed === true,
+    };
+  },
   async purgeRows(requestId) {
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_purge_rows", { p_request_id: requestId });
     if (result.status >= 300 || !result.json || typeof result.json !== "object") {
@@ -266,6 +307,94 @@ export function patientBloodworkStoragePrefix(patientId: string): string {
   return `/objects/patients/${patientId}/bloodwork/`;
 }
 
+/**
+ * Remove account-only data and seal the retained clinical chart. Like the
+ * final purge, every step is idempotent and failures land on the request row.
+ */
+export async function runClosure(request: DeletionRequestRow, deps: PurgeDeps = defaultPurgeDeps): Promise<"closed" | "failed"> {
+  const now = () => (deps.now ?? (() => new Date()))().toISOString();
+  const steps: Record<string, unknown> = { ...(request.steps ?? {}) };
+  let step = "billingSubscriptions";
+  try {
+    const subscriptionsCanceled = await deps.cancelBillingSubscriptions(request.patient_id);
+    steps.billingSubscriptions = { ok: true, canceled: subscriptionsCanceled, at: now() };
+
+    step = "billingCustomers";
+    const customersScrubbed = await deps.scrubBillingCustomers(request.patient_id);
+    steps.billingCustomers = { ok: true, scrubbed: customersScrubbed, at: now() };
+
+    step = "rows";
+    const summary = await deps.closeRows(request.id);
+    const tableCount = Object.keys(summary.tables).length;
+    const rowCount = Object.values(summary.tables).reduce((sum, count) => sum + Number(count || 0), 0);
+    const previousPaths = (steps.rows as { mediaPaths?: unknown } | undefined)?.mediaPaths;
+    const mediaPaths = summary.mediaPaths.length > 0
+      ? summary.mediaPaths
+      : Array.isArray(previousPaths)
+        ? previousPaths.filter((path): path is string => typeof path === "string")
+        : [];
+    steps.rows = {
+      ok: true,
+      tables: tableCount,
+      rows: rowCount,
+      alreadyClosed: summary.alreadyClosed,
+      closedAt: summary.closedAt,
+      retainUntil: summary.retainUntil,
+      // Kept only while the exact-object deletion is still retryable. It is
+      // removed from the successful lifecycle record immediately afterward.
+      mediaPaths,
+      at: now(),
+    };
+
+    step = "storage";
+    const objects = await deps.deleteStorageObjects(mediaPaths);
+    steps.storage = { ok: true, objects, paths: mediaPaths.length, at: now() };
+    const { mediaPaths: _completedPaths, ...completedRows } = steps.rows as Record<string, unknown>;
+    steps.rows = completedRows;
+
+    step = "auth";
+    const authUserId = request.auth_user_id ?? summary.authUserId;
+    if (authUserId) {
+      const outcome = await deps.deleteAuthUser(authUserId);
+      steps.auth = { ok: true, outcome, at: now() };
+    } else {
+      steps.auth = { ok: true, outcome: "none", at: now() };
+    }
+
+    await deps.finish({ requestId: request.id, status: "closed", steps });
+    await deps.audit({
+      action: "patient_account_closed",
+      actorUserId: null,
+      actorKind: "system",
+      providerId: request.provider_id,
+      targetKind: "patient",
+      targetId: request.patient_id,
+      requestId: null,
+      metadata: { requestId: request.id, attempt: request.attempts, objects, tables: tableCount, rows: rowCount },
+    }).catch((error) => logger.error({ err: error }, "account closure audit failed"));
+    return "closed";
+  } catch (error) {
+    logger.error({ err: error, requestId: request.id, step }, "patient closure step failed");
+    steps[step] = { ok: false, error: shortError(error), at: now() };
+    const retryAfterSeconds = request.attempts < MAX_AUTOMATIC_ATTEMPTS ? retryDelaySeconds(request.attempts) : null;
+    try {
+      await deps.finish({ requestId: request.id, status: "failed", error: `${step}: ${shortError(error)}`, steps, retryAfterSeconds });
+    } catch (finishError) {
+      logger.error({ err: finishError, requestId: request.id }, "patient closure failure not recorded");
+    }
+    await deps.audit({
+      action: "patient_deletion_failed",
+      actorUserId: null,
+      actorKind: "system",
+      providerId: request.provider_id,
+      targetKind: "patient",
+      targetId: request.patient_id,
+      requestId: null,
+      metadata: { requestId: request.id, attempt: request.attempts, step },
+    }).catch((auditError) => logger.error({ err: auditError }, "deletion failure audit failed"));
+    return "failed";
+  }
+}
 /**
  * Run every purge step for one claimed request. Never throws: the outcome
  * lands on the request row (purged, or failed with the step that broke and
@@ -376,7 +505,11 @@ export function drainDuePurges(maxRequests = 5, deps: PurgeDeps = defaultPurgeDe
         throw new Error(`deletion claim failed (${claimed.status})`);
       }
       for (const request of claimed.json as DeletionRequestRow[]) {
-        await runPurge(request, deps);
+        if (request.status === "closing") {
+          await runClosure(request, deps);
+        } else {
+          await runPurge(request, deps);
+        }
         ran += 1;
       }
     } catch (error) {

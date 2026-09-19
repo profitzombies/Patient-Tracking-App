@@ -4,7 +4,7 @@ import { useProviderScope } from "@/contexts/provider-scope";
 import { fetchOfficeRoster } from "@/lib/office-roster";
 import { officeRosterQueryKey } from "@/components/office/LiveRoster";
 
-export function useLiveRoster() {
+export function useLiveRoster(includeArchived = false) {
   const { authUser, authStatus, authRole } = useSession();
   const scope = useProviderScope();
 
@@ -14,8 +14,8 @@ export function useLiveRoster() {
   const liveOffice = authRole === 'hq_admin' ? (scope?.providerId ?? null) : null;
 
   const query = useQuery({
-    queryKey: [...officeRosterQueryKey(liveOffice), authUser?.id],
-    queryFn: () => fetchOfficeRoster(liveOffice),
+    queryKey: [...officeRosterQueryKey(liveOffice), includeArchived ? 'archived' : 'current', authUser?.id],
+    queryFn: () => fetchOfficeRoster(liveOffice, includeArchived),
     enabled: liveEnabled,
     refetchInterval: liveEnabled ? 30_000 : false,
   });

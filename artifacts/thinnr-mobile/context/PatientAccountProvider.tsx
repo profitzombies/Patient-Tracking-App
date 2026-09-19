@@ -27,7 +27,8 @@
  * a patient who merely opens the app. Demo and staff sessions never ping.
  */
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
+import { router } from 'expo-router';
+import { supabase, supabaseConfigured, useSupabaseSession } from '@/lib/supabase';
 import {
   fetchAccountRole,
   requireSessionAccessToken,
@@ -40,6 +41,10 @@ import {
   writeCachedAccountRole,
 } from '@/lib/account-role-cache';
 import { usePatientPresenceHeartbeat } from '@/lib/patient-presence-heartbeat';
+import {
+  ACCOUNT_CLOSED_MESSAGE,
+  isAccountClosedResolutionError,
+} from '@/lib/live-patient-entry';
 import {
   DEMO_ACCOUNT_STATE,
   PatientAccountContext,
@@ -82,7 +87,17 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setResolved({ forUserId: userId, account: accountFor(role), notice: null });
         void writeCachedAccountRole(userId, role);
-      } catch {
+      } catch (error) {
+        if (isAccountClosedResolutionError(error)) {
+          await clearCachedAccountRole().catch(() => undefined);
+          if (cancelled) return;
+          router.replace({
+            pathname: '/patient-login',
+            params: { notice: ACCOUNT_CLOSED_MESSAGE },
+          });
+          await supabase?.auth.signOut({ scope: 'local' });
+          return;
+        }
         // Unreachable server: fall back to what this user resolved to last
         // time (offline cold start), else block behind a retry.
         const remembered = await readCachedAccountRole(userId).catch(() => null);

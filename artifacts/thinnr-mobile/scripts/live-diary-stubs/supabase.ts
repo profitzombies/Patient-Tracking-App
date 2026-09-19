@@ -64,7 +64,7 @@ export const supabase = {
       return { data: { session: current } };
     },
     /** Sign-out from a screen (consent gate's "Sign out") ends the session for every listener. */
-    async signOut() {
+    async signOut(_options?: { scope?: 'global' | 'local' | 'others' }) {
       setStubSession(null);
       return { error: null };
     },

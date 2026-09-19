@@ -189,12 +189,21 @@ async function main() {
   await check('write controls render only behind the shared edit gate (staff, or HQ Super Admin/Admin)', () => {
     assert.match(editsSource, /authRole === 'provider_staff'\) return true/);
     assert.match(editsSource, /authRole === 'hq_admin' && \(hqRole === 'Super Admin' \|\| hqRole === 'Admin'\)/);
-    assert.match(liveSection, /const canEdit = useCanEditLiveRecord\(\)/);
-    assert.match(liveSection, /\{canEdit && <div><EditPatientProfile/);
+    assert.match(liveSection, /const canEdit = useCanEditLiveRecord\(detail\.data\?\.patient\)/);
+    assert.match(editsSource, /if \(patient\?\.closure\) return false/);
+    assert.match(liveSection, /\{canEdit && <EditPatientProfile/);
     assert.match(liveSection, /canRecordWeight = canEdit && activation !== null/);
     assert.match(liveSection, /\{canEdit && activation && \([\s\S]*?<PatientStatusControl/);
     assert.match(liveSection, /<ProviderNotes[^>]*canEdit=\{canEdit\}/);
     assert.match(liveSection, /\{canEdit && staff && <StaffWeightActions/);
+  });
+
+  await check('sealed charts show the retention banner and remove patient-facing write controls', () => {
+    assert.match(liveSection, /Account closed on \{formatDate\(closure\.closedAt, true\)\}; record retained until \{formatDate\(closure\.recordRetainUntil, true\)\}/);
+    assert.match(demoSection, /Account closed on \{formatDate\(sealed\.closedAt, true\)\}; record retained until \{formatDate\(sealed\.recordRetainUntil, true\)\}/);
+    assert.match(liveSection, /!closure && <button[\s\S]*?button-sell-to-patient/);
+    assert.match(liveSection, /!isHq && !closure && <button[\s\S]*?button-message-patient/);
+    assert.match(liveSection, /<PatientRecordExport/);
   });
 
   await check('every write invalidates the detail and roster queries, and conflicts show a reload state', () => {

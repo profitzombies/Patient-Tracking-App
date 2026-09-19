@@ -42,12 +42,16 @@ import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { PatientProvider, usePatient, usePatientSyncNotice } from '../context/PatientContext';
 import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
-import { liveEntryDecision } from '../lib/live-patient-entry';
+import {
+  ACCOUNT_CLOSED_MESSAGE,
+  liveEntryDecision,
+} from '../lib/live-patient-entry';
 import { describeExport, graceDaysRemaining, parsePrivacyState } from '../lib/patient-privacy';
 import ConsentScreen from '../app/consent';
 import { PrivacyDataControls } from '../components/account/PrivacyDataControls';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 import { openedUrls } from './onboarding-gate-stubs/react-native';
+import { routerCalls } from './onboarding-gate-stubs/expo-router';
 
 let checks = 0;
 let failures = 0;
@@ -62,7 +66,16 @@ let requiredVersion = REQUIRED_VERSION;
 
 interface ConsentRow { policyVersion: string; photoAnalysis: boolean; recordedAt: string; appVersion?: string; platform?: string }
 interface ExportRow { id: string; status: 'queued' | 'running' | 'ready' | 'failed' | 'expired'; requestedAt: string; completedAt: string | null; expiresAt: string; sizeBytes: number | null; error: string | null }
-interface Store { consents: ConsentRow[]; exports: ExportRow[]; deletion: { requestedAt: string; purgeAfter: string } | null; onboardingComplete: boolean }
+interface Store {
+  consents: ConsentRow[];
+  exports: ExportRow[];
+  deletion: {
+    requestedAt: string;
+    purgeAfter: string;
+    status: 'pending' | 'held';
+  } | null;
+  onboardingComplete: boolean;
+}
 
 const stores = new Map<string, Store>();
 function storeFor(patientId: string): Store {
@@ -90,7 +103,8 @@ function privacyBlock(store: Store) {
       recordedAt: latest?.recordedAt ?? null,
     },
     export: job ?? null,
-    deletion: store.deletion ? { status: 'pending', ...store.deletion } : null,
+    deletion: store.deletion,
+    deletionPolicy: { graceDays: 7, retentionYears: 8 },
   };
 }
 
@@ -142,8 +156,12 @@ function routeCall(call: ApiCall): { status: number; body: unknown } {
   }
   if (key === 'POST patient-data/deletion') {
     if (call.body?.confirm !== 'DELETE') return { status: 400, body: { error: 'Type DELETE to confirm.' } };
-    store.deletion ??= { requestedAt: new Date(NOW).toISOString(), purgeAfter: new Date(NOW + 7 * 86_400_000).toISOString() };
-    return { status: 202, body: { deletion: { status: 'pending', ...store.deletion } } };
+    store.deletion ??= {
+      status: 'pending',
+      requestedAt: new Date(NOW).toISOString(),
+      purgeAfter: new Date(NOW + 7 * 86_400_000).toISOString(),
+    };
+    return { status: 202, body: { deletion: store.deletion } };
   }
   if (key === 'DELETE patient-data/deletion') {
     const cancelled = store.deletion !== null;
@@ -245,6 +263,14 @@ async function main() {
   section('parser: shapes and honest failures');
   const parsed = parsePrivacyState({ consent: { requiredVersion: 'v2', recordedVersion: 'v1', satisfied: true, photoAnalysis: false, recordedAt: null }, export: null, deletion: null });
   assert('satisfied is recomputed from versions, never trusted alone', parsed.consent.satisfied === false && parsed.consent.photoAnalysis === false);
+  assert('older/demo privacy data defaults retention to seven years', parsed.deletionPolicy.retentionYears === 7);
+  const held = parsePrivacyState({
+    consent: { requiredVersion: 'v2', recordedVersion: 'v2', satisfied: true },
+    export: null,
+    deletion: { status: 'held', requestedAt: '2026-09-01T00:00:00.000Z', purgeAfter: '2026-09-14T00:00:00.000Z' },
+    deletionPolicy: { graceDays: 7, retentionYears: 9 },
+  });
+  assert('held closure parses with the supplied retention years', held.deletion?.status === 'held' && held.deletionPolicy.retentionYears === 9);
   let threw = false;
   try { parsePrivacyState({ consent: { requiredVersion: 'v2' }, export: { id: 'x' }, deletion: null }); } catch { threw = true; }
   assert('malformed export throws', threw);
@@ -328,6 +354,22 @@ async function main() {
   assert('no confirm panel before the first tap', !has(tree, 'privacy-deletion-confirm'));
   await press(tree, 'privacy-deletion-start');
   assert('typed confirmation required', has(tree, 'privacy-deletion-confirm') && btnDisabled(tree, 'privacy-deletion-submit') === true);
+  assert(
+    'closure confirmation names removed app data and the retained medical record',
+    textOf(tree, 'privacy-deletion-confirm').includes('login and devices') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('AI coach chats') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('food diary') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('preferences') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('required by law') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('weights and measurements') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('medications') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('labs') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('progress photos') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('care-team messages') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('orders') &&
+      textOf(tree, 'privacy-deletion-confirm').includes('for 8 years') &&
+      btnLabel(tree, 'privacy-deletion-submit') === 'Close my account',
+  );
   await type(tree, 'privacy-deletion-confirm-input', 'delete me');
   assert('wrong phrase stays disabled', btnDisabled(tree, 'privacy-deletion-submit') === true);
   await press(tree, 'privacy-deletion-submit');
@@ -341,7 +383,7 @@ async function main() {
   await press(tree, 'privacy-deletion-submit');
   const deletionCall = callsTo('patient-data/deletion', 'POST').pop();
   assert('request carries the explicit confirmation', deletionCall?.body?.confirm === 'DELETE');
-  assert('pending state shows the grace countdown', has(tree, 'privacy-deletion-pending') && ctx.hydratedPrivacy?.deletion?.status === 'pending' && textOf(tree, 'privacy-deletion-pending').includes('removed in 7 days'));
+  assert('pending state shows the closure countdown', has(tree, 'privacy-deletion-pending') && ctx.hydratedPrivacy?.deletion?.status === 'pending' && textOf(tree, 'privacy-deletion-pending').includes('account closes in 7 days'));
   assert('export request disabled while deletion pending', btnDisabled(tree, 'privacy-export-request') === true);
   assert('pending deletion now parks routes', redirectTo(gateFromCtx('/today')) === '/consent');
   await press(tree, 'privacy-deletion-cancel');
@@ -349,14 +391,14 @@ async function main() {
   await unmount(tree);
 
   section('sign-in during the grace period: keep or sign out');
-  storeFor('p-1').deletion = { requestedAt: new Date(NOW).toISOString(), purgeAfter: new Date(NOW + 3 * 86_400_000).toISOString() };
+  storeFor('p-1').deletion = { status: 'held', requestedAt: new Date(NOW).toISOString(), purgeAfter: new Date(NOW + 3 * 86_400_000).toISOString() };
   tree = await mount(ConsentScreen);
-  assert('hydration surfaces the pending deletion and parks on /consent', ctx.hydratedPrivacy?.deletion?.status === 'pending' && redirectTo(gateFromCtx('/today')) === '/consent');
-  assert('consent screen shows the fork', has(tree, 'consent-deletion-pending') && textOf(tree, 'consent-deletion-pending').includes('removed in 3 days') && has(tree, 'consent-keep-account') && has(tree, 'consent-sign-out') && !has(tree, 'consent-agree'));
+  assert('hydration surfaces the held closure and parks on /consent', ctx.hydratedPrivacy?.deletion?.status === 'held' && redirectTo(gateFromCtx('/today')) === '/consent');
+  assert('consent screen shows the held closure fork', has(tree, 'consent-deletion-pending') && textOf(tree, 'consent-deletion-pending').includes('account closes in 3 days') && has(tree, 'consent-keep-account') && has(tree, 'consent-sign-out') && !has(tree, 'consent-agree'));
   await press(tree, 'consent-keep-account');
   assert('keep my account cancels and reopens the app', storeFor('p-1').deletion === null && ctx.hydratedPrivacy?.deletion === null && redirectTo(gateFromCtx('/consent')) === '/today');
   await unmount(tree);
-  storeFor('p-1').deletion = { requestedAt: new Date(NOW).toISOString(), purgeAfter: new Date(NOW + 3 * 86_400_000).toISOString() };
+  storeFor('p-1').deletion = { status: 'pending', requestedAt: new Date(NOW).toISOString(), purgeAfter: new Date(NOW + 3 * 86_400_000).toISOString() };
   tree = await mount(ConsentScreen);
   await press(tree, 'consent-sign-out');
   assert('sign out leaves the deletion pending and ends the session', storeFor('p-1').deletion !== null && account.account.kind !== 'real');
@@ -369,6 +411,24 @@ async function main() {
   tree = await mount(PrivacyDataControls);
   assert('demo shows the unavailable card only', has(tree, 'privacy-unavailable') && !has(tree, 'privacy-controls') && textOf(tree, 'privacy-unavailable').includes('guided demo'));
   assert('demo never touches the privacy routes', apiCalls.length === before && ctx.hydratedPrivacy === null);
+  await unmount(tree);
+
+  section('sealed account resolution: neutral message and local sign-out');
+  failNext.set('GET claim/whoami', {
+    status: 404,
+    body: { error: 'This account was closed.', code: 'account_closed' },
+  });
+  tree = await mount(null);
+  await signIn(P1);
+  assert(
+    'account_closed signs the device out and routes to patient login',
+    account.account.kind !== 'real' &&
+      routerCalls.some(call => call.method === 'replace' && call.target === '/patient-login'),
+  );
+  assert(
+    'closed-account copy is neutral and allows same-phone signup',
+    ACCOUNT_CLOSED_MESSAGE === 'This account was closed. You can create a new account with the same phone number.',
+  );
   await unmount(tree);
 
   console.log(`\n${checks - failures}/${checks} checks passed`);

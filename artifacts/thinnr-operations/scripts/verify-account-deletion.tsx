@@ -81,6 +81,7 @@ const iso = (offsetDays: number) => new Date(NOW + offsetDays * 86_400_000).toIS
 const AS_OF = new Date(NOW).toISOString().slice(0, 10);
 const PENDING_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
 const PURGED_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const SEALED_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1';
 
 function patient(id: string, name: string, extra: Partial<OfficePatient> = {}): OfficePatient {
   return {
@@ -101,7 +102,7 @@ const ROSTER: OfficeRoster = {
     patient('pat-plain', 'Kara Keeps'),
     patient(PENDING_ID, 'Devon Departing', { deletion: { state: 'requested', requestedAt: iso(-2), purgeAfter: iso(5) } }),
   ],
-  summary: { totalPatients: 2, activePatients: 2, newEnrollments30d: 0, needsAttention: 0, attention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 1, deletedAccounts: 1, asOf: AS_OF },
+  summary: { totalPatients: 2, activePatients: 2, newEnrollments30d: 0, needsAttention: 0, attention: 0, inactive: 0, invited: 0, checkInsOverdue: 0, loggingLapsed: 0, deletionRequested: 1, deletedAccounts: 1, archived: 1, asOf: AS_OF },
   deletedAccounts: [TOMBSTONE],
 };
 
@@ -138,8 +139,13 @@ const heldDeletion = {
   id: 'del-held', patientId: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', providerId: 'office-1', status: 'held', requestedAt: iso(-20), purgeAfter: iso(-6),
   cancelledAt: null, startedAt: null, purgedAt: null, heldAt: iso(-8), attempts: 0, nextAttemptAt: null, lastError: null, steps: {},
 };
-let hqDeletions = [failedDeletion, purgedDeletion, pendingDeletion, heldDeletion];
-const hqSummary = () => ({ pending: 0, held: 0, cancelled: 0, purging: 0, purged: 0, failed: 0, ...Object.fromEntries(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed'].map((s) => [s, hqDeletions.filter((d) => d.status === s).length])) });
+const closedDeletion = {
+  id: 'del-closed', patientId: SEALED_ID, providerId: 'office-1', status: 'closed', requestedAt: iso(-20), purgeAfter: iso(1800),
+  closedAt: iso(-13), retainUntil: iso(1800), cancelledAt: null, startedAt: iso(-13), purgedAt: null, attempts: 1, nextAttemptAt: null, lastError: null,
+  steps: { rows: { ok: true }, storage: { ok: true }, auth: { ok: true } },
+};
+let hqDeletions = [failedDeletion, purgedDeletion, pendingDeletion, heldDeletion, closedDeletion];
+const hqSummary = () => ({ pending: 0, held: 0, closing: 0, closed: 0, cancelled: 0, purging: 0, purged: 0, failed: 0, ...Object.fromEntries(['pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed'].map((s) => [s, hqDeletions.filter((d) => d.status === s).length])) });
 
 const requests: Array<{ url: string; method: string }> = [];
 let recordResponse: { status: number; body: unknown } = { status: 200, body: detailFixture({ state: 'requested', requestedAt: iso(-2), purgeAfter: iso(5) }) };
@@ -157,7 +163,13 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const method = (init?.method ?? 'GET').toUpperCase();
   requests.push({ url, method });
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-  if (url.includes('/api/office/roster')) return json(ROSTER);
+  if (url.includes('/api/office/roster')) {
+    const includeArchived = new URL(url, 'https://ops.test').searchParams.get('include') === 'archived';
+    return json(includeArchived ? {
+      ...ROSTER,
+      patients: [...ROSTER.patients, patient(SEALED_ID, 'Riley Retained', { closure: { closedAt: iso(-13), recordRetainUntil: iso(1800) } })],
+    } : ROSTER);
+  }
   if (url.includes('/notifications')) return json({ patientId: PENDING_ID, outreach: { state: 'none' }, notifications: [] });
   if (url.includes('/coach-conversations')) return json({ conversations: [], total: 0, nextOffset: null });
   if (url.includes('/coach-memories')) return json({ memories: [], total: 0 });
@@ -247,6 +259,18 @@ console.log('\nroster: guided demo renders neither');
   check('demo: no deletion chips or tombstone section', byTestId(root, 'deleted-accounts').length === 0 && root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('chip-deletion-')).length === 0);
 }
 
+console.log('\nroster: archived view requests and shows only sealed charts');
+{
+  requests.length = 0;
+  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' }, hqRole: 'Admin' });
+  __setScope({ providerId: 'office-1' });
+  __setSupabaseSession('hq-token');
+  const { root } = await render('/patients?status=archived', <Patients />);
+  const rows = rosterRows(root);
+  check('archived request retains HQ office scope and adds include=archived', requests.some((request) => request.url.includes('/api/office/roster?') && request.url.includes('office=office-1') && request.url.includes('include=archived')));
+  check('archived view shows only the sealed chart with its badge', rows.length === 1 && textOf(rows[0]).includes('Riley Retained') && textOf(rows[0]).includes('Archived'));
+}
+
 // ─── Record ──────────────────────────────────────────────────────────────────
 
 console.log('\nrecord: pending deletion banner');
@@ -273,6 +297,27 @@ console.log('\nrecord: purged (410) view');
   check('a back link to the roster is offered', root.findAll((node) => node.type === 'a' && node.props.href === '/patients').length === 1);
 }
 
+console.log('\nrecord: sealed chart banner and read-only controls');
+{
+  recordResponse = {
+    status: 200,
+    body: {
+      ...detailFixture(undefined),
+      patient: {
+        ...detailFixture(undefined).patient,
+        identity: { ...detailFixture(undefined).patient.identity, id: SEALED_ID, name: 'Riley Retained' },
+        closure: { closedAt: '2026-09-01T15:00:00Z', recordRetainUntil: '2033-09-01T15:00:00Z' },
+      },
+    },
+  };
+  __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' }, hqRole: null });
+  __setScope(null);
+  const { root } = await render(`/patients/${SEALED_ID}`, <Route path="/patients/:id"><PatientDetail /></Route>);
+  const banner = byTestId(root, 'patient-closure-banner');
+  check('sealed banner uses device-timezone date formatting', banner.length === 1 && textOf(banner[0]) === 'Account closed on Sep 1, 2026; record retained until Sep 1, 2033');
+  check('sealed chart hides edits, sale, message, and patient write controls', byTestId(root, 'button-edit-patient').length === 0 && byTestId(root, 'button-sell-to-patient').length === 0 && byTestId(root, 'button-message-patient').length === 0 && byTestId(root, 'button-log-weight').length === 0);
+}
+
 // ─── HQ ──────────────────────────────────────────────────────────────────────
 
 console.log('\nHQ account deletions: admin view and retry');
@@ -283,6 +328,7 @@ console.log('\nHQ account deletions: admin view and retry');
   const { root } = await render('/admin/audit/deletions', <PatientDeletions />);
   check('summary counts one failed purge', textOf(byTestId(root, 'metric-deletions-failed')[0]) === '1');
   check('summary counts the held request', textOf(byTestId(root, 'metric-deletions-held')[0]) === '1');
+  check('summary and row distinguish a retained closed record', textOf(byTestId(root, 'metric-deletions-closed')[0]) === '1' && textOf(byTestId(root, 'row-deletion-del-closed')[0]).includes('Closed (record sealed until'));
   const heldRow = byTestId(root, 'row-deletion-del-held');
   check('held row is parked (no Retry) and says it resumes when the hold lifts', heldRow.length === 1 && textOf(heldRow[0]).includes('Held') && textOf(heldRow[0]).includes('resumes when lifted') && byTestId(root, 'button-retry-deletion-del-held').length === 0);
   const failedRow = byTestId(root, 'row-deletion-del-failed');

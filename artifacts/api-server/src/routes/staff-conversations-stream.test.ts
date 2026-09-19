@@ -181,6 +181,8 @@ beforeEach(() => {
     return { status: reply.status, json: reply.json ?? null, contentRange: null };
   });
   on("GET", "/rest/v1/hq_organization_settings?", () => ({ status: 200, json: [{ conversation_auto_close_days: 14, version: 1 }] }));
+  // Sealed-chart lookup for the thread list: this patient's account is open.
+  on("GET", "/rest/v1/patients?id=in.(", () => ({ status: 200, json: [{ id: PATIENT, closed_at: null }] }));
   on("POST", "/rest/v1/rpc/patient_chat_inbox_list_guarded", c => {
     const args = c.body as Record<string, unknown>;
     if (args.p_conversation_id && args.p_conversation_id !== CONV) return { status: 200, json: [] };

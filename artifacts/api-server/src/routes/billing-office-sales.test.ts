@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   guard: vi.fn(), planCart: vi.fn(), checkoutCart: vi.fn(), cartPatient: vi.fn(),
   createCart: vi.fn(), getCart: vi.fn(), listCarts: vi.fn(), revokeCart: vi.fn(), audit: vi.fn(),
   connectionToken: vi.fn(), availability: vi.fn(), startTap: vi.fn(), captureTap: vi.fn(), cancelTap: vi.fn(), saveTapCard: vi.fn(),
-  selectOne: vi.fn(),
+  selectOne: vi.fn(), supabaseAdmin: vi.fn(),
 }));
 vi.mock("../billing/auth", () => ({
   requireOfficeBillingScope: mocks.guard,
@@ -34,6 +34,7 @@ vi.mock("../billing/terminal-sales", () => ({
 vi.mock("../lib/admin-audit", () => ({
   recordAdminAuditEvent: mocks.audit, requestIdOf: vi.fn(() => "request-1"),
 }));
+vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.supabaseAdmin }));
 import router from "./billing-office-sales";
 
 const patientId = "11111111-1111-4111-8111-111111111111";
@@ -83,6 +84,7 @@ beforeEach(() => {
     return { ...scope, isHq: token === "Bearer hq", providerId: token === "Bearer hq" ? String(req.query.office) : "office-1" };
   });
   mocks.cartPatient.mockImplementation(async (provider: string) => provider === "office-1" ? { id: patientId, name: "Pat", email: "p@example.com", phone: "5125550100" } : null);
+  mocks.supabaseAdmin.mockResolvedValue({ status: 200, json: [{ closed_at: null, archived_into_patient_id: null }] });
   mocks.planCart.mockResolvedValue({ quote });
   mocks.checkoutCart.mockResolvedValue(checkout);
   mocks.createCart.mockResolvedValue(cart);
@@ -110,6 +112,22 @@ describe("office sales routes", () => {
   it("returns 404 when the scoped office does not own the patient", async () => {
     mocks.cartPatient.mockResolvedValueOnce(null);
     expect((await call("POST", "/billing/office/sales/quote", "staff", { patient_id: patientId, lines })).status).toBe(404);
+  });
+
+  it("returns 409 when the patient record is sealed", async () => {
+    mocks.supabaseAdmin.mockResolvedValueOnce({
+      status: 200,
+      json: [{ closed_at: "2026-11-08T00:00:00.000Z", archived_into_patient_id: null }],
+    });
+    const result = await call("POST", "/billing/office/sales/quote", "staff", {
+      patient_id: patientId,
+      lines,
+    });
+    expect(result).toEqual({
+      status: 409,
+      json: { error: "This account is closed; the record is read-only.", field: "patient_id" },
+    });
+    expect(mocks.cartPatient).not.toHaveBeenCalled();
   });
 
   it("requires an office for HQ and accepts HQ drill-in", async () => {

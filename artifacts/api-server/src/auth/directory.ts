@@ -246,7 +246,7 @@ export interface PatientRow {
 export async function loadPatientById(id: string): Promise<PatientRow | null> {
   const res = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(id)}&select=id,provider_id,name,email,phone,activation_status,auth_user_id&limit=2`,
+    `/rest/v1/patients?id=eq.${enc(id)}&archived_at=is.null&select=id,provider_id,name,email,phone,activation_status,auth_user_id&limit=2`,
   );
   if (res.status >= 300) throw new Error(`patient lookup failed (${res.status})`);
   const rows = Array.isArray(res.json) ? (res.json as PatientRow[]) : [];

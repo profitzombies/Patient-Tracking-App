@@ -173,3 +173,7 @@
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Overview finance live smoke](overview-finance-live-smoke.md) — REST mocks must honor select= (an id-only query hid an always-0 failed-payments count); staff fixtures need the provision_staff_login rail; api dev runs a built bundle.
 - [Patient edit history](patient-edit-history.md) — values live in an append-only patient-owned table paired with the PII-free audit id; every shared-family edit route must go through the audit+history helper.
+- [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset numeric knobs silently zero limits; blank-check before Number; import-time knobs need vi.hoisted in tests.
+- [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
+- [Patient account closure](account-closure.md) — closure deletes personal families + nulls identity and reuses archived_at as the seal; classify every patient_id table; courtesy lookups fall through, never 502; teach route fakes new operators.
+- [Merge-stripped closing braces](merge-splice-repair.md) — a merge commit can strip every method's closing `}` from a hot lib file (objectStorage); typecheck main before trusting a green subagent report.

@@ -21,7 +21,7 @@ import { addDaysToKey, dateToKey, keyToDate } from './date-range-keys';
 export type RosterStatus = 'on_track' | 'needs_attention' | 'inactive' | 'paused' | 'discharged' | 'invited' | 'unknown';
 
 /** `active` is the roster's activated-account view: every status except invited, paused, and discharged. */
-export type StatusFilterValue = RosterStatus | 'active';
+export type StatusFilterValue = RosterStatus | 'active' | 'archived';
 
 export const ATTENTION_REASONS = ['check_in_overdue', 'logging_lapsed', 'no_activity_14d'] as const;
 export type AttentionReason = (typeof ATTENTION_REASONS)[number];
@@ -29,6 +29,8 @@ export type AttentionReason = (typeof ATTENTION_REASONS)[number];
 /** Everything the evaluator needs about one roster row (live or demo). */
 export interface RosterFilterRow {
   status: RosterStatus;
+  /** Closure metadata is the authoritative sealed-chart marker. */
+  closure: { closedAt: string; recordRetainUntil: string } | null;
   programId: string | null;
   stage: 'protocol' | 'maintenance' | null;
   week: number | null;
@@ -98,6 +100,7 @@ const DATE_OPERATORS = ['before', 'after', 'between', 'in_last'] as const;
 const RECENCY_OPERATORS = ['before', 'after', 'in_last'] as const;
 
 export const STATUS_OPTIONS: readonly FieldOption[] = [
+  { value: 'archived', label: 'Archived' },
   { value: 'active', label: 'Active (activated)' },
   { value: 'on_track', label: 'On track' },
   { value: 'needs_attention', label: 'Needs attention' },
@@ -320,8 +323,9 @@ export function isActivatedStatus(status: RosterStatus): boolean {
   return status !== 'invited' && status !== 'paused' && status !== 'discharged';
 }
 
-function statusMatches(status: RosterStatus, value: string): boolean {
-  return value === 'active' ? isActivatedStatus(status) : status === value;
+function statusMatches(row: RosterFilterRow, value: string): boolean {
+  if (value === 'archived') return row.closure != null;
+  return value === 'active' ? isActivatedStatus(row.status) : row.status === value;
 }
 
 /**
@@ -334,7 +338,7 @@ export function matchesCondition(row: RosterFilterRow, condition: FilterConditio
   const { field, operator, value } = condition;
   switch (field) {
     case 'status': {
-      const hit = statusMatches(row.status, value);
+      const hit = statusMatches(row, value);
       return operator === 'is_not' ? !hit : hit;
     }
     case 'program':
@@ -373,7 +377,17 @@ export function matchesCondition(row: RosterFilterRow, condition: FilterConditio
 
 /** AND over every complete condition. */
 export function matchesAllConditions(row: RosterFilterRow, conditions: readonly FilterCondition[], today: string): boolean {
+  const archivedView = conditions.some((condition) =>
+    condition.field === 'status' && condition.operator === 'is' && condition.value === 'archived',
+  );
+  if (archivedView ? row.closure == null : row.closure != null) return false;
   return conditions.every((condition) => matchesCondition(row, condition, today));
+}
+
+export function isArchivedRosterView(conditions: readonly FilterCondition[]): boolean {
+  return conditions.some((condition) =>
+    condition.field === 'status' && condition.operator === 'is' && condition.value === 'archived',
+  );
 }
 
 export function completeConditions(conditions: readonly FilterCondition[]): FilterCondition[] {
@@ -537,7 +551,13 @@ export function serializeRosterView(search: string, view: RosterView): string {
   params.delete(FILTER_PARAM);
   params.delete(SORT_PARAM);
   for (const key of LEGACY_PARAMS) params.delete(key);
-  for (const condition of completeConditions(view.conditions)) params.append(FILTER_PARAM, encodeCondition(condition));
+  const complete = completeConditions(view.conditions);
+  const archivedOnly = complete.length === 1
+    && complete[0].field === 'status'
+    && complete[0].operator === 'is'
+    && complete[0].value === 'archived';
+  if (archivedOnly) params.set('status', 'archived');
+  else for (const condition of complete) params.append(FILTER_PARAM, encodeCondition(condition));
   if (!sameSort(view.sort, DEFAULT_ROSTER_SORT)) params.set(SORT_PARAM, encodeSort(view.sort));
   const rest = params.toString();
   return rest ? `?${rest}` : '';
@@ -566,6 +586,7 @@ export function builtInQuickSets(today: string): QuickSet[] {
     { id: 'inactive-lapsed', label: 'Inactive / lapsed', conditions: [{ field: 'logging_lapsed', operator: 'is', value: 'yes' }], sort: { field: 'logging', order: 'asc' }, builtIn: true },
     { id: 'invited', label: 'Invited', conditions: [{ field: 'status', operator: 'is', value: 'invited' }], builtIn: true },
     { id: 'paused', label: 'Paused', conditions: [{ field: 'status', operator: 'is', value: 'paused' }], builtIn: true },
+    { id: 'archived', label: 'Archived', conditions: [{ field: 'status', operator: 'is', value: 'archived' }], builtIn: true },
     { id: 'maintenance', label: 'Maintenance phase', conditions: [{ field: 'stage', operator: 'is', value: 'maintenance' }], builtIn: true },
     { id: 'new-this-month', label: 'New this month', conditions: [{ field: 'join_date', operator: 'between', value: `${monthStart}..${today}` }], builtIn: true },
     { id: 'active-subscription', label: 'Active subscription', conditions: [{ field: 'active_subscription', operator: 'is', value: 'yes' }], builtIn: true },

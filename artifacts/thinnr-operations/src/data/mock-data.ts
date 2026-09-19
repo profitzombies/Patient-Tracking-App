@@ -15,6 +15,7 @@ export interface Patient {
   initials: string;
   email: string;
   phone: string;
+  closure?: { closedAt: string; recordRetainUntil: string } | null;
   providerId: string;
   startDate: string;
   status: Status;
@@ -291,6 +292,9 @@ export const MOCK_PATIENTS: Patient[] = Array.from({ length: 32 }).map((_, i) =>
     initials,
     email: `${name.toLowerCase().replace(' ', '.')}@example.com`,
     phone: `(555) ${Math.floor(200 + seededFraction(i + 40) * 800)}-${Math.floor(1000 + seededFraction(i + 80) * 9000)}`,
+    closure: i === 31
+      ? { closedAt: '2026-07-15T16:30:00.000Z', recordRetainUntil: '2033-07-15T16:30:00.000Z' }
+      : null,
     providerId,
     startDate,
     status,

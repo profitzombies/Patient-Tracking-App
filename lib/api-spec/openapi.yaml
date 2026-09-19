@@ -2559,7 +2559,7 @@ paths:
       tags: [hq]
       summary: Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, held, cancelled, purging, purged, failed] } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, held, closing, closed, cancelled, purging, purged, failed] } }
         - { name: limit, in: query, schema: { type: number } }
       responses:
         "200":
@@ -3628,11 +3628,12 @@ components:
         department: { type: string, enum: [clinical, support] }
     ConversationSummary:
       type: object
-      required: [id, patientId, patientName, thread, channel, providerId, officeName, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt, title, archivedAt]
+      required: [id, patientId, patientName, patientSealed, thread, channel, providerId, officeName, status, autoClosed, assignee, unread, messageCount, lastMessageAt, lastPatientMessageAt, lastStaffReplyAt, preview, noteCount, openEscalation, createdAt, title, archivedAt]
       properties:
         id: { type: string }
         patientId: { type: string }
         patientName: { type: string }
+        patientSealed: { type: boolean, description: True when the patient's account is closed and this clinical thread is read-only. }
         thread: { type: string, enum: [coach, support, care_team] }
         channel: { type: string, enum: [care_team, ai] }
         providerId: { type: string }
@@ -5020,7 +5021,7 @@ components:
         finalizedAt: { type: ["string", "null"], format: date-time }
     OfficeRosterPatient:
       type: object
-      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, program, invitation, attention, operational]
+      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, closure, program, invitation, attention, operational]
       properties:
         id: { type: string }
         name: { type: string }
@@ -5030,6 +5031,14 @@ components:
         activationStatus: { type: ["string", "null"] }
         verified: { type: boolean }
         createdAt: { type: ["string", "null"] }
+        closure:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [closedAt, recordRetainUntil]
+              properties:
+                closedAt: { type: string, format: date-time }
+                recordRetainUntil: { type: string, format: date-time }
         program: { $ref: "#/components/schemas/PatientProgram" }
         invitation:
           oneOf:
@@ -5211,15 +5220,17 @@ components:
     HqPatientDeletion:
       type: object
       description: One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.
-      required: [id, patientId, providerId, status, requestedAt, purgeAfter, cancelledAt, startedAt, purgedAt, attempts, nextAttemptAt, lastError, steps]
+      required: [id, patientId, providerId, status, requestedAt, purgeAfter, closedAt, retainUntil, cancelledAt, startedAt, purgedAt, attempts, nextAttemptAt, lastError, steps]
       properties:
         id: { type: string }
         patientId: { type: string }
         providerId: { type: ["string", "null"] }
-        status: { type: string, enum: [pending, held, cancelled, purging, purged, failed] }
+        status: { type: string, enum: [pending, held, closing, closed, cancelled, purging, purged, failed] }
         requestedAt: { type: string, format: date-time }
         purgeAfter: { type: string, format: date-time }
         heldAt: { type: ["string", "null"], format: date-time, description: Set while a legal hold parks the request; the remaining grace resumes when the hold lifts }
+        closedAt: { type: ["string", "null"], format: date-time }
+        retainUntil: { type: ["string", "null"], format: date-time }
         cancelledAt: { type: ["string", "null"], format: date-time }
         startedAt: { type: ["string", "null"], format: date-time }
         purgedAt: { type: ["string", "null"], format: date-time }
@@ -5229,10 +5240,12 @@ components:
         steps: { type: object, additionalProperties: true }
     HqPatientDeletionsSummary:
       type: object
-      required: [pending, held, cancelled, purging, purged, failed]
+      required: [pending, held, closing, closed, cancelled, purging, purged, failed]
       properties:
         pending: { type: number }
         held: { type: number }
+        closing: { type: number }
+        closed: { type: number }
         cancelled: { type: number }
         purging: { type: number }
         purged: { type: number }
@@ -5313,6 +5326,19 @@ components:
         patientId: { type: string }
         entries: { type: array, items: { $ref: "#/components/schemas/HqPatientRecordAccessEntry" } }
         total: { type: number }
+    PatientPrivacyDeletion:
+      type: object
+      required: [requestedAt, purgeAfter, status]
+      properties:
+        requestedAt: { type: string, format: date-time }
+        purgeAfter: { type: string, format: date-time }
+        status: { type: string, enum: [pending, held] }
+    PatientDeletionPolicy:
+      type: object
+      required: [graceDays, retentionYears]
+      properties:
+        graceDays: { type: number }
+        retentionYears: { type: number }
     HqAuditEventsResult:
       type: object
       required: [events]
@@ -5322,10 +5348,11 @@ components:
         hasMore: { type: boolean }
     OfficeRosterOperationalSummary:
       type: object
-      required: [totalPatients, activePatients, newEnrollments30d, needsAttention, attention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]
+      required: [totalPatients, activePatients, archived, newEnrollments30d, needsAttention, attention, inactive, invited, checkInsOverdue, loggingLapsed, asOf]
       properties:
         totalPatients: { type: number }
         activePatients: { type: number }
+        archived: { type: number, description: Sealed charts in this office, independent of the include filter. }
         newEnrollments30d: { type: number }
         needsAttention: { type: number }
         attention: { type: number }
@@ -5456,7 +5483,7 @@ components:
           $ref: "#/components/schemas/PatientActivitySignals"
         patient:
           type: object
-          required: [identity, program]
+          required: [identity, program, closure]
           properties:
             identity:
               type: object
@@ -5476,6 +5503,14 @@ components:
                 claimedAt: { type: ["string", "null"] }
                 lastLoginAt: { type: ["string", "null"] }
             program: { $ref: "#/components/schemas/PatientProgram" }
+            closure:
+              oneOf:
+                - type: "null"
+                - type: object
+                  required: [closedAt, recordRetainUntil]
+                  properties:
+                    closedAt: { type: string, format: date-time }
+                    recordRetainUntil: { type: string, format: date-time }
         diary:
           type: object
           required: [entries, nutritionTotals]

@@ -159,7 +159,7 @@ router.get("/office/leaderboard", async (req, res) => {
     const computedOn = now.toISOString().slice(0, 10);
     const providerFilter = target.kind === "office" ? `provider_id=eq.${enc(target.providerId)}&` : "";
     const [patientsRes, factsRes, deletionsRes, officesRes] = await Promise.all([
-      supabaseAdmin("GET", `/rest/v1/patients?${providerFilter}select=${PATIENT_SELECT}&order=created_at.desc&limit=5000`),
+      supabaseAdmin("GET", `/rest/v1/patients?${providerFilter}archived_at=is.null&select=${PATIENT_SELECT}&order=created_at.desc&limit=5000`),
       supabaseAdmin("POST", "/rest/v1/rpc/provider_leaderboard_facts", {
         p_provider_id: target.kind === "office" ? target.providerId : null,
         p_at: now.toISOString(),

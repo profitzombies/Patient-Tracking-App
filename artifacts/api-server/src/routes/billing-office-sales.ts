@@ -12,8 +12,10 @@ import { selectOne } from "../billing/store";
 import { BillingTerminalError, createConnectionToken, tapToPayAvailability } from "../billing/terminal";
 import { cancelTapSale, captureTapSale, saveTapCardOnFile, startTapSale } from "../billing/terminal-sales";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
+import { supabaseAdmin } from "../lib/supabase-admin";
 
 const router: IRouter = Router();
+const RECORD_SEALED = "This account is closed; the record is read-only.";
 const Line = z.object({
   product_id: z.string().uuid(), quantity: z.number().int().min(1).max(10),
   purchase: z.enum(["one_time", "subscription"]), cadence_weeks: z.number().int().nullable().optional(),
@@ -57,6 +59,16 @@ function fail(req: Request, res: Response, error: unknown) {
 }
 async function scope(req: Request, res: Response) { return requireOfficeBillingScope(req, res, { write: true, sell: true }); }
 async function patient(scopeValue: BillingOfficeScope, id: string) {
+  const state = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${encodeURIComponent(id)}&provider_id=eq.${encodeURIComponent(scopeValue.providerId)}&select=closed_at,archived_into_patient_id&limit=1`,
+  );
+  if (state.status >= 300) throw new PrebuiltCartError("Could not load that patient.", 502);
+  const row = Array.isArray(state.json)
+    ? state.json[0] as { closed_at?: unknown; archived_into_patient_id?: unknown } | undefined
+    : undefined;
+  if (row?.closed_at) throw new PrebuiltCartError(RECORD_SEALED, 409, "patient_id");
+  if (row?.archived_into_patient_id) throw new PrebuiltCartError("Patient not found.", 404, "patient_id");
   const value = await cartPatient(scopeValue.providerId, id);
   if (!value) throw new PrebuiltCartError("Patient not found.", 404, "patient_id");
   return value;

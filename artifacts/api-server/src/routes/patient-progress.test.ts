@@ -134,6 +134,7 @@ class FakeBackend {
   private matches(row: Row, [col, op, value]: [string, string, string]): boolean {
     const cell = row[col];
     if (op === "eq") return String(cell ?? "") === value;
+    if (op === "is" && value === "null") return cell == null;
     if (op === "gte") return typeof cell === "string" && cell >= value;
     if (op === "lte") return typeof cell === "string" && cell <= value;
     if (op === "lt") return typeof cell === "string" && cell < value;

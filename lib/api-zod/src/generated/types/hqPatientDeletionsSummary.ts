@@ -9,6 +9,8 @@
 export interface HqPatientDeletionsSummary {
   pending: number;
   held: number;
+  closing: number;
+  closed: number;
   cancelled: number;
   purging: number;
   purged: number;

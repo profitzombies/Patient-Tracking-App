@@ -150,6 +150,14 @@ export function ThreadNotesEmpty() {
   return <p className="text-xs italic text-muted-foreground">No internal notes yet.</p>;
 }
 
+export function SealedConversationNotice() {
+  return (
+    <p className="text-xs font-medium text-muted-foreground" role="status" data-testid="text-sealed-conversation">
+      This account is closed; the record is read-only.
+    </p>
+  );
+}
+
 /** Breakpoint at which the notes panel docks beside the thread instead of overlaying it. */
 const NOTES_DOCK_QUERY = '(min-width: 1024px)';
 

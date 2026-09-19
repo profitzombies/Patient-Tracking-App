@@ -50,12 +50,11 @@ export function bearerToken(req: { headers: Record<string, unknown> }): string |
   return token.length > 0 ? token : null;
 }
 
-export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED";
+export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED" | "account_closed";
 
-export interface PatientAuthFailureDetails {
-  code: PatientAuthCode;
-  consent: ConsentDto;
-}
+export type PatientAuthFailureDetails =
+  | { code: "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED"; consent: ConsentDto }
+  | { code: "account_closed" };
 
 export type ResolvedPatient =
   | { ok: true; patientId: string; authUserId: string; providerId: string | null; consent: ConsentDto }
@@ -114,7 +113,13 @@ type ResolvedIdentity =
       /** The patient's practice — the office tier of the coach usage limits keys on it. */
       providerId: string | null;
     }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      code?: "account_closed";
+      details?: { code: "account_closed" };
+    };
 
 /**
  * Resolve only the canonical patient identity.  Bloodwork uses this first so
@@ -146,7 +151,7 @@ async function resolvePatientIdentityInternal(
   try {
     lookup = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id,provider_id&limit=2`,
+      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=id,provider_id&limit=2`,
     );
   } catch (error) {
     if (lookupFailure === "throw") throw error;
@@ -162,6 +167,29 @@ async function resolvePatientIdentityInternal(
   }
   const row = lookup.json[0] as { id?: unknown; provider_id?: unknown } | undefined;
   if (!row || typeof row.id !== "string" || row.id.length === 0) {
+    // Courtesy only: an unlinked session whose account was closed gets a
+    // neutral "closed" message instead of the generic unlinked error. The
+    // lookup is best-effort, so a failure here falls through to the same
+    // 403 an unknown account receives rather than blocking the caller.
+    let closed = false;
+    try {
+      const closure = await supabaseAdmin(
+        "GET",
+        `/rest/v1/patient_deletion_requests?auth_user_id=eq.${enc(user.id)}&status=in.(closing,closed,purging,purged)&select=id&limit=1`,
+      );
+      closed = closure.status < 300 && Array.isArray(closure.json) && closure.json.length > 0;
+    } catch {
+      closed = false;
+    }
+    if (closed) {
+      return {
+        ok: false,
+        status: 404,
+        error: "This account was closed.",
+        code: "account_closed",
+        details: { code: "account_closed" },
+      };
+    }
     return { ok: false, status: 403, error: "This account is not linked to a patient record." };
   }
   const providerId = typeof row.provider_id === "string" && row.provider_id.length > 0 ? row.provider_id : null;

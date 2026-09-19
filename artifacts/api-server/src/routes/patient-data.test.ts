@@ -976,6 +976,7 @@ describe("GET /patient-data/state", () => {
         consent: { requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: CONSENT_POLICY_VERSION, satisfied: true, photoAnalysis: true, recordedAt: "2026-09-01T00:00:00Z" },
         export: null,
         deletion: null,
+        deletionPolicy: { graceDays: 7, retentionYears: 7 },
       },
       mediaToken: expect.any(String),
     });
@@ -1162,6 +1163,7 @@ describe("GET /patient-data/state", () => {
         consent: { requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: CONSENT_POLICY_VERSION, satisfied: true, photoAnalysis: true, recordedAt: "2026-09-01T00:00:00Z" },
         export: null,
         deletion: null,
+        deletionPolicy: { graceDays: 7, retentionYears: 7 },
       },
       mediaToken: expect.any(String),
     });

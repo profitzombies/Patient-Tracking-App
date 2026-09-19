@@ -31,15 +31,21 @@ export interface ExportJob {
 }
 
 export interface DeletionRequest {
-  status: 'pending';
+  status: 'pending' | 'held';
   requestedAt: string;
   purgeAfter: string;
+}
+
+export interface DeletionPolicy {
+  graceDays: number;
+  retentionYears: number;
 }
 
 export interface PrivacyState {
   consent: ConsentStatus;
   export: ExportJob | null;
   deletion: DeletionRequest | null;
+  deletionPolicy: DeletionPolicy;
 }
 
 export interface ConsentWrite {
@@ -115,8 +121,28 @@ export function parseDeletion(raw: unknown): DeletionRequest | null {
   if (!isRecord(raw)) throw new PrivacyParseError();
   const requestedAt = str(raw.requestedAt);
   const purgeAfter = str(raw.purgeAfter);
-  if (raw.status !== 'pending' || !requestedAt || !purgeAfter) throw new PrivacyParseError();
-  return { status: 'pending', requestedAt, purgeAfter };
+  if ((raw.status !== 'pending' && raw.status !== 'held') || !requestedAt || !purgeAfter) {
+    throw new PrivacyParseError();
+  }
+  return { status: raw.status, requestedAt, purgeAfter };
+}
+
+export function parseDeletionPolicy(raw: unknown): DeletionPolicy {
+  if (raw === null || raw === undefined) {
+    return { graceDays: 7, retentionYears: 7 };
+  }
+  if (!isRecord(raw)) throw new PrivacyParseError();
+  const graceDays =
+    typeof raw.graceDays === 'number' && Number.isFinite(raw.graceDays) && raw.graceDays >= 0
+      ? raw.graceDays
+      : 7;
+  const retentionYears =
+    typeof raw.retentionYears === 'number' &&
+    Number.isFinite(raw.retentionYears) &&
+    raw.retentionYears > 0
+      ? raw.retentionYears
+      : 7;
+  return { graceDays, retentionYears };
 }
 
 export function parsePrivacyState(raw: unknown): PrivacyState {
@@ -125,12 +151,13 @@ export function parsePrivacyState(raw: unknown): PrivacyState {
     consent: parseConsent(raw.consent),
     export: parseExport(raw.export),
     deletion: parseDeletion(raw.deletion),
+    deletionPolicy: parseDeletionPolicy(raw.deletionPolicy),
   };
 }
 
 // ── Display helpers ─────────────────────────────────────────────────────────
 
-/** Whole days (rounded up) until the purge moment; 0 once it has passed. */
+/** Whole days (rounded up) until the closure moment; 0 once it has passed. */
 export function graceDaysRemaining(purgeAfter: string, now: Date = new Date()): number {
   const remainingMs = Date.parse(purgeAfter) - now.getTime();
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) return 0;
@@ -139,9 +166,9 @@ export function graceDaysRemaining(purgeAfter: string, now: Date = new Date()): 
 
 export function describeGrace(purgeAfter: string, now: Date = new Date()): string {
   const days = graceDaysRemaining(purgeAfter, now);
-  if (days === 0) return 'Your account will be removed shortly.';
-  if (days === 1) return 'Your account will be permanently removed in 1 day.';
-  return `Your account will be permanently removed in ${days} days.`;
+  if (days === 0) return 'Your account closes shortly.';
+  if (days === 1) return 'Your account closes in 1 day.';
+  return `Your account closes in ${days} days.`;
 }
 
 export function formatArchiveSize(bytes: number | null): string {

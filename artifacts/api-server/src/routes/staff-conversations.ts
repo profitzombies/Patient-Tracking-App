@@ -38,6 +38,8 @@ import {
 } from "../billing/product-suggestions";
 
 const enc = encodeURIComponent;
+
+const RECORD_SEALED = "This account is closed; the record is read-only.";
 type Row = Record<string, unknown>;
 type Thread = "coach" | "support" | "care_team";
 type Department = "clinical" | "support";
@@ -281,6 +283,7 @@ interface InboxRow {
   office_name?: string;
   title?: string | null;
   archived_at?: string | null;
+  patient_sealed?: boolean;
 }
 
 function summary(row: InboxRow) {
@@ -288,6 +291,7 @@ function summary(row: InboxRow) {
     id: String(row.id),
     patientId: String(row.patient_id),
     patientName: String(row.patient_name || "Patient"),
+    patientSealed: row.patient_sealed === true,
     thread: row.thread,
     channel: row.thread === "care_team" ? "care_team" : "ai",
     providerId: String(row.provider_id ?? ""),
@@ -345,6 +349,23 @@ async function withCoachMetadata(rows: InboxRow[]): Promise<InboxRow[]> {
   return rows.map(row => ({ ...row, ...metadata.get(row.id) }));
 }
 
+async function withPatientSeals(rows: InboxRow[]): Promise<InboxRow[]> {
+  const ids = [...new Set(rows.map((row) => String(row.patient_id)).filter(Boolean))];
+  if (ids.length === 0) return rows;
+  const result = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=in.(${ids.map(enc).join(",")})&select=id,closed_at`,
+  );
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`conversation patient state failed (${result.status})`);
+  }
+  const sealed = new Set(
+    (result.json as Row[])
+      .filter((row) => typeof row.closed_at === "string")
+      .map((row) => String(row.id)),
+  );
+  return rows.map((row) => ({ ...row, patient_sealed: sealed.has(String(row.patient_id)) }));
+}
 async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ rows: InboxRow[]; total: number; autoCloseDays: number }> {
   const policy = await autoClosePolicy();
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_chat_inbox_list_guarded", {
@@ -363,9 +384,9 @@ async function inboxList(scope: OfficeScope, args: InboxListArgs): Promise<{ row
     p_patient_id: args.patientId ?? null,
   });
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`inbox list failed (${result.status})`);
-  const rows = await withCoachMetadata((result.json as InboxRow[]).map(row => ({
+  const rows = await withPatientSeals(await withCoachMetadata((result.json as InboxRow[]).map(row => ({
     ...row, provider_id: scope.providerId, office_name: scope.officeName,
-  })));
+  }))));
   return { rows, total: rows.length ? Number(rows[0].total ?? rows.length) : 0, autoCloseDays: policy.autoCloseDays };
 }
 
@@ -663,6 +684,10 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
   });
 
   function officeMutationOnly(found: { scope: OfficeScope; conversation: ConversationSummary }, res: Response): boolean {
+    if (found.conversation.patientSealed) {
+      res.status(409).json({ error: RECORD_SEALED });
+      return false;
+    }
     if (found.scope.actorKind !== "hq" || found.conversation.thread !== "care_team") return true;
     res.status(403).json({ error: "HQ care-team access is read-only." });
     return false;
@@ -770,9 +795,15 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         res.status(403).json({ error: "HQ care-team access is read-only." }); return;
       }
       const patient = await supabaseAdmin("GET",
-        `/rest/v1/patients?id=eq.${enc(body.data.patientId)}&provider_id=eq.${enc(resolved.scope.providerId)}&archived_at=is.null&deletion_requested_at=is.null&select=id&limit=1`);
+        `/rest/v1/patients?id=eq.${enc(body.data.patientId)}&provider_id=eq.${enc(resolved.scope.providerId)}&select=id,closed_at,archived_into_patient_id,deletion_requested_at&limit=1`);
       if (patient.status >= 300) throw new Error(`patient lookup failed (${patient.status})`);
-      if (!Array.isArray(patient.json) || !patient.json[0]) {
+      const patientRow = Array.isArray(patient.json)
+        ? patient.json[0] as { closed_at?: unknown; archived_into_patient_id?: unknown; deletion_requested_at?: unknown } | undefined
+        : undefined;
+      if (patientRow?.closed_at) {
+        res.status(409).json({ error: RECORD_SEALED }); return;
+      }
+      if (!patientRow || patientRow.archived_into_patient_id || patientRow.deletion_requested_at) {
         res.status(404).json({ error: "Patient not found." }); return;
       }
       const started = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_start", {

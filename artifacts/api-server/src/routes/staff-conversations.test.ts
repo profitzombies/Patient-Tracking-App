@@ -145,6 +145,9 @@ beforeEach(() => {
   on("GET", "/rest/v1/patient_chat_conversations?id=in.", () => ({
     status: 200, json: [{ id: CONV, title: "A pasta question", archived_at: null }],
   }));
+  on("GET", "/rest/v1/patients?id=in.", () => ({
+    status: 200, json: [{ id: PATIENT, closed_at: null }],
+  }));
   on("POST", "/rest/v1/rpc/patient_chat_workflow_mutate", c => {
     const input = c.body as { p_action: string };
     if (input.p_action === "note") return { status: 200, json: { id: "note-1" } };
@@ -317,6 +320,24 @@ describe("transcript read", () => {
 });
 
 describe("assignment and status", () => {
+  it("returns a read-only conflict for a sealed patient's thread", async () => {
+    routes.unshift({
+      match: call => call.method === "GET" && call.path.startsWith("/rest/v1/patients?id=in."),
+      reply: () => ({
+        status: 200,
+        json: [{ id: PATIENT, closed_at: "2026-11-08T00:00:00.000Z" }],
+      }),
+    });
+    const result = await call("POST", `/office/conversations/${CONV}/assign`, {
+      assigneeUserId: "me",
+    });
+    expect(result).toEqual({
+      status: 409,
+      json: { error: "This account is closed; the record is read-only." },
+    });
+    expect(rpcCalls("patient_chat_workflow_mutate")).toEqual([]);
+  });
+
   it("claims a thread for the caller with their resolved label and audits it", async () => {
     const result = await call("POST", `/office/conversations/${CONV}/assign`, { assigneeUserId: "me" });
     expect(result.status).toBe(200);

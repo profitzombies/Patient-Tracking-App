@@ -15,6 +15,8 @@ export interface ConversationSummary {
   id: string;
   patientId: string;
   patientName: string;
+  /** True when the patient's account is closed and this clinical thread is read-only. */
+  patientSealed: boolean;
   thread: ConversationSummaryThread;
   channel: ConversationSummaryChannel;
   providerId: string;

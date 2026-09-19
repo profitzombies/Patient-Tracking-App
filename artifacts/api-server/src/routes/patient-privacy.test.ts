@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => {
   };
 });
 vi.mock("../lib/patient-auth", () => ({ resolvePatient: mocks.resolvePatient }));
+vi.mock("../lib/org-policy", () => ({
+  loadOrgPolicy: vi.fn(async () => ({ retention: { clinicalRecordDays: 2555 } })),
+}));
 vi.mock("../lib/supabase-admin", () => ({
   supabaseAdmin: (method: string, path: string, body?: unknown, prefer?: string) => mocks.supabase.handler(method, path, body, prefer),
 }));
@@ -156,10 +159,16 @@ describe("consent", () => {
   it("starts unsatisfied, records the current version, and reports it in the privacy state", async () => {
     let res = await call("/patient-data/privacy");
     expect(res.status).toBe(200);
-    let body = await res.json() as { consent: Record<string, unknown>; export: unknown; deletion: unknown };
+    let body = await res.json() as {
+      consent: Record<string, unknown>;
+      export: unknown;
+      deletion: unknown;
+      deletionPolicy: { graceDays: number; retentionYears: number };
+    };
     expect(body.consent).toEqual({ requiredVersion: CONSENT_POLICY_VERSION, recordedVersion: null, satisfied: false, photoAnalysis: null, recordedAt: null });
     expect(body.export).toBeNull();
     expect(body.deletion).toBeNull();
+    expect(body.deletionPolicy).toEqual({ graceDays: 7, retentionYears: 7 });
 
     res = await call("/patient-data/consent", "PUT", consentBody());
     expect(res.status).toBe(200);

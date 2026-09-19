@@ -50,8 +50,9 @@ export function livePatientQueryKey(office: string | null, id: string) {
  * scopes them to their own office) and HQ admins holding provider_manage.
  * The server is authoritative — this only decides whether to show controls.
  */
-export function useCanEditLiveRecord(): boolean {
+export function useCanEditLiveRecord(patient?: Pick<OfficePatientDetail['patient'], 'closure'>): boolean {
   const { authStatus, authRole, hqRole } = useSession();
+  if (patient?.closure) return false;
   if (authStatus !== 'signed-in') return false;
   if (authRole === 'provider_staff') return true;
   return authRole === 'hq_admin' && (hqRole === 'Super Admin' || hqRole === 'Admin');

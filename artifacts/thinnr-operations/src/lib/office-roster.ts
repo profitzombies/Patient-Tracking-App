@@ -102,6 +102,8 @@ export interface OfficePatient {
   deletion?: PatientDeletionState | null;
   /** True while HQ holds this patient (or the whole office) for legal reasons: nothing may be deleted. Read-only for the office. */
   legalHold?: boolean;
+  /** Non-null for an account whose retained clinical chart is sealed. */
+  closure: { closedAt: string; recordRetainUntil: string } | null;
   /** Optional summary values supplied by the roster endpoint as they become available. */
 
   status?: string | null;
@@ -237,6 +239,8 @@ export interface OfficeRosterSummary {
   deletionRequested?: number;
   /** Purged accounts represented only by tombstones (never counted as patients). */
   deletedAccounts?: number;
+  /** Sealed clinical charts, independent of whether this response included them. */
+  archived: number;
   asOf: string;
 }
 
@@ -344,6 +348,7 @@ export interface OfficePatientDetail {
     /** Non-null while the patient's own deletion request is in its grace period. */
     deletion?: PatientDeletionState | null;
     legalHold?: boolean;
+    closure: { closedAt: string; recordRetainUntil: string } | null;
   };
   diary: {
     entries: OfficeDiaryEntry[];
@@ -434,12 +439,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function officeQuery(office?: string | null): string {
-  return office ? `?office=${encodeURIComponent(office)}` : '';
+function officeQuery(office?: string | null, includeArchived = false): string {
+  const params = new URLSearchParams();
+  if (office) params.set('office', office);
+  if (includeArchived) params.set('include', 'archived');
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
-export async function fetchOfficeRoster(office?: string | null): Promise<OfficeRoster> {
-  return request<OfficeRoster>(`/api/office/roster${officeQuery(office)}`);
+export async function fetchOfficeRoster(office?: string | null, includeArchived = false): Promise<OfficeRoster> {
+  return request<OfficeRoster>(`/api/office/roster${officeQuery(office, includeArchived)}`);
 }
 
 export async function fetchOfficePatient(patientId: string, office?: string | null): Promise<OfficePatientDetail> {

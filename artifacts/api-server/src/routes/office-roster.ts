@@ -74,7 +74,9 @@ function resendCooldownSeconds(): number {
 }
 
 export const PATIENT_SELECT =
-  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date,deletion_requested_at,legal_hold";
+  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date,deletion_requested_at,legal_hold,closed_at,record_retain_until,archived_at,archived_into_patient_id";
+
+export const RECORD_SEALED = "This account is closed; the record is read-only.";
 
 export type PatientRosterRow = Record<string, unknown>;
 type OperationalRow = Record<string, unknown>;
@@ -106,6 +108,13 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
     activationStatus: row.activation_status ? String(row.activation_status) : null,
     verified,
     createdAt: row.created_at ? String(row.created_at) : null,
+    closure:
+      typeof row.closed_at === "string" && row.closed_at.length > 0
+        ? {
+            closedAt: row.closed_at,
+            recordRetainUntil: String(row.record_retain_until),
+          }
+        : null,
     // Account deletion the PATIENT asked for (staff-initiated deletion is not
     // a thing). `purgeAfter` is filled in by the roster from the request row.
     deletion: deletionStateDto(row),
@@ -144,6 +153,7 @@ export interface PatientDeletionStateDto {
 }
 
 function deletionStateDto(row: PatientRosterRow): PatientDeletionStateDto | null {
+  if (typeof row.closed_at === "string" && row.closed_at.length > 0) return null;
   return typeof row.deletion_requested_at === "string" && row.deletion_requested_at.length > 0
     ? { state: "requested", requestedAt: row.deletion_requested_at, purgeAfter: null }
     : null;
@@ -423,7 +433,7 @@ async function deliverInvitationEmail(input: {
   }
   const patched = await supabaseAdmin(
     "PATCH",
-    `/rest/v1/patients?id=eq.${enc(input.patientId)}`,
+    `/rest/v1/patients?id=eq.${enc(input.patientId)}&archived_at=is.null`,
     {
       invite_email_status: outcome === "sent" ? "sent" : "failed",
       invite_email_updated_at: new Date().toISOString(),
@@ -457,10 +467,18 @@ router.get("/office/roster", async (req, res) => {
     // UTC date for the summary counters.
     const now = new Date();
     const asOf = now.toISOString().slice(0, 10);
-    const [rows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient] = await Promise.all([
+    const includeArchived = req.query.include === "archived";
+    const patientVisibility = includeArchived
+      ? "archived_into_patient_id=is.null"
+      : "archived_at=is.null";
+    const [rows, archivedRows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient] = await Promise.all([
       supabaseAdmin(
       "GET",
-      `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
+      `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&${patientVisibility}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
+      ),
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&closed_at=not.is.null&select=id&limit=5000`,
       ),
       supabaseAdmin("POST", "/rest/v1/rpc/provider_patient_activity_summary", {
         p_provider_id: scope.providerId,
@@ -488,6 +506,9 @@ router.get("/office/roster", async (req, res) => {
       }),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
+    if (archivedRows.status >= 300 || !Array.isArray(archivedRows.json)) {
+      throw new Error(`archived roster count failed (${archivedRows.status})`);
+    }
     if (pendingDeletions.status >= 300) throw new Error(`deletion roster load failed (${pendingDeletions.status})`);
     if (tombstones.status >= 300) throw new Error(`tombstone roster load failed (${tombstones.status})`);
     const purgeAfterByPatient = new Map(
@@ -512,23 +533,24 @@ router.get("/office/roster", async (req, res) => {
     }
     const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => {
       const base = patientDto(row, asOf);
+      const live = base.closure === null;
       const pending = purgeAfterByPatient.get(String(row.id));
       const deletion: PatientDeletionStateDto | null = base.deletion
         ? { ...base.deletion, purgeAfter: typeof pending?.purge_after === "string" ? pending.purge_after : null }
         : pending
           ? { state: "requested", requestedAt: String(pending.requested_at), purgeAfter: typeof pending.purge_after === "string" ? pending.purge_after : null }
           : null;
-      const meds = medicationState.get(String(row.id));
+      const meds = live ? medicationState.get(String(row.id)) : undefined;
       return {
         ...rosterOperationalDto(
           { ...base, deletion },
-          facts.get(String(row.id)),
+          live ? facts.get(String(row.id)) : undefined,
           asOf,
-          followUpByPatient.get(String(row.id)),
+          live ? followUpByPatient.get(String(row.id)) : undefined,
           meds,
-          outreachByPatient.get(String(row.id)) as OperationalRow | undefined,
+          live ? outreachByPatient.get(String(row.id)) as OperationalRow | undefined : undefined,
         ),
-        outreach: outreachRosterDto(outreachByPatient.get(String(row.id))),
+        outreach: outreachRosterDto(live ? outreachByPatient.get(String(row.id)) : undefined),
         medicationAdherence: meds
           ? medicationAdherenceDto(meds.medications, meds.doseLogs, typeof row.timezone === "string" ? row.timezone : null, now)
           : null,
@@ -542,17 +564,19 @@ router.get("/office/roster", async (req, res) => {
     // Purged accounts are tombstones only: listed separately, never counted
     // in the roster totals or the activity buckets below.
     const deletedAccounts = (Array.isArray(tombstones.json) ? (tombstones.json as OperationalRow[]) : []).map(deletedAccountDto);
-    const activePatients = patients.filter((patient) => patient.activationStatus === "activated").length;
+    const livePatients = patients.filter((patient) => patient.closure === null);
+    const activePatients = livePatients.filter((patient) => patient.activationStatus === "activated").length;
     const summary = {
-      totalPatients: patients.length, activePatients,
-      newEnrollments30d: patients.filter((patient) => patient.activationStatus === "activated" && (daysOld(dateOrNull(patient.createdAt), asOf) ?? 31) <= 29).length,
-      needsAttention: patients.filter((patient) => patient.operational.status === "needs_attention").length,
-      attention: patients.filter((patient) => patient.attention.flagged).length,
-      inactive: patients.filter((patient) => patient.operational.status === "inactive").length,
-      invited: patients.filter((patient) => patient.operational.status === "invited").length,
-      checkInsOverdue: patients.filter((patient) => patient.operational.reasons.includes("check_in_overdue")).length,
-      loggingLapsed: patients.filter((patient) => patient.operational.reasons.includes("logging_lapsed")).length,
-      deletionRequested: patients.filter((patient) => patient.deletion != null).length,
+      totalPatients: livePatients.length, activePatients,
+      archived: archivedRows.json.length,
+      newEnrollments30d: livePatients.filter((patient) => patient.activationStatus === "activated" && (daysOld(dateOrNull(patient.createdAt), asOf) ?? 31) <= 29).length,
+      needsAttention: livePatients.filter((patient) => patient.operational.status === "needs_attention").length,
+      attention: livePatients.filter((patient) => patient.attention.flagged).length,
+      inactive: livePatients.filter((patient) => patient.operational.status === "inactive").length,
+      invited: livePatients.filter((patient) => patient.operational.status === "invited").length,
+      checkInsOverdue: livePatients.filter((patient) => patient.operational.reasons.includes("check_in_overdue")).length,
+      loggingLapsed: livePatients.filter((patient) => patient.operational.reasons.includes("logging_lapsed")).length,
+      deletionRequested: livePatients.filter((patient) => patient.deletion != null).length,
       deletedAccounts: deletedAccounts.length,
       asOf,
     };
@@ -827,6 +851,7 @@ router.get("/office/patients/:id", async (req, res) => {
       patient: {
         identity: identityDto(patient),
         program: patientDto(patient).program,
+        closure: patientDto(patient).closure,
         version: recordVersion(patient),
         deletion: recordDeletionDto(patient, (pendingDeletion.json as OperationalRow[])[0]),
       },
@@ -1041,7 +1066,7 @@ router.post("/office/invitations", async (req, res) => {
     // neutral about who owns the existing row.
     const emailTaken = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?email=ilike.${enc(email)}&select=id&limit=1`,
+      `/rest/v1/patients?email=ilike.${enc(email)}&archived_at=is.null&select=id&limit=1`,
     );
     if (emailTaken.status >= 300) throw new Error(`email check failed (${emailTaken.status})`);
     if (Array.isArray(emailTaken.json) && emailTaken.json.length > 0) {
@@ -1161,6 +1186,10 @@ router.post("/office/invitations/:id/resend", async (req, res) => {
       res.status(404).json({ error: "No invitation found for this office." });
       return;
     }
+    if (row.closed_at) {
+      res.status(409).json({ error: RECORD_SEALED });
+      return;
+    }
     if (row.auth_user_id) {
       res.status(409).json({
         error: "This patient has already verified their account — no invitation needed.",
@@ -1174,7 +1203,7 @@ router.post("/office/invitations/:id/resend", async (req, res) => {
     const cutoff = new Date(Date.now() - cooldown * 1000).toISOString();
     const guarded = await supabaseAdmin(
       "PATCH",
-      `/rest/v1/patients?id=eq.${enc(id)}&provider_id=eq.${enc(scope.providerId)}&auth_user_id=is.null&or=(invite_email_updated_at.is.null,invite_email_updated_at.lt.${enc(cutoff)})`,
+      `/rest/v1/patients?id=eq.${enc(id)}&provider_id=eq.${enc(scope.providerId)}&archived_at=is.null&auth_user_id=is.null&or=(invite_email_updated_at.is.null,invite_email_updated_at.lt.${enc(cutoff)})`,
       { invite_email_status: "pending", invite_email_updated_at: new Date().toISOString() },
       "return=representation",
     );

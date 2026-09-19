@@ -11,7 +11,10 @@
  * the only way forward). PHOTO_ANALYSIS_OPT_IN_REQUIRED — the patient
  * declined optional photo analysis, so photo features are off server-side.
  */
-export type PatientDataErrorCode = 'CONSENT_REQUIRED' | 'PHOTO_ANALYSIS_OPT_IN_REQUIRED';
+export type PatientDataErrorCode =
+  | 'CONSENT_REQUIRED'
+  | 'PHOTO_ANALYSIS_OPT_IN_REQUIRED'
+  | 'account_closed';
 
 /**
  * Where a failure came from, so the offline write queue can decide whether
@@ -45,5 +48,9 @@ export class PatientDataError extends Error {
 }
 
 export function patientDataErrorCode(raw: unknown): PatientDataErrorCode | null {
-  return raw === 'CONSENT_REQUIRED' || raw === 'PHOTO_ANALYSIS_OPT_IN_REQUIRED' ? raw : null;
+  return raw === 'CONSENT_REQUIRED' ||
+    raw === 'PHOTO_ANALYSIS_OPT_IN_REQUIRED' ||
+    raw === 'account_closed'
+    ? raw
+    : null;
 }

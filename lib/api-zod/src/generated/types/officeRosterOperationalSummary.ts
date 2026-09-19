@@ -9,6 +9,8 @@
 export interface OfficeRosterOperationalSummary {
   totalPatients: number;
   activePatients: number;
+  /** Sealed charts in this office */
+  archived: number;
   newEnrollments30d: number;
   needsAttention: number;
   attention: number;

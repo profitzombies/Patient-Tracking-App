@@ -952,6 +952,8 @@ export interface ConversationSummary {
   id: string;
   patientId: string;
   patientName: string;
+  /** True when the patient's account is closed and this clinical thread is read-only. */
+  patientSealed: boolean;
   thread: ConversationSummaryThread;
   channel: ConversationSummaryChannel;
   providerId: string;
@@ -3055,6 +3057,11 @@ export interface StaffAlertDelivery {
   finalizedAt: string | null;
 }
 
+export type OfficeRosterPatientClosure = {
+  closedAt: string;
+  recordRetainUntil: string;
+} | null;
+
 export type OfficeRosterPatientInvitationState = typeof OfficeRosterPatientInvitationState[keyof typeof OfficeRosterPatientInvitationState];
 
 
@@ -3246,6 +3253,7 @@ export interface OfficeRosterPatient {
   verified: boolean;
   /** @nullable */
   createdAt: string | null;
+  closure: OfficeRosterPatientClosure;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
   operational: OperationalPatient;
@@ -3336,6 +3344,8 @@ export type HqPatientDeletionStatus = typeof HqPatientDeletionStatus[keyof typeo
 export const HqPatientDeletionStatus = {
   pending: 'pending',
   held: 'held',
+  closing: 'closing',
+  closed: 'closed',
   cancelled: 'cancelled',
   purging: 'purging',
   purged: 'purged',
@@ -3361,6 +3371,10 @@ export interface HqPatientDeletion {
      */
   heldAt?: string | null;
   /** @nullable */
+  closedAt: string | null;
+  /** @nullable */
+  retainUntil: string | null;
+  /** @nullable */
   cancelledAt: string | null;
   /** @nullable */
   startedAt: string | null;
@@ -3377,6 +3391,8 @@ export interface HqPatientDeletion {
 export interface HqPatientDeletionsSummary {
   pending: number;
   held: number;
+  closing: number;
+  closed: number;
   cancelled: number;
   purging: number;
   purged: number;
@@ -3509,6 +3525,25 @@ export interface HqPatientRecordAccessResult {
   total: number;
 }
 
+export type PatientPrivacyDeletionStatus = typeof PatientPrivacyDeletionStatus[keyof typeof PatientPrivacyDeletionStatus];
+
+
+export const PatientPrivacyDeletionStatus = {
+  pending: 'pending',
+  held: 'held',
+} as const;
+
+export interface PatientPrivacyDeletion {
+  requestedAt: string;
+  purgeAfter: string;
+  status: PatientPrivacyDeletionStatus;
+}
+
+export interface PatientDeletionPolicy {
+  graceDays: number;
+  retentionYears: number;
+}
+
 export interface HqAuditEventsResult {
   events: HqAuditEvent[];
   total?: number;
@@ -3518,6 +3553,8 @@ export interface HqAuditEventsResult {
 export interface OfficeRosterOperationalSummary {
   totalPatients: number;
   activePatients: number;
+  /** Sealed charts in this office */
+  archived: number;
   newEnrollments30d: number;
   needsAttention: number;
   attention: number;
@@ -3680,9 +3717,15 @@ export type OfficePatientRecordPatientIdentity = {
   lastLoginAt: string | null;
 };
 
+export type OfficePatientRecordPatientClosure = {
+  closedAt: string;
+  recordRetainUntil: string;
+} | null;
+
 export type OfficePatientRecordPatient = {
   identity: OfficePatientRecordPatientIdentity;
   program: PatientProgram;
+  closure: OfficePatientRecordPatientClosure;
 };
 
 export type OfficePatientRecordDiaryEntriesItem = {
@@ -5552,6 +5595,8 @@ export type GetHqPatientDeletionsStatus = typeof GetHqPatientDeletionsStatus[key
 export const GetHqPatientDeletionsStatus = {
   pending: 'pending',
   held: 'held',
+  closing: 'closing',
+  closed: 'closed',
   cancelled: 'cancelled',
   purging: 'purging',
   purged: 'purged',

@@ -1,7 +1,7 @@
 /**
  * Privacy & data controls on the account screen: consent status, a
  * self-service data export (request → status → download), and account
- * deletion with a typed confirmation, a grace countdown, and cancel.
+ * closure with a typed confirmation, a grace countdown, and cancel.
  *
  * Everything here is real-account only. The demo persona and the
  * account-less states render one honest "unavailable" card instead of
@@ -138,6 +138,7 @@ export function PrivacyDataControls() {
       patch({ consent: result.consent });
     });
   const deletion = privacy.deletion;
+  const retentionYears = privacy.deletionPolicy.retentionYears;
   const exportReady = exportJob?.status === 'ready' && !exportIsExpired(exportJob);
   const confirmMatches = confirmText.trim().toUpperCase() === DELETE_CONFIRM_WORD;
 
@@ -192,7 +193,7 @@ export function PrivacyDataControls() {
       </View>
 
       <View style={styles.gap}>
-        <FieldLabel text="Delete account" />
+        <FieldLabel text="Close my account" />
         {deletion ? (
           <View
             testID="privacy-deletion-pending"
@@ -200,7 +201,7 @@ export function PrivacyDataControls() {
             style={[styles.notice, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder, borderRadius: colors.radiusSm }]}
           >
             <Text style={[styles.body, { color: colors.warnText }]}>
-              {describeGrace(deletion.purgeAfter)} Signing in and choosing “Keep my account” before then cancels the deletion. After that, your profile, diary, photos, chats, and sign-in are removed for good.
+              {describeGrace(deletion.purgeAfter)} Choose “Keep my account” before then to cancel the closure.
             </Text>
             <PrimaryButton
               testID="privacy-deletion-cancel"
@@ -213,7 +214,7 @@ export function PrivacyDataControls() {
         ) : confirming ? (
           <View testID="privacy-deletion-confirm">
             <Text style={[styles.body, { color: colors.bodyText }]}>
-              This removes your profile, diary, water, targets, library, check-ins, measurements, photos, coach chats, and sign-in. You have 7 days to change your mind by signing in. Type {DELETE_CONFIRM_WORD} to continue.
+              Closing your account removes your login and devices, AI coach chats, food diary, and preferences. Your provider is required by law to keep your medical record — weights and measurements, medications, labs, progress photos, care-team messages, and orders — for {retentionYears} years. After that, it is deleted. You have 7 days to change your mind by signing in. Type {DELETE_CONFIRM_WORD} to continue.
             </Text>
             <LedgerInput
               testID="privacy-deletion-confirm-input"
@@ -226,7 +227,7 @@ export function PrivacyDataControls() {
             />
             <PrimaryButton
               testID="privacy-deletion-submit"
-              label={busy === 'delete' ? 'Requesting…' : 'Delete my account'}
+              label={busy === 'delete' ? 'Closing…' : 'Close my account'}
               disabled={busy !== null || !confirmMatches}
               onDisabledPress={() => setError(`Type ${DELETE_CONFIRM_WORD} exactly to confirm.`)}
               onPress={() => void requestDeletion()}
@@ -243,11 +244,11 @@ export function PrivacyDataControls() {
         ) : (
           <>
             <Text style={[styles.body, { color: colors.bodyText }]}>
-              Permanently remove your account and every piece of data THINNR holds for you, after a 7-day grace period.
+              Close your account after a 7-day grace period. Personal app data is removed, while your provider keeps the medical record required by law for {retentionYears} years.
             </Text>
             <GhostButton
               testID="privacy-deletion-start"
-              label="Delete my account…"
+              label="Close my account…"
               disabled={busy !== null}
               onPress={() => setConfirming(true)}
               style={styles.smallGap}

@@ -30,6 +30,7 @@ import {
   type PatientExportRow,
 } from "../privacy/exports";
 import { DELETION_SELECT, deletionGraceSeconds, type DeletionRequestRow } from "../privacy/purge";
+import { DEFAULT_ORG_POLICY, loadOrgPolicy } from "../lib/org-policy";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -61,12 +62,12 @@ function audit(req: Request, input: Omit<Parameters<typeof recordAdminAuditEvent
 export interface DeletionDto {
   requestedAt: string;
   purgeAfter: string;
-  status: "pending";
+  status: "pending" | "held";
 }
 
 export function deletionDto(row: DeletionRequestRow | null): DeletionDto | null {
-  if (!row || row.status !== "pending") return null;
-  return { requestedAt: row.requested_at, purgeAfter: row.purge_after, status: "pending" };
+  if (!row || (row.status !== "pending" && row.status !== "held")) return null;
+  return { requestedAt: row.requested_at, purgeAfter: row.purge_after, status: row.status };
 }
 
 export async function loadPendingDeletion(patientId: string): Promise<DeletionRequestRow | null> {
@@ -89,15 +90,22 @@ export async function loadLatestExport(patientId: string): Promise<PatientExport
 
 /** The `privacy` block the app hydrates (also embedded in /patient-data/state). */
 export async function loadPrivacyState(patientId: string) {
-  const [consent, latestExport, deletion] = await Promise.all([
+  const [consent, latestExport, deletion, policy] = await Promise.all([
     loadLatestConsent(patientId),
     loadLatestExport(patientId),
     loadPendingDeletion(patientId),
+    // The retention figure is explanatory copy; a policy outage must not take
+    // the diary or privacy screen down with it, so fall back to the default.
+    loadOrgPolicy().catch(() => DEFAULT_ORG_POLICY),
   ]);
   return {
     consent: consentDto(consent),
     export: latestExport ? patientExportDto(latestExport) : null,
     deletion: deletionDto(deletion),
+    deletionPolicy: {
+      graceDays: Math.ceil(deletionGraceSeconds() / 86_400),
+      retentionYears: Math.ceil(policy.retention.clinicalRecordDays / 365),
+    },
   };
 }
 

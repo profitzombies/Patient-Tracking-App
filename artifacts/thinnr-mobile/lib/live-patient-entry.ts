@@ -22,6 +22,17 @@ export interface LiveEntryGateInput {
   demoAdmitted?: boolean;
 }
 
+export const ACCOUNT_CLOSED_MESSAGE =
+  'This account was closed. You can create a new account with the same phone number.';
+
+export function isAccountClosedResolutionError(
+  error: unknown,
+): error is { code: 'account_closed'; status: 404 } {
+  if (!error || typeof error !== 'object') return false;
+  const failure = error as { code?: unknown; status?: unknown };
+  return failure.code === 'account_closed' && failure.status === 404;
+}
+
 /** Routes a real account may use before consent is recorded or while a deletion is pending. */
 const CONSENT_ROUTE = '/consent';
 

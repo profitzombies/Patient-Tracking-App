@@ -49,7 +49,8 @@ afterAll(() => server.close());
 const row = (n: number, overrides: Record<string, unknown>) => ({
   id: fakeUuid(n), patient_id: fakeUuid(100 + n), provider_id: "office-1", status: "pending",
   requested_at: `2026-09-0${n}T00:00:00.000Z`, purge_after: `2026-09-1${n}T00:00:00.000Z`, cancelled_at: null, started_at: null,
-  purged_at: null, attempts: 0, next_attempt_at: null, lease_owner: null, lease_until: null, last_error: null, steps: {}, ...overrides,
+  purged_at: null, attempts: 0, next_attempt_at: null, lease_owner: null, lease_until: null, last_error: null, steps: {},
+  closed_at: null, retain_until: null, ...overrides,
 });
 
 beforeEach(() => {
@@ -59,6 +60,7 @@ beforeEach(() => {
     row(1, {}),
     row(2, { status: "purged", purged_at: "2026-09-12T00:00:00.000Z", attempts: 1, steps: { storage: { ok: true, objects: 4 } } }),
     row(3, { status: "failed", attempts: 3, last_error: "auth: auth user delete failed (503)", next_attempt_at: "2026-09-14T00:00:00.000Z", steps: { storage: { ok: true }, rows: { ok: true }, auth: { ok: false, error: "503" } } }),
+    row(4, { status: "closed", closed_at: "2026-09-04T00:00:00.000Z", retain_until: "2033-09-02T00:00:00.000Z" }),
   );
 });
 
@@ -76,10 +78,15 @@ describe("HQ patient deletions", () => {
     let res = await call("/hq/patient-deletions");
     expect(res.status).toBe(200);
     let body = await res.json() as { deletions: Array<Record<string, unknown>>; summary: Record<string, number> };
-    expect(body.deletions.map((d) => d.id)).toEqual([fakeUuid(3), fakeUuid(2), fakeUuid(1)]);
-    expect(body.summary).toEqual({ pending: 1, held: 0, cancelled: 0, purging: 0, purged: 1, failed: 1 });
-    expect(body.deletions[0]).toMatchObject({ patientId: fakeUuid(103), providerId: "office-1", status: "failed", attempts: 3, lastError: "auth: auth user delete failed (503)", nextAttemptAt: "2026-09-14T00:00:00.000Z" });
-    expect((body.deletions[0].steps as { auth: { ok: boolean } }).auth.ok).toBe(false);
+    expect(body.deletions.map((d) => d.id)).toEqual([fakeUuid(4), fakeUuid(3), fakeUuid(2), fakeUuid(1)]);
+    expect(body.summary).toEqual({ pending: 1, held: 0, closing: 0, closed: 1, cancelled: 0, purging: 0, purged: 1, failed: 1 });
+    expect(body.deletions[0]).toMatchObject({
+      status: "closed",
+      closedAt: "2026-09-04T00:00:00.000Z",
+      retainUntil: "2033-09-02T00:00:00.000Z",
+    });
+    expect(body.deletions[1]).toMatchObject({ patientId: fakeUuid(103), providerId: "office-1", status: "failed", attempts: 3, lastError: "auth: auth user delete failed (503)", nextAttemptAt: "2026-09-14T00:00:00.000Z" });
+    expect((body.deletions[1].steps as { auth: { ok: boolean } }).auth.ok).toBe(false);
     res = await call("/hq/patient-deletions?status=failed&limit=10");
     body = await res.json() as typeof body;
     expect(body.deletions.map((d) => d.id)).toEqual([fakeUuid(3)]);

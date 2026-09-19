@@ -24,6 +24,8 @@ const MIGRATION = path.resolve(here, "../../../../supabase/migrations/2026092800
 const BILLING_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261013010000_billing_privacy_retention.sql");
 const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261014000000_staff_attention_alerts_privacy.sql");
 const BILLING_CARTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261022000200_billing_carts_privacy.sql");
+const LEGAL_HOLDS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_legal_holds.sql");
+const ACCOUNT_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000000_account_closure.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -559,5 +561,123 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     psql(`update public.patient_data_exports set object_path = '/objects/patient-media/${PATIENT}/export-${uuid(9)}.zip', status = 'ready' where id = '${uuid(701)}'`);
     // The account category is accepted by the notification outbox now.
     psql(`insert into public.patient_notifications (patient_id, kind, category, title, body) values ('${PATIENT}', 'data_export_ready', 'account', 't', 'b')`);
+  });
+
+  it("closes personal data, seals clinical data, and later purges the unchanged tombstone", () => {
+    psql(`
+      create table public.hq_organization_settings (
+        singleton boolean primary key default true,
+        retention_audit_days integer not null default 2190,
+        retention_clinical_record_days integer not null default 2555
+      );
+      insert into public.hq_organization_settings (singleton, retention_audit_days, retention_clinical_record_days)
+      values (true, 2190, 1825);
+      create table public.ai_usage_events (
+        id bigint generated always as identity primary key,
+        patient_id uuid references public.patients(id) on delete set null
+      );
+      create table public.auth_sign_ins (id uuid primary key default gen_random_uuid(), user_id uuid not null, realm text not null);
+      create table public.account_security_state (user_id uuid primary key);
+      alter table public.patient_media add column kind text not null default 'progress';
+      alter table public.providers
+        add column provider_name text,
+        add column office_name text,
+        add column email text,
+        add column auth_user_id uuid,
+        add column access_disabled boolean default false;
+      alter table public.patients
+        add column name text,
+        add column date_of_birth date;
+      create table public.team_members (
+        id uuid primary key,
+        name text,
+        email text,
+        auth_user_id uuid,
+        activation_status text
+      );
+    `);
+    for (const file of [LEGAL_HOLDS_MIGRATION, ACCOUNT_CLOSURE_MIGRATION]) {
+      execFileSync("psql", [...PSQL_ARGS().filter((arg) => arg !== "-At"), "-f", file], {
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+    }
+
+    seedEverything();
+    psql(`
+      -- The live identity fences: one active row per phone / email / auth user.
+      create unique index patients_phone_normalized_unique_idx
+        on public.patients (right(regexp_replace(phone, '\\D', '', 'g'), 10))
+        where archived_at is null and length(regexp_replace(coalesce(phone, ''), '\\D', '', 'g')) >= 10;
+      create unique index patients_active_auth_user_id_unique_idx
+        on public.patients (auth_user_id) where archived_at is null and auth_user_id is not null;
+      update public.patients set phone = '+1 (512) 555-0199' where id = '${PATIENT}';
+      update public.patient_media set kind = 'progress' where patient_id = '${PATIENT}';
+      insert into public.patient_media (object_path, patient_id, kind)
+      values ('/objects/patient-media/${PATIENT}/food-private', '${PATIENT}', 'food');
+      insert into public.patient_chat_conversations (id, patient_id, thread, provider_id)
+      values ('${uuid(503)}', '${PATIENT}', 'coach', 'office-1');
+      insert into public.patient_chat_messages (conversation_id, client_id, text)
+      values ('${uuid(503)}', 'private', 'private coach text');
+      insert into public.ai_usage_events (patient_id) values ('${PATIENT}');
+      insert into public.auth_sign_ins (user_id, realm) values ('${AUTH_USER}', 'patient');
+      insert into public.account_security_state (user_id) values ('${AUTH_USER}');
+    `);
+
+    // Before closure the phone and the auth user are taken.
+    expect(() => psql(`insert into public.patients (id, provider_id, phone) values ('${uuid(3)}', 'office-1', '+1 512 555 0199')`)).toThrow(/patients_phone_normalized_unique_idx/);
+    expect(() => psql(`insert into public.patients (id, provider_id, auth_user_id) values ('${uuid(3)}', 'office-1', '${AUTH_USER}')`)).toThrow(/patients_active_auth_user_id_unique_idx/);
+
+    const req = request(PATIENT, 0);
+    const claimed = claim("closure-worker");
+    expect(claimed).toEqual([expect.objectContaining({ id: req.id, status: "closing" })]);
+    const closed = scalar<Record<string, unknown>>(`select public.patient_close_rows('${req.id}')`);
+    expect(closed.alreadyClosed).toBe(false);
+    expect(closed.authUserId).toBe(AUTH_USER);
+    expect(closed.mediaPaths).toEqual([`/objects/patient-media/${PATIENT}/food-private`]);
+
+    expect(countFor("patient_diary_entries", PATIENT)).toBe(0);
+    expect(countFor("patient_flags", PATIENT)).toBe(0);
+    expect(countFor("patient_body_measurements", PATIENT)).toBe(1);
+    expect(countFor("patient_medications", PATIENT)).toBe(1);
+    expect(countFor("patient_bloodwork_reports", PATIENT)).toBe(1);
+    // Prior values of chart edits are part of the sealed record, not personal data.
+    expect(countFor("patient_edit_history", PATIENT)).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_conversations where patient_id = '${PATIENT}' and thread = 'care_team'`))).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_chat_conversations where patient_id = '${PATIENT}' and thread = 'coach'`))).toBe(0);
+    expect(Number(scalar<string>(`select count(*) from public.patient_media where patient_id = '${PATIENT}' and kind = 'progress'`))).toBe(1);
+    expect(rows(`select auth_user_id, email, phone, closed_at, archived_at, record_retain_until from public.patients where id = '${PATIENT}'`)[0]).toMatchObject({
+      auth_user_id: null,
+      email: null,
+      phone: null,
+    });
+    expect(Number(scalar<string>(`select extract(day from (record_retain_until - closed_at)) from public.patients where id = '${PATIENT}'`))).toBe(1825);
+    expect(countFor("ai_usage_events", PATIENT)).toBe(0);
+    expect(Number(scalar<string>(`select count(*) from public.auth_sign_ins where user_id = '${AUTH_USER}'`))).toBe(0);
+    expect(() => psql(`insert into public.patient_diary_entries (entry_id, patient_id, name) values ('sealed-late', '${PATIENT}', 'Late')`)).toThrow(/archived patient/);
+    // A re-signup with the same phone (and a fresh GoTrue user) is a brand-new
+    // patient: the sealed row holds neither the phone nor the auth link.
+    expect(() => psql(`insert into public.patients (id, provider_id, phone, auth_user_id) values ('${uuid(3)}', 'office-1', '+1 512 555 0199', '${AUTH_USER}')`)).not.toThrow();
+    expect(rows(`select id from public.patients where phone is not null and right(regexp_replace(phone, '\\D', '', 'g'), 10) = '5125550199' and archived_at is null`)).toEqual([{ id: uuid(3) }]);
+    expect(scalar<string>(`select public.claim_find_candidates('phone', '+1 512 555 0199')::text`)).not.toContain(PATIENT);
+    expect(countFor("patient_diary_entries", uuid(3))).toBe(0);
+
+    const again = scalar<Record<string, unknown>>(`select public.patient_close_rows('${req.id}')`);
+    expect(again.alreadyClosed).toBe(true);
+    finish(req.id, "closed");
+    expect(rows(`select status, purge_after = retain_until as due_at_retention from public.patient_deletion_requests where id = '${req.id}'`)[0])
+      .toMatchObject({ status: "closed", due_at_retention: true });
+    // Not due until the retention window closes, and never while a legal hold covers the chart.
+    expect(claim("purge-worker")).toEqual([]);
+    psql(`update public.patient_deletion_requests set retain_until = now() - interval '1 second', purge_after = now() - interval '1 second' where id = '${req.id}'`);
+    psql(`insert into public.legal_holds (target_kind, target_id, reason) values ('patient', '${PATIENT}', 'litigation hold')`);
+    expect(claim("purge-worker")).toEqual([]);
+    expect(scalar<string>(`select status from public.patient_deletion_requests where id = '${req.id}'`)).toBe("closed");
+    psql(`update public.legal_holds set lifted_at = now(), lift_reason = 'resolved' where target_id = '${PATIENT}'`);
+    expect(claim("purge-worker")).toEqual([expect.objectContaining({ id: req.id, status: "purging" })]);
+    const final = purge(req.id);
+    expect(final.tombstone).toBe(true);
+    expect(rows(`select id, provider_id, was_activated, program_id, enrolled_on from public.patient_tombstones where id = '${PATIENT}'`)[0])
+      .toMatchObject({ id: PATIENT, provider_id: "office-1", was_activated: true, program_id: "thinnr", enrolled_on: "2026-06-01" });
   });
 });

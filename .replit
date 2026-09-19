@@ -400,6 +400,18 @@ args = "patient-edit-history-api"
 task = "workflow.run"
 args = "patient-edit-history-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-closure-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-closure-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-closure-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2651,6 +2663,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/app-events.sql.test.ts src/routes/patient-data.sql.test.ts src/routes/coach-conversations.sql.test.ts src/lib/patient-events.test.ts src/routes/patient-data.test.ts src/routes/patient-chat.test.ts src/routes/coach-conversations.test.ts src/routes/patient-care-team.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-closure-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 --testTimeout=60000 src/privacy/purge.sql.test.ts src/privacy/purge.test.ts src/privacy/closure-classification.test.ts src/routes/patient-privacy.test.ts src/routes/hq-patient-deletions.test.ts src/routes/office-patient-edits.test.ts src/routes/office-roster.test.ts src/routes/staff-conversations.test.ts src/routes/staff-conversations-stream.test.ts src/routes/patient-data.test.ts src/routes/patient-progress.test.ts src/routes/patient-chat.test.ts src/routes/claim.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-closure-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:live-patient-edits && pnpm --filter @workspace/thinnr-operations run test:care-team-conversations && pnpm --filter @workspace/thinnr-operations run test:account-deletion && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-closure-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

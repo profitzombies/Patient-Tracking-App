@@ -641,7 +641,7 @@ async function authorizedClaimTestPatient(
   if (!user) return { kind: "unauthorized" };
   const found = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${CLAIM_TEST_PATIENT_ID}&auth_user_id=eq.${enc(user.id)}&select=id,name,email,phone,auth_user_id,claimed_at`,
+    `/rest/v1/patients?id=eq.${CLAIM_TEST_PATIENT_ID}&auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=id,name,email,phone,auth_user_id,claimed_at`,
   );
   if (found.status >= 300) throw new Error(`test patient authorization failed (${found.status})`);
   if (!Array.isArray(found.json) || found.json.length !== 1) return { kind: "forbidden" };
@@ -809,7 +809,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       ),
       supabaseAdmin(
         "GET",
-        `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id,name,provider_id,phone`,
+        `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=id,name,provider_id,phone`,
       ),
       supabaseAdmin(
         "GET",
@@ -911,7 +911,7 @@ router.post(CLAIM_ADD_PHONE_PATH, async (req, res) => {
     }
     const linked = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&select=id`,
+      `/rest/v1/patients?auth_user_id=eq.${enc(user.id)}&archived_at=is.null&select=id`,
     );
     if (linked.status >= 300) throw new Error(`patient lookup failed (${linked.status})`);
     if (!Array.isArray(linked.json) || linked.json.length === 0) {

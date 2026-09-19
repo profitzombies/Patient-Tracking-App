@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OfficeRosterPatientClosure } from './officeRosterPatientClosure';
 import type { OfficeRosterPatientInvitation } from './officeRosterPatientInvitation';
 import type { OperationalPatient } from './operationalPatient';
 import type { PatientAttention } from './patientAttention';
@@ -25,6 +26,7 @@ export interface OfficeRosterPatient {
   verified: boolean;
   /** @nullable */
   createdAt: string | null;
+  closure: OfficeRosterPatientClosure;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
   operational: OperationalPatient;

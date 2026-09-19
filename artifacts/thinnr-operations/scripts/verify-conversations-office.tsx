@@ -83,6 +83,7 @@ let listOwner = 'Ada Patient';
 let delayedListResolve: ((response: Response) => void) | null = null;
 let delayNextList = false;
 let listEmpty = false;
+let patientSealed = false;
 const startBodies: Array<{ patientId: string }> = [];
 const readRequests: Array<{ url: string; throughSeq: number }> = [];
 let delayedNoteResolve: ((response: Response) => void) | null = null;
@@ -172,16 +173,16 @@ globalThis.fetch = async (input, init) => {
     const parsed = new URL(url, 'http://test');
     if (url.includes('/conv-ai/')) return json({ conversation: aiConversation, events: [event(2, 'AI history')], nextBefore: null, nextAfter: null });
     if (url.includes('/conv-low/')) return json({ conversation: { ...conversation, id: 'conv-low' }, events: [event(1, 'Low sequence thread')], nextBefore: null, nextAfter: null });
-    if (parsed.searchParams.has('before')) return json({ conversation, events: [event(1, 'Old history')], nextBefore: null, nextAfter: null });
-    if (parsed.searchParams.has('after')) return json({ conversation, events: [], nextBefore: null, nextAfter: null });
-    return json({ conversation, events: [event(2, 'Newest message')], nextBefore: 2, nextAfter: null });
+    if (parsed.searchParams.has('before')) return json({ conversation: { ...conversation, patientSealed }, events: [event(1, 'Old history')], nextBefore: null, nextAfter: null });
+    if (parsed.searchParams.has('after')) return json({ conversation: { ...conversation, patientSealed }, events: [], nextBefore: null, nextAfter: null });
+    return json({ conversation: { ...conversation, patientSealed }, events: [event(2, 'Newest message')], nextBefore: 2, nextAfter: null });
   }
   if (url.includes('/api/office/conversations')) {
     if (delayNextList) {
       delayNextList = false;
       return new Promise<Response>(resolve => { delayedListResolve = resolve; });
     }
-    return json({ conversations: listEmpty ? [] : [{ ...conversation, patientName: listOwner }], total: listEmpty ? 0 : 1, autoCloseDays: 14 });
+    return json({ conversations: listEmpty ? [] : [{ ...conversation, patientName: listOwner, patientSealed }], total: listEmpty ? 0 : 1, autoCloseDays: 14 });
   }
   throw new Error(`Unexpected request ${url}`);
 };
@@ -601,6 +602,15 @@ assert.match(textOf(renderer!.root), /Daily Balance/);
 assert.match(textOf(renderer!.root), /Every 4 weeks · ×2/);
 assert.match(textOf(renderer!.root), /Sent as a suggestion/);
 await act(async () => { renderer!.unmount(); });
+
+patientSealed = true;
+await act(async () => { renderer = create(<Page />); });
+await settle();
+assert.equal(renderer!.root.findAll(node => node.props['data-testid'] === 'text-sealed-conversation' && typeof node.type === 'string').length, 1, 'sealed thread replaces the composer with a read-only notice');
+assert.equal(renderer!.root.findAll(node => node.type === 'textarea' && (node.props['aria-label'] === 'Reply to patient' || node.props['aria-label'] === 'New internal note')).length, 0, 'sealed thread offers no reply or note composer');
+assert.equal(renderer!.root.findAll(node => typeof node.type === 'string' && textOf(node) === 'Archived').length > 0, true, 'sealed thread has an Archived badge in the list');
+await act(async () => { renderer!.unmount(); });
+patientSealed = false;
 
 const bundleSuggestion = {
   mode: 'bundle' as const,

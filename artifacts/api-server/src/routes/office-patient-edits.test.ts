@@ -610,6 +610,18 @@ describe("staff weigh-ins", () => {
     expect(measurementVisits).toHaveLength(1);
     expect(notes).toHaveLength(1);
     expect(audits).toEqual([]);
+    // A sealed chart (closed account) is a real, read-only record: every
+    // write answers 409 with the closure sentence instead of "not found".
+    patients[0].closed_at = "2026-02-01T00:00:00Z";
+    patients[0].record_retain_until = "2033-02-01T00:00:00Z";
+    for (const [method, suffix, body] of attempts) {
+      const res = await api(`/office/patients/${OWN}${suffix}`, "provider-token", { method, ...(body ? json(body) : {}) });
+      expect([method, suffix, res.status]).toEqual([method, suffix, 409]);
+      expect(((await res.json()) as { error: string }).error).toBe("This account is closed; the record is read-only.");
+    }
+    expect(staffWeights).toHaveLength(1);
+    expect(notes).toHaveLength(1);
+    expect(audits).toEqual([]);
   });
 });
 

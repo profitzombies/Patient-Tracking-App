@@ -5,10 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OfficePatientRecordPatientClosure } from './officePatientRecordPatientClosure';
 import type { OfficePatientRecordPatientIdentity } from './officePatientRecordPatientIdentity';
 import type { PatientProgram } from './patientProgram';
 
 export type OfficePatientRecordPatient = {
   identity: OfficePatientRecordPatientIdentity;
   program: PatientProgram;
+  closure: OfficePatientRecordPatientClosure;
 };

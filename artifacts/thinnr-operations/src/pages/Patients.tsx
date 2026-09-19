@@ -16,6 +16,7 @@ import {
   demoStatusToRoster,
   loadCustomQuickSets,
   matchesAllConditions,
+  isArchivedRosterView,
   parseRosterView,
   programDayOn,
   programLabel,
@@ -170,14 +171,15 @@ function FollowUpPill({ patientId, reason, currentStatus, office }: {
 
 /** Status column body: exactly one chip, then the follow-up pills in one row. */
 function StatusCell({ patient, office, align = 'left' }: {
-  patient: { id: string; status: string; isLive: boolean; showResend: boolean; activeSubscription: boolean | null; rawLive?: OfficePatient };
+  patient: { id: string; status: string; isLive: boolean; showResend: boolean; activeSubscription: boolean | null; closure: { closedAt: string; recordRetainUntil: string } | null; rawLive?: OfficePatient };
   office: string | null;
   align?: 'left' | 'right';
 }) {
-  const reasons = patient.isLive ? patient.rawLive?.operational?.reasons ?? [] : [];
+  const reasons = patient.isLive && !patient.closure ? patient.rawLive?.operational?.reasons ?? [] : [];
   return (
     <div className={`flex flex-col gap-1.5 ${align === 'right' ? 'items-end' : 'items-start'}`}>
       {patient.rawLive && <InvitationChip patient={patient.rawLive} />}
+      {patient.closure && <span className="inline-flex rounded-sm border border-border bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">Archived</span>}
       {!patient.showResend && <StatusChip status={patient.status} />}
       {patient.activeSubscription === true && <SubscriptionChip patientId={patient.id} />}
       {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
@@ -240,6 +242,9 @@ export default function Patients() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { getCurrentWeight } = usePatientSession();
+  const [location, navigate] = useLocation();
+  const searchParams = useSearch();
+  const archivedRequested = isArchivedRosterView(parseRosterView(searchParams).conditions);
   // One office's roster inside the HQ drill-in; the full program otherwise.
   const patients = useScopedPatients();
   const providers = useScopedProviders();
@@ -248,11 +253,9 @@ export default function Patients() {
   // provider office (server derives the office from the bearer token) or an
   // HQ drill-in on an explicitly scoped account. Demo personas never call
   // the live endpoints, so the seeded demo stays untouched.
-  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
+  const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster(archivedRequested);
   // Base-aware navigate: resolves against the mount point exactly like the
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
-  const [location, navigate] = useLocation();
-  const searchParams = useSearch();
   // Attention-first ordering lives in the URL only (`?attention=first`, set
   // by the amber Patients badge): reload and shared links keep it, and the
   // visible toggle clears it by rewriting the query string.
@@ -279,7 +282,12 @@ export default function Patients() {
   const today = liveEnabled ? deviceTodayKey() : DEMO_TODAY_KEY;
 
   const [customQuickSets, setCustomQuickSets] = useState<QuickSet[]>(() => loadCustomQuickSets(typeof window === 'undefined' ? null : window.localStorage));
-  const quickSets = useMemo(() => [...builtInQuickSets(today), ...customQuickSets], [today, customQuickSets]);
+  const quickSets = useMemo(() => [
+    ...builtInQuickSets(today).map((set) => set.id === 'archived'
+      ? { ...set, label: `Archived (${liveEnabled ? liveRosterData?.summary.archived ?? 0 : patients.filter((patient) => patient.closure != null).length})` }
+      : set),
+    ...customQuickSets,
+  ], [today, customQuickSets, liveEnabled, liveRosterData?.summary.archived, patients]);
   const currentQuickSet = activeQuickSet(quickSets, view);
   // Sets that carry a sort (Top spenders, Inactive / lapsed) apply it; the
   // rest keep the current sort, except All, which is the roster's home view
@@ -368,6 +376,7 @@ export default function Patients() {
         const spentCents = p.spend === undefined || p.spend === null ? null : p.spend.netCents;
         const filterRow: RosterFilterRow = {
           status,
+          closure: p.closure ?? null,
           programId: p.program?.id ?? null,
           stage: p.program?.stage ?? null,
           week: p.program?.week ?? null,
@@ -413,7 +422,8 @@ export default function Patients() {
           outreachChip: !p.outreach || p.outreach.state === 'none' ? null : p.outreach,
           isLive: true as boolean,
           showResend,
-          rawLive: p
+          rawLive: p,
+          closure: p.closure ?? null,
         };
       });
     }
@@ -426,6 +436,7 @@ export default function Patients() {
       const spend = demoSpend.get(p.id) ?? { spentCents: 0, lastPaidDate: null };
       const filterRow: RosterFilterRow = {
         status: demoStatusToRoster(p.status),
+        closure: p.closure ?? null,
         programId: 'thinnr',
         stage: p.stage,
         week: p.stage === 'protocol' ? p.protocolWeek : null,
@@ -467,7 +478,8 @@ export default function Patients() {
         outreachChip: getNudgeAssessment(p).active ? DEMO_ELIGIBLE_OUTREACH : null,
         isLive: false as boolean,
         showResend: false,
-        rawLive: undefined
+        rawLive: undefined,
+        closure: p.closure ?? null,
       };
     });
   }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoSpend, demoFlagged, today]);
@@ -668,7 +680,7 @@ export default function Patients() {
                     </button>
                   </div>
                 )}
-                {patient.isLive && !liveOffice && (
+                {patient.isLive && !liveOffice && !patient.closure && (
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"

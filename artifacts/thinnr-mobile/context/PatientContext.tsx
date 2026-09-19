@@ -1611,6 +1611,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
             },
             export: null,
             deletion: null,
+            deletionPolicy: {
+              graceDays: 7,
+              retentionYears: 7,
+            },
           };
           baseRef.current = base;
           cachedFactsRef.current = {

@@ -32,6 +32,7 @@ const TODAY = '2026-09-18';
 
 const base: RosterFilterRow = {
   status: 'on_track',
+  closure: null,
   programId: 'thinnr',
   stage: 'protocol',
   week: 3,
@@ -51,6 +52,7 @@ const base: RosterFilterRow = {
 
 const invited: RosterFilterRow = {
   status: 'invited', programId: null, stage: null, week: null, programDay: null,
+  closure: null,
   joinDate: '2026-09-16', programStartDate: null, startingWeight: null, currentWeight: null,
   spentCents: 0, lastPaidDate: null, activeSubscription: false, lastActivityDate: null,
   lastLogDate: null, loggingLapsed: null, attentionReasons: [],
@@ -187,6 +189,16 @@ section('stacking is AND', () => {
   assert.equal(matchesAllConditions(base, [c('spent', 'gt', ''), c('status', 'is', 'on_track')], TODAY), true, 'incomplete rows are skipped');
 });
 
+section('archived is sealed-only and every other view excludes sealed charts', () => {
+  const sealed = { ...base, closure: { closedAt: '2026-09-01T15:00:00Z', recordRetainUntil: '2033-09-01T15:00:00Z' } };
+  assert.equal(matchesAllConditions(sealed, [], TODAY), false, 'default excludes sealed rows');
+  assert.equal(matchesAllConditions(sealed, [c('status', 'is', 'active')], TODAY), false, 'other views exclude sealed rows');
+  assert.equal(matchesAllConditions(sealed, [c('status', 'is', 'archived')], TODAY), true, 'archived includes a sealed row');
+  assert.equal(matchesAllConditions(base, [c('status', 'is', 'archived')], TODAY), false, 'archived excludes an open chart');
+  assert.deepEqual(parseRosterView('?status=archived').conditions, [c('status', 'is', 'archived')]);
+  assert.equal(serializeRosterView('?office=office-a', { conditions: [c('status', 'is', 'archived')], sort: { field: 'startDate', order: 'desc' } }), '?office=office-a&status=archived');
+});
+
 section('URL codec round-trips and preserves unrelated params', () => {
   const view = { conditions: [c('spent', 'gt', '500'), c('join_date', 'between', '2026-09-01..2026-09-18'), c('status', 'is_not', 'invited')], sort: { field: 'spent' as const, order: 'desc' as const } };
   const search = serializeRosterView('?attention=first&office=abc', view);
@@ -227,7 +239,7 @@ section('legacy arriving links translate into conditions and are dropped on rewr
 
 section('built-in quick sets and active detection', () => {
   const sets = builtInQuickSets(TODAY);
-  assert.deepEqual(sets.map((set) => set.label), ['All', 'Active', 'Needs attention', 'Inactive / lapsed', 'Invited', 'Paused', 'Maintenance phase', 'New this month', 'Active subscription', 'Top spenders']);
+  assert.deepEqual(sets.map((set) => set.label), ['All', 'Active', 'Needs attention', 'Inactive / lapsed', 'Invited', 'Paused', 'Archived', 'Maintenance phase', 'New this month', 'Active subscription', 'Top spenders']);
   const newThisMonth = sets.find((set) => set.id === 'new-this-month')!;
   assert.deepEqual(newThisMonth.conditions, [c('join_date', 'between', '2026-09-01..2026-09-18')]);
   assert.equal(matchesAllConditions(invited, newThisMonth.conditions, TODAY), true, 'joined Sep 16');

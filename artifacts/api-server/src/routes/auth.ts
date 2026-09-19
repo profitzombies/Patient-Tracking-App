@@ -1133,7 +1133,7 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     // backstop; this pre-check just gives a clear error.
     const emailTaken = await supabaseAdmin(
       "GET",
-      `/rest/v1/patients?email=ilike.${encodeURIComponent(normalizedEmail.email)}&select=id&limit=1`,
+      `/rest/v1/patients?email=ilike.${encodeURIComponent(normalizedEmail.email)}&archived_at=is.null&select=id&limit=1`,
     );
     if (emailTaken.status >= 300) throw new Error(`email check failed (${emailTaken.status})`);
     if (Array.isArray(emailTaken.json) && emailTaken.json.length > 0) {

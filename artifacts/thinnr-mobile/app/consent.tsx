@@ -4,7 +4,7 @@
  * The route guard parks a signed-in patient here whenever the server holds
  * no consent for the current policy version (first visit, or a policy
  * update) — before onboarding, so no health data is entered or read without
- * a recorded agreement. The same screen hosts the pending-deletion notice:
+ * a recorded agreement. The same screen hosts the pending-closure notice:
  * signing in during the grace period lands here with "Keep my account"
  * (cancels the deletion) or "Sign out".
  */
@@ -95,15 +95,15 @@ export default function ConsentScreen() {
       <View style={[styles.page, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <KeyboardAwareScrollViewCompat contentContainerStyle={styles.content}>
           <Text style={[styles.brand, { color: colors.navy }]}>THINNR</Text>
-          <Text style={[styles.kicker, { color: colors.labelText }]}>ACCOUNT DELETION REQUESTED</Text>
-          <Text style={[styles.title, { color: colors.navy }]}>Your account is scheduled for deletion.</Text>
+          <Text style={[styles.kicker, { color: colors.labelText }]}>ACCOUNT CLOSURE REQUESTED</Text>
+          <Text style={[styles.title, { color: colors.navy }]}>Your account is scheduled to close.</Text>
           <View
             testID="consent-deletion-pending"
             accessibilityRole="alert"
             style={[styles.notice, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder, borderRadius: colors.radiusSm }]}
           >
             <Text style={[styles.body, { color: colors.warnText }]}>
-              {describeGrace(deletion.purgeAfter)} Choose “Keep my account” to cancel and carry on where you left off, or sign out to let the deletion go ahead.
+              {describeGrace(deletion.purgeAfter)} Choose “Keep my account” to cancel and carry on where you left off, or sign out to let the closure go ahead.
             </Text>
           </View>
           {error ? <ErrorBox testID="consent-error" message={error} /> : null}

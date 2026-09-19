@@ -25,6 +25,10 @@ export interface HqPatientDeletion {
      */
   heldAt?: Date | null;
   /** @nullable */
+  closedAt: Date | null;
+  /** @nullable */
+  retainUntil: Date | null;
+  /** @nullable */
   cancelledAt: Date | null;
   /** @nullable */
   startedAt: Date | null;

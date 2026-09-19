@@ -1575,6 +1575,10 @@ export const GetOfficeRosterResponse = zod.object({
   "activationStatus": zod.string().nullable(),
   "verified": zod.boolean(),
   "createdAt": zod.string().nullable(),
+  "closure": zod.union([zod.null(),zod.object({
+  "closedAt": zod.coerce.date(),
+  "recordRetainUntil": zod.coerce.date()
+})]),
   "program": zod.object({
   "id": zod.string().nullable(),
   "startDate": zod.coerce.date().nullable(),
@@ -1654,6 +1658,7 @@ export const GetOfficeRosterResponse = zod.object({
   "summary": zod.object({
   "totalPatients": zod.number(),
   "activePatients": zod.number(),
+  "archived": zod.number().describe('Sealed charts in this office'),
   "newEnrollments30d": zod.number(),
   "needsAttention": zod.number(),
   "attention": zod.number(),
@@ -1936,7 +1941,11 @@ export const GetOfficePatientRecordResponse = zod.object({
   "day": zod.number().nullable(),
   "stage": zod.union([zod.literal('protocol'),zod.literal('maintenance'),zod.literal(null)]).nullable(),
   "week": zod.number().nullable()
-})
+}),
+  "closure": zod.union([zod.null(),zod.object({
+  "closedAt": zod.coerce.date(),
+  "recordRetainUntil": zod.coerce.date()
+})])
 }),
   "diary": zod.object({
   "entries": zod.array(zod.object({
@@ -2293,6 +2302,7 @@ export const GetOfficeConversationsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -2334,6 +2344,7 @@ export const StartOfficeConversationResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -2435,6 +2446,7 @@ export const GetOfficeConversationEventsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -2537,6 +2549,7 @@ export const AssignOfficeConversationResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -2585,6 +2598,7 @@ export const SetOfficeConversationStatusResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -2663,6 +2677,7 @@ export const ReplyOfficeConversationResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "patientName": zod.string(),
+  "patientSealed": zod.boolean().describe('True when the patient\'s account is closed and this clinical thread is read-only.'),
   "thread": zod.enum(['coach', 'support', 'care_team']),
   "channel": zod.enum(['care_team', 'ai']),
   "providerId": zod.string(),
@@ -5348,7 +5363,7 @@ export const GetHqAuditEventsResponse = zod.object({
  * @summary Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
  */
 export const GetHqPatientDeletionsQueryParams = zod.object({
-  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']).optional(),
+  "status": zod.enum(['pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed']).optional(),
   "limit": zod.coerce.number().optional()
 })
 
@@ -5357,10 +5372,12 @@ export const GetHqPatientDeletionsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "providerId": zod.string().nullable(),
-  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']),
+  "status": zod.enum(['pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed']),
   "requestedAt": zod.coerce.date(),
   "purgeAfter": zod.coerce.date(),
   "heldAt": zod.coerce.date().nullish().describe('Set while a legal hold parks the request; the remaining grace resumes when the hold lifts'),
+  "closedAt": zod.coerce.date().nullable(),
+  "retainUntil": zod.coerce.date().nullable(),
   "cancelledAt": zod.coerce.date().nullable(),
   "startedAt": zod.coerce.date().nullable(),
   "purgedAt": zod.coerce.date().nullable(),
@@ -5372,6 +5389,8 @@ export const GetHqPatientDeletionsResponse = zod.object({
   "summary": zod.object({
   "pending": zod.number(),
   "held": zod.number(),
+  "closing": zod.number(),
+  "closed": zod.number(),
   "cancelled": zod.number(),
   "purging": zod.number(),
   "purged": zod.number(),
@@ -5418,10 +5437,12 @@ export const RetryHqPatientDeletionResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "providerId": zod.string().nullable(),
-  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']),
+  "status": zod.enum(['pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed']),
   "requestedAt": zod.coerce.date(),
   "purgeAfter": zod.coerce.date(),
   "heldAt": zod.coerce.date().nullish().describe('Set while a legal hold parks the request; the remaining grace resumes when the hold lifts'),
+  "closedAt": zod.coerce.date().nullable(),
+  "retainUntil": zod.coerce.date().nullable(),
   "cancelledAt": zod.coerce.date().nullable(),
   "startedAt": zod.coerce.date().nullable(),
   "purgedAt": zod.coerce.date().nullable(),

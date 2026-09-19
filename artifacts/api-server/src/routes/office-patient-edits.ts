@@ -42,6 +42,7 @@ import {
   PATIENT_SELECT,
   PHONE_TAKEN,
   RECORD_NOT_FOUND,
+  RECORD_SEALED,
   SERVER_ERROR,
   identityDto,
   patientDto,
@@ -78,8 +79,8 @@ function respondScoped(req: Request, res: Response, scoped: Extract<Scoped, { ki
  * Manage-scope + scoped patient lookup. Office staff get their own office;
  * HQ names one via `?office=` or body.office. The lookup filters on
  * provider_id so another office's patient is indistinguishable from none,
- * and archived rows are treated the same way (no live-record writes land on
- * an archived patient, matching the profile RPC's guard).
+ * Merged duplicate rows remain indistinguishable from missing records.
+ * Sealed charts are identified separately so staff receive the read-only 409.
  */
 async function scopedPatient(req: Request): Promise<Scoped> {
   const bodyOffice = req.body && typeof req.body === "object" && typeof (req.body as { office?: unknown }).office === "string"
@@ -95,21 +96,26 @@ async function scopedPatient(req: Request): Promise<Scoped> {
   const patientId = String(req.params.id ?? "");
   const found = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(resolved.scope.providerId)}&archived_at=is.null&select=${PATIENT_SELECT}&limit=1`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(resolved.scope.providerId)}&select=${PATIENT_SELECT}&limit=1`,
   );
   if (found.status >= 300) throw new Error(`patient record lookup failed (${found.status})`);
   const patient = Array.isArray(found.json) ? (found.json[0] as PatientRosterRow | undefined) : undefined;
   if (!patient) return { kind: "denied", status: 404, message: RECORD_NOT_FOUND };
+  // A sealed chart is a real record that must not change: 409 with the
+  // closure sentence. Any other archived row (a merged duplicate) is unknown.
+  if (patient.closed_at) return { kind: "denied", status: 409, message: RECORD_SEALED };
+  if (patient.archived_at) return { kind: "denied", status: 404, message: RECORD_NOT_FOUND };
   return { kind: "ok", scope: resolved.scope, patient };
 }
 
 async function reloadPatient(patientId: string, providerId: string): Promise<PatientRosterRow> {
   const found = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(providerId)}&archived_at=is.null&select=${PATIENT_SELECT}&limit=1`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&provider_id=eq.${enc(providerId)}&select=${PATIENT_SELECT}&limit=1`,
   );
   const row = found.status < 300 && Array.isArray(found.json) ? (found.json[0] as PatientRosterRow | undefined) : undefined;
-  if (!row) throw new Error(`patient record reload failed (${found.status})`);
+  if (row?.closed_at) throw new Error(RECORD_SEALED);
+  if (!row || row.archived_at) throw new Error(`patient record reload failed (${found.status})`);
   return row;
 }
 

@@ -19,7 +19,7 @@ import { loadHqRecordAccess } from "../privacy/record-access";
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 
-const STATUSES = ["pending", "held", "cancelled", "purging", "purged", "failed"] as const;
+const STATUSES = ["pending", "held", "closing", "closed", "cancelled", "purging", "purged", "failed"] as const;
 
 const Query = z.object({
   status: z.enum(STATUSES).optional(),
@@ -34,6 +34,8 @@ export interface HqPatientDeletionDto {
   requestedAt: string;
   purgeAfter: string;
   heldAt: string | null;
+  closedAt: string | null;
+  retainUntil: string | null;
   cancelledAt: string | null;
   startedAt: string | null;
   purgedAt: string | null;
@@ -52,6 +54,8 @@ export function hqDeletionDto(row: DeletionRequestRow): HqPatientDeletionDto {
     requestedAt: row.requested_at,
     purgeAfter: row.purge_after,
     heldAt: row.held_at ?? null,
+    closedAt: row.closed_at,
+    retainUntil: row.retain_until,
     cancelledAt: row.cancelled_at,
     startedAt: row.started_at,
     purgedAt: row.purged_at,
@@ -81,7 +85,16 @@ router.get("/hq/patient-deletions", requireHqPermission("audit_read"), async (re
     ]);
     if (list.status >= 300 || !Array.isArray(list.json)) throw new Error(`deletion list failed (${list.status})`);
     if (counts.status >= 300 || !Array.isArray(counts.json)) throw new Error(`deletion counts failed (${counts.status})`);
-    const summary: Record<(typeof STATUSES)[number], number> = { pending: 0, held: 0, cancelled: 0, purging: 0, purged: 0, failed: 0 };
+    const summary: Record<(typeof STATUSES)[number], number> = {
+      pending: 0,
+      held: 0,
+      closing: 0,
+      closed: 0,
+      cancelled: 0,
+      purging: 0,
+      purged: 0,
+      failed: 0,
+    };
     for (const row of counts.json as Array<{ status: string }>) {
       if (row.status in summary) summary[row.status as (typeof STATUSES)[number]] += 1;
     }

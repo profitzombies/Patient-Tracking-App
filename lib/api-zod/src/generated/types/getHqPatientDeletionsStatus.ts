@@ -12,6 +12,8 @@ export type GetHqPatientDeletionsStatus = typeof GetHqPatientDeletionsStatus[key
 export const GetHqPatientDeletionsStatus = {
   pending: 'pending',
   held: 'held',
+  closing: 'closing',
+  closed: 'closed',
   cancelled: 'cancelled',
   purging: 'purging',
   purged: 'purged',

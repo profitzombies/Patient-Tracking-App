@@ -2,8 +2,11 @@
  * Office offboarding stepper: permission + fresh-code gating, each step in
  * order with its idempotent repeat, the legal-hold blocks on steps 4 and 5,
  * the seal job driving the account-closure primitive per chart, the
- * destruction certificate, the audit row every step writes, and the patient
- * identity gate. The SQL helpers are proven separately on real PostgreSQL.
+ * destruction certificate, the audit row every step writes, the patient
+ * identity gate, and the way back: reactivation of an offboarded office
+ * (refused once a sealed chart was destroyed or lapsed, otherwise reopening
+ * every sealed chart and restoring staff sign-in). The SQL helpers are
+ * proven separately on real PostgreSQL.
  */
 import express from "express";
 import type http from "node:http";
@@ -64,6 +67,22 @@ vi.mock("../lib/supabase-admin", () => ({
       for (const r of claimed) r.status = "closing";
       return { status: 200, json: claimed.map((r) => ({ ...r })) };
     }
+    if (url.pathname === "/rest/v1/rpc/office_reactivation_preview" || url.pathname === "/rest/v1/rpc/office_reactivate_charts") {
+      const since = String(body?.p_since);
+      const sealed = state.tables.patients.filter((p) => p.provider_id === body?.p_provider_id && typeof p.closed_at === "string" && p.closed_at >= since);
+      const lapsed = sealed.filter((p) => typeof p.record_retain_until === "string" && p.record_retain_until <= new Date().toISOString());
+      const destroyed = state.tables.patient_tombstones.filter((t) => t.provider_id === body?.p_provider_id && String(t.requested_at) >= since).length;
+      if (url.pathname.endsWith("preview")) {
+        const retain = sealed.map((p) => p.record_retain_until).filter((v) => typeof v === "string").sort();
+        return { status: 200, json: [{ reopenable: sealed.length - lapsed.length, lapsed: lapsed.length, destroyed, earliest_retain_until: retain[0] ?? null }] };
+      }
+      if (lapsed.length > 0 || destroyed > 0) return { status: 200, json: [{ reopened: 0, lapsed: lapsed.length, destroyed }] };
+      for (const p of sealed) {
+        Object.assign(p, { closed_at: null, archived_at: null, record_retain_until: null, deletion_requested_at: null, reopened_at: new Date().toISOString() });
+        for (const r of state.tables.patient_deletion_requests.filter((r) => r.patient_id === p.id)) r.status = "cancelled";
+      }
+      return { status: 200, json: [{ reopened: sealed.length, lapsed: 0, destroyed: 0 }] };
+    }
     if (url.pathname.startsWith("/rest/v1/rpc/")) throw new Error(`unexpected rpc ${url.pathname}`);
     const rows = state.tables[table] ?? (state.tables[table] = []);
     if (method === "GET") {
@@ -110,14 +129,21 @@ vi.mock("../privacy/purge", () => ({
   runClosure: async (request: Row) => {
     const row = state.tables.patient_deletion_requests.find((r) => r.id === request.id)!;
     row.status = state.closureOutcome;
-    if (state.closureOutcome === "closed") state.closed.push(String(request.patient_id));
+    if (state.closureOutcome === "closed") {
+      state.closed.push(String(request.patient_id));
+      const at = new Date().toISOString();
+      Object.assign(row, { closed_at: at, auth_user_id: `user-${request.patient_id}` });
+      Object.assign(state.tables.patients.find((p) => p.id === request.patient_id)!, { closed_at: at, archived_at: at, record_retain_until: "2033-01-01T00:00:00.000Z", auth_user_id: null });
+    }
     return state.closureOutcome;
   },
 }));
 
-import router, { OFFBOARDING_DESTROY_DAYS } from "./office-offboarding";
+vi.mock("../auth/identify", () => ({ identifyBearer: async (token: string) => ({ id: token, email: null }) }));
+
+import router, { OFFBOARDING_DESTROY_DAYS, reactivationRefusal } from "./office-offboarding";
 import { runOfficeOffboardingSeal, OFFICE_OFFBOARDING_SEAL_JOB_NAME } from "../jobs/definitions/office-offboarding-seal";
-import { officeHasEnded } from "../lib/patient-auth";
+import { officeHasEnded, resolvePatientIdentity } from "../lib/patient-auth";
 import { officeIsActive } from "../lib/office-status";
 
 let server: http.Server;
@@ -286,5 +312,85 @@ describe("office offboarding stepper", () => {
     expect(officeHasEnded([{ offboarding_status: "offboarded" }])).toBe(true);
     expect(officeHasEnded({ offboarding_status: "active" })).toBe(false);
     expect(officeHasEnded(null)).toBe(false);
+  });
+
+  async function offboarded() {
+    await throughHandover("retain");
+    await call("/seal", "POST");
+    await runOfficeOffboardingSeal(ctx());
+    const done = await call("/complete", "POST");
+    expect(done.json.offboarding.status).toBe("offboarded");
+    return done;
+  }
+
+  it("reactivation applies to offboarded offices only, and is refused with an explanation once a sealed chart was destroyed or lapsed", async () => {
+    expect((await call("/reactivate", "POST")).status).toBe(409);
+    expect((await call("/reactivate", "POST")).json.code).toBe("not_offboarded");
+    await call("/start", "POST");
+    expect((await call("/reactivate", "POST")).json.code).toBe("not_offboarded");
+    await call("/bundle", "POST", {});
+    bundleReady();
+    await call("/handover", "POST", HANDOVER);
+    await call("/seal", "POST");
+    await runOfficeOffboardingSeal(ctx());
+    const done = await call("/complete", "POST");
+    // The pre-seal tombstone (tomb-1) does not count; both sealed charts are reopenable.
+    expect(done.json.offboarding.reactivation).toEqual({ eligible: true, reopenable: 2, lapsed: 0, destroyed: 0, earliestRetainUntil: "2033-01-01T00:00:00.000Z" });
+    // One chart of this offboarding purged: refused, nothing reopened, the answer says what is left.
+    state.tables.patient_tombstones.push({ id: "pat-2", provider_id: OFFICE, requested_at: new Date().toISOString(), purged_at: new Date().toISOString() });
+    state.tables.patients.splice(state.tables.patients.findIndex((p) => p.id === "pat-2"), 1);
+    const refused = await call("/reactivate", "POST");
+    expect(refused.status).toBe(409);
+    expect(refused.json.code).toBe("charts_destroyed");
+    expect(refused.json.reactivation).toMatchObject({ eligible: false, reopenable: 1, destroyed: 1 });
+    expect(refused.json.error).toBe("This office cannot be reactivated: 1 chart sealed by this offboarding was already destroyed. 1 chart remains sealed until 2033-01-01; it cannot be reopened as a partial office. Onboard it as a new office instead.");
+    expect(provider()).toMatchObject({ offboarding_status: "offboarded", access_disabled: true });
+    expect(state.tables.patients.find((p) => p.id === "pat-1")!.closed_at).toBeTruthy();
+    expect((await call("")).json.offboarding.reactivation.eligible).toBe(false);
+    expect(state.audits.map((a) => a.p_action)).not.toContain("office_reactivated");
+    // A lapsed retention date refuses the same way.
+    state.tables.patient_tombstones.pop();
+    state.tables.patients.find((p) => p.id === "pat-1")!.record_retain_until = "2020-01-01T00:00:00.000Z";
+    const lapsed = await call("/reactivate", "POST");
+    expect(lapsed.status).toBe(409);
+    expect(lapsed.json.error).toContain("1 chart is past its retention date");
+    expect(reactivationRefusal({ reopenable: 0, lapsed: 2, destroyed: 3, earliestRetainUntil: null })).toBe(
+      "This office cannot be reactivated: 3 charts sealed by this offboarding were already destroyed and 2 charts are past their retention date. No sealed chart is left to reopen. Onboard it as a new office instead.",
+    );
+  });
+
+  it("reactivation reopens every sealed chart, restores the office and staff sign-in, audits, repeats idempotently, and the next offboarding starts a fresh cycle", async () => {
+    await offboarded();
+    const before = record();
+    const result = await call("/reactivate", "POST");
+    expect(result.status).toBe(200);
+    expect(result.json.offboarding).toMatchObject({
+      status: "active", nextStep: "start", started: null, handover: null, seal: null, offboardedAt: null, certificateAvailable: false, reactivation: null,
+      reactivated: { by: "hq-admin", charts: 2 },
+    });
+    expect(provider()).toMatchObject({ offboarding_status: "active", access_disabled: false, offboarding_started_at: null, offboarded_at: null });
+    expect(officeIsActive(provider())).toBe(true);
+    expect(state.tables.patients.filter((p) => p.provider_id === OFFICE).every((p) => p.closed_at === null && p.archived_at === null && p.reopened_at)).toBe(true);
+    expect(state.tables.patient_deletion_requests.map((r) => r.status)).toEqual(["cancelled", "cancelled"]);
+    expect(record()).toMatchObject({ offboarded_at: before.offboarded_at, reactivated_by: "hq-admin", reactivated_charts: 2 });
+    const audited = state.audits.find((a) => a.p_action === "office_reactivated")!;
+    expect(audited.p_metadata).toMatchObject({ office: OFFICE, charts: 2, status: "active", previouslyOffboardedAt: before.offboarded_at });
+    expect((await call("/certificate.csv")).status).toBe(409);
+    // Repeat: same state, no second reopen or audit row.
+    const again = await call("/reactivate", "POST");
+    expect(again.status).toBe(200);
+    expect(state.audits.filter((a) => a.p_action === "office_reactivated")).toHaveLength(1);
+    // Reopened charts have no login: that user is told to re-enroll rather than "closed".
+    const request = (token: string) => ({ headers: { authorization: `Bearer ${token}` } }) as any;
+    expect(await resolvePatientIdentity(request("user-pat-1"))).toMatchObject({ ok: false, status: 404, code: "reenroll_required" });
+    expect(await resolvePatientIdentity(request("user-nobody"))).toMatchObject({ ok: false, status: 403 });
+    state.tables.patient_deletion_requests[0].status = "closed";
+    expect(await resolvePatientIdentity(request("user-pat-1"))).toMatchObject({ ok: false, status: 404, code: "account_closed" });
+    // A second offboarding starts from a clean record instead of the finished one.
+    const restart = await call("/start", "POST");
+    expect(restart.status).toBe(201);
+    expect(restart.json.offboarding).toMatchObject({ status: "offboarding", nextStep: "bundle", started: { sessionsRevoked: 4 }, reactivated: null });
+    expect(record()).toMatchObject({ offboarded_at: null, seal_started_at: null, handover_recorded_at: null, reactivated_at: null, bundle_export_id: null });
+    expect(state.tables.provider_offboardings).toHaveLength(1);
   });
 });

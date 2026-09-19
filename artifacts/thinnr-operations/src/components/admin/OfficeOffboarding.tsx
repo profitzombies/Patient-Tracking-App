@@ -1,12 +1,13 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Download, Loader2 } from 'lucide-react';
+import { AlertTriangle, Check, Download, Loader2, RotateCcw } from 'lucide-react';
 import {
   getGetOfficeOffboardingQueryKey,
   getOfficeDestructionCertificate,
   getOfficeOffboardingBundleDownloadUrl,
   useCompleteOfficeOffboarding,
   useGetOfficeOffboarding,
+  useReactivateOffice,
   useRecordOfficeOffboardingHandover,
   useRequestOfficeOffboardingBundle,
   useSealOfficeOffboarding,
@@ -94,7 +95,7 @@ function Step({ number, title, state, children }: StepProps) {
 
 export function OfficeOffboarding({ officeId }: { officeId: string }) {
   const queryClient = useQueryClient();
-  const [confirm, setConfirm] = useState<'start' | 'seal' | null>(null);
+  const [confirm, setConfirm] = useState<'start' | 'seal' | 'reactivate' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [handover, setHandover] = useState<OfficeOffboardingHandoverInput>({
@@ -119,12 +120,17 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
   const record = useRecordOfficeOffboardingHandover();
   const seal = useSealOfficeOffboarding();
   const complete = useCompleteOfficeOffboarding();
+  const reactivate = useReactivateOffice();
 
   const state = query.data?.offboarding;
-  const busy = start.isPending || bundle.isPending || record.isPending || seal.isPending || complete.isPending;
+  const busy =
+    start.isPending || bundle.isPending || record.isPending || seal.isPending || complete.isPending || reactivate.isPending;
 
   const saveResult = (result: OfficeOffboardingResult) => {
     queryClient.setQueryData(getGetOfficeOffboardingQueryKey(officeId), result);
+    // Reactivation flips the account's status and staff access; every other
+    // view of this office (detail header, accounts list) reads them afresh.
+    if (result.offboarding.status === 'active') void queryClient.invalidateQueries({ queryKey: ['provider-account-detail', officeId] });
     setError(null);
   };
 
@@ -256,6 +262,17 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
             <AlertTitle>Office under legal hold</AlertTitle>
             <AlertDescription>
               Charts cannot be sealed and offboarding cannot be completed until the office legal hold is lifted.
+            </AlertDescription>
+          </Alert>
+        )}
+        {state.reactivated && (
+          <Alert className="mb-4" data-testid="office-reactivated-note">
+            <RotateCcw size={16} aria-hidden="true" />
+            <AlertTitle>Reactivated on {formatWhen(state.reactivated.at)}</AlertTitle>
+            <AlertDescription>
+              {state.reactivated.charts === 0
+                ? 'Staff sign-in was restored; no sealed chart needed reopening.'
+                : `${state.reactivated.charts} sealed chart${state.reactivated.charts === 1 ? ' was' : 's were'} reopened and staff sign-in restored. Reopened patients re-enroll through the office.`}
             </AlertDescription>
           </Alert>
         )}
@@ -471,20 +488,57 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
 
         <Step number={5} title="Complete" state={stepState('complete')}>
           {state.status === 'offboarded' ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="font-semibold text-foreground">Offboarded on {formatWhen(state.offboardedAt)}</p>
-              {state.certificateAvailable && (
-                <Button
-                  variant="outline"
-                  disabled={downloading === 'certificate'}
-                  onClick={() => void downloadCertificate()}
-                  data-testid="button-offboarding-certificate"
-                >
-                  <Download size={14} aria-hidden="true" />
-                  Download destruction certificate
-                </Button>
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-semibold text-foreground">Offboarded on {formatWhen(state.offboardedAt)}</p>
+                {state.certificateAvailable && (
+                  <Button
+                    variant="outline"
+                    disabled={downloading === 'certificate'}
+                    onClick={() => void downloadCertificate()}
+                    data-testid="button-offboarding-certificate"
+                  >
+                    <Download size={14} aria-hidden="true" />
+                    Download destruction certificate
+                  </Button>
+                )}
+              </div>
+              {state.reactivation && (
+                <div className="mt-4 rounded-md border border-border bg-background p-3" data-testid="office-reactivation">
+                  <p className="font-semibold text-foreground">Contract renewed?</p>
+                  {state.reactivation.eligible ? (
+                    <p className="mt-1">
+                      {state.reactivation.reopenable === 0
+                        ? 'Reactivating restores staff sign-in; no sealed chart is left to reopen.'
+                        : `Reactivating restores staff sign-in and reopens ${state.reactivation.reopenable} sealed chart${state.reactivation.reopenable === 1 ? '' : 's'}${state.reactivation.earliestRetainUntil ? ` (kept until ${formatWhen(state.reactivation.earliestRetainUntil)})` : ''}. Reopened patients re-enroll through the office; their old logins were retired.`}
+                    </p>
+                  ) : (
+                    <Alert className="mt-2 border-[#e8b47c] bg-[#fff4e6]" data-testid="office-reactivation-refused">
+                      <AlertTriangle size={16} aria-hidden="true" />
+                      <AlertTitle>Reactivation is no longer possible</AlertTitle>
+                      <AlertDescription>
+                        {state.reactivation.destroyed > 0 && `${state.reactivation.destroyed} chart${state.reactivation.destroyed === 1 ? ' was' : 's were'} already destroyed. `}
+                        {state.reactivation.lapsed > 0 && `${state.reactivation.lapsed} chart${state.reactivation.lapsed === 1 ? ' is' : 's are'} past ${state.reactivation.lapsed === 1 ? 'its' : 'their'} retention date. `}
+                        {state.reactivation.reopenable > 0
+                          ? `${state.reactivation.reopenable} chart${state.reactivation.reopenable === 1 ? ' remains' : 's remain'} sealed${state.reactivation.earliestRetainUntil ? ` until ${formatWhen(state.reactivation.earliestRetainUntil)}` : ''} and cannot be reopened as a partial office.`
+                          : 'No sealed chart is left to reopen.'}{' '}
+                        Onboard the office as a new account instead.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  <Button
+                    className="mt-3"
+                    disabled={!state.reactivation.eligible || busy}
+                    aria-disabled={!state.reactivation.eligible || busy}
+                    onClick={() => setConfirm('reactivate')}
+                    data-testid="button-office-reactivate"
+                  >
+                    <RotateCcw size={14} aria-hidden="true" />
+                    Reactivate office
+                  </Button>
+                </div>
               )}
-            </div>
+            </>
           ) : (
             <>
               <p>Mark the office offboarded after sealing finishes.</p>
@@ -505,12 +559,17 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {confirm === 'start' ? 'Disable every staff sign-in?' : 'Seal every office chart?'}
+              {confirm === 'start' && 'Disable every staff sign-in?'}
+              {confirm === 'seal' && 'Seal every office chart?'}
+              {confirm === 'reactivate' && 'Reactivate this office?'}
             </DialogTitle>
             <DialogDescription>
-              {confirm === 'start'
-                ? 'Every staff login for this office will be revoked immediately, and staff will no longer be able to sign in.'
-                : 'Sealing starts the chart retention or destruction process. The hand-over record cannot be changed after this begins.'}
+              {confirm === 'start' &&
+                'Every staff login for this office will be revoked immediately, and staff will no longer be able to sign in.'}
+              {confirm === 'seal' &&
+                'Sealing starts the chart retention or destruction process. The hand-over record cannot be changed after this begins.'}
+              {confirm === 'reactivate' &&
+                `The office returns to active, staff can sign in again, and every chart sealed by this offboarding reopens${state.reactivation?.reopenable ? ` (${state.reactivation.reopenable})` : ''}. Patients must be re-enrolled by the office; their old logins are not restored. This is recorded in the audit trail.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -520,11 +579,13 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
             <Button
               type="button"
               disabled={busy}
+              data-testid="button-offboarding-confirm"
               onClick={() => {
                 const choice = confirm;
                 setConfirm(null);
                 if (choice === 'start') void perform(() => start.mutateAsync({ id: officeId }));
                 if (choice === 'seal') void perform(() => seal.mutateAsync({ id: officeId }));
+                if (choice === 'reactivate') void perform(() => reactivate.mutateAsync({ id: officeId }));
               }}
             >
               Confirm

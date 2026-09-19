@@ -198,6 +198,7 @@ import type {
   OfficeOffboardingResult,
   OfficeOverridesInput,
   OfficePatientRecord,
+  OfficeReactivationRefusal,
   OfficeRosterResult,
   OfficeSettings,
   OkResult,
@@ -10948,6 +10949,77 @@ export const useCompleteOfficeOffboarding = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getCompleteOfficeOffboardingMutationOptions(options));
+    }
+
+export const getReactivateOfficeUrl = (id: string,) => {
+
+
+
+
+  return `/api/provider-accounts/${id}/offboarding/reactivate`
+}
+
+/**
+ * @summary Reactivate an offboarded office whose contract was renewed — reopens every chart the offboarding sealed (all or nothing), returns the office to active and restores staff sign-in (audited; idempotent)
+ */
+export const reactivateOffice = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<OfficeOffboardingResult> => {
+
+  return customFetch<OfficeOffboardingResult>(getReactivateOfficeUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getReactivateOfficeMutationOptions = <TError = ErrorType<OfficeReactivationRefusal>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reactivateOffice>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reactivateOffice>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['reactivateOffice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reactivateOffice>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  reactivateOffice(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReactivateOfficeMutationResult = NonNullable<Awaited<ReturnType<typeof reactivateOffice>>>
+
+    export type ReactivateOfficeMutationError = ErrorType<OfficeReactivationRefusal>
+
+    /**
+ * @summary Reactivate an offboarded office whose contract was renewed — reopens every chart the offboarding sealed (all or nothing), returns the office to active and restores staff sign-in (audited; idempotent)
+ */
+export const useReactivateOffice = <TError = ErrorType<OfficeReactivationRefusal>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reactivateOffice>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reactivateOffice>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getReactivateOfficeMutationOptions(options));
     }
 
 export const getGetOfficeDestructionCertificateUrl = (id: string,) => {

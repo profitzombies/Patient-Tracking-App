@@ -73,18 +73,27 @@ const baseOffboarding = {
   seal: null,
   offboardedAt: null,
   certificateAvailable: false,
+  reactivation: null,
+  reactivated: null,
 };
 
 let offboarding: any = baseOffboarding;
-g.fetch = async (input: string | URL | Request) => {
+const posts: string[] = [];
+let reactivateResponse: () => Response = () => new Response(JSON.stringify({ offboarding }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+  if (url.includes('/api/provider-accounts/office-1/offboarding/reactivate') && method === 'POST') {
+    posts.push('reactivate');
+    return reactivateResponse();
+  }
   if (url.includes('/api/provider-accounts/office-1/offboarding')) {
     return new Response(JSON.stringify({ offboarding }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  throw new Error(`unexpected fetch GET ${url}`);
+  throw new Error(`unexpected fetch ${method} ${url}`);
 };
 
 async function render(path: string, element: React.ReactElement) {
@@ -162,6 +171,77 @@ console.log('\noffboarding stepper: completed office');
   };
   const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
   check('completed state shows the certificate button', byTestId(root, 'button-offboarding-certificate').length === 1 && textOf(root).includes('Offboarded on'));
+  check('no reactivation panel without a preview', byTestId(root, 'office-reactivation').length === 0);
+  await act(async () => renderer.unmount());
+}
+
+console.log('\noffboarding stepper: reactivation (contract renewed)');
+{
+  offboarding = {
+    ...baseOffboarding,
+    status: 'offboarded',
+    nextStep: null,
+    offboardedAt: '2026-09-08T12:00:00Z',
+    certificateAvailable: true,
+    reactivation: { eligible: true, reopenable: 14, lapsed: 0, destroyed: 0, earliestRetainUntil: '2033-09-08T12:00:00Z' },
+  };
+  const reactivated = {
+    ...baseOffboarding,
+    reactivated: { at: '2026-09-19T12:00:00Z', by: 'hq-1', charts: 14 },
+  };
+  reactivateResponse = () => new Response(JSON.stringify({ offboarding: reactivated }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  const button = byTestId(root, 'button-office-reactivate')[0];
+  const panel = byTestId(root, 'office-reactivation')[0];
+  check('eligible office shows the Reactivate button and what it will reopen', button?.props.disabled === false && textOf(panel).includes('reopens 14 sealed charts') && textOf(panel).includes('kept until Sep 8, 2033') && textOf(panel).includes('re-enroll through the office'));
+  await act(async () => { button.props.onClick(); });
+  await settle(2);
+  const dialog = root.findAll((node) => node.props.role === 'dialog')[0];
+  check('reactivation asks for confirmation first', Boolean(dialog) && textOf(dialog).includes('Reactivate this office?') && textOf(dialog).includes('(14)') && posts.length === 0);
+  await act(async () => { byTestId(root, 'button-offboarding-confirm')[0].props.onClick(); });
+  await settle();
+  check('confirming posts the reactivation once', posts.length === 1, String(posts.length));
+  check('stepper resets to a fresh office with the reactivation note', byTestId(root, 'offboarding-step-1')[0]?.props['data-state'] === 'current' && byTestId(root, 'button-offboarding-start')[0]?.props.disabled === false && textOf(byTestId(root, 'office-reactivated-note')[0]).includes('14 sealed charts were reopened'));
+  check('no error is shown', byTestId(root, 'office-offboarding-error').length === 0);
+  await act(async () => renderer.unmount());
+}
+
+console.log('\noffboarding stepper: reactivation refused after destruction');
+{
+  posts.length = 0;
+  offboarding = {
+    ...baseOffboarding,
+    status: 'offboarded',
+    nextStep: null,
+    offboardedAt: '2026-09-08T12:00:00Z',
+    certificateAvailable: true,
+    reactivation: { eligible: false, reopenable: 9, lapsed: 0, destroyed: 5, earliestRetainUntil: '2033-09-08T12:00:00Z' },
+  };
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  const refused = byTestId(root, 'office-reactivation-refused')[0];
+  check('refusal explains what was destroyed and what is left', Boolean(refused) && textOf(refused).includes('5 charts were already destroyed') && textOf(refused).includes('9 charts remain sealed until Sep 8, 2033') && textOf(refused).includes('new account'));
+  check('Reactivate button is disabled', byTestId(root, 'button-office-reactivate')[0]?.props.disabled === true && byTestId(root, 'button-office-reactivate')[0]?.props['aria-disabled'] === true);
+  await act(async () => renderer.unmount());
+}
+
+console.log('\noffboarding stepper: server refusal surfaces its explanation');
+{
+  offboarding = {
+    ...baseOffboarding,
+    status: 'offboarded',
+    nextStep: null,
+    offboardedAt: '2026-09-08T12:00:00Z',
+    certificateAvailable: true,
+    reactivation: { eligible: true, reopenable: 3, lapsed: 0, destroyed: 0, earliestRetainUntil: null },
+  };
+  reactivateResponse = () => new Response(JSON.stringify({ error: 'This office cannot be reactivated: 1 chart sealed by this offboarding was already destroyed. 2 charts remain sealed; they cannot be reopened as a partial office. Onboard it as a new office instead.', code: 'charts_destroyed' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  await act(async () => { byTestId(root, 'button-office-reactivate')[0].props.onClick(); });
+  await settle(2);
+  await act(async () => { byTestId(root, 'button-offboarding-confirm')[0].props.onClick(); });
+  await settle();
+  check('409 explanation is shown verbatim', textOf(byTestId(root, 'office-offboarding-error')[0] ?? root).includes('was already destroyed'));
+  check('office stays offboarded', byTestId(root, 'button-offboarding-certificate').length === 1);
   await act(async () => renderer.unmount());
 }
 

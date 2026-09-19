@@ -19,6 +19,13 @@
  * Every step is idempotent (repeating a finished step returns the current
  * state with 200) and audited. Destruction itself runs through the existing
  * purge with tombstones; the certificate is a CSV of those tombstones.
+ *
+ * Reactivation (contract renewed before the retain-until date) is the way
+ * back from step 5: the office returns to active, staff sign in again, and
+ * every chart the offboarding sealed reopens, all or nothing. It is refused
+ * once any of those charts was destroyed or lapsed past its retention date.
+ * Reopened charts keep their record but not their login; patients re-enroll
+ * through the office's invite flow.
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
@@ -46,7 +53,7 @@ export const OFFBOARDING_DESTROY_DAYS = 30;
 
 const PROVIDER_SELECT = "provider_id,provider_name,office_name,auth_user_id,access_disabled,offboarding_status,offboarding_started_at,offboarded_at";
 const RECORD_SELECT =
-  "provider_id,started_at,started_by,access_disabled_at,staff_sessions_revoked,bundle_export_id,bundle_requested_at,handover_received_by,handover_received_on,handover_choice,handover_letter_reference,handover_note,handover_recorded_at,handover_recorded_by,seal_started_at,seal_started_by,seal_retain_until,seal_completed_at,seal_patients_total,seal_patients_done,seal_patients_held,offboarded_at,offboarded_by,updated_at";
+  "provider_id,started_at,started_by,access_disabled_at,staff_sessions_revoked,bundle_export_id,bundle_requested_at,handover_received_by,handover_received_on,handover_choice,handover_letter_reference,handover_note,handover_recorded_at,handover_recorded_by,seal_started_at,seal_started_by,seal_retain_until,seal_completed_at,seal_patients_total,seal_patients_done,seal_patients_held,offboarded_at,offboarded_by,reactivated_at,reactivated_by,reactivated_charts,updated_at";
 
 interface ProviderRow {
   provider_id: string;
@@ -83,8 +90,38 @@ interface RecordRow {
   seal_patients_held: number | null;
   offboarded_at: string | null;
   offboarded_by: string | null;
+  reactivated_at?: string | null;
+  reactivated_by?: string | null;
+  reactivated_charts?: number | null;
   updated_at: string;
 }
+
+/** Every per-cycle column of provider_offboardings, as reset by a fresh start after a reactivation. */
+const CYCLE_RESET: Record<string, null | number> = {
+  access_disabled_at: null,
+  staff_sessions_revoked: 0,
+  bundle_export_id: null,
+  bundle_requested_at: null,
+  handover_received_by: null,
+  handover_received_on: null,
+  handover_choice: null,
+  handover_letter_reference: null,
+  handover_note: null,
+  handover_recorded_at: null,
+  handover_recorded_by: null,
+  seal_started_at: null,
+  seal_started_by: null,
+  seal_retain_until: null,
+  seal_completed_at: null,
+  seal_patients_total: null,
+  seal_patients_done: null,
+  seal_patients_held: null,
+  offboarded_at: null,
+  offboarded_by: null,
+  reactivated_at: null,
+  reactivated_by: null,
+  reactivated_charts: null,
+};
 
 export type OffboardingStep = "start" | "bundle" | "handover" | "seal" | "complete";
 
@@ -141,6 +178,42 @@ async function loadBundle(exportId: string | null): Promise<ExportJobRow | null>
   return (res.json[0] as ExportJobRow | undefined) ?? null;
 }
 
+interface ReactivationPreview {
+  reopenable: number;
+  lapsed: number;
+  destroyed: number;
+  earliestRetainUntil: string | null;
+}
+
+/** Charts sealed by THIS offboarding (from its seal start); the record's start is the fallback for older rows. */
+function sealSince(record: RecordRow): string {
+  return record.seal_started_at ?? record.started_at;
+}
+
+async function reactivationPreview(providerId: string, since: string): Promise<ReactivationPreview> {
+  const res = await supabaseAdmin("POST", "/rest/v1/rpc/office_reactivation_preview", { p_provider_id: providerId, p_since: since });
+  const row = Array.isArray(res.json) ? (res.json[0] as Record<string, unknown> | undefined) : null;
+  if (res.status >= 300 || !row) throw new Error(`reactivation preview failed (${res.status})`);
+  return {
+    reopenable: Number(row.reopenable ?? 0),
+    lapsed: Number(row.lapsed ?? 0),
+    destroyed: Number(row.destroyed ?? 0),
+    earliestRetainUntil: typeof row.earliest_retain_until === "string" ? row.earliest_retain_until : null,
+  };
+}
+
+/** Why a reactivation is refused, in HQ's words: what was destroyed, what lapsed, what is left. */
+export function reactivationRefusal(preview: ReactivationPreview): string {
+  const charts = (n: number) => `${n} chart${n === 1 ? "" : "s"}`;
+  const reasons: string[] = [];
+  if (preview.destroyed > 0) reasons.push(`${charts(preview.destroyed)} sealed by this offboarding ${preview.destroyed === 1 ? "was" : "were"} already destroyed`);
+  if (preview.lapsed > 0) reasons.push(`${charts(preview.lapsed)} ${preview.lapsed === 1 ? "is" : "are"} past ${preview.lapsed === 1 ? "its" : "their"} retention date`);
+  const left = preview.reopenable > 0
+    ? `${charts(preview.reopenable)} remain${preview.reopenable === 1 ? "s" : ""} sealed${preview.earliestRetainUntil ? ` until ${preview.earliestRetainUntil.slice(0, 10)}` : ""}; ${preview.reopenable === 1 ? "it" : "they"} cannot be reopened as a partial office.`
+    : "No sealed chart is left to reopen.";
+  return `This office cannot be reactivated: ${reasons.join(" and ")}. ${left} Onboard it as a new office instead.`;
+}
+
 /** Clinical retention window from the organization policy (days); the SQL closure applies the same policy. */
 async function clinicalRetentionDays(): Promise<number> {
   const policy = await loadOrgPolicy();
@@ -175,6 +248,15 @@ export interface OffboardingStateDto {
   } | null;
   offboardedAt: string | null;
   certificateAvailable: boolean;
+  /** What a reactivation would find; present only while the office is offboarded. */
+  reactivation: (ReactivationPreview & { eligible: boolean }) | null;
+  /** The reactivation that ended the previous offboarding, until the next one starts. */
+  reactivated: { at: string; by: string | null; charts: number } | null;
+}
+
+/** After a reactivation the row is history: the stepper reads as a fresh office until the next start resets it. */
+function cycleRecord(status: OfficeOffboardingStatus, record: RecordRow | null): RecordRow | null {
+  return status === "active" && record?.reactivated_at ? null : record;
 }
 
 function nextStepOf(status: OfficeOffboardingStatus, record: RecordRow | null, bundle: ExportJobRow | null): OffboardingStep | null {
@@ -186,12 +268,14 @@ function nextStepOf(status: OfficeOffboardingStatus, record: RecordRow | null, b
   return "complete";
 }
 
-export async function offboardingState(provider: ProviderRow, record: RecordRow | null): Promise<OffboardingStateDto> {
+export async function offboardingState(provider: ProviderRow, fullRecord: RecordRow | null): Promise<OffboardingStateDto> {
   const status = offboardingStatusOf(provider.offboarding_status);
-  const [bundle, hold, progress] = await Promise.all([
+  const record = cycleRecord(status, fullRecord);
+  const [bundle, hold, progress, preview] = await Promise.all([
     loadBundle(record?.bundle_export_id ?? null),
     officeHoldActive(provider.provider_id),
     record?.seal_started_at ? loadSealProgress(provider.provider_id) : Promise.resolve<SealProgress | null>(null),
+    status === "offboarded" && record ? reactivationPreview(provider.provider_id, sealSince(record)) : Promise.resolve<ReactivationPreview | null>(null),
   ]);
   const bundleDto = bundle ? exportJobDto(bundle) : null;
   return {
@@ -226,6 +310,11 @@ export async function offboardingState(provider: ProviderRow, record: RecordRow 
         : null,
     offboardedAt: record?.offboarded_at ?? provider.offboarded_at ?? null,
     certificateAvailable: status === "offboarded",
+    reactivation: preview ? { ...preview, eligible: preview.destroyed === 0 && preview.lapsed === 0 } : null,
+    reactivated:
+      fullRecord?.reactivated_at && status === "active"
+        ? { at: fullRecord.reactivated_at, by: fullRecord.reactivated_by ?? null, charts: fullRecord.reactivated_charts ?? 0 }
+        : null,
   };
 }
 
@@ -303,7 +392,10 @@ router.post("/provider-accounts/:id/offboarding/start", requireHqPermission("pro
   }
   let revoked = 0;
   for (const userId of userIds) revoked += await revokeUserSessions({ userId, reason: "office_offboarded" });
-  if (record) {
+  if (record?.reactivated_at) {
+    // A previous offboarding was undone by a reactivation: this is a new cycle.
+    await patchRecord(provider.provider_id, { ...CYCLE_RESET, started_at: now, started_by: caller.userId, access_disabled_at: now, staff_sessions_revoked: revoked });
+  } else if (record) {
     await patchRecord(provider.provider_id, { access_disabled_at: now, staff_sessions_revoked: record.staff_sessions_revoked + revoked });
   } else {
     const inserted = await supabaseAdmin("POST", "/rest/v1/provider_offboardings", {
@@ -542,6 +634,59 @@ router.post("/provider-accounts/:id/offboarding/complete", requireHqPermission("
   });
   const refreshed = await loadProvider(provider.provider_id);
   await respondState(res, refreshed ?? { ...provider, offboarding_status: "offboarded", offboarded_at: now, access_disabled: true });
+}));
+
+/**
+ * Reactivate an offboarded office (contract renewed). Refused while any chart
+ * sealed by the offboarding was destroyed or has lapsed; otherwise every
+ * sealed chart reopens in one SQL transaction, the office returns to active,
+ * staff sign-in is re-enabled. Idempotent: an office already reactivated
+ * from this record answers with its state.
+ */
+router.post("/provider-accounts/:id/offboarding/reactivate", requireHqPermission("provider_manage"), step(async ({ req, res, provider, record, caller }) => {
+  const status = offboardingStatusOf(provider.offboarding_status);
+  if (status === "active" && record?.reactivated_at) {
+    await respondState(res, provider);
+    return;
+  }
+  if (status !== "offboarded" || !record) {
+    res.status(409).json({
+      error: status === "offboarding"
+        ? "This office is still being offboarded. Reactivation applies once an offboarding has completed."
+        : "This office is active; there is nothing to reactivate.",
+      code: "not_offboarded",
+    });
+    return;
+  }
+  const since = sealSince(record);
+  const preview = await reactivationPreview(provider.provider_id, since);
+  if (preview.destroyed > 0 || preview.lapsed > 0) {
+    res.status(409).json({ error: reactivationRefusal(preview), code: "charts_destroyed", reactivation: { ...preview, eligible: false } });
+    return;
+  }
+  const reopened = await supabaseAdmin("POST", "/rest/v1/rpc/office_reactivate_charts", { p_provider_id: provider.provider_id, p_since: since });
+  const outcome = Array.isArray(reopened.json) ? (reopened.json[0] as Record<string, unknown> | undefined) : null;
+  if (reopened.status >= 300 || !outcome) throw new Error(`chart reactivation failed (${reopened.status})`);
+  const counts = { reopened: Number(outcome.reopened ?? 0), lapsed: Number(outcome.lapsed ?? 0), destroyed: Number(outcome.destroyed ?? 0) };
+  if (counts.lapsed > 0 || counts.destroyed > 0) {
+    // A purge landed between the preview and the transaction: the SQL re-check refused.
+    const fresh = await reactivationPreview(provider.provider_id, since);
+    res.status(409).json({ error: reactivationRefusal(fresh), code: "charts_destroyed", reactivation: { ...fresh, eligible: false } });
+    return;
+  }
+  const now = new Date().toISOString();
+  // Charts are open again; flip the office back LAST so a crash in between
+  // leaves an offboarded office with reopened charts that a repeat call
+  // finishes (the preview then finds nothing sealed and reopens nothing).
+  await patchProvider(provider.provider_id, { offboarding_status: "active", offboarding_started_at: null, offboarded_at: null, access_disabled: false });
+  await patchRecord(provider.provider_id, { reactivated_at: now, reactivated_by: caller.userId, reactivated_charts: counts.reopened });
+  await audit(req, caller, provider.provider_id, "office_reactivated", {
+    status: "active",
+    charts: counts.reopened,
+    previouslyOffboardedAt: record.offboarded_at ?? provider.offboarded_at ?? null,
+  });
+  const refreshed = await loadProvider(provider.provider_id);
+  await respondState(res, refreshed ?? { ...provider, offboarding_status: "active", offboarding_started_at: null, offboarded_at: null, access_disabled: false });
 }));
 
 function csvCell(value: unknown): string {

@@ -3562,6 +3562,33 @@ export type OfficeOffboardingSeal = {
   progress: OfficeOffboardingSealProgress;
 } | null;
 
+/**
+ * The reactivation that ended the previous offboarding, until the next one starts
+ * @nullable
+ */
+export type OfficeOffboardingReactivated = {
+  at: string;
+  /** @nullable */
+  by: string | null;
+  charts: number;
+} | null;
+
+export interface OfficeReactivationPreview {
+  /** True when nothing sealed by the offboarding was destroyed or lapsed */
+  eligible: boolean;
+  /** Sealed charts still inside their retention window */
+  reopenable: number;
+  /** Sealed charts past their retention date or already being destroyed */
+  lapsed: number;
+  /** Charts of this offboarding already purged (tombstones) */
+  destroyed: number;
+  /**
+     * Earliest retain-until among the sealed charts
+     * @nullable
+     */
+  earliestRetainUntil: string | null;
+}
+
 export interface OfficeOffboarding {
   providerId: string;
   officeName: string;
@@ -3578,6 +3605,27 @@ export interface OfficeOffboarding {
   /** @nullable */
   offboardedAt: string | null;
   certificateAvailable: boolean;
+  /** What a reactivation would find; present only while the office is offboarded */
+  reactivation: OfficeReactivationPreview | null;
+  /**
+     * The reactivation that ended the previous offboarding, until the next one starts
+     * @nullable
+     */
+  reactivated: OfficeOffboardingReactivated;
+}
+
+export type OfficeReactivationRefusalCode = typeof OfficeReactivationRefusalCode[keyof typeof OfficeReactivationRefusalCode];
+
+
+export const OfficeReactivationRefusalCode = {
+  not_offboarded: 'not_offboarded',
+  charts_destroyed: 'charts_destroyed',
+} as const;
+
+export interface OfficeReactivationRefusal {
+  error: string;
+  code: OfficeReactivationRefusalCode;
+  reactivation?: OfficeReactivationPreview;
 }
 
 export interface OfficeOffboardingResult {

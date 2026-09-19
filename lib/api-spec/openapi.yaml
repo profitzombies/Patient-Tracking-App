@@ -2735,6 +2735,20 @@ paths:
           description: Offboarded
           content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
         "409": { description: Seal incomplete (code seal_incomplete) or legal hold (code legal_hold) }
+  /provider-accounts/{id}/offboarding/reactivate:
+    post:
+      operationId: reactivateOffice
+      tags: [hq]
+      summary: Reactivate an offboarded office whose contract was renewed — reopens every chart the offboarding sealed (all or nothing), returns the office to active and restores staff sign-in (audited; idempotent)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Reactivated (or already reactivated from this offboarding)
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeOffboardingResult" } } }
+        "409":
+          description: Office not offboarded (code not_offboarded), or refused because a chart sealed by this offboarding was destroyed or lapsed (code charts_destroyed, with the reactivation counts and an explanation of what is left)
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeReactivationRefusal" } } }
   /provider-accounts/{id}/offboarding/certificate.csv:
     get:
       operationId: getOfficeDestructionCertificate
@@ -5480,7 +5494,7 @@ components:
         recordedBy: { type: ["string", "null"] }
     OfficeOffboarding:
       type: object
-      required: [providerId, officeName, status, nextStep, legalHold, destroyAfterDays, started, bundle, handover, seal, offboardedAt, certificateAvailable]
+      required: [providerId, officeName, status, nextStep, legalHold, destroyAfterDays, started, bundle, handover, seal, offboardedAt, certificateAvailable, reactivation, reactivated]
       properties:
         providerId: { type: string }
         officeName: { type: string }
@@ -5516,6 +5530,35 @@ components:
             progress: { $ref: "#/components/schemas/OfficeOffboardingSealProgress" }
         offboardedAt: { type: ["string", "null"] }
         certificateAvailable: { type: boolean }
+        reactivation:
+          oneOf:
+            - $ref: "#/components/schemas/OfficeReactivationPreview"
+            - type: "null"
+          description: What a reactivation would find; present only while the office is offboarded
+        reactivated:
+          type: ["object", "null"]
+          required: [at, by, charts]
+          description: The reactivation that ended the previous offboarding, until the next one starts
+          properties:
+            at: { type: string }
+            by: { type: ["string", "null"] }
+            charts: { type: number }
+    OfficeReactivationPreview:
+      type: object
+      required: [eligible, reopenable, lapsed, destroyed, earliestRetainUntil]
+      properties:
+        eligible: { type: boolean, description: True when nothing sealed by the offboarding was destroyed or lapsed }
+        reopenable: { type: number, description: Sealed charts still inside their retention window }
+        lapsed: { type: number, description: Sealed charts past their retention date or already being destroyed }
+        destroyed: { type: number, description: Charts of this offboarding already purged (tombstones) }
+        earliestRetainUntil: { type: ["string", "null"], description: Earliest retain-until among the sealed charts }
+    OfficeReactivationRefusal:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [not_offboarded, charts_destroyed] }
+        reactivation: { $ref: "#/components/schemas/OfficeReactivationPreview" }
     OfficeOffboardingResult:
       type: object
       required: [offboarding]

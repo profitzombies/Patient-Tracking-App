@@ -44,6 +44,8 @@ import { PatientAccountProvider } from '../context/PatientAccountProvider';
 import { usePatientAccount, type PatientAccountState } from '../context/PatientAccountContext';
 import {
   ACCOUNT_CLOSED_MESSAGE,
+  REENROLL_REQUIRED_MESSAGE,
+  isReenrollRequiredResolutionError,
   PROGRAM_ENDED_MESSAGE,
   isProgramEndedResolutionError,
   liveEntryDecision,
@@ -430,6 +432,33 @@ async function main() {
   assert(
     'closed-account copy is neutral and allows same-phone signup',
     ACCOUNT_CLOSED_MESSAGE === 'This account was closed. You can create a new account with the same phone number.',
+  );
+  await unmount(tree);
+
+  section('reopened chart resolution: re-enroll notice and local sign-out');
+  routerCalls.length = 0;
+  failNext.set('GET claim/whoami', {
+    status: 404,
+    body: { error: REENROLL_REQUIRED_MESSAGE, code: 'reenroll_required' },
+  });
+  tree = await mount(null);
+  await signIn(P1);
+  const reenrollCall = routerCalls.find(call => call.method === 'replace' && call.target === '/patient-login');
+  assert(
+    'reenroll_required signs the device out and routes to patient login with the re-enroll notice',
+    account.account.kind !== 'real' &&
+      Boolean(reenrollCall) &&
+      reenrollCall?.params?.notice === REENROLL_REQUIRED_MESSAGE,
+  );
+  assert(
+    're-enroll copy points the patient at the office, not at a fresh signup',
+    REENROLL_REQUIRED_MESSAGE.includes('Contact the office to re-enroll') && !REENROLL_REQUIRED_MESSAGE.includes('new account'),
+  );
+  assert(
+    're-enroll predicate accepts only its exact code and status',
+    isReenrollRequiredResolutionError({ code: 'reenroll_required', status: 404 }) &&
+      !isReenrollRequiredResolutionError({ code: 'account_closed', status: 404 }) &&
+      !isReenrollRequiredResolutionError({ code: 'reenroll_required', status: 403 }),
   );
   await unmount(tree);
 

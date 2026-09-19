@@ -23,6 +23,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const LIFECYCLE = path.resolve(here, "../../../../supabase/migrations/20260928000000_patient_privacy_lifecycle.sql");
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_legal_holds.sql");
 const OFFBOARDING = path.resolve(here, "../../../../supabase/migrations/20261109000000_office_offboarding.sql");
+const REACTIVATION = path.resolve(here, "../../../../supabase/migrations/20261110000000_office_reactivation.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -159,7 +160,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("legal holds SQL (real PostgreSQL)", () => 
       "alter table public.patient_deletion_requests drop constraint if exists patient_deletion_requests_status_check;",
       "alter table public.patient_deletion_requests add constraint patient_deletion_requests_status_check check (status in ('pending', 'held', 'closing', 'closed', 'cancelled', 'purging', 'purged', 'failed'));",
     ].join("\n"));
-    for (const file of [schemaFile, LIFECYCLE, MIGRATION, path.join(dir, "closure-columns.sql"), OFFBOARDING]) {
+    for (const file of [schemaFile, LIFECYCLE, MIGRATION, path.join(dir, "closure-columns.sql"), OFFBOARDING, REACTIVATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -338,5 +339,58 @@ describe.skipIf(!POSTGRES_AVAILABLE)("legal holds SQL (real PostgreSQL)", () => 
     expect(rows(`select 1 from public.claim_office_patient_deletions('office-1', 'worker-b', 10, 600)`)).toEqual([]);
     expect(rows(`select 1 from public.claim_office_patient_deletions('office-2', 'worker-b', 10, 600)`)).toEqual([]);
     expect(() => psql(`select public.claim_office_patient_deletions('office-1', '', 10, 600)`)).toThrow(/lease owner/);
+  });
+
+  it("office reactivation: reopens only the charts the offboarding sealed, all or nothing, and refuses once one was destroyed or lapsed", () => {
+    for (const grantee of ["anon", "authenticated"]) {
+      for (const fn of ["public.office_reactivation_preview(text,timestamptz)", "public.office_reactivate_charts(text,timestamptz)"]) {
+        expect(scalar<boolean>(`select has_function_privilege('${grantee}', '${fn}', 'execute')`), `${grantee} ${fn}`).toBe(false);
+      }
+    }
+    const SINCE = "'2026-06-01T00:00:00Z'";
+    const preview = () => rows<Record<string, unknown>>(`select * from public.office_reactivation_preview('office-1', ${SINCE})`)[0];
+    const reactivate = () => rows<Record<string, number>>(`select * from public.office_reactivate_charts('office-1', ${SINCE})`)[0];
+    // Requests land before the charts archive: the identity write guard refuses new rows on an archived patient.
+    // A patient-initiated closure from BEFORE the seal is neither reopened nor counted.
+    psql(`insert into public.patients (id, provider_id) values ('${uuid(4)}', 'office-1')`);
+    psql(`insert into public.patient_deletion_requests (patient_id, provider_id, purge_after, status, closed_at, retain_until) values ('${uuid(4)}', 'office-1', '2026-01-01T00:00:00Z', 'closed', '2026-01-01T00:00:00Z', '2033-01-01T00:00:00Z')`);
+    psql(`update public.patients set closed_at = '2026-01-01T00:00:00Z', archived_at = '2026-01-01T00:00:00Z', record_retain_until = '2033-01-01T00:00:00Z' where id = '${uuid(4)}'`);
+    // An old tombstone from before the seal does not block either.
+    psql(`insert into public.patient_tombstones (id, provider_id, requested_at, purged_at) values ('${uuid(5)}', 'office-1', '2026-02-01T00:00:00Z', '2026-02-02T00:00:00Z')`);
+    // Both live charts sealed by the offboarding (closed_at after the seal start).
+    psql(`insert into public.patient_deletion_requests (patient_id, provider_id, auth_user_id, purge_after, status, closed_at, retain_until, lease_owner, lease_until) values
+      ('${HELD}', 'office-1', '${USER_HELD}', '2026-07-01T00:00:00Z', 'closed', '2026-07-01T00:00:00Z', '2033-07-01T00:00:00Z', null, null),
+      ('${FREE}', 'office-1', '${USER_FREE}', '2026-07-01T00:00:00Z', 'closed', '2026-07-01T00:00:00Z', '2033-07-01T00:00:00Z', 'worker-x', now() + interval '1 hour')`);
+    psql(`update public.patients set closed_at = '2026-07-01T00:00:00Z', archived_at = '2026-07-01T00:00:00Z', record_retain_until = '2033-07-01T00:00:00Z', auth_user_id = null, deletion_requested_at = '2026-07-01T00:00:00Z' where id in ('${HELD}', '${FREE}')`);
+    expect(preview()).toMatchObject({ reopenable: 2, lapsed: 0, destroyed: 0, earliest_retain_until: "2033-07-01T00:00:00+00:00" });
+    // One lapsed chart refuses the whole office and reopens nothing.
+    psql(`update public.patients set record_retain_until = '2020-01-01T00:00:00Z' where id = '${FREE}'`);
+    expect(preview()).toMatchObject({ reopenable: 1, lapsed: 1, destroyed: 0 });
+    expect(reactivate()).toEqual({ reopened: 0, lapsed: 1, destroyed: 0 });
+    expect(count("patients", "closed_at is not null")).toBe(3);
+    psql(`update public.patients set record_retain_until = '2033-07-01T00:00:00Z' where id = '${FREE}'`);
+    // A purge already claimed on one chart refuses too (counted as lapsed).
+    psql(`update public.patient_deletion_requests set status = 'purging' where patient_id = '${FREE}'`);
+    expect(reactivate()).toEqual({ reopened: 0, lapsed: 1, destroyed: 0 });
+    psql(`update public.patient_deletion_requests set status = 'closed' where patient_id = '${FREE}'`);
+    // A tombstone dated from the seal refuses even with every remaining chart intact.
+    psql(`insert into public.patient_tombstones (id, provider_id, requested_at, purged_at) values ('${uuid(6)}', 'office-1', '2026-07-01T00:00:00Z', '2026-08-01T00:00:00Z')`);
+    expect(preview()).toMatchObject({ reopenable: 2, lapsed: 0, destroyed: 1 });
+    expect(reactivate()).toEqual({ reopened: 0, lapsed: 0, destroyed: 1 });
+    psql(`delete from public.patient_tombstones where id = '${uuid(6)}'`);
+    // Clean: both sealed charts reopen, their requests become cancelled rows that keep closed_at, the old closure is untouched.
+    expect(reactivate()).toEqual({ reopened: 2, lapsed: 0, destroyed: 0 });
+    expect(rows<{ id: string }>(`select id from public.patients where provider_id = 'office-1' and closed_at is null and archived_at is null and record_retain_until is null and deletion_requested_at is null and reopened_at is not null order by 1`).map((r) => r.id)).toEqual([HELD, FREE]);
+    expect(rows<{ status: string; lease_owner: string | null; closed: boolean }>(`select status, lease_owner, closed_at is not null as closed from public.patient_deletion_requests where patient_id in ('${HELD}', '${FREE}') order by patient_id`))
+      .toEqual([{ status: "cancelled", lease_owner: null, closed: true }, { status: "cancelled", lease_owner: null, closed: true }]);
+    expect(rows<{ status: string }>(`select status from public.patient_deletion_requests where patient_id = '${uuid(4)}'`)[0].status).toBe("closed");
+    expect(scalar<boolean>(`select closed_at is not null from public.patients where id = '${uuid(4)}'`)).toBe(true);
+    // Reopened charts are open charts again: nothing left to reopen, the seal batch would pick them up, and the purge claim ignores the cancelled rows.
+    expect(preview()).toMatchObject({ reopenable: 0, lapsed: 0, destroyed: 0 });
+    expect(reactivate()).toEqual({ reopened: 0, lapsed: 0, destroyed: 0 });
+    expect(rows(`select 1 from public.claim_due_patient_deletions('worker-y', 10, 600)`)).toEqual([]);
+    expect(rows<{ patient_id: string }>(`select patient_id from public.office_offboarding_patients('office-1')`).map((r) => r.patient_id).sort()).toEqual([HELD, FREE].sort());
+    expect(() => psql(`begin; select set_config('test.role', 'authenticated', true); select public.office_reactivate_charts('office-1', ${SINCE}); commit;`)).toThrow(/service role required/);
+    expect(() => psql(`select public.office_reactivate_charts('office-9', ${SINCE})`)).toThrow(/unknown office/);
   });
 });

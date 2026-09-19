@@ -78,6 +78,7 @@ export const AUDIT_ACTIONS = [
   "office_offboarding_handover_recorded",
   "office_offboarding_seal_started",
   "office_offboarding_completed",
+  "office_reactivated",
   "office_destruction_certificate_downloaded",
   "patient_consent_recorded",
   "patient_export_requested",

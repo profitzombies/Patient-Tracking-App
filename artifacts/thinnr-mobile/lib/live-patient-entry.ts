@@ -27,12 +27,24 @@ export const ACCOUNT_CLOSED_MESSAGE =
 
 export const PROGRAM_ENDED_MESSAGE = 'This program has ended. Contact your provider.';
 
+/** The office came back (reactivation) but this login was retired when its chart was sealed. */
+export const REENROLL_REQUIRED_MESSAGE =
+  'Your office has rejoined THINNR, but this login was retired when the program ended. Contact the office to re-enroll.';
+
 export function isAccountClosedResolutionError(
   error: unknown,
 ): error is { code: 'account_closed'; status: 404 } {
   if (!error || typeof error !== 'object') return false;
   const failure = error as { code?: unknown; status?: unknown };
   return failure.code === 'account_closed' && failure.status === 404;
+}
+
+export function isReenrollRequiredResolutionError(
+  error: unknown,
+): error is { code: 'reenroll_required'; status: 404 } {
+  if (!error || typeof error !== 'object') return false;
+  const failure = error as { code?: unknown; status?: unknown };
+  return failure.code === 'reenroll_required' && failure.status === 404;
 }
 
 export function isProgramEndedResolutionError(

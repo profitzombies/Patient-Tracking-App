@@ -5657,7 +5657,19 @@ export const GetOfficeOffboardingResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 
@@ -5747,7 +5759,19 @@ export const StartOfficeOffboardingResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 
@@ -5841,7 +5865,19 @@ export const RequestOfficeOffboardingBundleResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 
@@ -5966,7 +6002,19 @@ export const RecordOfficeOffboardingHandoverResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 
@@ -6056,7 +6104,19 @@ export const SealOfficeOffboardingResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 
@@ -6146,7 +6206,121 @@ export const CompleteOfficeOffboardingResponse = zod.object({
 })
 }).nullable(),
   "offboardedAt": zod.string().nullable(),
-  "certificateAvailable": zod.boolean()
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
+})
+})
+
+
+/**
+ * @summary Reactivate an offboarded office whose contract was renewed — reopens every chart the offboarding sealed (all or nothing), returns the office to active and restores staff sign-in (audited; idempotent)
+ */
+export const ReactivateOfficeParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ReactivateOfficeResponse = zod.object({
+  "offboarding": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "status": zod.enum(['active', 'offboarding', 'offboarded']),
+  "nextStep": zod.union([zod.enum(['start', 'bundle', 'handover', 'seal', 'complete']),zod.null()]),
+  "legalHold": zod.boolean(),
+  "destroyAfterDays": zod.number(),
+  "started": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "sessionsRevoked": zod.number()
+}).nullable(),
+  "bundle": zod.union([zod.object({
+  "id": zod.string(),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "label": zod.string(),
+  "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
+  "scope": zod.object({
+  "providerId": zod.string().nullable(),
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
+}),
+  "range": zod.union([zod.object({
+  "start": zod.coerce.date(),
+  "end": zod.coerce.date()
+}),zod.null()]),
+  "fileName": zod.string().nullable(),
+  "sizeBytes": zod.number().nullable(),
+  "rowCount": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullable(),
+  "expiresAt": zod.string(),
+  "downloadCount": zod.number(),
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
+}),zod.null()]),
+  "handover": zod.union([zod.object({
+  "receivedBy": zod.string(),
+  "receivedOn": zod.string().describe('Calendar date YYYY-MM-DD'),
+  "choice": zod.enum(['retain', 'destroy']),
+  "letterReference": zod.string(),
+  "note": zod.string(),
+  "recordedAt": zod.string(),
+  "recordedBy": zod.string().nullable()
+}),zod.null()]),
+  "seal": zod.object({
+  "startedAt": zod.string(),
+  "retainUntil": zod.string().nullable().describe('Null means the clinical retention policy applies'),
+  "completedAt": zod.string().nullable(),
+  "progress": zod.object({
+  "total": zod.number(),
+  "sealed": zod.number(),
+  "held": zod.number(),
+  "pending": zod.number(),
+  "failed": zod.number(),
+  "destroyed": zod.number()
+})
+}).nullable(),
+  "offboardedAt": zod.string().nullable(),
+  "certificateAvailable": zod.boolean(),
+  "reactivation": zod.union([zod.object({
+  "eligible": zod.boolean().describe('True when nothing sealed by the offboarding was destroyed or lapsed'),
+  "reopenable": zod.number().describe('Sealed charts still inside their retention window'),
+  "lapsed": zod.number().describe('Sealed charts past their retention date or already being destroyed'),
+  "destroyed": zod.number().describe('Charts of this offboarding already purged (tombstones)'),
+  "earliestRetainUntil": zod.string().nullable().describe('Earliest retain-until among the sealed charts')
+}),zod.null()]).describe('What a reactivation would find; present only while the office is offboarded'),
+  "reactivated": zod.object({
+  "at": zod.string(),
+  "by": zod.string().nullable(),
+  "charts": zod.number()
+}).nullable().describe('The reactivation that ended the previous offboarding, until the next one starts')
 })
 })
 

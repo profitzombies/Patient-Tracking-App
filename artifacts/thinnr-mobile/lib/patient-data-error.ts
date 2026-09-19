@@ -15,7 +15,8 @@ export type PatientDataErrorCode =
   | 'CONSENT_REQUIRED'
   | 'PHOTO_ANALYSIS_OPT_IN_REQUIRED'
   | 'account_closed'
-  | 'program_ended';
+  | 'program_ended'
+  | 'reenroll_required';
 
 /**
  * Where a failure came from, so the offline write queue can decide whether
@@ -52,7 +53,8 @@ export function patientDataErrorCode(raw: unknown): PatientDataErrorCode | null 
   return raw === 'CONSENT_REQUIRED' ||
     raw === 'PHOTO_ANALYSIS_OPT_IN_REQUIRED' ||
     raw === 'account_closed' ||
-    raw === 'program_ended'
+    raw === 'program_ended' ||
+    raw === 'reenroll_required'
     ? raw
     : null;
 }

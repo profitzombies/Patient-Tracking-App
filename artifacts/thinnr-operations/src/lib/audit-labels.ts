@@ -69,6 +69,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   office_offboarding_handover_recorded: "Recorded the office's record hand-over and disposition choice",
   office_offboarding_seal_started: "Started sealing every patient chart of an offboarding office",
   office_offboarding_completed: "Marked an office offboarded",
+  office_reactivated: "Reactivated an offboarded office (charts reopened, staff sign-in restored)",
   office_destruction_certificate_downloaded: "Downloaded an office destruction certificate",
   security_password_changed: 'Changed their password',
   security_sessions_signed_out: 'Signed out other devices',

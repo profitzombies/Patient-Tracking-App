@@ -35,6 +35,9 @@ export function officeIsActive(row: { access_disabled?: unknown; offboarding_sta
 
 /** The neutral wording staff and patients of an ended program see. */
 export const PROGRAM_ENDED_MESSAGE = "This program has ended. Contact your provider.";
+/** A reopened chart whose login was retired at closure: the office, not the app, brings the patient back. */
+export const REENROLL_REQUIRED_MESSAGE =
+  "Your office has rejoined THINNR, but this login was retired when the program ended. Contact the office to re-enroll.";
 export const OFFICE_OFFBOARDED_STAFF_MESSAGE =
   "This office's THINNR program has ended. Contact THINNR support if you believe this is a mistake.";
 

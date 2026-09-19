@@ -448,6 +448,18 @@ args = "office-offboarding-live"
 task = "workflow.run"
 args = "closure-resignup-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-reactivation-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-reactivation-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-reactivation-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2831,6 +2843,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/account-closure-resignup.test.ts src/routes/patient-privacy.test.ts src/privacy/purge.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-reactivation-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/office-offboarding.test.ts src/privacy/legal-holds.sql.test.ts src/lib/audit-events.test.ts src/routes/patient-privacy.test.ts src/routes/claim.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-reactivation-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-offboarding && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-reactivation-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

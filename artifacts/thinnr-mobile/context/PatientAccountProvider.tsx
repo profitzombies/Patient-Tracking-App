@@ -43,8 +43,10 @@ import {
 import { usePatientPresenceHeartbeat } from '@/lib/patient-presence-heartbeat';
 import {
   ACCOUNT_CLOSED_MESSAGE,
+  REENROLL_REQUIRED_MESSAGE,
   isAccountClosedResolutionError,
   isProgramEndedResolutionError,
+  isReenrollRequiredResolutionError,
 } from '@/lib/live-patient-entry';
 import {
   DEMO_ACCOUNT_STATE,
@@ -95,13 +97,13 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
           router.replace('/program-ended');
           return;
         }
-        if (isAccountClosedResolutionError(error)) {
+        if (isAccountClosedResolutionError(error) || isReenrollRequiredResolutionError(error)) {
+          // Closed, or reopened by an office reactivation without this login:
+          // either way the session ends here and the notice says what to do.
+          const notice = isReenrollRequiredResolutionError(error) ? REENROLL_REQUIRED_MESSAGE : ACCOUNT_CLOSED_MESSAGE;
           await clearCachedAccountRole().catch(() => undefined);
           if (cancelled) return;
-          router.replace({
-            pathname: '/patient-login',
-            params: { notice: ACCOUNT_CLOSED_MESSAGE },
-          });
+          router.replace({ pathname: '/patient-login', params: { notice } });
           await supabase?.auth.signOut({ scope: 'local' });
           return;
         }

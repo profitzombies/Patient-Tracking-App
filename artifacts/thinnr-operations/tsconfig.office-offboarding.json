@@ -10,6 +10,7 @@
       "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
       "@/contexts/account-locks": ["./scripts/a11y-stubs/account-locks.ts"],
       "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
       "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
       "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
       "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],

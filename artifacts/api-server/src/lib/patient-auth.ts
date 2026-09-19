@@ -33,7 +33,7 @@
  * reach a patient row, so they never leave a presence trace.
  */
 import { supabaseAdmin } from "./supabase-admin";
-import { offboardingStatusOf, PROGRAM_ENDED_MESSAGE } from "./office-status";
+import { offboardingStatusOf, PROGRAM_ENDED_MESSAGE, REENROLL_REQUIRED_MESSAGE } from "./office-status";
 import { identifyBearer } from "../auth/identify";
 import { verificationModeFor, type VerificationRequest } from "../auth/verification-policy";
 import { consentDto, loadLatestConsent, type ConsentDto } from "../privacy/consent";
@@ -53,12 +53,13 @@ export function bearerToken(req: { headers: Record<string, unknown> }): string |
   return token.length > 0 ? token : null;
 }
 
-export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED" | "account_closed" | "program_ended";
+export type PatientAuthCode = "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED" | "account_closed" | "program_ended" | "reenroll_required";
 
 export type PatientAuthFailureDetails =
   | { code: "CONSENT_REQUIRED" | "PHOTO_ANALYSIS_OPT_IN_REQUIRED"; consent: ConsentDto }
   | { code: "account_closed" }
-  | { code: "program_ended" };
+  | { code: "program_ended" }
+  | { code: "reenroll_required" };
 
 export type ResolvedPatient =
   | { ok: true; patientId: string; authUserId: string; providerId: string | null; consent: ConsentDto }
@@ -121,8 +122,8 @@ type ResolvedIdentity =
       ok: false;
       status: number;
       error: string;
-      code?: "account_closed" | "program_ended";
-      details?: { code: "account_closed" } | { code: "program_ended" };
+      code?: "account_closed" | "program_ended" | "reenroll_required";
+      details?: { code: "account_closed" } | { code: "program_ended" } | { code: "reenroll_required" };
     };
 
 /**
@@ -176,14 +177,20 @@ async function resolvePatientIdentityInternal(
     // lookup is best-effort, so a failure here falls through to the same
     // 403 an unknown account receives rather than blocking the caller.
     let closed = false;
+    let reopened = false;
     try {
       const closure = await supabaseAdmin(
         "GET",
-        `/rest/v1/patient_deletion_requests?auth_user_id=eq.${enc(user.id)}&status=in.(closing,closed,purging,purged)&select=id&limit=1`,
+        `/rest/v1/patient_deletion_requests?auth_user_id=eq.${enc(user.id)}&status=in.(closing,closed,cancelled,purging,purged)&select=id,status,closed_at&limit=20`,
       );
-      closed = closure.status < 300 && Array.isArray(closure.json) && closure.json.length > 0;
+      const requests = closure.status < 300 && Array.isArray(closure.json) ? (closure.json as Array<{ status?: unknown; closed_at?: unknown }>) : [];
+      closed = requests.some((request) => request.status !== "cancelled");
+      // A cancelled request that had reached closure is a chart an office
+      // reactivation reopened: the record is back, this login is not.
+      reopened = !closed && requests.some((request) => request.status === "cancelled" && typeof request.closed_at === "string");
     } catch {
       closed = false;
+      reopened = false;
     }
     if (closed) {
       return {
@@ -193,6 +200,9 @@ async function resolvePatientIdentityInternal(
         code: "account_closed",
         details: { code: "account_closed" },
       };
+    }
+    if (reopened) {
+      return { ok: false, status: 404, error: REENROLL_REQUIRED_MESSAGE, code: "reenroll_required", details: { code: "reenroll_required" } };
     }
     return { ok: false, status: 403, error: "This account is not linked to a patient record." };
   }

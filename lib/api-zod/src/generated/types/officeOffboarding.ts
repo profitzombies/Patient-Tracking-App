@@ -7,10 +7,12 @@
  */
 import type { ExportJob } from './exportJob';
 import type { OfficeOffboardingHandover } from './officeOffboardingHandover';
+import type { OfficeOffboardingReactivated } from './officeOffboardingReactivated';
 import type { OfficeOffboardingSeal } from './officeOffboardingSeal';
 import type { OfficeOffboardingStarted } from './officeOffboardingStarted';
 import type { OfficeOffboardingStatus } from './officeOffboardingStatus';
 import type { OfficeOffboardingStep } from './officeOffboardingStep';
+import type { OfficeReactivationPreview } from './officeReactivationPreview';
 
 export interface OfficeOffboarding {
   providerId: string;
@@ -28,4 +30,11 @@ export interface OfficeOffboarding {
   /** @nullable */
   offboardedAt: string | null;
   certificateAvailable: boolean;
+  /** What a reactivation would find; present only while the office is offboarded */
+  reactivation: OfficeReactivationPreview | null;
+  /**
+     * The reactivation that ended the previous offboarding, until the next one starts
+     * @nullable
+     */
+  reactivated: OfficeOffboardingReactivated;
 }

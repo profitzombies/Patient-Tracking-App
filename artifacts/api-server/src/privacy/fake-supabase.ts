@@ -101,6 +101,7 @@ export function createFakeSupabase(): FakeSupabase {
         billing_order_items: [],
         auth_session_revocations: [],
         patient_app_presence: [],
+        patient_edit_history: [],
       };
       fake.calls = [];
       fake.authDeletes = [];

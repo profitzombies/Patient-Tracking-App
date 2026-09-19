@@ -172,3 +172,4 @@
 - [Export job cancellation](export-cancellation.md) — cooperative stop at part boundaries, ready-flip CAS on cancel_requested_at null, cancelled never keeps files; live test:exports fails on main (fresh-code gate).
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Overview finance live smoke](overview-finance-live-smoke.md) — REST mocks must honor select= (an id-only query hid an always-0 failed-payments count); staff fixtures need the provision_staff_login rail; api dev runs a built bundle.
+- [Patient edit history](patient-edit-history.md) — values live in an append-only patient-owned table paired with the PII-free audit id; every shared-family edit route must go through the audit+history helper.

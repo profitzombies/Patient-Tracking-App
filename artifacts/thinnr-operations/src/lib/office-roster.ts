@@ -8,6 +8,7 @@
  */
 import { supabase } from '@/lib/supabase';
 import type { MeasurementValues } from '@/lib/body-measurements';
+import type { PatientEditHistoryFamily, PatientEditHistoryPage } from '@workspace/api-client-react';
 import type {
   AdherenceSummary,
   DoseLogRecord,
@@ -878,3 +879,30 @@ export async function fetchOfficePatientPhotoPage(
   }
   return urls;
 }
+
+/**
+ * The patient's edit history: every staff or patient correction to the shared
+ * record families with prior and new values, newest first. HQ names the office
+ * like every other live patient read.
+ */
+export async function fetchOfficePatientEditHistory(
+  patientId: string,
+  office: string | null | undefined,
+  options: { family?: PatientEditHistoryFamily | null; limit?: number; offset?: number } = {},
+): Promise<PatientEditHistoryPage> {
+  const params = new URLSearchParams();
+  if (office) params.set('office', office);
+  if (options.family) params.set('family', options.family);
+  if (options.limit != null) params.set('limit', String(options.limit));
+  if (options.offset) params.set('offset', String(options.offset));
+  const query = params.toString();
+  const payload = await request<PatientEditHistoryPage>(
+    `/api/office/patients/${encodeURIComponent(patientId)}/history${query ? `?${query}` : ''}`,
+  );
+  if (!payload || !Array.isArray(payload.changes) || typeof payload.total !== 'number') {
+    throw new Error('Edit history returned an unexpected response');
+  }
+  return payload;
+}
+
+export type { PatientEditHistoryChange, PatientEditHistoryFamily, PatientEditHistoryPage } from '@workspace/api-client-react';

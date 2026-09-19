@@ -58,6 +58,7 @@ import officeAlertsRouter from "./office-alerts";
 import staffNotificationsRouter from "./staff-notifications";
 import hqStaffAlertsRouter from "./hq-staff-alerts";
 import hqLegalHoldsRouter from "./hq-legal-holds";
+import officePatientHistoryRouter from "./office-patient-history";
 
 const router: IRouter = Router();
 
@@ -96,6 +97,7 @@ router.use(officeRosterRouter);
 router.use(officeLeaderboardRouter);
 router.use(officeOperationsRouter);
 router.use(officePatientEditsRouter);
+router.use(officePatientHistoryRouter);
 router.use(officeNotificationsRouter);
 router.use(officeSettingsRouter);
 router.use(officeAlertsRouter);

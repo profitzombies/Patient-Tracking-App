@@ -115,6 +115,7 @@ create table public.patient_chat_notes (
 create table public.patient_body_measurements (visit_id text primary key, patient_id uuid not null references public.patients(id) on delete cascade, provider_id text not null references public.providers(provider_id) on delete cascade);
 create table public.patient_medications (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, name text not null);
 create table public.patient_medication_dose_logs (id uuid primary key, patient_id uuid not null references public.patients(id) on delete cascade, medication_id uuid not null references public.patient_medications(id) on delete cascade, status text not null);
+create table public.patient_edit_history (id uuid primary key default gen_random_uuid(), patient_id uuid not null references public.patients(id) on delete cascade, change_id uuid not null, family text not null, record_id text not null, field text not null, old_value jsonb, new_value jsonb, created_at timestamptz not null default now());
 -- Real billing ownership and NO ACTION financial FK shapes.
 create table public.billing_products (id uuid primary key, name text not null);
 create table public.billing_payment_links (
@@ -194,7 +195,7 @@ function seedPatients() {
     truncate public.patient_bloodwork_corrections, public.patient_bloodwork_results, public.patient_bloodwork_files,
       public.patient_bloodwork_reports, public.billing_disputes, public.billing_refunds, public.billing_ledger,
       public.billing_order_items, public.billing_orders, public.billing_subscriptions, public.billing_payers,
-      public.billing_payment_links, public.billing_carts, public.billing_products, public.patient_medication_dose_logs, public.patient_medications,
+      public.billing_payment_links, public.billing_carts, public.billing_products, public.patient_medication_dose_logs, public.patient_medications, public.patient_edit_history,
       public.patient_body_measurements, public.patient_chat_notes, public.patient_chat_patient_read_markers,
       public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
@@ -229,6 +230,8 @@ function seedEverything() {
       insert into public.patient_body_measurements (visit_id, patient_id, provider_id) values ('${tag}-v1', '${pid}', 'office-1');
       insert into public.patient_medications (id, patient_id, name) values ('${uuid(pid === PATIENT ? 701 : 702)}', '${pid}', 'Protocol drops');
       insert into public.patient_medication_dose_logs (id, patient_id, medication_id, status) values ('${uuid(pid === PATIENT ? 711 : 712)}', '${pid}', '${uuid(pid === PATIENT ? 701 : 702)}', 'taken');
+      insert into public.patient_edit_history (patient_id, change_id, family, record_id, field, old_value, new_value)
+        values ('${pid}', '${uuid(pid === PATIENT ? 721 : 722)}', 'weight', '${tag}-w1', 'weight', '182.4'::jsonb, '181.6'::jsonb);
       insert into public.billing_payment_links (id, provider_id, patient_id) values ('${uuid(pid === PATIENT ? 601 : 602)}', 'office-1', '${pid}');
       insert into public.billing_payers (id, provider_id, patient_id, name, email, phone, stripe_customer_id)
         values ('${uuid(pid === PATIENT ? 611 : 612)}', 'office-1', '${pid}', '${tag} payer', '${tag}@example.com', '555', 'cus_${tag}');
@@ -418,6 +421,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
       "patient_chat_conversations", "patient_media", "patient_flags", "billing_orders", "billing_subscriptions",
       "billing_payers", "billing_payment_links", "billing_carts", "analytics_events",
       "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections",
+      "patient_edit_history",
     ]));
     for (const table of tables) expect(countFor(table, PATIENT), table).toBeGreaterThanOrEqual(table === "patient_deletion_requests" ? 0 : 1);
 
@@ -437,6 +441,8 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     const deletedTables = tables.filter((t) => t !== "patient_deletion_requests" && t !== "analytics_events" && !billingAllowlist.includes(t));
     expect(Object.keys(purgedTables).filter((key) => !key.endsWith("_anonymized")).sort()).toEqual(deletedTables.sort());
     expect(purgedTables.patient_diary_entries).toBe(2);
+    // Prior-value history is patient-owned clinical data: it goes with the record.
+    expect(purgedTables.patient_edit_history).toBe(1);
     expect(purgedTables.billing_orders_anonymized).toBe(1);
     expect(purgedTables.billing_payers_anonymized).toBe(1);
     expect(purgedTables.billing_carts).toBe(1);

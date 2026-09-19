@@ -22,6 +22,7 @@ import { recordPatientEvent } from "../lib/patient-events";
 import { createLimiter, envLimit } from "../coach/limits";
 import { openIdempotentWrite } from "../lib/idempotency";
 import { clientIp } from "../auth/ledger";
+import { changedFields, recordPatientEditHistory, snapshotFields } from "../lib/patient-edit-history";
 import {
   DOSE_CORRECTION_WINDOW_DAYS,
   isClockTime,
@@ -43,6 +44,7 @@ import {
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
+const MEDICATION_HISTORY_KEYS = ["name", "form", "dose", "scheduleKind", "times", "weekday", "notes", "startDate", "stopDate"] as const;
 
 const BUSY_MESSAGE = "The service is busy right now. Please try again in a moment.";
 const WAIT_MESSAGE = "Please wait a moment before trying again.";
@@ -124,6 +126,9 @@ router.put("/patient-data/medications", async (req, res) => {
       res.status(400).json({ error: parsed.error, field: parsed.field });
       return;
     }
+    // Prior values first: the same record family staff correct from the
+    // office, so a patient's own edit appends to the edit history too.
+    const before = await getMedication(auth.patientId, parsed.value.id);
     let medication;
     try {
       medication = await upsertMedication(auth.patientId, parsed.value, { source: "patient" });
@@ -134,6 +139,20 @@ router.put("/patient-data/medications", async (req, res) => {
       }
       throw error;
     }
+    const after = medication as unknown as Record<string, unknown>;
+    recordPatientEditHistory({
+      patientId: auth.patientId,
+      family: "medication",
+      recordId: medication.id,
+      changeKind: before ? "update" : "create",
+      actorKind: "patient",
+      actorUserId: auth.authUserId,
+      actorName: null,
+      auditEventId: null,
+      fields: before
+        ? changedFields(before as unknown as Record<string, unknown>, after, MEDICATION_HISTORY_KEYS)
+        : snapshotFields(after, MEDICATION_HISTORY_KEYS, "create"),
+    }).catch((error) => req.log?.error({ err: error }, "patient medication history failed"));
     await idem.finish(res, 200, { medication });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data medication write failed");

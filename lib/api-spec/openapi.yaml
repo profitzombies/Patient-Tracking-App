@@ -1290,6 +1290,27 @@ paths:
       responses:
         "200": { description: Authorized chronological transcript page, content: { application/json: { schema: { $ref: "#/components/schemas/CoachConversationDetail" } } } }
         "404": { description: Conversation unavailable in this office }
+  /office/patients/{patientId}/history:
+    get:
+      operationId: listOfficePatientEditHistory
+      tags: [office]
+      summary: Prior and new values for every correction to a patient's record, newest first
+      description: |
+        The patient-scoped edit history: one change per staff or patient edit to
+        profile fields, activation status, staff weights, measurement visits,
+        medication records, and provider notes, with the previous and new value
+        of each changed field, who made it, when, and the audit event it pairs
+        with. Read access follows the patient page (HQ names the office).
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: family, in: query, required: false, schema: { $ref: "#/components/schemas/PatientEditHistoryFamily" } }
+        - { name: limit, in: query, schema: { type: number, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: number, minimum: 0, default: 0 } }
+      responses:
+        "200": { description: A page of changes, content: { application/json: { schema: { $ref: "#/components/schemas/PatientEditHistoryPage" } } } }
+        "400": { description: Unknown history family }
+        "404": { description: Patient unavailable in this office }
   /office/patients/{patientId}/coach-memories:
     get:
       operationId: listOfficePatientCoachMemories
@@ -3731,6 +3752,46 @@ components:
         updatedAt: { type: string, format: date-time }
         confirmedAt: { type: ["string", "null"], format: date-time }
         version: { type: number }
+    PatientEditHistoryFamily:
+      type: string
+      enum: [profile, status, weight, measurement, medication, note]
+    PatientEditHistoryValue:
+      description: A recorded field value; null when the field was empty (or the record did not exist / was removed).
+      oneOf:
+        - { type: string }
+        - { type: number }
+        - { type: boolean }
+        - { type: array, items: { type: string } }
+        - { type: object, additionalProperties: true }
+      nullable: true
+    PatientEditHistoryField:
+      type: object
+      required: [field, old, new]
+      properties:
+        field: { type: string }
+        old: { $ref: "#/components/schemas/PatientEditHistoryValue" }
+        new: { $ref: "#/components/schemas/PatientEditHistoryValue" }
+    PatientEditHistoryChange:
+      type: object
+      required: [changeId, family, recordId, changeKind, actorKind, actorUserId, actorName, auditEventId, createdAt, fields]
+      properties:
+        changeId: { type: string }
+        family: { $ref: "#/components/schemas/PatientEditHistoryFamily" }
+        recordId: { type: string }
+        changeKind: { type: string, enum: [create, update, delete] }
+        actorKind: { type: string, enum: [provider, team_member, hq, patient, system] }
+        actorUserId: { type: ["string", "null"] }
+        actorName: { type: ["string", "null"], description: Display name captured when the change was made; null for patients. }
+        auditEventId: { type: ["number", "null"] }
+        createdAt: { type: string, format: date-time }
+        fields: { type: array, items: { $ref: "#/components/schemas/PatientEditHistoryField" } }
+    PatientEditHistoryPage:
+      type: object
+      required: [changes, total, nextOffset]
+      properties:
+        changes: { type: array, items: { $ref: "#/components/schemas/PatientEditHistoryChange" } }
+        total: { type: number }
+        nextOffset: { type: ["number", "null"] }
     CoachMemoryList:
       type: object
       required: [memories, total, nextOffset]

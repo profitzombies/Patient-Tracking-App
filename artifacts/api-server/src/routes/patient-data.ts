@@ -60,6 +60,7 @@ import { supabaseNotificationStore } from "../notifications/store";
 import { OUTREACH_KIND } from "../notifications/stall-outreach";
 import { loadPrivacyState } from "./patient-privacy";
 import { recordPatientEvent } from "../lib/patient-events";
+import { changedFields, recordPatientEditHistory } from "../lib/patient-edit-history";
 import { seedMedicationsFromOnboarding } from "../medications/seed";
 import { loadMedicationState } from "../medications/store";
 import {
@@ -1922,6 +1923,14 @@ router.post("/patient-data/check-ins", async (req, res) => {
       res.status(400).json({ error: parsed.error });
       return;
     }
+    // The day's prior weight, read before the merge so a re-submitted
+    // check-in appends the overwritten value to the edit history.
+    const prior = await supabaseAdmin(
+      "GET",
+      `/rest/v1/patient_check_ins?patient_id=eq.${enc(auth.patientId)}&date_key=eq.${enc(parsed.row.date_key)}&select=weight&limit=1`,
+    );
+    if (prior.status >= 300) throw new Error(`check-in lookup failed (${prior.status})`);
+    const priorRow = Array.isArray(prior.json) ? (prior.json[0] as { weight?: number | string | null } | undefined) : undefined;
     // One row per day: the merge lands every column, so a same-day
     // re-submit replaces the previous answers (id included) wholesale.
     const upsert = await supabaseAdmin(
@@ -1931,6 +1940,24 @@ router.post("/patient-data/check-ins", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`check-in upsert failed (${upsert.status})`);
+    const weightChange = changedFields(
+      { weight: priorRow?.weight == null ? null : Number(priorRow.weight) },
+      { weight: parsed.row.weight },
+      ["weight"],
+    );
+    if (weightChange.length > 0) {
+      recordPatientEditHistory({
+        patientId: auth.patientId,
+        family: "weight",
+        recordId: `check-in:${parsed.row.date_key}`,
+        changeKind: priorRow ? "update" : "create",
+        actorKind: "patient",
+        actorUserId: auth.authUserId,
+        actorName: null,
+        auditEventId: null,
+        fields: weightChange,
+      }).catch((error) => req.log?.error({ err: error }, "patient check-in history failed"));
+    }
     // HQ Insights: a check-in that carries a weight is one weigh_in event.
     if (parsed.row.weight != null) recordPatientEvent(auth.patientId, "weigh_in", { headers: req.headers });
     await idem.finish(res, 200, { ok: true });

@@ -26,6 +26,7 @@ import { LiveProgressPhotos } from "@/components/office/LiveProgressPhotos";
 import { LivePatientPurchases, PatientPurchasesPanel, demoPurchasesSummary } from "@/components/office/PatientPurchases";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import { PatientRecordExport } from "@/components/office/PatientRecordExport";
+import { PatientEditHistory } from "@/components/office/PatientEditHistory";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import {
@@ -410,6 +411,10 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
   const { toast } = useToast();
   const [weightEntryOpen, setWeightEntryOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
+  // Record (the live chart, notes, and edit controls) or History (every
+  // correction with its prior value). Both are the same read scope, so HQ
+  // sees the same two tabs inside the drill-in.
+  const [tab, setTab] = useState<'record' | 'history'>('record');
   const [securityReason, setSecurityReason] = useState<Exclude<SecurityReason, 'staff_request'>>('patient_request');
   const detail = useQuery({
     queryKey: livePatientQueryKey(office, id),
@@ -514,7 +519,30 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>
       <SellToPatientDialog open={sellOpen} onOpenChange={setSellOpen} patient={{ id: identity.id, name: identity.name }} office={office} />
-      <main className="grid gap-5 lg:grid-cols-3">
+      <div className="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Patient record sections">
+        {(['record', 'history'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`patient-tab-${key}`}
+            aria-selected={tab === key}
+            aria-controls={`patient-panel-${key}`}
+            tabIndex={tab === key ? 0 : -1}
+            onClick={() => setTab(key)}
+            className={`${tab === key ? BTN_PRIMARY : BTN_SECONDARY} h-9 px-4`}
+            data-testid={`tab-patient-${key}`}
+          >
+            {key === 'record' ? 'Record' : 'History'}
+          </button>
+        ))}
+      </div>
+      {tab === 'history' && (
+        <section role="tabpanel" id="patient-panel-history" aria-labelledby="patient-tab-history" data-testid="panel-patient-history">
+          <PatientEditHistory key={`${id}:${office ?? 'own'}`} patientId={identity.id} office={office} />
+        </section>
+      )}
+      <main className={`grid gap-5 lg:grid-cols-3${tab === 'history' ? ' hidden' : ''}`} role="tabpanel" id="patient-panel-record" aria-labelledby="patient-tab-record" hidden={tab === 'history'}>
         <div className="space-y-5 lg:col-span-2">
           <SectionCard title="Progress at a glance" sub={program.id ? 'Program enrollment summary' : 'No program enrollment recorded'}>
             <div className="p-5">

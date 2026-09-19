@@ -1145,6 +1145,75 @@ export interface CoachMemory {
   version: number;
 }
 
+export type PatientEditHistoryFamily = typeof PatientEditHistoryFamily[keyof typeof PatientEditHistoryFamily];
+
+
+export const PatientEditHistoryFamily = {
+  profile: 'profile',
+  status: 'status',
+  weight: 'weight',
+  measurement: 'measurement',
+  medication: 'medication',
+  note: 'note',
+} as const;
+
+/**
+ * A recorded field value; null when the field was empty (or the record did not exist / was removed).
+ */
+export type PatientEditHistoryValue = string | number | boolean | string[] | { [key: string]: unknown } | null;
+
+export interface PatientEditHistoryField {
+  field: string;
+  old: PatientEditHistoryValue | null;
+  new: PatientEditHistoryValue | null;
+}
+
+export type PatientEditHistoryChangeChangeKind = typeof PatientEditHistoryChangeChangeKind[keyof typeof PatientEditHistoryChangeChangeKind];
+
+
+export const PatientEditHistoryChangeChangeKind = {
+  create: 'create',
+  update: 'update',
+  delete: 'delete',
+} as const;
+
+export type PatientEditHistoryChangeActorKind = typeof PatientEditHistoryChangeActorKind[keyof typeof PatientEditHistoryChangeActorKind];
+
+
+export const PatientEditHistoryChangeActorKind = {
+  provider: 'provider',
+  team_member: 'team_member',
+  hq: 'hq',
+  patient: 'patient',
+  system: 'system',
+} as const;
+
+export interface PatientEditHistoryChange {
+  changeId: string;
+  family: PatientEditHistoryFamily;
+  recordId: string;
+  changeKind: PatientEditHistoryChangeChangeKind;
+  actorKind: PatientEditHistoryChangeActorKind;
+  /** @nullable */
+  actorUserId: string | null;
+  /**
+     * Display name captured when the change was made; null for patients.
+     * @nullable
+     */
+  actorName: string | null;
+  /** @nullable */
+  auditEventId: number | null;
+  createdAt: string;
+  fields: PatientEditHistoryField[];
+}
+
+export interface PatientEditHistoryPage {
+  changes: PatientEditHistoryChange[];
+  total: number;
+  /** @nullable */
+  nextOffset: number | null;
+}
+
 export interface CoachMemoryList {
   memories: CoachMemory[];
   total: number;
@@ -4812,6 +4881,23 @@ before?: number;
  * @maximum 100
  */
 limit?: number;
+};
+
+export type ListOfficePatientEditHistoryParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+family?: PatientEditHistoryFamily;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
 };
 
 export type ListOfficePatientCoachMemoriesParams = {

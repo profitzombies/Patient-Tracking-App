@@ -90,6 +90,9 @@ function sections(): PatientArchiveSections {
     },
     appUsage: [],
     recordAccess: [],
+    editHistory: [
+      { change_id: "c-1", family: "weight", record_id: "w-1", field: "weight", old_value: 182.4, new_value: 181.6, change_kind: "update", actor_kind: "provider", actor_name: "Dr. Reyes", audit_event_id: 7, created_at: "2026-08-06T15:00:00Z" },
+    ],
   };
 }
 
@@ -207,6 +210,11 @@ describe("patient record archive", () => {
     const readme = await part1.file("README.txt")!.async("string");
     expect(readme).toContain("Parts: 4");
     expect(readme).toContain("record-summary.pdf");
+    // The staff copy carries the edit history as its own file in part 1, like the patient export.
+    expect(placed.get("edit-history.json")).toBe(1);
+    expect(readme).toContain("edit-history.json");
+    const editHistory = JSON.parse(await part1.file("edit-history.json")!.async("string"));
+    expect(editHistory).toEqual([expect.objectContaining({ family: "weight", old_value: 182.4, new_value: 181.6, actor_name: "Dr. Reyes" })]);
     const summary = await part1.file("record-summary.pdf")!.async("nodebuffer");
     expect(summary.subarray(0, 5).toString()).toBe("%PDF-");
 

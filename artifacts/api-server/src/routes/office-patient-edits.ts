@@ -12,7 +12,10 @@
  *   * preconditions patient-row edits on the record version (updated_at) the
  *     client rendered — a stale save is a 409 "reload", never an overwrite;
  *   * records an audit event with actor, patient, and a field summary only
- *     (no note bodies, weights, measurements, reasons, or other clinical text).
+ *     (no note bodies, weights, measurements, reasons, or other clinical text);
+ *   * appends the prior and new values to the patient-scoped edit history,
+ *     paired with that audit event id, so a correction never loses the
+ *     original (HIPAA amendments append, never overwrite).
  *
  * Profile edits run through one SQL function so a claimed account's login
  * identifiers move in the same transaction as the patients row.
@@ -24,6 +27,14 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope, type OfficeScopeDenied } from "../auth/office-scope";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { auditRecordAccess } from "../lib/record-access-audit";
+import {
+  changedFields,
+  recordPatientEditHistory,
+  snapshotFields,
+  type EditHistoryChangeKind,
+  type EditHistoryFamily,
+  type EditHistoryField,
+} from "../lib/patient-edit-history";
 import { normalizeUsPhone } from "./provider-accounts";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import {
@@ -120,7 +131,7 @@ async function actorDisplayName(scope: OfficeScope): Promise<string> {
 }
 
 type AuditMeta = Record<string, string | number | boolean | null>;
-function audit(req: Request, scope: OfficeScope, action: string, patientId: string, metadata: AuditMeta) {
+function audit(req: Request, scope: OfficeScope, action: string, patientId: string, metadata: AuditMeta): Promise<number | null> {
   return recordAdminAuditEvent({
     action,
     actorUserId: scope.actorUserId,
@@ -130,7 +141,62 @@ function audit(req: Request, scope: OfficeScope, action: string, patientId: stri
     targetId: patientId,
     requestId: req.headers["x-request-id"]?.toString() ?? null,
     metadata,
-  }).catch((error) => req.log?.error({ err: error }, `${action} audit failed`));
+  }).catch((error) => {
+    req.log?.error({ err: error }, `${action} audit failed`);
+    return null;
+  });
+}
+
+interface HistoryChange {
+  family: EditHistoryFamily;
+  recordId: string;
+  changeKind: EditHistoryChangeKind;
+  fields: EditHistoryField[];
+}
+
+/**
+ * Audit + history for one edit, in that order, so the history rows carry the
+ * audit event id. Both are best-effort: the data write already landed and a
+ * ledger hiccup must not turn a saved correction into a failed request.
+ */
+async function auditWithHistory(req: Request, scope: OfficeScope, action: string, patientId: string, metadata: AuditMeta, change: HistoryChange): Promise<void> {
+  const auditEventId = await audit(req, scope, action, patientId, metadata);
+  if (change.fields.length === 0) return;
+  try {
+    await recordPatientEditHistory({
+      patientId,
+      family: change.family,
+      recordId: change.recordId,
+      changeKind: change.changeKind,
+      actorKind: scope.actorKind,
+      actorUserId: scope.actorUserId,
+      actorName: await actorDisplayName(scope),
+      auditEventId,
+      fields: change.fields,
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, `${action} history failed`);
+  }
+}
+
+/** Profile columns that history tracks, keyed by the API field name. */
+const PROFILE_HISTORY_COLUMNS: Record<string, string> = {
+  firstName: "first_name", lastName: "last_name", email: "email", phone: "phone", dateOfBirth: "date_of_birth",
+  heightInches: "height_inches", goalWeight: "goal_weight", programStartDate: "program_start_date", timezone: "timezone",
+};
+const PROFILE_HISTORY_KEYS = Object.keys(PROFILE_HISTORY_COLUMNS);
+function profileValues(row: PatientRosterRow): Record<string, unknown> {
+  return Object.fromEntries(PROFILE_HISTORY_KEYS.map((key) => [key, row[PROFILE_HISTORY_COLUMNS[key]] ?? null]));
+}
+const WEIGHT_HISTORY_KEYS = ["dateKey", "weight", "note"] as const;
+function weightValues(row: PatientRosterRow): Record<string, unknown> {
+  return { dateKey: row.date_key ?? null, weight: row.weight == null ? null : Number(row.weight), note: row.note ?? null };
+}
+const MEASUREMENT_HISTORY_KEYS = ["dateKey", "note", ...BODY_AREAS.map((area) => area.key)];
+function measurementValues(row: PatientRosterRow): Record<string, unknown> {
+  const out: Record<string, unknown> = { dateKey: row.date_key ?? null, note: row.note ?? null };
+  for (const area of BODY_AREAS) out[area.key] = row[area.column] == null ? null : Number(row[area.column]);
+  return out;
 }
 
 function firstIssue(error: z.ZodError): { error: string; field?: string } {
@@ -259,7 +325,12 @@ router.patch("/office/patients/:id", async (req, res) => {
     }
     const row = (Array.isArray(updated.json) ? updated.json[0] : updated.json) as PatientRosterRow | undefined;
     if (!row || !row.id) throw new Error("patient profile update returned no row");
-    await audit(req, scope, "patient_profile_updated", patientId, { fields: fields.join(",") });
+    await auditWithHistory(req, scope, "patient_profile_updated", patientId, { fields: fields.join(",") }, {
+      family: "profile",
+      recordId: patientId,
+      changeKind: "update",
+      fields: changedFields(profileValues(patient), profileValues({ ...patient, ...patch }), fields),
+    });
     res.json({ patient: patientSummary(row) });
   } catch (error) {
     req.log?.error({ err: error }, "office patient profile update failed");
@@ -312,7 +383,16 @@ router.patch("/office/patients/:id/status", async (req, res) => {
     if (updated.status >= 300) throw new Error(`patient status update failed (${updated.status})`);
     const row = Array.isArray(updated.json) ? (updated.json[0] as PatientRosterRow | undefined) : undefined;
     if (!row) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
-    await audit(req, scope, "patient_status_changed", patientId, { from: current, to: input.status });
+    await auditWithHistory(req, scope, "patient_status_changed", patientId, { from: current, to: input.status }, {
+      family: "status",
+      recordId: patientId,
+      changeKind: "update",
+      fields: changedFields(
+        { status: current, reason: patient.activation_reason ?? null },
+        { status: input.status, reason: reason || null },
+        ["status", "reason"],
+      ),
+    });
     res.json({ patient: patientSummary(row) });
   } catch (error) {
     req.log?.error({ err: error }, "office patient status update failed");
@@ -356,7 +436,9 @@ router.post("/office/patients/:id/notes", async (req, res) => {
     if (inserted.status >= 300) throw new Error(`provider note insert failed (${inserted.status})`);
     const row = (Array.isArray(inserted.json) ? inserted.json[0] : inserted.json) as PatientRosterRow | undefined;
     if (!row) throw new Error("provider note insert returned no row");
-    await audit(req, scope, "patient_note_added", patientId, { noteId });
+    await auditWithHistory(req, scope, "patient_note_added", patientId, { noteId }, {
+      family: "note", recordId: noteId, changeKind: "create", fields: snapshotFields({ body: parsed.data.body }, ["body"], "create"),
+    });
     res.status(201).json({ note: providerNoteDto(row) });
   } catch (error) {
     req.log?.error({ err: error }, "office provider note failed");
@@ -373,13 +455,16 @@ router.delete("/office/patients/:id/notes/:noteId", async (req, res) => {
     const noteId = String(req.params.noteId ?? "");
     const deleted = await supabaseAdmin(
       "DELETE",
-      `/rest/v1/patient_provider_notes?note_id=eq.${enc(noteId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=note_id`,
+      `/rest/v1/patient_provider_notes?note_id=eq.${enc(noteId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=note_id,body`,
       undefined,
       "return=representation",
     );
     if (deleted.status >= 300) throw new Error(`provider note delete failed (${deleted.status})`);
     if (!Array.isArray(deleted.json) || deleted.json.length === 0) { res.status(404).json({ error: "That note is no longer on this record." }); return; }
-    await audit(req, scope, "patient_note_deleted", patientId, { noteId });
+    const removed = deleted.json[0] as PatientRosterRow;
+    await auditWithHistory(req, scope, "patient_note_deleted", patientId, { noteId }, {
+      family: "note", recordId: noteId, changeKind: "delete", fields: snapshotFields({ body: removed.body ?? null }, ["body"], "delete"),
+    });
     res.json({ deleted: true });
   } catch (error) {
     req.log?.error({ err: error }, "office provider note delete failed");
@@ -459,7 +544,9 @@ router.post("/office/patients/:id/weights", async (req, res) => {
     }
     const row = (Array.isArray(inserted.json) ? inserted.json[0] : inserted.json) as PatientRosterRow | undefined;
     if (!row) throw new Error("staff weight insert returned no row");
-    await audit(req, scope, "patient_weight_recorded", patientId, { weightId, dateKey: parsed.data.dateKey });
+    await auditWithHistory(req, scope, "patient_weight_recorded", patientId, { weightId, dateKey: parsed.data.dateKey }, {
+      family: "weight", recordId: weightId, changeKind: "create", fields: snapshotFields(weightValues(row), WEIGHT_HISTORY_KEYS, "create"),
+    });
     res.status(201).json({ weight: staffWeightDto(row), patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office staff weight failed");
@@ -488,6 +575,7 @@ router.patch("/office/patients/:id/weights/:weightId", async (req, res) => {
     );
     if (existing.status >= 300) throw new Error(`staff weight lookup failed (${existing.status})`);
     if (!Array.isArray(existing.json) || existing.json.length === 0) { res.status(404).json({ error: "That weigh-in is no longer on this record." }); return; }
+    const before = existing.json[0] as PatientRosterRow;
     const fields: string[] = [];
     const patch: Record<string, string | number | null> = { updated_at: new Date().toISOString() };
     if (input.dateKey !== undefined) { patch.date_key = input.dateKey; fields.push("dateKey"); }
@@ -506,7 +594,9 @@ router.patch("/office/patients/:id/weights/:weightId", async (req, res) => {
     }
     const row = Array.isArray(updated.json) ? (updated.json[0] as PatientRosterRow | undefined) : undefined;
     if (!row) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
-    await audit(req, scope, "patient_weight_updated", patientId, { weightId, fields: fields.join(",") });
+    await auditWithHistory(req, scope, "patient_weight_updated", patientId, { weightId, fields: fields.join(",") }, {
+      family: "weight", recordId: weightId, changeKind: "update", fields: changedFields(weightValues(before), weightValues(row), WEIGHT_HISTORY_KEYS),
+    });
     res.json({ weight: staffWeightDto(row), patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office staff weight update failed");
@@ -530,10 +620,11 @@ router.delete("/office/patients/:id/weights/:weightId", async (req, res) => {
     const weightId = String(req.params.weightId ?? "");
     const existing = await supabaseAdmin(
       "GET",
-      `/rest/v1/patient_staff_weights?weight_id=eq.${enc(weightId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=weight_id&limit=1`,
+      `/rest/v1/patient_staff_weights?weight_id=eq.${enc(weightId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=${WEIGHT_SELECT}&limit=1`,
     );
     if (existing.status >= 300) throw new Error(`staff weight lookup failed (${existing.status})`);
     if (!Array.isArray(existing.json) || existing.json.length === 0) { res.status(404).json({ error: "That weigh-in is no longer on this record." }); return; }
+    const before = existing.json[0] as PatientRosterRow;
     const deleted = await supabaseAdmin(
       "DELETE",
       `/rest/v1/patient_staff_weights?weight_id=eq.${enc(weightId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&${versionFilter(parsed.data.expectedVersion)}&select=weight_id`,
@@ -542,7 +633,9 @@ router.delete("/office/patients/:id/weights/:weightId", async (req, res) => {
     );
     if (deleted.status >= 300) throw new Error(`staff weight delete failed (${deleted.status})`);
     if (!Array.isArray(deleted.json) || deleted.json.length === 0) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
-    await audit(req, scope, "patient_weight_removed", patientId, { weightId });
+    await auditWithHistory(req, scope, "patient_weight_removed", patientId, { weightId }, {
+      family: "weight", recordId: weightId, changeKind: "delete", fields: snapshotFields(weightValues(before), WEIGHT_HISTORY_KEYS, "delete"),
+    });
     res.json({ deleted: true, patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office staff weight delete failed");
@@ -638,7 +731,9 @@ router.post("/office/patients/:id/measurements", async (req, res) => {
     if (inserted.status >= 300) throw new Error(`body measurement insert failed (${inserted.status})`);
     const row = (Array.isArray(inserted.json) ? inserted.json[0] : inserted.json) as PatientRosterRow | undefined;
     if (!row) throw new Error("body measurement insert returned no row");
-    await audit(req, scope, "patient_measurements_recorded", patientId, { visitId, dateKey: parsed.data.dateKey, areaCount });
+    await auditWithHistory(req, scope, "patient_measurements_recorded", patientId, { visitId, dateKey: parsed.data.dateKey, areaCount }, {
+      family: "measurement", recordId: visitId, changeKind: "create", fields: snapshotFields(measurementValues(row), MEASUREMENT_HISTORY_KEYS, "create"),
+    });
     res.status(201).json({ visit: bodyMeasurementDto(row), patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office body measurement failed");
@@ -661,7 +756,7 @@ router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => 
     const visitId = String(req.params.visitId ?? "");
     const existing = await supabaseAdmin(
       "GET",
-      `/rest/v1/patient_body_measurements?visit_id=eq.${enc(visitId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=visit_id,date_key&limit=1`,
+      `/rest/v1/patient_body_measurements?visit_id=eq.${enc(visitId)}&patient_id=eq.${enc(patientId)}&provider_id=eq.${enc(scope.providerId)}&select=${MEASUREMENT_SELECT}&limit=1`,
     );
     if (existing.status >= 300) throw new Error(`body measurement lookup failed (${existing.status})`);
     const found = Array.isArray(existing.json) ? (existing.json[0] as PatientRosterRow | undefined) : undefined;
@@ -674,7 +769,9 @@ router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => 
     );
     if (deleted.status >= 300) throw new Error(`body measurement delete failed (${deleted.status})`);
     if (!Array.isArray(deleted.json) || deleted.json.length === 0) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
-    await audit(req, scope, "patient_measurements_removed", patientId, { visitId, dateKey: String(found.date_key ?? "").slice(0, 10) });
+    await auditWithHistory(req, scope, "patient_measurements_removed", patientId, { visitId, dateKey: String(found.date_key ?? "").slice(0, 10) }, {
+      family: "measurement", recordId: visitId, changeKind: "delete", fields: snapshotFields(measurementValues(found), MEASUREMENT_HISTORY_KEYS, "delete"),
+    });
     res.json({ deleted: true, patient: patientSummary(await reloadPatient(patientId, scope.providerId)) });
   } catch (error) {
     req.log?.error({ err: error }, "office body measurement delete failed");
@@ -692,6 +789,7 @@ router.delete("/office/patients/:id/measurements/:visitId", async (req, res) => 
 // name, dose, or notes.
 
 const MedicationOffice = z.object({ office: z.string().trim().max(120).optional() });
+const MEDICATION_EDITABLE = ["name", "form", "dose", "scheduleKind", "times", "weekday", "notes", "startDate", "stopDate"] as const;
 const MedicationUpdateInput = z.object({
   expectedVersion: Version,
   office: z.string().trim().max(120).optional(),
@@ -751,15 +849,16 @@ router.post("/office/patients/:id/medications", async (req, res) => {
       createdBy: scope.actorUserId,
       createdByName: await actorDisplayName(scope),
     });
-    await audit(req, scope, "patient_medication_added", patientId, { medicationId: medication.id, kind: medication.scheduleKind });
+    await auditWithHistory(req, scope, "patient_medication_added", patientId, { medicationId: medication.id, kind: medication.scheduleKind }, {
+      family: "medication", recordId: medication.id, changeKind: "create",
+      fields: snapshotFields(medication as unknown as Record<string, unknown>, MEDICATION_EDITABLE, "create"),
+    });
     res.status(201).json({ medication, ...(await medicationView(patient)) });
   } catch (error) {
     req.log?.error({ err: error }, "office medication add failed");
     res.status(502).json({ error: SERVER_ERROR });
   }
 });
-
-const MEDICATION_EDITABLE = ["name", "form", "dose", "scheduleKind", "times", "weekday", "notes", "startDate", "stopDate"] as const;
 
 router.patch("/office/patients/:id/medications/:medicationId", async (req, res) => {
   try {
@@ -798,9 +897,12 @@ router.patch("/office/patients/:id/medications/:medicationId", async (req, res) 
     const updated = await updateMedicationVersioned(patientId, medicationId, body.expectedVersion as string | null, patch);
     if (!updated) { res.status(409).json({ error: RECORD_CHANGED, code: "record_changed" }); return; }
     const stopped = existing.stopDate === null && updated.stopDate !== null;
-    await audit(req, scope, stopped ? "patient_medication_stopped" : "patient_medication_updated", patientId, {
+    await auditWithHistory(req, scope, stopped ? "patient_medication_stopped" : "patient_medication_updated", patientId, {
       medicationId,
       fields: changed.join(","),
+    }, {
+      family: "medication", recordId: medicationId, changeKind: "update",
+      fields: changedFields(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>, MEDICATION_EDITABLE),
     });
     res.json({ medication: updated, ...(await medicationView(patient)) });
   } catch (error) {

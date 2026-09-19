@@ -36,6 +36,8 @@ class FakeBackend {
   rpcCalls = 0;
   /** Number of atomic patient_library_apply RPC calls received. */
   libraryRpcCalls = 0;
+  /** Every record_patient_edit_history RPC body, in order (patient-made edits to shared families). */
+  historyWrites: Row[] = [];
   private seq = 0;
 
   reset() {
@@ -64,6 +66,7 @@ class FakeBackend {
     this.authOutage = false;
     this.failOnce.clear();
     this.rpcCalls = 0;
+    this.historyWrites = [];
     this.libraryRpcCalls = 0;
     this.seq = 0;
   }
@@ -151,6 +154,11 @@ class FakeBackend {
       return json(200, { id: userId, email: null, phone: null });
     }
 
+    if (url.pathname === "/rest/v1/rpc/record_patient_edit_history") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Row;
+      this.historyWrites.push(body);
+      return json(200, `chg-${this.historyWrites.length}`);
+    }
     if (url.pathname === "/rest/v1/rpc/patient_diary_apply") {
       this.rpcCalls += 1;
       if (this.failOnce.has("RPC patient_diary_apply")) {
@@ -1729,6 +1737,32 @@ describe("PUT /patient-data/water", () => {
   });
 });
 
+describe("POST /patient-data/check-ins", () => {
+  it("keeps the overwritten weight of a re-submitted day in the edit history, attributed to the patient", async () => {
+    const mine = backend.seedSignedInPatient("tok-1");
+    const checkIn = (over: Record<string, unknown>) => ({ id: "c-1", dateKey: "2026-08-30", mood: 4, sideEffects: [], ...over });
+    // First submit of the day: a create with the new weight; a weightless
+    // check-in and a same-weight re-submit write nothing.
+    expect((await api("POST", "/api/patient-data/check-ins", { token: "tok-1", body: checkIn({ weight: 182.4 }) })).status).toBe(200);
+    expect((await api("POST", "/api/patient-data/check-ins", { token: "tok-1", body: checkIn({ weight: 182.4, mood: 2 }) })).status).toBe(200);
+    expect((await api("POST", "/api/patient-data/check-ins", { token: "tok-1", body: checkIn({ id: "c-2", dateKey: "2026-08-31" }) })).status).toBe(200);
+    // Two overwrites of the same day: both prior values remain, oldest first.
+    expect((await api("POST", "/api/patient-data/check-ins", { token: "tok-1", body: checkIn({ weight: 181 }) })).status).toBe(200);
+    expect((await api("POST", "/api/patient-data/check-ins", { token: "tok-1", body: checkIn({ weight: 180.2 }) })).status).toBe(200);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(backend.historyWrites.map(row => [row.p_change_kind, row.p_fields])).toEqual([
+      ["create", [{ field: "weight", old: null, new: 182.4 }]],
+      ["update", [{ field: "weight", old: 182.4, new: 181 }]],
+      ["update", [{ field: "weight", old: 181, new: 180.2 }]],
+    ]);
+    expect(backend.historyWrites[0]).toMatchObject({
+      p_patient_id: mine.patientId, p_family: "weight", p_record_id: "check-in:2026-08-30", p_actor_kind: "patient",
+      p_actor_user_id: mine.userId, p_actor_name: null, p_audit_event_id: null,
+    });
+    expect(backend.tables.patient_check_ins).toHaveLength(2);
+  });
+});
+
 describe("PUT /patient-data/targets", () => {
   it("merges partial updates instead of clobbering other fields", async () => {
     backend.seedSignedInPatient("tok-1");
@@ -2271,6 +2305,16 @@ describe("medications and dose logs", () => {
     expect(edited.status).toBe(200);
     expect(backend.tables.patient_medications).toHaveLength(1);
     expect(backend.tables.patient_medications[0]).toMatchObject({ dose: "2 mL", stop_date: "2026-12-31", source: "patient" });
+    // The patient's own edits append to the same edit history staff corrections
+    // use, attributed to the patient: a create snapshot, then only the changed fields.
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(backend.historyWrites.map(row => [row.p_family, row.p_change_kind, row.p_actor_kind, row.p_actor_name, row.p_audit_event_id])).toEqual([
+      ["medication", "create", "patient", null, null],
+      ["medication", "update", "patient", null, null],
+    ]);
+    expect(backend.historyWrites[0]).toMatchObject({ p_patient_id: mine.patientId, p_record_id: MED, p_actor_user_id: mine.userId });
+    expect((backend.historyWrites[0].p_fields as Row[]).find(f => f.field === "dose")).toEqual({ field: "dose", old: null, new: "1 mL" });
+    expect(backend.historyWrites[1].p_fields).toEqual([{ field: "dose", old: "1 mL", new: "2 mL" }, { field: "stopDate", old: null, new: "2026-12-31" }]);
 
     const stolen = await api("PUT", "/api/patient-data/medications", { token: "tok-2", body: { medication: dailyMed({ name: "Mine now" }) } });
     expect(stolen.status).toBe(400);

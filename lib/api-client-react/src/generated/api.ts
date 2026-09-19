@@ -173,6 +173,7 @@ import type {
   ListExportsParams,
   ListOfficePatientCoachConversationsParams,
   ListOfficePatientCoachMemoriesParams,
+  ListOfficePatientEditHistoryParams,
   ListPatientCoachConversationsParams,
   ListPatientCoachMemoriesParams,
   MarkOfficeAlertSeen200,
@@ -199,6 +200,7 @@ import type {
   PatientCareTeamResult,
   PatientCareTeamStartInput,
   PatientCareTeamStartResult,
+  PatientEditHistoryPage,
   PatientRetentionResult,
   ProgressPhotoFileParams,
   ReadOfficeConversationParams,
@@ -3685,6 +3687,100 @@ export function useGetOfficePatientCoachConversation<TData = Awaited<ReturnType<
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetOfficePatientCoachConversationQueryOptions(patientId,conversationId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListOfficePatientEditHistoryUrl = (patientId: string,
+    params?: ListOfficePatientEditHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/history?${stringifiedParams}` : `/api/office/patients/${patientId}/history`
+}
+
+/**
+ * The patient-scoped edit history: one change per staff or patient edit to
+ * profile fields, activation status, staff weights, measurement visits,
+ * medication records, and provider notes, with the previous and new value
+ * of each changed field, who made it, when, and the audit event it pairs
+ * with. Read access follows the patient page (HQ names the office).
+ * @summary Prior and new values for every correction to a patient's record, newest first
+ */
+export const listOfficePatientEditHistory = async (patientId: string,
+    params?: ListOfficePatientEditHistoryParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientEditHistoryPage> => {
+
+  return customFetch<PatientEditHistoryPage>(getListOfficePatientEditHistoryUrl(patientId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOfficePatientEditHistoryQueryKey = (patientId: string,
+    params?: ListOfficePatientEditHistoryParams,) => {
+    return [
+    `/api/office/patients/${patientId}/history`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListOfficePatientEditHistoryQueryOptions = <TData = Awaited<ReturnType<typeof listOfficePatientEditHistory>>, TError = ErrorType<void>>(patientId: string,
+    params?: ListOfficePatientEditHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientEditHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOfficePatientEditHistoryQueryKey(patientId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOfficePatientEditHistory>>> = ({ signal }) => listOfficePatientEditHistory(patientId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientEditHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOfficePatientEditHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof listOfficePatientEditHistory>>>
+export type ListOfficePatientEditHistoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Prior and new values for every correction to a patient's record, newest first
+ */
+
+export function useListOfficePatientEditHistory<TData = Awaited<ReturnType<typeof listOfficePatientEditHistory>>, TError = ErrorType<void>>(
+ patientId: string,
+    params?: ListOfficePatientEditHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientEditHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOfficePatientEditHistoryQueryOptions(patientId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

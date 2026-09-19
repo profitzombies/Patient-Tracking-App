@@ -26,7 +26,12 @@ export function requestIdOf(req: Pick<Request, "headers">): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
-/** Best-effort, deliberately metadata-only audit write for staff actions. */
+/**
+ * Best-effort, deliberately metadata-only audit write for staff actions.
+ * Resolves to the new audit event id (null when the RPC returned no body,
+ * e.g. on a database that predates the id-returning RPC) so patient-scoped
+ * edit history can pair its prior/new values with the ledger row.
+ */
 export async function recordAdminAuditEvent(input: {
   action: string;
   /** Null for system-run steps (purge worker) that no signed-in user triggered. */
@@ -38,7 +43,7 @@ export async function recordAdminAuditEvent(input: {
   requestId: string | null;
   /** Only small operational facts; credentials, free text, and clinical data are forbidden. */
   metadata?: AuditMetadata;
-}): Promise<void> {
+}): Promise<number | null> {
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/record_admin_audit_event", {
     p_action: input.action,
     p_actor_user_id: input.actorUserId,
@@ -50,6 +55,8 @@ export async function recordAdminAuditEvent(input: {
     p_metadata: input.metadata ?? {},
   });
   if (result.status >= 300) throw new Error(`admin audit write failed (${result.status})`);
+  const id = typeof result.json === "number" ? result.json : Number(typeof result.json === "string" ? result.json : NaN);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
 /** Why a sensitive route refused an authenticated caller. */

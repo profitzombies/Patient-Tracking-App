@@ -23,6 +23,9 @@ function emptySections(): PatientArchiveSections {
       { occurredAt: "2026-10-01T15:00:00Z", action: "patient_record_viewed", label: "Viewed patient record", office: "Beacon Hill Aesthetics", role: "Office teammate", thread: null },
       { occurredAt: "2026-10-01T15:02:00Z", action: "conversation_transcript_opened", label: "Opened conversation transcript", office: "Beacon Hill Aesthetics", role: "HQ staff", thread: "care_team" },
     ],
+    editHistory: [
+      { change_id: "c-1", family: "weight", record_id: "w-1", field: "weight", old_value: 182.4, new_value: 181.6, change_kind: "update", actor_kind: "team_member", actor_name: "Sam Front Desk", audit_event_id: 41, created_at: "2026-10-01T15:00:00Z" },
+    ],
     bloodwork: { reports: [], files: [], results: [], corrections: [], incompleteTranscriptionPages: [] },
     billing: {
       orders: [{
@@ -56,6 +59,10 @@ describe("patient billing export", () => {
     const billing = JSON.parse(await zip.file("billing.json")!.async("string"));
     const appUsage = JSON.parse(await zip.file("app-usage.json")!.async("string"));
     expect(appUsage).toEqual([{ day: "2026-10-01", first_seen_at: "2026-10-01T12:00:00Z", last_seen_at: "2026-10-01T12:05:00Z", platform: "ios" }]);
+    // Prior values ride their own file so a patient can see every correction to their record.
+    const editHistory = JSON.parse(await zip.file("edit-history.json")!.async("string"));
+    expect(editHistory).toEqual([expect.objectContaining({ family: "weight", old_value: 182.4, new_value: 181.6, actor_name: "Sam Front Desk", audit_event_id: 41 })]);
+    expect(await zip.file("README.txt")!.async("string")).toContain("edit-history.json");
     expect(billing.orders[0]).toMatchObject({
       order_number: "TH-100",
       total_cents: 13000,

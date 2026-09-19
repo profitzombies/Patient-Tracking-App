@@ -392,6 +392,14 @@ args = "overview-finance-api"
 task = "workflow.run"
 args = "overview-finance-live"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-edit-history-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-edit-history-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2606,6 +2614,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && OVERVIEW_SMOKE_API_BASE_URL=http://localhost:80/api pnpm --filter @workspace/api-server run test:overview-finance-live && pnpm --filter @workspace/thinnr-operations run test:overview-live"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-edit-history-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/office-patient-edits.test.ts src/routes/patient-data.test.ts src/routes/patient-edit-history.sql.test.ts src/privacy/purge.sql.test.ts src/privacy/exports.test.ts src/exports/patient-record.test.ts src/routes/patient-privacy.test.ts src/routes/office-roster.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-edit-history-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history && pnpm --filter @workspace/thinnr-operations run test:patient-record-export && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

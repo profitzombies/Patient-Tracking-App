@@ -214,6 +214,8 @@ export interface PatientArchiveSections {
   appUsage: Array<Record<string, unknown>>;
   /** Staff reads of this record: when, which office, and the viewer's role — never a staff name. */
   recordAccess: PatientRecordAccessEntry[];
+  /** Prior and new values for every staff or patient correction to the record, oldest first. */
+  editHistory: Array<Record<string, unknown>>;
 }
 
 const MAX_ROWS = 20_000;
@@ -221,7 +223,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess, editHistory] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -246,6 +248,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       ),
       rows(`/rest/v1/patient_app_presence?${scope}&select=day,first_seen_at,last_seen_at,platform&order=day.asc&limit=${MAX_ROWS}`, "app usage"),
       loadPatientRecordAccess(patientId),
+      rows(`/rest/v1/patient_edit_history?${scope}&select=change_id,family,record_id,field,old_value,new_value,change_kind,actor_kind,actor_name,audit_event_id,created_at&order=created_at.asc,change_id.asc,field.asc&limit=${MAX_ROWS}`, "edit history"),
     ]);
   const businessNames = new Map<string, string>();
   await Promise.all(
@@ -429,6 +432,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     coachMemory: { memories, exclusions },
     appUsage,
     recordAccess,
+    editHistory,
     bloodwork: {
       reports: bloodworkReports,
       files: bloodworkFiles,
@@ -487,6 +491,7 @@ export function archiveJsonSections(sections: PatientArchiveSections): Array<{ n
     { name: "billing.json", body: json(sections.billing) },
     { name: "app-usage.json", body: json(sections.appUsage) },
     { name: "record-access.json", body: json(sections.recordAccess) },
+    { name: "edit-history.json", body: json(sections.editHistory) },
   ];
 }
 
@@ -543,6 +548,7 @@ export const ARCHIVE_FILE_GUIDE: ReadonlyArray<readonly [string, string]> = [
   ["billing.json", "Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers."],
   ["app-usage.json", "Days the app was opened (first/last seen and platform per local day)"],
   ["record-access.json", "Who viewed the record: each staff or HQ open of the record, photos, lab reports, medication list, or a transcript (date, office, viewer role; repeats within 15 minutes recorded once)"],
+  ["edit-history.json", "Every correction to the record (profile, status, weights, measurements, medications, staff notes) with the prior value, new value, who changed it, and when"],
   ["bloodwork/files/", "Original committed bloodwork source files"],
 ];
 
@@ -678,6 +684,7 @@ export async function buildPatientArchive(
       "record-access.json  Who viewed your record: each time office or HQ staff opened your record, photos, lab reports,",
       "                    medication list, or a conversation transcript (date, office, and the viewer's role; repeated views",
       "                    by the same person within 15 minutes are recorded once)",
+      "edit-history.json   Every correction to your record (profile, status, weights, measurements, medications, staff notes) with the prior value, new value, who changed it, and when",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",
     ].join("\n"),
   );

@@ -1454,6 +1454,55 @@ export const GetOfficePatientCoachConversationResponse = zod.object({
 
 
 /**
+ * The patient-scoped edit history: one change per staff or patient edit to
+ * profile fields, activation status, staff weights, measurement visits,
+ * medication records, and provider notes, with the previous and new value
+ * of each changed field, who made it, when, and the audit event it pairs
+ * with. Read access follows the patient page (HQ names the office).
+ * @summary Prior and new values for every correction to a patient's record, newest first
+ */
+export const ListOfficePatientEditHistoryParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const listOfficePatientEditHistoryQueryLimitDefault = 50;
+export const listOfficePatientEditHistoryQueryLimitMax = 200;
+
+export const listOfficePatientEditHistoryQueryOffsetDefault = 0;
+export const listOfficePatientEditHistoryQueryOffsetMin = 0;
+
+
+
+export const ListOfficePatientEditHistoryQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note']).optional(),
+  "limit": zod.coerce.number().min(1).max(listOfficePatientEditHistoryQueryLimitMax).default(listOfficePatientEditHistoryQueryLimitDefault),
+  "offset": zod.coerce.number().min(listOfficePatientEditHistoryQueryOffsetMin).default(listOfficePatientEditHistoryQueryOffsetDefault)
+})
+
+export const ListOfficePatientEditHistoryResponse = zod.object({
+  "changes": zod.array(zod.object({
+  "changeId": zod.string(),
+  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note']),
+  "recordId": zod.string(),
+  "changeKind": zod.enum(['create', 'update', 'delete']),
+  "actorKind": zod.enum(['provider', 'team_member', 'hq', 'patient', 'system']),
+  "actorUserId": zod.string().nullable(),
+  "actorName": zod.string().nullable().describe('Display name captured when the change was made; null for patients.'),
+  "auditEventId": zod.number().nullable(),
+  "createdAt": zod.coerce.date(),
+  "fields": zod.array(zod.object({
+  "field": zod.string(),
+  "old": zod.union([zod.string(),zod.number(),zod.boolean(),zod.array(zod.string()),zod.record(zod.string(), zod.unknown())]).nullable().describe('A recorded field value; null when the field was empty (or the record did not exist \/ was removed).'),
+  "new": zod.union([zod.string(),zod.number(),zod.boolean(),zod.array(zod.string()),zod.record(zod.string(), zod.unknown())]).nullable().describe('A recorded field value; null when the field was empty (or the record did not exist \/ was removed).')
+}))
+})),
+  "total": zod.number(),
+  "nextOffset": zod.number().nullable()
+})
+
+
+/**
  * @summary List active approved coach memories for an authorized patient
  */
 export const ListOfficePatientCoachMemoriesParams = zod.object({

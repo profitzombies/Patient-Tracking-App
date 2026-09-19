@@ -250,7 +250,7 @@ export const defaultPurgeDeps: PurgeDeps = {
     });
     if (result.status >= 300) throw new Error(`deletion finish failed (${result.status})`);
   },
-  audit: (input) => recordAdminAuditEvent(input),
+  audit: async (input) => { await recordAdminAuditEvent(input); },
 };
 
 function shortError(error: unknown): string {

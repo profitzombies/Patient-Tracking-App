@@ -18,6 +18,7 @@ vi.hoisted(() => {
 });
 
 import editsRouter from "./office-patient-edits";
+import historyRouter from "./office-patient-history";
 import rosterRouter from "./office-roster";
 import { resetRecordAccessCache } from "../lib/record-access-audit";
 
@@ -40,6 +41,8 @@ let doseLogs: Row[] = [];
 let checkIns: Row[] = [];
 let audits: Row[] = [];
 let readAudits: Row[] = [];
+/** One fake row per (change, field), the shape the edit-history RPC stores. */
+let history: Row[] = [];
 let requests: string[] = [];
 let profileRpcFailsWith: string | null = null;
 
@@ -82,6 +85,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(editsRouter);
+  app.use(historyRouter);
   app.use(rosterRouter);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -126,6 +130,7 @@ beforeEach(() => {
   doseLogs = [];
   checkIns = [];
   audits = [];
+  history = [];
   requests = [];
   profileRpcFailsWith = null;
 
@@ -146,10 +151,37 @@ beforeEach(() => {
     }
     if (url.pathname === "/rest/v1/hq_memberships") return response(url.searchParams.get("auth_user_id") === "eq.hq-user" ? hqMemberships : []);
     if (url.pathname === "/rest/v1/profiles") return response(url.searchParams.get("id") === "eq.hq-user" ? [{ role: "hq_admin" }] : []);
-    if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") { audits.push(body); return response(null, 204); }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_read_event") {
       readAudits.push(body);
       return response([{ recorded: true, window_started_at: new Date().toISOString() }]);
+    }
+    // The audit RPC answers its event id so the history rows can pair with it.
+    if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") { audits.push(body); return response(1000 + audits.length); }
+    if (url.pathname === "/rest/v1/rpc/record_patient_edit_history") {
+      const changeId = `chg-${history.length + 1}`;
+      const at = new Date(Date.UTC(2026, 0, 10, 0, 0, history.length)).toISOString();
+      for (const field of body.p_fields as Row[]) {
+        history.push({
+          change_id: changeId, patient_id: body.p_patient_id, family: body.p_family, record_id: body.p_record_id, change_kind: body.p_change_kind,
+          actor_kind: body.p_actor_kind, actor_user_id: body.p_actor_user_id, actor_name: body.p_actor_name, audit_event_id: body.p_audit_event_id,
+          field: field.field, old_value: field.old, new_value: field.new, created_at: at,
+        });
+      }
+      return response(changeId);
+    }
+    // Mirrors the read RPC: one row per change (fields grouped), newest first, office-scoped, with the total.
+    if (url.pathname === "/rest/v1/rpc/office_patient_edit_history") {
+      const owner = patients.find((row) => row.id === body.p_patient_id && row.provider_id === body.p_provider_id);
+      const rows = owner ? history.filter((row) => row.patient_id === body.p_patient_id && (!body.p_family || row.family === body.p_family)) : [];
+      const grouped = new Map<string, Row>();
+      for (const row of rows) {
+        const change = grouped.get(String(row.change_id)) ?? { ...row, fields: [] as Row[] };
+        (change.fields as Row[]).push({ field: row.field, old: row.old_value, new: row.new_value });
+        grouped.set(String(row.change_id), change);
+      }
+      const changes = [...grouped.values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      const page = changes.slice(Number(body.p_offset), Number(body.p_offset) + Number(body.p_limit));
+      return response(page.map((row) => ({ ...row, total: changes.length })));
     }
     // The activity aggregate answers one fact row per patient (no activity of
     // any kind yet); a missing row would read as "unknown" rather than inactive.
@@ -786,5 +818,99 @@ describe("medications", () => {
     expect(missing.status).toBe(404);
     const noChange = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED }) });
     expect(noChange.status).toBe(400);
+  });
+});
+
+describe("edit history", () => {
+  const MED = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const V_MED = "2026-01-05T09:00:00+00:00";
+  const byFamily = (family: string) => history.filter((row) => row.family === family);
+  const fieldsOf = (rows: Row[]) => rows.map((row) => [row.field, row.old_value, row.new_value]);
+
+  it("keeps the prior value of every staff correction, paired with its audit event and actor name", async () => {
+    // Profile: only the fields that actually changed, old → new, paired with the audit id the RPC answered.
+    const profile = await api(`/office/patients/${OWN}`, "member-token", { method: "PATCH", ...json({ expectedVersion: V1, firstName: "Cass", goalWeight: 155 }) });
+    expect(profile.status).toBe(200);
+    expect(byFamily("profile")).toEqual([
+      expect.objectContaining({ record_id: OWN, change_kind: "update", actor_kind: "team_member", actor_user_id: "member-user", actor_name: "Sam Front Desk", audit_event_id: 1001, field: "firstName", old_value: "Casey", new_value: "Cass" }),
+      expect.objectContaining({ field: "goalWeight", old_value: 160, new_value: 155, audit_event_id: 1001 }),
+    ]);
+    expect(audits[0]).toMatchObject({ p_action: "patient_profile_updated" });
+    expect(JSON.stringify(audits[0].p_metadata)).not.toMatch(/Casey|Cass|155/);
+
+    // Status: the transition and its reason.
+    const version = String(patients[0].updated_at);
+    const status = await api(`/office/patients/${OWN}/status`, "provider-token", { method: "PATCH", ...json({ expectedVersion: version, status: "paused", reason: "Travel" }) });
+    expect(status.status).toBe(200);
+    expect(fieldsOf(byFamily("status"))).toEqual([["status", "activated", "paused"], ["reason", null, "Travel"]]);
+    expect(byFamily("status")[0]).toMatchObject({ actor_kind: "provider", actor_name: "Dr. Reyes", audit_event_id: 1002 });
+
+    // Notes: the body is recorded on create and again on delete (the audit ledger never carries it).
+    const note = await api(`/office/patients/${OWN}/notes`, "provider-token", { method: "POST", ...json({ body: "Prefers morning visits" }) });
+    const noteId = String(((await note.json()) as any).note.id);
+    expect((await api(`/office/patients/${OWN}/notes/${noteId}`, "provider-token", { method: "DELETE" })).status).toBe(200);
+    expect(fieldsOf(byFamily("note"))).toEqual([["body", null, "Prefers morning visits"], ["body", "Prefers morning visits", null]]);
+    expect(byFamily("note").map((row) => row.change_kind)).toEqual(["create", "delete"]);
+    expect(JSON.stringify(audits.map((row) => row.p_metadata))).not.toMatch(/morning/);
+
+    // Measurements: a visit is created with its measured areas and removed with the same values.
+    const visit = await api(`/office/patients/${OWN}/measurements`, "provider-token", { method: "POST", ...json({ dateKey: "2026-01-05", measurements: { waist: 34.5, hips: 40 } }) });
+    expect(visit.status).toBe(201);
+    const visitBody = (await visit.json()) as any;
+    expect(fieldsOf(byFamily("measurement"))).toEqual([["dateKey", null, "2026-01-05"], ["waist", null, 34.5], ["hips", null, 40]]);
+    expect((await api(`/office/patients/${OWN}/measurements/${visitBody.visit.id}`, "provider-token", { method: "DELETE", ...json({ expectedVersion: visitBody.visit.version }) })).status).toBe(200);
+    expect(fieldsOf(byFamily("measurement").filter((row) => row.change_kind === "delete"))).toEqual([["dateKey", "2026-01-05", null], ["waist", 34.5, null], ["hips", 40, null]]);
+
+    // Medications: create snapshot, then only the edited fields.
+    medications.push({
+      id: MED, patient_id: OWN, name: "THINNR Protocol drops", form: "drops", dose: "1 mL under the tongue", schedule_kind: "daily",
+      times: ["08:00", "15:00", "22:00"], weekday: null, notes: null, start_date: "2026-01-01", stop_date: null, source: "onboarding",
+      created_by_name: null, created_at: "2026-01-01T00:00:00+00:00", updated_at: V_MED,
+    });
+    const edit = await api(`/office/patients/${OWN}/medications/${MED}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: V_MED, dose: "2 mL", times: ["07:30", "21:30"] }) });
+    expect(edit.status).toBe(200);
+    expect(fieldsOf(byFamily("medication"))).toEqual([["dose", "1 mL under the tongue", "2 mL"], ["times", ["08:00", "15:00", "22:00"], ["07:30", "21:30"]]]);
+    expect(byFamily("medication")[0]).toMatchObject({ record_id: MED, change_kind: "update", audit_event_id: 1000 + audits.length });
+
+    // Every history row pairs with a real audit event and the audit ledger itself still holds no values.
+    for (const row of history) expect(audits[Number(row.audit_event_id) - 1001]).toBeDefined();
+  });
+
+  it("overwriting a weight twice leaves both prior values retrievable through the office read route", async () => {
+    const created = await api(`/office/patients/${OWN}/weights`, "provider-token", { method: "POST", ...json({ dateKey: "2026-01-04", weight: 190.2, note: "Office scale" }) });
+    expect(created.status).toBe(201);
+    const weight = ((await created.json()) as any).weight;
+    const first = await api(`/office/patients/${OWN}/weights/${weight.id}`, "member-token", { method: "PATCH", ...json({ expectedVersion: weight.version, weight: 188.4 }) });
+    expect(first.status).toBe(200);
+    const second = await api(`/office/patients/${OWN}/weights/${weight.id}`, "provider-token", { method: "PATCH", ...json({ expectedVersion: ((await first.json()) as any).weight.version, weight: 187 }) });
+    expect(second.status).toBe(200);
+    expect(fieldsOf(byFamily("weight").filter((row) => row.field === "weight"))).toEqual([["weight", null, 190.2], ["weight", 190.2, 188.4], ["weight", 188.4, 187]]);
+
+    // Newest first, grouped per change, with the actor's display name; a
+    // read-only team member (or HQ naming the office) can see it too.
+    const page = await api(`/office/patients/${OWN}/history?family=weight`, "member-token");
+    expect(page.status).toBe(200);
+    const body = (await page.json()) as any;
+    expect(body.total).toBe(3);
+    expect(body.nextOffset).toBeNull();
+    expect(body.changes.map((change: any) => [change.changeKind, change.actorName, change.fields.find((f: any) => f.field === "weight")])).toEqual([
+      ["update", "Dr. Reyes", { field: "weight", old: 188.4, new: 187 }],
+      ["update", "Sam Front Desk", { field: "weight", old: 190.2, new: 188.4 }],
+      ["create", "Dr. Reyes", { field: "weight", old: null, new: 190.2 }],
+    ]);
+    expect(body.changes[0]).toMatchObject({ family: "weight", recordId: weight.id, actorKind: "provider", auditEventId: 1003 });
+
+    // Paging and filters.
+    const paged = (await (await api(`/office/patients/${OWN}/history?limit=2`, "provider-token")).json()) as any;
+    expect(paged.changes).toHaveLength(2);
+    expect(paged.nextOffset).toBe(2);
+    expect(((await (await api(`/office/patients/${OWN}/history?family=note`, "provider-token")).json()) as any).total).toBe(0);
+    expect((await api(`/office/patients/${OWN}/history?family=diary`, "provider-token")).status).toBe(400);
+    const hq = await api(`/office/patients/${OWN}/history?office=office-1`, "hq-token");
+    expect(hq.status).toBe(200);
+    expect(((await hq.json()) as any).total).toBe(3);
+    // Another office's patient and HQ naming the wrong office are the neutral 404.
+    expect((await api(`/office/patients/${OTHER}/history`, "provider-token")).status).toBe(404);
+    expect((await api(`/office/patients/${OWN}/history?office=office-2`, "hq-token")).status).toBe(404);
   });
 });

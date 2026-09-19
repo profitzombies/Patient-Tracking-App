@@ -102,6 +102,10 @@ beforeEach(() => {
     { id: fakeUuid(711), patient_id: P1, medication_id: fakeUuid(701), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
     { id: fakeUuid(712), patient_id: P2, medication_id: fakeUuid(702), due_date: "2026-09-01", due_time: "08:00", status: "taken" },
   );
+  mocks.supabase.tables.patient_edit_history.push(
+    { change_id: fakeUuid(901), patient_id: P1, family: "weight", record_id: fakeUuid(902), field: "weight", old_value: 190, new_value: 188, change_kind: "update", actor_kind: "provider", actor_name: "Dr. Reyes", audit_event_id: 5, created_at: "2026-09-02T00:00:00Z" },
+    { change_id: fakeUuid(903), patient_id: P2, family: "note", record_id: fakeUuid(904), field: "body", old_value: "SECRET OTHER NOTE", new_value: null, change_kind: "delete", actor_kind: "provider", actor_name: "Dr. Reyes", audit_event_id: 6, created_at: "2026-09-02T00:00:00Z" },
+  );
   mocks.supabase.tables.patient_chat_conversations.push({ id: fakeUuid(501), patient_id: P1, provider_id: "office-1", thread: "coach" });
   mocks.supabase.tables.patient_chat_messages.push({ conversation_id: fakeUuid(501), client_id: "m1", seq: 1, role: "user", text: "hello coach", photo: { path: `/objects/patient-media/${P1}/chat-1.jpg` } });
   mocks.saved.set(`/objects/patient-media/${P1}/photo-1.jpg`, { buffer: Buffer.from("PHOTO-BYTES"), contentType: "image/jpeg" });
@@ -317,15 +321,18 @@ describe("data export", () => {
     expect(names).toEqual(expect.arrayContaining([
       "README.txt", "profile.json", "consents.json", "preferences.json", "diary.json", "water.json", "targets.json", "library.json",
       "check-ins.json", "measurements.json", "medications.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg", "record-access.json",
-      `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`, "bloodwork.json",
+      `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`, "bloodwork.json", "edit-history.json",
     ]));
+    // Prior values of staff corrections ride the export as their own file, scoped to this patient.
+    const editHistory = JSON.parse(await zip.file("edit-history.json")!.async("string")) as Array<{ field: string; old_value: unknown; new_value: unknown; actor_name: string }>;
+    expect(editHistory).toEqual([expect.objectContaining({ field: "weight", old_value: 190, new_value: 188, actor_name: "Dr. Reyes" })]);
     const diary = JSON.parse(await zip.file("diary.json")!.async("string")) as Array<{ name: string }>;
     expect(diary.map((d) => d.name)).toEqual(["Eggs"]);
     const medications = JSON.parse(await zip.file("medications.json")!.async("string")) as { list: Array<{ name: string }>; doseLogs: Array<{ status: string }> };
     expect(medications.list.map((m) => m.name)).toEqual(["THINNR Protocol drops"]);
     expect(medications.doseLogs.map((d) => d.status)).toEqual(["taken"]);
     const all = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => zip.file(n)!.async("string")));
-    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|hunter2/);
+    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|SECRET OTHER NOTE|hunter2/);
     const preferences = await zip.file("preferences.json")!.async("string");
     expect(preferences).toContain('"goal": "lose"');
     // Coach product-suggestion state is patient-owned data and rides the export.

@@ -108,6 +108,7 @@ import type {
   GetOfficeAlertsParams,
   GetOfficeAnalyticsParams,
   GetOfficeBillingDashboardParams,
+  GetOfficeBundleEstimateParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationNotesParams,
   GetOfficeConversationStaffParams,
@@ -185,6 +186,7 @@ import type {
   OfficeAlertsResult,
   OfficeAnalyticsResult,
   OfficeBillingDashboard,
+  OfficeBundleEstimate,
   OfficeComparisonResult,
   OfficeConversationStartInput,
   OfficeLeaderboardResult,
@@ -7626,6 +7628,90 @@ export const useRequestExport = <TError = ErrorType<void>,
       > => {
       return useMutation(getRequestExportMutationOptions(options));
     }
+
+export const getGetOfficeBundleEstimateUrl = (params: GetOfficeBundleEstimateParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/exports/office-bundle/estimate?${stringifiedParams}` : `/api/exports/office-bundle/estimate`
+}
+
+/**
+ * @summary HQ: patient count, tombstone count, and size estimate for an entire-office record bundle
+ */
+export const getOfficeBundleEstimate = async (params: GetOfficeBundleEstimateParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeBundleEstimate> => {
+
+  return customFetch<OfficeBundleEstimate>(getGetOfficeBundleEstimateUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeBundleEstimateQueryKey = (params?: GetOfficeBundleEstimateParams,) => {
+    return [
+    `/api/exports/office-bundle/estimate`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeBundleEstimateQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeBundleEstimate>>, TError = ErrorType<void>>(params: GetOfficeBundleEstimateParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeBundleEstimate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeBundleEstimateQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeBundleEstimate>>> = ({ signal }) => getOfficeBundleEstimate(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeBundleEstimate>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeBundleEstimateQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeBundleEstimate>>>
+export type GetOfficeBundleEstimateQueryError = ErrorType<void>
+
+
+/**
+ * @summary HQ: patient count, tombstone count, and size estimate for an entire-office record bundle
+ */
+
+export function useGetOfficeBundleEstimate<TData = Awaited<ReturnType<typeof getOfficeBundleEstimate>>, TError = ErrorType<void>>(
+ params: GetOfficeBundleEstimateParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeBundleEstimate>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeBundleEstimateQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetExportUrl = (exportId: string,) => {
 

@@ -53,10 +53,12 @@ export const AUDIT_EXPORT_ACTIONS = [
   "bloodwork_report_opened",
   "patient_medications_viewed",
   "conversation_transcript_opened",
+  "office_bundle_export_requested",
+  "office_bundle_export_downloaded",
 ] as const;
-const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos"]);
+const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos", "includeTombstones", "patients"]);
 
-async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
+export async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
   const rows: Record<string, unknown>[] = [];
   for (let offset = 0; rows.length < MAX_EXPORT_ROWS; offset += PAGE) {
     const res = await supabaseAdmin("GET", `${pathWithoutPaging}&limit=${PAGE}&offset=${offset}`);
@@ -87,7 +89,7 @@ function requireRange(scope: ExportScope): DateRangeKeys {
   return scope.range;
 }
 
-function dollars(value: unknown): string {
+export function dollars(value: unknown): string {
   const cents = numberOrNull(value);
   return cents === null ? "" : (cents / 100).toFixed(2);
 }
@@ -405,5 +407,9 @@ export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<Expo
   // the worker branches before reaching this table.
   patient_record: async () => {
     throw new Error("patient_record is not a CSV export");
+  },
+  // Office bundles are built by jobs/definitions/office-bundle-export.ts.
+  office_bundle: async () => {
+    throw new Error("office_bundle is not a CSV export");
   },
 };

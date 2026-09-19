@@ -26,6 +26,7 @@ import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANE
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { LegalHoldControls } from '@/components/admin/LegalHold';
+import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
@@ -342,6 +343,8 @@ export default function AccountDetail() {
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations
         </Link>
+        {/* Renders only when the server offers HQ the office-bundle export. */}
+        <OfficeBundleExport officeId={account.id} officeName={account.officeName} />
       </div>
 
       {/* Legal hold: HQ-only, outranks every retention timer for this office's patients. */}

@@ -6,6 +6,7 @@
  *   GET  /exports/:id                poll one job
  *   GET  /exports/:id/download-url   short-lived signed link for a ready job
  *   POST /exports/:id/cancel         stop a queued/running job (audited)
+ *   GET  /exports/office-bundle/estimate?office=   HQ: patient count + size estimate
  *
  * Scope is authorised and frozen at request time (see exports/kinds.ts);
  * every later read is pinned to `requested_by = caller`, so a job id alone
@@ -24,6 +25,7 @@ import {
   exportFileName,
   EXPORT_KINDS,
   EXPORT_KIND_LABELS,
+  HQ_OFFICE_KINDS,
   PATIENT_KINDS,
   RANGED_KINDS,
   resolveExportRequester,
@@ -31,6 +33,9 @@ import {
   type ExportRequester,
 } from "../exports/kinds";
 import { drainQueuedExports, type ExportJobRow, type ExportPartRow } from "../exports/worker";
+import { bundleStateOf, countOfficePatients, countOfficeTombstones, OFFICE_BUNDLE_BUILD_DAYS } from "../exports/office-bundle";
+import { OFFICE_BUNDLE_JOB_NAME } from "../jobs/definitions/office-bundle-export";
+import { signalJob } from "../jobs/scheduler";
 import { loadOrgPolicy } from "../lib/org-policy";
 import { hasHqPermission } from "../lib/staff-auth";
 
@@ -67,6 +72,8 @@ const RequestBody = z.object({
   end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** Patient-level kinds (patient_record) name the one patient. */
   patientId: z.string().regex(/^[0-9a-f-]{36}$/i).optional().nullable(),
+  /** Office bundles: also list purged patients' PII-free tombstones. */
+  includeTombstones: z.boolean().optional(),
 });
 
 const JOB_SELECT =
@@ -74,14 +81,37 @@ const JOB_SELECT =
 
 export type ExportJobStatus = "queued" | "running" | "ready" | "failed" | "expired" | "cancelled";
 
-function progressOf(params: Record<string, unknown>): { stage: "collecting" | "writing" | "ready"; partsDone: number | null; partsTotal: number | null } | null {
+export interface ExportProgress {
+  stage: "collecting" | "writing" | "ready" | "patients" | "office";
+  partsDone: number | null;
+  partsTotal: number | null;
+  /** Office bundles: patients packed so far / in the office, bytes landed. */
+  patientsDone: number | null;
+  patientsTotal: number | null;
+  bytesWritten: number | null;
+}
+
+function progressOf(row: Pick<ExportJobRow, "kind" | "params" | "parts">): ExportProgress | null {
+  const params = row.params ?? {};
+  if (row.kind === "office_bundle") {
+    const bundle = bundleStateOf(params);
+    if (!bundle) return { stage: "collecting", partsDone: 0, partsTotal: null, patientsDone: null, patientsTotal: null, bytesWritten: 0 };
+    return {
+      stage: bundle.stage,
+      partsDone: Array.isArray(row.parts) ? row.parts.length : 0,
+      partsTotal: null,
+      patientsDone: bundle.patientsDone,
+      patientsTotal: bundle.patientsTotal,
+      bytesWritten: bundle.bytesWritten,
+    };
+  }
   const raw = params.progress;
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Record<string, unknown>;
   const stage = p.stage === "collecting" || p.stage === "writing" || p.stage === "ready" ? p.stage : null;
   if (!stage) return null;
   const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
-  return { stage, partsDone: num(p.partsDone), partsTotal: num(p.partsTotal) };
+  return { stage, partsDone: num(p.partsDone), partsTotal: num(p.partsTotal), patientsDone: null, patientsTotal: null, bytesWritten: null };
 }
 
 export function exportJobDto(row: ExportJobRow, now = Date.now()) {
@@ -119,11 +149,14 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
         ? row.parts.map((part) => ({ part: part.part, fileName: part.fileName, sizeBytes: part.sizeBytes, fileCount: part.fileCount }))
         : null,
     /** Build progress for multi-part archives while queued/running. */
-    progress: status === "queued" || status === "running" ? progressOf(params) : null,
+    progress: status === "queued" || status === "running" ? progressOf(row) : null,
     /** Stored files the archive names but could not include (missing sources). */
-    omittedFiles: typeof params.omitted === "number" ? params.omitted : null,
+    omittedFiles:
+      typeof params.omitted === "number" ? params.omitted : row.kind === "office_bundle" ? (bundleStateOf(params)?.omittedFiles ?? null) : null,
     /** True while a running job has been asked to stop and the worker has not yet confirmed. */
     cancelRequested: status === "running" && Boolean(row.cancel_requested_at),
+    /** Office bundles: whether purged-patient tombstones were requested. */
+    includeTombstones: row.kind === "office_bundle" ? params.includeTombstones === true : null,
   };
 }
 
@@ -195,7 +228,13 @@ router.post("/exports", async (req, res) => {
       return;
     }
 
-    const expiresAt = new Date(Date.now() + (await exportTtlHours()) * 3_600_000).toISOString();
+    // A whole-office bundle can take hours to build: the row gets a build
+    // allowance now, and the job resets expiry to the link policy once the
+    // bundle is ready.
+    const bundle = HQ_OFFICE_KINDS.has(body.kind);
+    const expiresAt = new Date(
+      Date.now() + (bundle ? OFFICE_BUNDLE_BUILD_DAYS * 24 : await exportTtlHours()) * 3_600_000,
+    ).toISOString();
     const inserted = await supabaseAdmin(
       "POST",
       "/rest/v1/data_exports",
@@ -210,6 +249,7 @@ router.post("/exports", async (req, res) => {
           ...(scope.range ? { start: scope.range.start, end: scope.range.end } : {}),
           ...(scope.officeName ? { officeName: scope.officeName } : {}),
           ...(scope.patient ? { patientId: scope.patient.id, patientName: scope.patient.name } : {}),
+          ...(bundle ? { includeTombstones: body.includeTombstones === true } : {}),
         },
         file_name: exportFileName(body.kind, scope),
         expires_at: expiresAt,
@@ -224,7 +264,23 @@ router.post("/exports", async (req, res) => {
     // patient (so the office Audit page shows who asked for whose chart),
     // with the export id alongside so the download can be traced back.
     await recordAdminAuditEvent(
-      scope.patient
+      bundle && scope.providerId
+        ? {
+            action: "office_bundle_export_requested",
+            ...auditActor(who),
+            providerId: scope.providerId,
+            targetKind: "data_export",
+            targetId: job.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: {
+              kind: body.kind,
+              office: scope.providerId,
+              exportId: job.id,
+              includeTombstones: body.includeTombstones === true,
+              patients: await countOfficePatients(supabaseAdmin, scope.providerId).catch(() => null),
+            },
+          }
+        : scope.patient
         ? {
             action: "patient_record_export_requested",
             ...auditActor(who),
@@ -244,8 +300,10 @@ router.post("/exports", async (req, res) => {
             metadata: { kind: body.kind, office: scope.providerId ?? "all" },
           },
     );
-    // Kick the worker so small exports finish before the first poll.
-    void drainQueuedExports();
+    // Kick the worker so small exports finish before the first poll; bundles
+    // belong to their own leased job.
+    if (bundle) signalJob(OFFICE_BUNDLE_JOB_NAME);
+    else void drainQueuedExports();
     res.status(202).json({ job: exportJobDto(job) });
   } catch (error) {
     req.log?.error({ err: error }, "export request failed");
@@ -277,6 +335,68 @@ router.get("/exports", async (req, res) => {
     res.status(502).json({ error: "Could not load exports right now." });
   }
 });
+
+/**
+ * HQ: what an "entire office record" bundle would contain — the office's
+ * patient count, purged-tombstone count, and a size estimate from the latest
+ * data-growth snapshot (the office's share of database + storage bytes by
+ * patient count). Null estimate when no snapshot exists yet.
+ */
+router.get("/exports/office-bundle/estimate", async (req, res) => {
+  try {
+    const who = await requester(req);
+    if (!who) return;
+    const office = typeof req.query.office === "string" ? req.query.office.trim() : "";
+    const authorized = await authorizeExport({
+      requester: who,
+      authorization: req.headers.authorization,
+      kind: "office_bundle",
+      requestedOffice: office || null,
+      range: null,
+      patientId: null,
+    });
+    if (authorized.kind !== "ok") {
+      res.status(authorized.status).json({ error: authorized.message });
+      return;
+    }
+    const providerId = authorized.scope.providerId;
+    if (!providerId) {
+      res.status(400).json({ error: "Choose an office for this export." });
+      return;
+    }
+    const [patientCount, tombstoneCount, networkPatients, snapshot] = await Promise.all([
+      countOfficePatients(supabaseAdmin, providerId),
+      countOfficeTombstones(supabaseAdmin, providerId),
+      countOfficePatients(supabaseAdmin, null),
+      latestSizeSnapshot(),
+    ]);
+    const share = networkPatients > 0 ? patientCount / networkPatients : 0;
+    const estimatedBytes = snapshot ? Math.round(share * (snapshot.databaseBytes + snapshot.storageBytes)) : null;
+    res.json({
+      office: { id: providerId, name: authorized.scope.officeName },
+      patientCount,
+      tombstoneCount,
+      estimatedBytes,
+      snapshotDate: snapshot?.snapshotDate ?? null,
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "office bundle estimate failed");
+    res.status(502).json({ error: "Could not estimate that export right now." });
+  }
+});
+
+async function latestSizeSnapshot(): Promise<{ snapshotDate: string; databaseBytes: number; storageBytes: number } | null> {
+  const res = await supabaseAdmin(
+    "GET",
+    "/rest/v1/system_size_snapshots?kind=in.(database,storage_total)&select=snapshot_date,kind,total_bytes&order=snapshot_date.desc&limit=4",
+  );
+  if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`size snapshot read failed (${res.status})`);
+  const rows = res.json as Array<{ snapshot_date: string; kind: string; total_bytes: number | string }>;
+  const database = rows.find((row) => row.kind === "database");
+  if (!database) return null;
+  const storage = rows.find((row) => row.kind === "storage_total" && row.snapshot_date === database.snapshot_date);
+  return { snapshotDate: database.snapshot_date, databaseBytes: Number(database.total_bytes), storageBytes: storage ? Number(storage.total_bytes) : 0 };
+}
 
 router.get("/exports/:id", async (req, res) => {
   try {
@@ -331,7 +451,17 @@ router.get("/exports/:id/download-url", async (req, res) => {
     );
     const patientId = typeof job.params?.patientId === "string" ? job.params.patientId : null;
     await recordAdminAuditEvent(
-      PATIENT_KINDS.has(job.kind as ExportKind) && patientId
+      HQ_OFFICE_KINDS.has(job.kind as ExportKind) && job.provider_id
+        ? {
+            action: "office_bundle_export_downloaded",
+            ...auditActor(who),
+            providerId: job.provider_id,
+            targetKind: "data_export",
+            targetId: job.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: job.kind, office: job.provider_id, exportId: job.id, part: part?.part ?? 1, parts: Math.max(parts.length, 1) },
+          }
+        : PATIENT_KINDS.has(job.kind as ExportKind) && patientId
         ? {
             action: "patient_record_export_downloaded",
             ...auditActor(who),
@@ -448,12 +578,12 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
   const all: ExportKind[] = [...EXPORT_KINDS];
   const kinds =
     who.kind === "office"
-      ? all.filter((kind) => kind !== "provider_directory" &&
+      ? all.filter((kind) => kind !== "provider_directory" && !HQ_OFFICE_KINDS.has(kind) &&
           (!kind.startsWith("billing_") || who.officeRole !== "staff") &&
           (!PATIENT_KINDS.has(kind) || who.officeRole !== "staff"))
       : all.filter((kind) => {
           if (kind.startsWith("billing_")) return hasHqPermission(who.identity, "financial_read");
-          if (PATIENT_KINDS.has(kind)) return hasHqPermission(who.identity, "provider_manage");
+          if (PATIENT_KINDS.has(kind) || HQ_OFFICE_KINDS.has(kind)) return hasHqPermission(who.identity, "provider_manage");
           const role = who.identity.departmentRole;
           if (role === "super_admin" || role === "admin") return true;
           if (role === "clinical") return kind === "office_comparison" || kind === "training_completion";
@@ -464,7 +594,7 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
     kind,
     label: EXPORT_KIND_LABELS[kind],
     ranged: RANGED_KINDS.has(kind),
-    needsOffice: who.kind === "hq" && (kind === "patient_activity" || PATIENT_KINDS.has(kind)),
+    needsOffice: who.kind === "hq" && (kind === "patient_activity" || PATIENT_KINDS.has(kind) || HQ_OFFICE_KINDS.has(kind)),
     needsPatient: PATIENT_KINDS.has(kind),
   }));
 }

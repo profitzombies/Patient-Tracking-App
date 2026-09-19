@@ -668,6 +668,7 @@ export const ExportKind = {
   billing_subscriptions: 'billing_subscriptions',
   billing_payouts: 'billing_payouts',
   patient_record: 'patient_record',
+  office_bundle: 'office_bundle',
 } as const;
 
 export interface ExportRequestInput {
@@ -684,6 +685,8 @@ export interface ExportRequestInput {
      * @nullable
      */
   patientId?: string | null;
+  /** Office bundles (HQ only): also list purged patients' PII-free tombstones so counts reconcile */
+  includeTombstones?: boolean;
 }
 
 export interface ExportPart {
@@ -700,6 +703,8 @@ export const ExportProgressStage = {
   collecting: 'collecting',
   writing: 'writing',
   ready: 'ready',
+  patients: 'patients',
+  office: 'office',
 } as const;
 
 export interface ExportProgress {
@@ -708,6 +713,21 @@ export interface ExportProgress {
   partsDone: number | null;
   /** @nullable */
   partsTotal: number | null;
+  /**
+     * Office bundles: patients packed so far
+     * @nullable
+     */
+  patientsDone: number | null;
+  /**
+     * Office bundles: patients in the office when the build started
+     * @nullable
+     */
+  patientsTotal: number | null;
+  /**
+     * Office bundles: bytes of finished parts landed so far
+     * @nullable
+     */
+  bytesWritten: number | null;
 }
 
 export type ExportJobStatus = typeof ExportJobStatus[keyof typeof ExportJobStatus];
@@ -767,6 +787,11 @@ export interface ExportJob {
   omittedFiles: number | null;
   /** True while a running job has been asked to stop and the worker has not yet confirmed */
   cancelRequested: boolean;
+  /**
+     * Office bundles: whether purged-patient tombstones were requested (null for other kinds)
+     * @nullable
+     */
+  includeTombstones: boolean | null;
 }
 
 export interface ExportKindOption {
@@ -785,6 +810,26 @@ export interface ExportJobListResult {
   jobs: ExportJob[];
   available: ExportKindOption[];
   ttlHours: number;
+}
+
+export type OfficeBundleEstimateOffice = {
+  id: string;
+  /** @nullable */
+  name: string | null;
+};
+
+export interface OfficeBundleEstimate {
+  office: OfficeBundleEstimateOffice;
+  patientCount: number;
+  /** Purged patients whose PII-free tombstones the bundle can list */
+  tombstoneCount: number;
+  /**
+     * The office's share (by patient count) of the latest database + storage size snapshot; null before the first snapshot
+     * @nullable
+     */
+  estimatedBytes: number | null;
+  /** @nullable */
+  snapshotDate: string | null;
 }
 
 export interface ExportDownloadResult {
@@ -5483,6 +5528,13 @@ export type ListExportsParams = {
  * Narrow the list to one patient's record exports (still the caller's own jobs)
  */
 patient?: string;
+};
+
+export type GetOfficeBundleEstimateParams = {
+/**
+ * Office account id
+ */
+office: string;
 };
 
 export type GetExportDownloadUrlParams = {

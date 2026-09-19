@@ -33,6 +33,7 @@ import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-even
 import { dataGrowthSnapshotJob } from "./definitions/data-growth-snapshot";
 import { systemThresholdsJob } from "./definitions/system-thresholds";
 import { coldArchiveJob } from "./definitions/cold-archive";
+import { officeBundleExportJob } from "./definitions/office-bundle-export";
 
 /** Request-scoped patient upload discards; logged as user runs, never scheduled. */
 export const patientMediaCleanupJob: JobDefinition = {
@@ -88,6 +89,7 @@ export const ALL_JOBS: JobDefinition[] = [
   dataGrowthSnapshotJob,
   systemThresholdsJob,
   coldArchiveJob,
+  officeBundleExportJob,
 ];
 
 let registered = false;

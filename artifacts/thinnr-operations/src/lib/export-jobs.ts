@@ -61,15 +61,22 @@ export function expiryLabel(expiresAt: string, now: number = Date.now()): string
 }
 
 export interface ExportProgressLike {
-  stage: 'collecting' | 'writing' | 'ready';
+  stage: 'collecting' | 'writing' | 'ready' | 'patients' | 'office';
   partsDone: number | null;
   partsTotal: number | null;
+  /** Office bundles: patients packed / in the office, bytes of finished parts. */
+  patientsDone?: number | null;
+  patientsTotal?: number | null;
+  bytesWritten?: number | null;
 }
+
+/** Kinds that build numbered ZIP parts (everything else is one CSV). */
+export const ARCHIVE_KINDS: ReadonlySet<string> = new Set(['patient_record', 'office_bundle']);
 
 /** Archives name files, CSVs name rows. */
 export function countLabel(job: { kind: string; rowCount: number | null }): string | null {
   if (job.rowCount == null) return null;
-  const noun = job.kind === 'patient_record' ? 'file' : 'row';
+  const noun = ARCHIVE_KINDS.has(job.kind) ? 'file' : 'row';
   return `${job.rowCount.toLocaleString('en-US')} ${noun}${job.rowCount === 1 ? '' : 's'}`;
 }
 
@@ -96,10 +103,37 @@ export function partLabel(part: { part: number; sizeBytes: number; fileCount: nu
 export function progressLabel(status: string, progress: ExportProgressLike | null, cancelRequested = false): string {
   if (cancelRequested && status === 'running') return 'Stopping… removing what was written';
   if (status === 'queued' || !progress) return status === 'queued' ? 'Waiting to start' : 'Generating…';
+  if (progress.stage === 'patients' || progress.stage === 'office') return bundleProgressLabel(progress);
   if (progress.stage === 'collecting') return 'Collecting the record…';
   if (progress.stage === 'ready') return 'Finishing…';
   const done = progress.partsDone ?? 0;
   if (progress.partsTotal == null) return done > 0 ? `Writing archive · ${done} part${done === 1 ? '' : 's'} done` : 'Writing archive…';
   if (done >= progress.partsTotal) return 'Finishing…';
   return `Writing part ${done + 1} of ${progress.partsTotal}`;
+}
+
+/**
+ * Office bundles report patients rather than parts: "Packing patient records ·
+ * 120 of 480 patients · 3 parts · 1.2 GB written", then "Writing office
+ * records…" once every patient landed. Counts are absent until the job has
+ * claimed the row and counted the office.
+ */
+export function bundleProgressLabel(progress: ExportProgressLike): string {
+  if (progress.stage === 'office') return 'Writing office records (orders, payments, team, audit, activity)…';
+  const done = progress.patientsDone ?? 0;
+  const total = progress.patientsTotal;
+  const bits = [
+    total == null ? null : `${done.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} patient${total === 1 ? '' : 's'}`,
+    progress.partsDone ? `${progress.partsDone} part${progress.partsDone === 1 ? '' : 's'}` : null,
+    progress.bytesWritten ? `${formatBytes(progress.bytesWritten)} written` : null,
+  ].filter(Boolean);
+  return bits.length > 0 ? `Packing patient records · ${bits.join(' · ')}` : 'Packing patient records…';
+}
+
+/** "About 1.2 GB (from the Sep 18 size snapshot)" or an honest "unknown" before the first snapshot. */
+export function bundleEstimateLabel(estimate: { estimatedBytes: number | null; snapshotDate: string | null }): string {
+  if (estimate.estimatedBytes == null || !estimate.snapshotDate) return 'Size unknown until the first nightly size snapshot has run';
+  const date = new Date(`${estimate.snapshotDate}T00:00:00Z`);
+  const when = Number.isNaN(date.getTime()) ? estimate.snapshotDate : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return `About ${formatBytes(estimate.estimatedBytes)} (this office's share of the ${when} size snapshot)`;
 }

@@ -166,6 +166,48 @@ export interface BuildPatientRecordOptions {
   checkpoint?: () => Promise<void>;
 }
 
+/**
+ * How a caller that packs many records into shared parts (the office bundle)
+ * lays this record out: absolute part numbers for each stored file and the
+ * final file name of every part. Standalone record exports use the built-in
+ * greedy fill starting at part 1.
+ */
+export interface RecordPlacement {
+  /** Part number for each stored file, in `stored` order, plus the part the fixed files open. */
+  place: (input: { fixedBytes: number; stored: Array<{ sizeBytes: number }> }) => { fixedPart: number; storedParts: number[] };
+  fileNameFor: (part: number) => string;
+}
+
+export interface PlanPatientRecordOptions {
+  sections?: PatientArchiveSections;
+  chart?: PatientChartContext;
+  statMedia?: (objectPath: string) => Promise<number>;
+  partBudgetBytes?: number;
+  generatedAt?: Date;
+  exportId?: string | null;
+  fileNameStem: string;
+  placement?: RecordPlacement;
+  /** README headline; the bundle names the office it belongs to. */
+  readmeTitle?: string;
+}
+
+/** Everything known about a record before a single byte is written. */
+export interface PatientRecordPlan {
+  manifest: RecordManifest;
+  manifestJson: string;
+  readme: string;
+  fixedPart: number;
+  fixedEntries: PlannedEntry[];
+  storedFiles: RecordManifestFile[];
+  sections: PatientArchiveSections;
+  chart: PatientChartContext;
+  budget: number;
+}
+
+export function entryCostBytes(sizeBytes: number): number {
+  return sizeBytes + ENTRY_OVERHEAD_BYTES;
+}
+
 export interface BuildPatientRecordResult {
   manifest: RecordManifest;
   parts: WrittenRecordPart[];
@@ -173,7 +215,7 @@ export interface BuildPatientRecordResult {
   chart: PatientChartContext;
 }
 
-interface PlannedEntry {
+export interface PlannedEntry {
   file: string;
   sizeBytes: number;
   source: RecordManifestFile["source"];
@@ -182,7 +224,7 @@ interface PlannedEntry {
 }
 
 /** A Readable that fetches its bytes only once the ZIP writer pulls on it. */
-class LazyObjectStream extends Readable {
+export class LazyObjectStream extends Readable {
   private started = false;
   constructor(private readonly load: () => Promise<Buffer>) {
     super();
@@ -205,19 +247,17 @@ export function recordPartFileName(stem: string, part: number, total: number): s
   return `${stem}_part-${String(part).padStart(width, "0")}-of-${String(total).padStart(width, "0")}.zip`;
 }
 
-export async function buildPatientRecordArchive(
-  patientId: string,
-  options: BuildPatientRecordOptions,
-): Promise<BuildPatientRecordResult> {
+export function defaultRecordReader(): (objectPath: string) => Promise<Buffer> {
+  return async (objectPath: string) => {
+    const file = await objectStorage.entityFile(objectPath);
+    const [content] = await file.download();
+    return content;
+  };
+}
+
+export async function planPatientRecord(patientId: string, options: PlanPatientRecordOptions): Promise<PatientRecordPlan> {
   const sections = options.sections ?? (await loadPatientArchiveSections(patientId));
   const chart = options.chart ?? (await loadPatientChartContext(patientId));
-  const readMedia =
-    options.readMedia ??
-    (async (objectPath: string) => {
-      const file = await objectStorage.entityFile(objectPath);
-      const [content] = await file.download();
-      return content;
-    });
   const statMedia = options.statMedia ?? ((objectPath: string) => objectStorage.objectSize(objectPath));
   const budget = options.partBudgetBytes ?? recordPartBudgetBytes();
   const generatedAt = (options.generatedAt ?? new Date()).toISOString();
@@ -242,17 +282,17 @@ export async function buildPatientRecordArchive(
   }
 
   // Greedy fill in archive order; the fixed files always open part 1.
-  const assign = (entries: Array<{ sizeBytes: number }>, used: number): { part: number; oversized: boolean }[] => {
-    const out: { part: number; oversized: boolean }[] = [];
+  const assign = (entries: Array<{ sizeBytes: number }>, used: number): number[] => {
+    const out: number[] = [];
     let part = 1;
     let filled = used;
     for (const entry of entries) {
-      const cost = entry.sizeBytes + ENTRY_OVERHEAD_BYTES;
+      const cost = entryCostBytes(entry.sizeBytes);
       if (filled > 0 && filled + cost > budget) {
         part += 1;
         filled = 0;
       }
-      out.push({ part, oversized: cost > budget });
+      out.push(part);
       filled += cost;
     }
     return out;
@@ -264,11 +304,15 @@ export async function buildPatientRecordArchive(
   // (JSON sections plus slack for the summary and manifest). The estimate
   // only ever shifts part 1 by a few megabytes either way — the budget sits
   // well below the 1 GB ceiling on purpose.
-  const fixedEstimate = jsonSections.reduce((sum, section) => sum + Buffer.byteLength(section.body) + ENTRY_OVERHEAD_BYTES, 0);
-  const placement = assign(stored, fixedEstimate + 512 * 1024);
+  const fixedEstimate = jsonSections.reduce((sum, section) => sum + entryCostBytes(Buffer.byteLength(section.body)), 0) + 512 * 1024;
+  const placed = options.placement
+    ? options.placement.place({ fixedBytes: fixedEstimate, stored })
+    : { fixedPart: 1, storedParts: assign(stored, fixedEstimate) };
+  if (placed.storedParts.length !== stored.length) throw new Error("record placement must cover every stored file");
+  const fixedPart = placed.fixedPart;
   const storedFiles: RecordManifestFile[] = stored.map((entry, index) => ({
     file: entry.file,
-    part: placement[index].part,
+    part: placed.storedParts[index],
     sizeBytes: entry.sizeBytes,
     source: entry.source,
     objectPath: entry.objectPath,
@@ -280,8 +324,8 @@ export async function buildPatientRecordArchive(
       files: mediaPlan
         .filter((item) => item.source === "media")
         .map((item) => {
-          const placed = storedFiles.find((entry) => entry.file === item.archiveFile);
-          return { objectPath: item.objectPath, file: placed ? item.archiveFile : null, part: placed?.part ?? null };
+          const placedFile = storedFiles.find((entry) => entry.file === item.archiveFile);
+          return { objectPath: item.objectPath, file: placedFile ? item.archiveFile : null, part: placedFile?.part ?? null };
         }),
       skipped: omitted.filter((entry) => entry.source === "media").map((entry) => entry.objectPath ?? entry.file),
       omitted: omitted.filter((entry) => entry.source === "media"),
@@ -295,13 +339,13 @@ export async function buildPatientRecordArchive(
       files: mediaPlan
         .filter((item) => item.source === "bloodwork")
         .map((item) => {
-          const placed = storedFiles.find((entry) => entry.file === item.archiveFile);
+          const placedFile = storedFiles.find((entry) => entry.file === item.archiveFile);
           const omission = omitted.find((entry) => entry.file === item.archiveFile);
           return {
             ...(item.bloodwork?.metadata ?? {}),
-            archiveFile: placed ? item.archiveFile : null,
-            part: placed?.part ?? null,
-            omittedFileName: placed ? null : item.archiveFile,
+            archiveFile: placedFile ? item.archiveFile : null,
+            part: placedFile?.part ?? null,
+            omittedFileName: placedFile ? null : item.archiveFile,
             omittedReason: omission?.reason ?? null,
           };
         }),
@@ -313,15 +357,19 @@ export async function buildPatientRecordArchive(
     2,
   );
 
-  const totalParts = Math.max(1, ...storedFiles.map((entry) => entry.part));
-  const fileNameFor = (part: number) => recordPartFileName(options.fileNameStem, part, totalParts);
+  // The parts this record spans, in order (standalone: 1..N contiguous;
+  // inside a bundle: whichever shared parts the placement chose).
+  const partNumbers = [...new Set<number>([fixedPart, ...storedFiles.map((entry) => entry.part)])].sort((a, b) => a - b);
+  const totalParts = options.placement ? partNumbers.length : Math.max(1, ...storedFiles.map((entry) => entry.part));
+  const fileNameFor = options.placement ? options.placement.fileNameFor : (part: number) => recordPartFileName(options.fileNameStem, part, totalParts);
+  const partList = options.placement ? partNumbers : Array.from({ length: totalParts }, (_, index) => index + 1);
 
   const pdf = await renderRecordSummaryPdf({
     sections,
     chart,
     generatedAt,
     exportId,
-    parts: Array.from({ length: totalParts }, (_, index) => fileNameFor(index + 1)),
+    parts: partList.map((part) => fileNameFor(part)),
     photoFiles: storedFiles.filter((entry) => entry.source === "media"),
     omitted,
   });
@@ -334,7 +382,7 @@ export async function buildPatientRecordArchive(
   ];
 
   const readme = [
-    "THINNR patient record (staff copy)",
+    options.readmeTitle ?? "THINNR patient record (staff copy)",
     `Generated: ${generatedAt}`,
     `Patient id: ${patientId}`,
     exportId ? `Export id: ${exportId}` : null,
@@ -354,12 +402,11 @@ export async function buildPatientRecordArchive(
     .join("\n");
 
   const fileEntries: RecordManifestFile[] = [
-    ...fixedEntries.map((entry) => ({ file: entry.file, part: 1, sizeBytes: entry.sizeBytes, source: entry.source, objectPath: null })),
-    { file: "README.txt", part: 1, sizeBytes: Buffer.byteLength(readme), source: "readme", objectPath: null },
+    ...fixedEntries.map((entry) => ({ file: entry.file, part: fixedPart, sizeBytes: entry.sizeBytes, source: entry.source, objectPath: null })),
+    { file: "README.txt", part: fixedPart, sizeBytes: Buffer.byteLength(readme), source: "readme", objectPath: null },
     ...storedFiles,
   ];
-  const manifestParts: RecordManifestPart[] = Array.from({ length: totalParts }, (_, index) => {
-    const part = index + 1;
+  const manifestParts: RecordManifestPart[] = partList.map((part) => {
     const files = fileEntries.filter((entry) => entry.part === part).map((entry) => entry.file);
     files.unshift("manifest.json");
     return {
@@ -367,7 +414,7 @@ export async function buildPatientRecordArchive(
       fileName: fileNameFor(part),
       files,
       plannedBytes: fileEntries.filter((entry) => entry.part === part).reduce((sum, entry) => sum + entry.sizeBytes, 0),
-      oversized: storedFiles.some((entry, storedIndex) => entry.part === part && placement[storedIndex].oversized),
+      oversized: storedFiles.some((entry) => entry.part === part && entryCostBytes(entry.sizeBytes) > budget),
     };
   });
   const manifest: RecordManifest = {
@@ -383,6 +430,77 @@ export async function buildPatientRecordArchive(
     omitted,
   };
   const manifestJson = JSON.stringify(manifest, null, 2);
+  return { manifest, manifestJson, readme, fixedPart, fixedEntries, storedFiles, sections, chart, budget };
+}
+
+/**
+ * Add this record's entries for one part to a JSZip (under `prefix`, "" for a
+ * standalone record). Stored files ride lazy streams; `onEntry` sees each
+ * entry's bytes as the writer pulls them (the bundle hashes them there).
+ */
+export function addRecordPartEntries(
+  zip: JSZip,
+  plan: PatientRecordPlan,
+  part: number,
+  input: {
+    prefix?: string;
+    readMedia: (objectPath: string) => Promise<Buffer>;
+    onEntry?: (file: string, bytes: Buffer) => void;
+    /** Awaited before each stored file's bytes are fetched (cooperative cancellation). */
+    checkpoint?: () => Promise<void>;
+  },
+): number {
+  const prefix = input.prefix ?? "";
+  let count = 0;
+  const add = (file: string, body: Buffer | string) => {
+    const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+    input.onEntry?.(`${prefix}${file}`, bytes);
+    zip.file(`${prefix}${file}`, bytes);
+    count += 1;
+  };
+  add("manifest.json", plan.manifestJson);
+  if (part === plan.fixedPart) {
+    for (const entry of plan.fixedEntries) add(entry.file, entry.body ?? "");
+    add("README.txt", plan.readme);
+  }
+  for (const entry of plan.storedFiles) {
+    if (entry.part !== part) continue;
+    const objectPath = entry.objectPath as string;
+    const file = `${prefix}${entry.file}`;
+    // Stored files are already compressed formats; STORE keeps part size
+    // predictable and avoids a second pass over every byte.
+    zip.file(
+      file,
+      new LazyObjectStream(async () => {
+        await input.checkpoint?.();
+        const bytes = await input.readMedia(objectPath);
+        input.onEntry?.(file, bytes);
+        return bytes;
+      }),
+      { compression: "STORE" },
+    );
+    count += 1;
+  }
+  return count;
+}
+
+/** JSZip's legacy stream as a real Node stream (errors surface on the stream). */
+export function zipNodeStream(zip: JSZip): PassThrough {
+  const stream = new PassThrough();
+  const zipStream = zip.generateNodeStream({ type: "nodebuffer", streamFiles: true, compression: "DEFLATE" });
+  zipStream.on("error", (error: unknown) => stream.destroy(error instanceof Error ? error : new Error(String(error))));
+  zipStream.pipe(stream);
+  return stream;
+}
+
+export async function buildPatientRecordArchive(
+  patientId: string,
+  options: BuildPatientRecordOptions,
+): Promise<BuildPatientRecordResult> {
+  const plan = await planPatientRecord(patientId, options);
+  const readMedia = options.readMedia ?? defaultRecordReader();
+  const { manifest, sections, chart } = plan;
+  const totalParts = manifest.partCount;
   const checkpoint = options.checkpoint ?? (async () => {});
   await checkpoint();
 
@@ -391,35 +509,12 @@ export async function buildPatientRecordArchive(
   for (let part = 1; part <= totalParts; part += 1) {
     if (part > 1) await checkpoint();
     const zip = new JSZip();
-    zip.file("manifest.json", manifestJson);
-    if (part === 1) {
-      for (const entry of fixedEntries) zip.file(entry.file, entry.body ?? "");
-      zip.file("README.txt", readme);
-    }
-    let count = part === 1 ? fixedEntries.length + 2 : 1;
-    for (const entry of storedFiles) {
-      if (entry.part !== part) continue;
-      const objectPath = entry.objectPath as string;
-      // Stored files are already compressed formats; STORE keeps part size
-      // predictable and avoids a second pass over every byte.
-      zip.file(
-        entry.file,
-        new LazyObjectStream(async () => {
-          await checkpoint();
-          return readMedia(objectPath);
-        }),
-        { compression: "STORE" },
-      );
-      count += 1;
-    }
+    const count = addRecordPartEntries(zip, plan, part, { readMedia, checkpoint });
     // JSZip's output stream is a legacy readable-stream; hand consumers a
     // real Node stream so pipeline()/async iteration work and a failed
     // object read surfaces as a stream error instead of an uncaught event.
-    const stream = new PassThrough();
-    const zipStream = zip.generateNodeStream({ type: "nodebuffer", streamFiles: true, compression: "DEFLATE" });
-    zipStream.on("error", (error: unknown) => stream.destroy(error instanceof Error ? error : new Error(String(error))));
-    zipStream.pipe(stream);
-    const fileName = fileNameFor(part);
+    const stream = zipNodeStream(zip);
+    const fileName = recordPartFileName(options.fileNameStem, part, totalParts);
     const { sizeBytes } = await options.writePart({ part, fileName }, stream);
     written.push({ part, fileName, sizeBytes, fileCount: count });
     await options.onPartWritten?.(part, totalParts);

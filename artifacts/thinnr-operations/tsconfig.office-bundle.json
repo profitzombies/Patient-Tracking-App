@@ -1,0 +1,26 @@
+{
+  // tsx config for scripts/verify-office-bundle.tsx ONLY (not part
+  // of typecheck — tsconfig.json includes src/**/* alone).
+  //
+  // Renders the REAL OfficeBundleExport control and the shared Exports panel
+  // under react-test-renderer against a scripted global fetch. Session /
+  // provider scope are the a11y stubs, lib/supabase is the invite-suite stub
+  // (poses as a signed-in staffer), and the Radix parts resolve to the
+  // DOM-free office-admin stubs so the confirmation dialog can open.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
+      "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],
+      "@/components/ui/calendar": ["./scripts/office-admin-stubs/calendar.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

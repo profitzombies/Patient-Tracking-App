@@ -32,6 +32,7 @@ const REQUIRED_ACTIONS = [
   // record access (staff reads of a patient's chart)
   "patient_record_viewed", "patient_photos_viewed", "patient_bloodwork_viewed", "bloodwork_report_opened",
   "patient_medications_viewed", "conversation_transcript_opened",
+  "office_bundle_export_requested", "office_bundle_export_downloaded",
   // staff-initiated billing changes
   "billing_refund_issued", "billing_subscription_cancelled", "billing_subscription_payment_retried",
   "billing_subscription_payment_email_sent", "billing_order_fulfillment_updated", "billing_prices_updated",

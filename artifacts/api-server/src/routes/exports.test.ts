@@ -4,8 +4,9 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 
 const mocks = vi.hoisted(() => ({
-  admin: vi.fn(), audit: vi.fn(), scope: vi.fn(), staff: vi.fn(), signed: vi.fn(), drain: vi.fn(),
+  admin: vi.fn(), audit: vi.fn(), scope: vi.fn(), staff: vi.fn(), signed: vi.fn(), drain: vi.fn(), signal: vi.fn(),
 }));
+vi.mock("../jobs/scheduler", () => ({ signalJob: mocks.signal }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin, fetchAuthUser: vi.fn() }));
 vi.mock("../auth/office-scope", () => ({ resolveOfficeScope: mocks.scope }));
 vi.mock("../lib/admin-audit", () => ({ recordAdminAuditEvent: mocks.audit }));
@@ -66,8 +67,14 @@ const recordRow = (overrides: Record<string, unknown> = {}) => jobRow({
 });
 
 /** Route the PostgREST calls the request handler makes by path prefix. */
-function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null; exportLinkHours?: number; patient?: Record<string, unknown> | null }) {
-  mocks.admin.mockReset().mockImplementation(async (method: string, path: string, body?: unknown) => {
+function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null; exportLinkHours?: number; patient?: Record<string, unknown> | null; counts?: { office: number; network: number; tombstones: number }; snapshots?: unknown[] }) {
+  mocks.admin.mockReset().mockImplementation(async (method: string, path: string, body?: unknown, prefer?: string) => {
+    if (method === "GET" && prefer === "count=exact") {
+      const counts = handlers.counts ?? { office: 3, network: 12, tombstones: 1 };
+      const total = path.startsWith("/rest/v1/patient_tombstones") ? counts.tombstones : path.includes("provider_id=eq.") ? counts.office : counts.network;
+      return { status: 200, json: [], contentRange: `0-0/${total}` };
+    }
+    if (method === "GET" && path.startsWith("/rest/v1/system_size_snapshots")) return response(handlers.snapshots ?? []);
     if (path.startsWith("/rest/v1/hq_organization_settings")) {
       if (handlers.exportLinkHours === undefined) throw new Error("policy unavailable");
       return response([{ export_link_hours: handlers.exportLinkHours, version: 1 }]);
@@ -91,6 +98,7 @@ beforeEach(() => {
   invalidateOrgPolicyCache();
   mocks.audit.mockReset().mockResolvedValue(undefined);
   mocks.drain.mockReset().mockResolvedValue(0);
+  mocks.signal.mockReset();
   mocks.scope.mockReset();
   mocks.staff.mockReset();
 });
@@ -288,6 +296,100 @@ describe("requesting exports", () => {
       expect(json.available.find((k) => k.kind === "patient_record")?.needsPatient).toBe(true);
     });
   });
+  describe("an entire office record (HQ bundle)", () => {
+    const hqScope = { kind: "ok", scope: { ...officeScope.scope, actorUserId: "hq-user", actorKind: "hq" } };
+    it("queues a bundle for HQ provider managers with a build allowance, audits it against the office, and wakes the bundle job", async () => {
+      mocks.staff.mockReturnValue(hq("admin"));
+      mocks.scope.mockResolvedValue(hqScope);
+      adminScript({});
+      const before = Date.now();
+      const res = await call("/exports", "POST", { kind: "office_bundle", office: "acct-p1", includeTombstones: true });
+      expect(res.status).toBe(202);
+      const body = await res.json() as { job: { kind: string; fileName: string; includeTombstones: boolean; progress: { stage: string; patientsDone: number | null; bytesWritten: number } } };
+      expect(body.job.kind).toBe("office_bundle");
+      expect(body.job.fileName).toMatch(/^thinnr_office-bundle_one_\d{4}-\d{2}-\d{2}\.zip$/);
+      expect(body.job.includeTombstones).toBe(true);
+      expect(body.job.progress).toMatchObject({ stage: "collecting", patientsDone: null, bytesWritten: 0 });
+      expect(mocks.scope.mock.calls[0][0]).toMatchObject({ explicitOfficeId: "acct-p1", hqPermission: "provider_manage" });
+      const insert = mocks.admin.mock.calls.find(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")!;
+      const row = insert[2] as { kind: string; provider_id: string; requester_kind: string; params: Record<string, unknown>; expires_at: string };
+      expect(row).toMatchObject({ kind: "office_bundle", provider_id: "p1", requester_kind: "hq", params: { officeName: "One", includeTombstones: true } });
+      // Seven days to build, not the 48h link policy; the job re-stamps expiry when ready.
+      expect(Date.parse(row.expires_at) - before).toBeGreaterThan(6.9 * 86_400_000);
+      expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+        action: "office_bundle_export_requested", targetKind: "data_export", targetId: JOB_ID, providerId: "p1",
+        metadata: expect.objectContaining({ kind: "office_bundle", office: "p1", exportId: JOB_ID, includeTombstones: true, patients: 3 }),
+      }));
+      expect(mocks.signal).toHaveBeenCalledWith("office-bundle-export");
+      expect(mocks.drain).not.toHaveBeenCalled();
+    });
+    it("refuses office users (owners included) and HQ without provider_manage, and needs an explicit office", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      adminScript({});
+      const owner = await call("/exports", "POST", { kind: "office_bundle" });
+      expect(owner.status).toBe(403);
+      expect(mocks.admin.mock.calls.some(([method]) => method === "POST")).toBe(false);
+      expect(mocks.audit).not.toHaveBeenCalled();
+      expect((await call("/exports/office-bundle/estimate?office=acct-p1")).status).toBe(403);
+      mocks.staff.mockReturnValue(hq("clinical"));
+      mocks.scope.mockResolvedValue(hqScope);
+      expect((await call("/exports", "POST", { kind: "office_bundle", office: "acct-p1" })).status).toBe(403);
+      expect((await call("/exports/office-bundle/estimate?office=acct-p1")).status).toBe(403);
+      mocks.staff.mockReturnValue(hq("admin"));
+      expect((await call("/exports", "POST", { kind: "office_bundle" })).status).toBe(400);
+      expect((await call("/exports/office-bundle/estimate")).status).toBe(400);
+      expect(mocks.signal).not.toHaveBeenCalled();
+      const list = await (await call("/exports")).json() as { available: Array<{ kind: string; needsOffice: boolean }> };
+      expect(list.available.find((k) => k.kind === "office_bundle")).toMatchObject({ needsOffice: true });
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      const officeRes = await call("/exports");
+      expect(officeRes.status).toBe(200);
+      const officeList = await officeRes.json() as { available: Array<{ kind: string }> };
+      expect(officeList.available.some((k) => k.kind === "office_bundle")).toBe(false);
+    });
+    it("estimates patient count, tombstones, and the office's share of the latest size snapshot", async () => {
+      mocks.staff.mockReturnValue(hq("admin"));
+      mocks.scope.mockResolvedValue(hqScope);
+      adminScript({
+        counts: { office: 3, network: 12, tombstones: 2 },
+        snapshots: [
+          { snapshot_date: "2026-09-18", kind: "storage_total", total_bytes: "4000" },
+          { snapshot_date: "2026-09-18", kind: "database", total_bytes: 800 },
+          { snapshot_date: "2026-09-17", kind: "database", total_bytes: 700 },
+        ],
+      });
+      const res = await call("/exports/office-bundle/estimate?office=acct-p1");
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        office: { id: "p1", name: "One" }, patientCount: 3, tombstoneCount: 2, estimatedBytes: 1200, snapshotDate: "2026-09-18",
+      });
+      adminScript({ counts: { office: 3, network: 12, tombstones: 0 }, snapshots: [] });
+      expect(await (await call("/exports/office-bundle/estimate?office=acct-p1")).json()).toMatchObject({ estimatedBytes: null, snapshotDate: null });
+    });
+    it("reports bundle progress from the job state and audits part downloads against the office", async () => {
+      const parts = [1, 2].map((part) => ({ part, fileName: `thinnr_office-bundle_one_2026-09-06_part-00${part}.zip`, objectPath: `/objects/exports/${JOB_ID}/part-0${part}-66666666-6666-4666-8666-66666666666${part}.zip`, sizeBytes: 10 * part, fileCount: 4, sha256: "ab".repeat(32) }));
+      const bundleRow = (overrides: Record<string, unknown> = {}) => jobRow({
+        kind: "office_bundle", provider_id: "p1", params: { officeName: "One", includeTombstones: false, bundle: { stage: "patients", patientsDone: 2, patientsTotal: 3, bytesWritten: 30, omittedFiles: 1 } },
+        file_name: "thinnr_office-bundle_one_2026-09-06.zip", object_path: parts[0].objectPath, parts, ...overrides,
+      });
+      const running = exportJobDto(bundleRow({ status: "running", object_path: null }), Date.parse("2026-01-01T00:00:00Z"));
+      expect(running.progress).toEqual({ stage: "patients", partsDone: 2, partsTotal: null, patientsDone: 2, patientsTotal: 3, bytesWritten: 30 });
+      expect(running.omittedFiles).toBe(1);
+      expect(running.includeTombstones).toBe(false);
+      mocks.staff.mockReturnValue(hq("admin"));
+      adminScript({ job: bundleRow() });
+      mocks.signed.mockResolvedValue("https://signed.example/part2");
+      const res = await call(`/exports/${JOB_ID}/download-url?part=2`);
+      expect(res.status).toBe(200);
+      expect(mocks.signed).toHaveBeenCalledWith(parts[1].objectPath, 300);
+      expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+        action: "office_bundle_export_downloaded", providerId: "p1", targetKind: "data_export", targetId: JOB_ID,
+        metadata: expect.objectContaining({ office: "p1", exportId: JOB_ID, part: 2, parts: 2 }),
+      }));
+    });
+  });
   it("lists only the caller's jobs and the kinds their role may request", async () => {
     mocks.staff.mockReturnValue(hq("clinical"));
     adminScript({});
@@ -472,7 +574,7 @@ describe("job DTO and kind menu", () => {
     expect(cancelled).toMatchObject({ status: "cancelled", cancelRequested: false, downloadable: false, parts: null, progress: null, error: null });
     // A cancelled row past its expiry reads as expired, like failed rows do.
     expect(exportJobDto(recordRow({ status: "cancelled", object_path: null, parts: null, expires_at: "2025-12-01T00:00:00Z" }), Date.parse("2026-01-01T00:00:00Z")).status).toBe("expired");
-    expect(running.progress).toEqual({ stage: "writing", partsDone: 1, partsTotal: 3 });
+    expect(running.progress).toEqual({ stage: "writing", partsDone: 1, partsTotal: 3, patientsDone: null, patientsTotal: null, bytesWritten: null });
     expect(running.parts).toBeNull();
     expect(exportJobDto(jobRow(), Date.parse("2026-01-01T00:00:00Z")).parts).toBeNull();
   });

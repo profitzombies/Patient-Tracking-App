@@ -21,4 +21,6 @@ export interface ExportRequestInput {
      * @nullable
      */
   patientId?: string | null;
+  /** Office bundles (HQ only): also list purged patients' PII-free tombstones so counts reconcile */
+  includeTombstones?: boolean;
 }

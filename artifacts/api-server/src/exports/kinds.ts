@@ -33,6 +33,7 @@ export const EXPORT_KINDS = [
   "billing_subscriptions",
   "billing_payouts",
   "patient_record",
+  "office_bundle",
 ] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
@@ -50,6 +51,7 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   billing_subscriptions: "Billing subscriptions",
   billing_payouts: "Billing payouts",
   patient_record: "Patient record",
+  office_bundle: "Entire office record",
 };
 
 /** Kinds whose rows are bounded by a date range (others ignore start/end). */
@@ -69,6 +71,15 @@ export const RANGED_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
  * staff may not — a whole record leaving the building is an owner decision.
  */
 export const PATIENT_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>(["patient_record"]);
+
+/**
+ * Kinds only HQ may request, always pinned to one explicit office: the
+ * whole-office record bundle (every patient's record plus the office's
+ * business CSVs) built by the `office-bundle-export` system job. Office
+ * staff never see or request it — handing an office its own complete
+ * record is an HQ decision (offboarding, subpoena, vendor move).
+ */
+export const HQ_OFFICE_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>(["office_bundle"]);
 
 export type ExportRequester =
   | { kind: "hq"; userId: string; identity: StaffIdentity }
@@ -145,6 +156,7 @@ const HQ_PERMISSION_FOR_KIND: Record<ExportKind, HqPermission> = {
   billing_subscriptions: "financial_read",
   billing_payouts: "financial_read",
   patient_record: "provider_manage",
+  office_bundle: "provider_manage",
 };
 
 /** HQ kinds that may run network-wide (no office named). */
@@ -179,7 +191,7 @@ export async function authorizeExport(input: {
   }
 
   if (requester.kind === "office") {
-    if (kind === "provider_directory") return { kind: "denied", status: 403, message: NO_ACCESS };
+    if (kind === "provider_directory" || HQ_OFFICE_KINDS.has(kind)) return { kind: "denied", status: 403, message: NO_ACCESS };
     if (kind.startsWith("billing_") && requester.officeRole === "staff") {
       return { kind: "denied", status: 403, message: NO_ACCESS };
     }
@@ -290,6 +302,11 @@ export function exportFileName(kind: ExportKind, scope: ExportScope, now = new D
   if (scope.officeName) parts.push(slug(scope.officeName) || "office");
   else if (scope.providerId) parts.push(slug(scope.providerId));
   else parts.push("all-offices");
+  if (HQ_OFFICE_KINDS.has(kind)) {
+    // Office bundles are ZIP parts named from this stem (see office-bundle.ts).
+    parts.push(now.toISOString().slice(0, 10));
+    return `${parts.join("_")}.zip`;
+  }
   if (scope.range) parts.push(`${scope.range.start}_${scope.range.end}`);
   return `${parts.join("_")}.csv`;
 }

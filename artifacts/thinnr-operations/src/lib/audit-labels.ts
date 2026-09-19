@@ -62,6 +62,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_record_export_requested: "Requested a patient's full record",
   patient_record_export_downloaded: "Downloaded a patient's full record",
   patient_record_export_cancelled: "Cancelled a patient's full-record export",
+  office_bundle_export_requested: "Requested an entire office's records",
+  office_bundle_export_downloaded: "Downloaded part of an office record bundle",
   security_password_changed: 'Changed their password',
   security_sessions_signed_out: 'Signed out other devices',
   security_sign_in_reported: 'Reported a sign-in as not theirs',

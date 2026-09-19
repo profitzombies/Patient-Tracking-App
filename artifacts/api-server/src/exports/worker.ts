@@ -118,11 +118,18 @@ export function exportPartObjectPath(jobId: string, part: number): string {
   return `/objects/exports/${jobId}/record-part-${String(part).padStart(2, "0")}-${randomUUID()}.zip`;
 }
 
-/** Every stored object a job owns (part 1 doubles as object_path). */
-export function jobObjectPaths(job: Pick<ExportJobRow, "object_path" | "parts">): string[] {
+/**
+ * Every stored object a job owns: part 1 doubles as object_path, and a
+ * still-building office bundle also owns its per-part file-list sidecars
+ * (`params.bundle.fileLists`).
+ */
+export function jobObjectPaths(job: Pick<ExportJobRow, "object_path" | "parts"> & { params?: Record<string, unknown> | null }): string[] {
   const paths = new Set<string>();
   if (job.object_path) paths.add(job.object_path);
   for (const part of job.parts ?? []) if (part.objectPath) paths.add(part.objectPath);
+  const bundle = job.params?.bundle;
+  const lists = bundle && typeof bundle === "object" ? (bundle as { fileLists?: unknown }).fileLists : null;
+  if (Array.isArray(lists)) for (const path of lists) if (typeof path === "string" && path.startsWith("/objects/exports/")) paths.add(path);
   return [...paths];
 }
 
@@ -338,11 +345,11 @@ export async function sweepExpiredExports(now = new Date()): Promise<{ expired: 
   const nowIso = now.toISOString();
   const due = await supabaseAdmin(
     "GET",
-    `/rest/v1/data_exports?select=id,object_path,parts,status&status=in.(queued,running,ready,failed,cancelled)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
+    `/rest/v1/data_exports?select=id,object_path,parts,params,status&status=in.(queued,running,ready,failed,cancelled)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
   );
   if (due.status >= 300 || !Array.isArray(due.json)) throw new Error(`export expiry scan failed (${due.status})`);
   let expired = 0;
-  for (const row of due.json as Array<{ id: string; object_path: string | null; parts: ExportPartRow[] | null; status: string }>) {
+  for (const row of due.json as Array<{ id: string; object_path: string | null; parts: ExportPartRow[] | null; params: Record<string, unknown> | null; status: string }>) {
     try {
       // Every part goes before the row flips; a strict delete failure keeps
       // the row (and its paths) so the next sweep retries the whole set.

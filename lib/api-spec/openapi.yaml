@@ -2103,6 +2103,23 @@ paths:
         "403": { description: Export kind not allowed for this role or scope }
         "404": { description: The named patient is not in the resolved office }
         "429": { description: Too many exports in progress }
+  /exports/office-bundle/estimate:
+    get:
+      operationId: getOfficeBundleEstimate
+      tags: [exports]
+      summary: "HQ: patient count, tombstone count, and size estimate for an entire-office record bundle"
+      parameters:
+        - name: office
+          in: query
+          required: true
+          description: Office account id
+          schema: { type: string }
+      responses:
+        "200":
+          description: What the bundle would contain
+          content: { application/json: { schema: { $ref: "#/components/schemas/OfficeBundleEstimate" } } }
+        "400": { description: No office named }
+        "403": { description: "Office users, and HQ without provider management, may not request office bundles" }
   /exports/{exportId}:
     get:
       operationId: getExport
@@ -3442,7 +3459,7 @@ components:
           items: { $ref: "#/components/schemas/OfficeSeriesPoint" }
     ExportKind:
       type: string
-      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory, billing_transactions, billing_subscriptions, billing_payouts, patient_record]
+      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory, billing_transactions, billing_subscriptions, billing_payouts, patient_record, office_bundle]
     ExportRequestInput:
       type: object
       required: [kind]
@@ -3452,6 +3469,7 @@ components:
         start: { type: string, format: date }
         end: { type: string, format: date }
         patientId: { type: ["string", "null"], description: "Patient-level kinds (patient_record): the one patient the archive is about" }
+        includeTombstones: { type: boolean, description: "Office bundles (HQ only): also list purged patients' PII-free tombstones so counts reconcile" }
     ExportPart:
       type: object
       required: [part, fileName, sizeBytes, fileCount]
@@ -3462,14 +3480,17 @@ components:
         fileCount: { type: number }
     ExportProgress:
       type: object
-      required: [stage, partsDone, partsTotal]
+      required: [stage, partsDone, partsTotal, patientsDone, patientsTotal, bytesWritten]
       properties:
-        stage: { type: string, enum: [collecting, writing, ready] }
+        stage: { type: string, enum: [collecting, writing, ready, patients, office] }
         partsDone: { type: ["number", "null"] }
         partsTotal: { type: ["number", "null"] }
+        patientsDone: { type: ["number", "null"], description: "Office bundles: patients packed so far" }
+        patientsTotal: { type: ["number", "null"], description: "Office bundles: patients in the office when the build started" }
+        bytesWritten: { type: ["number", "null"], description: "Office bundles: bytes of finished parts landed so far" }
     ExportJob:
       type: object
-      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable, parts, progress, omittedFiles, cancelRequested]
+      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable, parts, progress, omittedFiles, cancelRequested, includeTombstones]
       properties:
         id: { type: string }
         kind: { $ref: "#/components/schemas/ExportKind" }
@@ -3506,6 +3527,7 @@ components:
             - type: "null"
         omittedFiles: { type: ["number", "null"], description: "Stored files the archive names in its manifest but could not include" }
         cancelRequested: { type: boolean, description: "True while a running job has been asked to stop and the worker has not yet confirmed" }
+        includeTombstones: { type: ["boolean", "null"], description: "Office bundles: whether purged-patient tombstones were requested (null for other kinds)" }
     ExportKindOption:
       type: object
       required: [kind, label, ranged, needsOffice, needsPatient]
@@ -3531,6 +3553,20 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ExportKindOption" }
         ttlHours: { type: number }
+    OfficeBundleEstimate:
+      type: object
+      required: [office, patientCount, tombstoneCount, estimatedBytes, snapshotDate]
+      properties:
+        office:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: ["string", "null"] }
+        patientCount: { type: number }
+        tombstoneCount: { type: number, description: "Purged patients whose PII-free tombstones the bundle can list" }
+        estimatedBytes: { type: ["number", "null"], description: "The office's share (by patient count) of the latest database + storage size snapshot; null before the first snapshot" }
+        snapshotDate: { type: ["string", "null"], format: date }
     ExportDownloadResult:
       type: object
       required: [url, fileName, expiresInSeconds]

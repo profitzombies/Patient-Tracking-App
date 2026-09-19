@@ -10,8 +10,10 @@
  *   - jobs poll while queued/running, downloads mint a short-lived signed
  *     link on click, expired jobs stay listed but not downloadable,
  *   - patient-level kinds (a patient's full record) are requested from the
- *     patient page, not here; their jobs still show up in this list with
- *     build progress and one download per ZIP part.
+ *     patient page, and the entire-office bundle from the HQ office account
+ *     page (it needs the patient-count / size confirmation there), not here;
+ *     their jobs still show up in this list with build progress and one
+ *     download per ZIP part.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -85,8 +87,11 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
     mutationFn: ({ data }: { data: Parameters<typeof requestExportJob>[0] }) => requestExportJob(data),
   });
 
-  // Patient-level kinds need one patient, chosen on the patient page.
-  const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter((option) => !option.needsPatient && (!kinds || kinds.includes(option.kind)));
+  // Patient-level kinds need one patient, chosen on the patient page; the
+  // whole-office bundle is confirmed (patient count, size) on the office page.
+  const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter(
+    (option) => !option.needsPatient && option.kind !== 'office_bundle' && (!kinds || kinds.includes(option.kind)),
+  );
   const jobs: ExportJob[] = (listQuery.data?.jobs ?? []).filter((job) => !kinds || kinds.includes(job.kind));
   const ttlHours = listQuery.data?.ttlHours ?? 24;
 
@@ -272,6 +277,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
                   {count ? ` · ${count}` : ''}
                   {size ? ` · ${size}` : ''}
                   {job.parts && job.parts.length > 1 ? ` · ${job.parts.length} parts` : ''}
+                  {job.includeTombstones ? ' · includes purged-patient tombstones' : ''}
                 </p>
                 {pending && (
                   <p className="mt-1 text-[11px] text-primary" aria-live="polite" data-testid={`text-export-progress-${job.id}`}>

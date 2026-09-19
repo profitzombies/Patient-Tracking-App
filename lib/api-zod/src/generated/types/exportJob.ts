@@ -46,4 +46,9 @@ export interface ExportJob {
   omittedFiles: number | null;
   /** True while a running job has been asked to stop and the worker has not yet confirmed */
   cancelRequested: boolean;
+  /**
+     * Office bundles: whether purged-patient tombstones were requested (null for other kinds)
+     * @nullable
+     */
+  includeTombstones: boolean | null;
 }

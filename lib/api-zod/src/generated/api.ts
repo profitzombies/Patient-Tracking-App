@@ -3570,7 +3570,7 @@ export const ListExportsQueryParams = zod.object({
 export const ListExportsResponse = zod.object({
   "jobs": zod.array(zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3599,15 +3599,19 @@ export const ListExportsResponse = zod.object({
   "fileCount": zod.number()
 })).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
   "progress": zod.union([zod.object({
-  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
   "partsDone": zod.number().nullable(),
-  "partsTotal": zod.number().nullable()
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
 }),zod.null()]),
   "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
-  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
 })),
   "available": zod.array(zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "label": zod.string(),
   "ranged": zod.boolean(),
   "needsOffice": zod.boolean(),
@@ -3621,17 +3625,18 @@ export const ListExportsResponse = zod.object({
  * @summary Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
  */
 export const RequestExportBody = zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional(),
-  "patientId": zod.string().nullish().describe('Patient-level kinds (patient_record): the one patient the archive is about')
+  "patientId": zod.string().nullish().describe('Patient-level kinds (patient_record): the one patient the archive is about'),
+  "includeTombstones": zod.boolean().optional().describe('Office bundles (HQ only): also list purged patients\' PII-free tombstones so counts reconcile')
 })
 
 export const RequestExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3660,13 +3665,36 @@ export const RequestExportResponse = zod.object({
   "fileCount": zod.number()
 })).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
   "progress": zod.union([zod.object({
-  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
   "partsDone": zod.number().nullable(),
-  "partsTotal": zod.number().nullable()
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
 }),zod.null()]),
   "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
-  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
 })
+})
+
+
+/**
+ * @summary HQ: patient count, tombstone count, and size estimate for an entire-office record bundle
+ */
+export const GetOfficeBundleEstimateQueryParams = zod.object({
+  "office": zod.coerce.string().describe('Office account id')
+})
+
+export const GetOfficeBundleEstimateResponse = zod.object({
+  "office": zod.object({
+  "id": zod.string(),
+  "name": zod.string().nullable()
+}),
+  "patientCount": zod.number(),
+  "tombstoneCount": zod.number().describe('Purged patients whose PII-free tombstones the bundle can list'),
+  "estimatedBytes": zod.number().nullable().describe('The office\'s share (by patient count) of the latest database + storage size snapshot; null before the first snapshot'),
+  "snapshotDate": zod.coerce.date().nullable()
 })
 
 
@@ -3680,7 +3708,7 @@ export const GetExportParams = zod.object({
 export const GetExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3709,12 +3737,16 @@ export const GetExportResponse = zod.object({
   "fileCount": zod.number()
 })).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
   "progress": zod.union([zod.object({
-  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
   "partsDone": zod.number().nullable(),
-  "partsTotal": zod.number().nullable()
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
 }),zod.null()]),
   "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
-  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
 })
 })
 
@@ -3748,7 +3780,7 @@ export const CancelExportParams = zod.object({
 export const CancelExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3777,12 +3809,16 @@ export const CancelExportResponse = zod.object({
   "fileCount": zod.number()
 })).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
   "progress": zod.union([zod.object({
-  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "stage": zod.enum(['collecting', 'writing', 'ready', 'patients', 'office']),
   "partsDone": zod.number().nullable(),
-  "partsTotal": zod.number().nullable()
+  "partsTotal": zod.number().nullable(),
+  "patientsDone": zod.number().nullable().describe('Office bundles: patients packed so far'),
+  "patientsTotal": zod.number().nullable().describe('Office bundles: patients in the office when the build started'),
+  "bytesWritten": zod.number().nullable().describe('Office bundles: bytes of finished parts landed so far')
 }),zod.null()]),
   "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include'),
-  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed')
+  "cancelRequested": zod.boolean().describe('True while a running job has been asked to stop and the worker has not yet confirmed'),
+  "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
 })
 })
 

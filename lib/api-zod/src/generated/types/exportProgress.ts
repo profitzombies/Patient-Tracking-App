@@ -13,4 +13,19 @@ export interface ExportProgress {
   partsDone: number | null;
   /** @nullable */
   partsTotal: number | null;
+  /**
+     * Office bundles: patients packed so far
+     * @nullable
+     */
+  patientsDone: number | null;
+  /**
+     * Office bundles: patients in the office when the build started
+     * @nullable
+     */
+  patientsTotal: number | null;
+  /**
+     * Office bundles: bytes of finished parts landed so far
+     * @nullable
+     */
+  bytesWritten: number | null;
 }

@@ -13,4 +13,6 @@ export const ExportProgressStage = {
   collecting: 'collecting',
   writing: 'writing',
   ready: 'ready',
+  patients: 'patients',
+  office: 'office',
 } as const;

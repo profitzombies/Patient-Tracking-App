@@ -412,6 +412,14 @@ args = "account-closure-web"
 task = "workflow.run"
 args = "account-closure-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-bundle-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-bundle-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2698,3 +2706,26 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run 
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "office-bundle-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/exports src/routes/exports.test.ts src/lib/audit-events.test.ts src/routes/system-jobs.test.ts src/jobs/scheduler.test.ts src/jobs/definitions/retention.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-bundle-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-bundle && pnpm --filter @workspace/thinnr-operations run test:patient-record-export && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+

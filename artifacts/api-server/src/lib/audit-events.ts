@@ -71,6 +71,8 @@ export const AUDIT_ACTIONS = [
   "patient_record_export_requested",
   "patient_record_export_downloaded",
   "patient_record_export_cancelled",
+  "office_bundle_export_requested",
+  "office_bundle_export_downloaded",
   "patient_consent_recorded",
   "patient_export_requested",
   "patient_export_ready",

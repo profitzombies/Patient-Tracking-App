@@ -16,4 +16,9 @@ export interface ExportRequestInput {
   office?: string | null;
   start?: Date;
   end?: Date;
+  /**
+     * Patient-level kinds (patient_record): the one patient the archive is about
+     * @nullable
+     */
+  patientId?: string | null;
 }

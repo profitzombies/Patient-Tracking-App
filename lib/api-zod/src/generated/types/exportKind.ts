@@ -15,4 +15,8 @@ export const ExportKind = {
   audit_events: 'audit_events',
   training_completion: 'training_completion',
   provider_directory: 'provider_directory',
+  billing_transactions: 'billing_transactions',
+  billing_subscriptions: 'billing_subscriptions',
+  billing_payouts: 'billing_payouts',
+  patient_record: 'patient_record',
 } as const;

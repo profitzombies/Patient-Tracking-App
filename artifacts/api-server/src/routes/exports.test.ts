@@ -52,17 +52,31 @@ const jobRow = (overrides: Record<string, unknown> = {}) => ({
   provider_id: null, params: { start: "2026-08-01", end: "2026-09-06" }, file_name: "thinnr_office-comparison_all-offices_2026-08-01_2026-09-06.csv",
   object_path: `/objects/exports/${JOB_ID}/export-22222222-2222-4222-8222-222222222222.csv`, size_bytes: 120, row_count: 1, error: null, attempts: 1,
   created_at: "2026-09-06T10:00:00Z", started_at: "2026-09-06T10:00:01Z", completed_at: "2026-09-06T10:00:02Z",
-  expires_at: new Date(Date.now() + 3_600_000).toISOString(), download_count: 0, last_downloaded_at: null, ...overrides,
+  expires_at: new Date(Date.now() + 3_600_000).toISOString(), download_count: 0, last_downloaded_at: null, parts: null, ...overrides,
+});
+const PATIENT_ID = "55555555-5555-4555-8555-555555555555";
+const recordParts = [
+  { part: 1, fileName: "thinnr_patient-record_ann-lee_2026-09-06_part-01-of-02.zip", objectPath: `/objects/exports/${JOB_ID}/record-part-01-66666666-6666-4666-8666-666666666666.zip`, sizeBytes: 10, fileCount: 20 },
+  { part: 2, fileName: "thinnr_patient-record_ann-lee_2026-09-06_part-02-of-02.zip", objectPath: `/objects/exports/${JOB_ID}/record-part-02-77777777-7777-4777-8777-777777777777.zip`, sizeBytes: 20, fileCount: 3 },
+];
+const recordRow = (overrides: Record<string, unknown> = {}) => jobRow({
+  kind: "patient_record", requested_by: "office-user", requester_kind: "provider", requester_role: null, provider_id: "p1",
+  params: { officeName: "One", patientId: PATIENT_ID, patientName: "Ann Lee", omitted: 1 }, file_name: "thinnr_patient-record_ann-lee_2026-09-06.zip",
+  object_path: recordParts[0].objectPath, size_bytes: 30, row_count: 23, parts: recordParts, ...overrides,
 });
 
 /** Route the PostgREST calls the request handler makes by path prefix. */
-function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null; exportLinkHours?: number }) {
+function adminScript(handlers: { pending?: unknown[]; inserted?: Record<string, unknown>; job?: Record<string, unknown> | null; exportLinkHours?: number; patient?: Record<string, unknown> | null }) {
   mocks.admin.mockReset().mockImplementation(async (method: string, path: string, body?: unknown) => {
     if (path.startsWith("/rest/v1/hq_organization_settings")) {
       if (handlers.exportLinkHours === undefined) throw new Error("policy unavailable");
       return response([{ export_link_hours: handlers.exportLinkHours, version: 1 }]);
     }
     if (path.startsWith("/rest/v1/data_exports?requested_by=") && path.includes("status=in.(queued,running)")) return response(handlers.pending ?? []);
+    if (method === "GET" && path.startsWith("/rest/v1/patients?id=eq.")) {
+      if (handlers.patient === null) return response([]);
+      return response([{ id: PATIENT_ID, first_name: "Ann", last_name: "Lee", name: null, ...(handlers.patient ?? {}) }]);
+    }
     if (method === "POST" && path === "/rest/v1/data_exports") return response([{ ...jobRow({ status: "queued", object_path: null, completed_at: null }), ...(body as Record<string, unknown>), ...(handlers.inserted ?? {}) }], 201);
     if (method === "GET" && path.startsWith(`/rest/v1/data_exports?id=eq.${JOB_ID}`)) return response(handlers.job === null ? [] : [handlers.job ?? jobRow()]);
     if (method === "GET" && path.startsWith("/rest/v1/data_exports?requested_by=")) return response([handlers.job ?? jobRow()]);
@@ -201,6 +215,79 @@ describe("requesting exports", () => {
     const json = await (await call("/exports")).json() as { ttlHours: number };
     expect(json.ttlHours).toBe(48);
   });
+  describe("a patient's full record", () => {
+    it("lets an office owner request it for a patient of their office, audited against the patient", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      adminScript({});
+      const res = await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID });
+      expect(res.status).toBe(202);
+      const body = await res.json() as { job: { scope: { patientId: string; patientName: string }; fileName: string; parts: unknown; progress: unknown } };
+      expect(body.job.scope).toMatchObject({ patientId: PATIENT_ID, patientName: "Ann Lee" });
+      expect(body.job.fileName).toMatch(/^thinnr_patient-record_ann-lee_\d{4}-\d{2}-\d{2}\.zip$/);
+      expect(body.job.parts).toBeNull();
+      const lookup = mocks.admin.mock.calls.find(([, path]) => String(path).startsWith("/rest/v1/patients?id=eq."))!;
+      expect(lookup[1]).toContain(`id=eq.${PATIENT_ID}`);
+      expect(lookup[1]).toContain("provider_id=eq.p1");
+      expect(lookup[1]).not.toContain("activation_status");
+      const insert = mocks.admin.mock.calls.find(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")!;
+      expect(insert[2]).toMatchObject({ kind: "patient_record", provider_id: "p1", params: { officeName: "One", patientId: PATIENT_ID, patientName: "Ann Lee" } });
+      expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+        action: "patient_record_export_requested", targetKind: "patient", targetId: PATIENT_ID, providerId: "p1",
+        metadata: expect.objectContaining({ kind: "patient_record", exportId: JOB_ID }),
+      }));
+      expect(mocks.drain).toHaveBeenCalled();
+    });
+    it("admits admins but refuses office staff with a specific message and no database work", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue({ ...officeScope, scope: { ...officeScope.scope, actorKind: "team_member", officeRole: "staff" } });
+      adminScript({});
+      const denied = await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID });
+      expect(denied.status).toBe(403);
+      expect((await denied.json() as { error: string }).error).toContain("owners and admins");
+      expect(mocks.admin.mock.calls.some(([method]) => method === "POST")).toBe(false);
+      expect(mocks.audit).not.toHaveBeenCalled();
+      mocks.scope.mockResolvedValue({ ...officeScope, scope: { ...officeScope.scope, actorKind: "team_member", officeRole: "admin" } });
+      expect((await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID })).status).toBe(202);
+    });
+    it("needs a patient id, and answers 404 when the patient is not in the office", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      adminScript({});
+      expect((await call("/exports", "POST", { kind: "patient_record" })).status).toBe(400);
+      expect((await call("/exports", "POST", { kind: "patient_record", patientId: "not-a-uuid" })).status).toBe(400);
+      adminScript({ patient: null });
+      const missing = await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID });
+      expect(missing.status).toBe(404);
+      expect(mocks.admin.mock.calls.some(([method]) => method === "POST")).toBe(false);
+    });
+    it("makes HQ name the office and hold provider_manage there", async () => {
+      mocks.staff.mockReturnValue(hq("admin"));
+      adminScript({});
+      expect((await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID })).status).toBe(400);
+      mocks.scope.mockResolvedValue({ kind: "ok", scope: { ...officeScope.scope, actorUserId: "hq-user", actorKind: "hq" } });
+      const res = await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID, office: "acct-p1" });
+      expect(res.status).toBe(202);
+      expect(mocks.scope.mock.calls[0][0]).toMatchObject({ explicitOfficeId: "acct-p1", hqPermission: "provider_manage" });
+      const insert = mocks.admin.mock.calls.find(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")!;
+      expect(insert[2]).toMatchObject({ requester_kind: "hq", provider_id: "p1", params: { patientId: PATIENT_ID } });
+      mocks.staff.mockReturnValue(hq("clinical"));
+      expect((await call("/exports", "POST", { kind: "patient_record", patientId: PATIENT_ID, office: "acct-p1" })).status).toBe(403);
+    });
+    it("lists one patient's record exports for the patient page, still pinned to the caller", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      adminScript({ job: recordRow() });
+      const json = await (await call(`/exports?patient=${PATIENT_ID}`)).json() as { jobs: Array<{ parts: unknown[]; omittedFiles: number; scope: { patientName: string } }>; available: Array<{ kind: string; needsPatient: boolean }> };
+      const list = mocks.admin.mock.calls.find(([, path]) => String(path).includes("order=created_at.desc"))!;
+      expect(list[1]).toContain("requested_by=eq.office-user");
+      expect(list[1]).toContain(`params->>patientId=eq.${PATIENT_ID}`);
+      expect(json.jobs[0].parts).toHaveLength(2);
+      expect(json.jobs[0].omittedFiles).toBe(1);
+      expect(json.jobs[0].scope.patientName).toBe("Ann Lee");
+      expect(json.available.find((k) => k.kind === "patient_record")?.needsPatient).toBe(true);
+    });
+  });
   it("lists only the caller's jobs and the kinds their role may request", async () => {
     mocks.staff.mockReturnValue(hq("clinical"));
     adminScript({});
@@ -225,6 +312,32 @@ describe("downloading exports", () => {
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "data_export_downloaded", targetId: JOB_ID }));
     const lookup = mocks.admin.mock.calls.find(([method, path]) => method === "GET" && String(path).includes("id=eq."))!;
     expect(lookup[1]).toContain("requested_by=eq.hq-user");
+  });
+  it("signs the requested part of a multi-part record, audits it against the patient, and 404s unknown parts", async () => {
+    mocks.staff.mockReturnValue(null);
+    mocks.scope.mockResolvedValue(officeScope);
+    adminScript({ job: recordRow() });
+    mocks.signed.mockReset().mockResolvedValue("https://storage.example/part");
+    const second = await call(`/exports/${JOB_ID}/download-url?part=2`);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({ fileName: recordParts[1].fileName, part: 2 });
+    expect(mocks.signed).toHaveBeenCalledWith(recordParts[1].objectPath, 300);
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "patient_record_export_downloaded", targetKind: "patient", targetId: PATIENT_ID, providerId: "p1",
+      metadata: { kind: "patient_record", exportId: JOB_ID, part: 2, parts: 2 },
+    }));
+    // No ?part= means part 1.
+    const first = await call(`/exports/${JOB_ID}/download-url`);
+    expect(await first.json()).toMatchObject({ fileName: recordParts[0].fileName, part: 1 });
+    expect(mocks.signed).toHaveBeenLastCalledWith(recordParts[0].objectPath, 300);
+    expect((await call(`/exports/${JOB_ID}/download-url?part=3`)).status).toBe(404);
+    expect((await call(`/exports/${JOB_ID}/download-url?part=x`)).status).toBe(404);
+    // CSV jobs have no parts: only part 1 exists.
+    adminScript({});
+    mocks.staff.mockReturnValue(hq("admin"));
+    expect((await call(`/exports/${JOB_ID}/download-url?part=2`)).status).toBe(404);
+    expect(mocks.signed).toHaveBeenCalledTimes(2);
+    mocks.signed.mockReset();
   });
   it("hides other people's jobs behind a neutral 404", async () => {
     mocks.staff.mockReturnValue(hq("admin"));
@@ -253,15 +366,30 @@ describe("job DTO and kind menu", () => {
     expect(dto.downloadable).toBe(false);
     expect(exportJobDto(jobRow(), Date.parse("2026-01-01T00:00:00Z")).downloadable).toBe(true);
   });
+  it("reports parts and progress for a record job", () => {
+    const ready = exportJobDto(recordRow(), Date.parse("2026-01-01T00:00:00Z"));
+    expect(ready.parts).toEqual(recordParts.map(({ part, fileName, sizeBytes, fileCount }) => ({ part, fileName, sizeBytes, fileCount })));
+    expect(ready.progress).toBeNull();
+    const running = exportJobDto(recordRow({ status: "running", object_path: null, parts: null, params: { patientId: PATIENT_ID, progress: { stage: "writing", partsDone: 1, partsTotal: 3 } } }), Date.parse("2026-01-01T00:00:00Z"));
+    expect(running.progress).toEqual({ stage: "writing", partsDone: 1, partsTotal: 3 });
+    expect(running.parts).toBeNull();
+    expect(exportJobDto(jobRow(), Date.parse("2026-01-01T00:00:00Z")).parts).toBeNull();
+  });
   it("offers office staff everything except the directory, and flags HQ patient activity as office-bound", () => {
     const office = availableKinds({ kind: "office", userId: "o", actorKind: "team_member", providerId: "p1", officeName: "One", officeRole: "admin" });
     expect(office.map((k) => k.kind)).toEqual([
       "office_comparison", "patient_activity", "audit_events", "training_completion",
-      "billing_transactions", "billing_subscriptions", "billing_payouts",
+      "billing_transactions", "billing_subscriptions", "billing_payouts", "patient_record",
     ]);
     expect(office.every((k) => !k.needsOffice)).toBe(true);
+    expect(office.find((k) => k.kind === "patient_record")?.needsPatient).toBe(true);
+    const staff = availableKinds({ kind: "office", userId: "o", actorKind: "team_member", providerId: "p1", officeName: "One", officeRole: "staff" });
+    expect(staff.some((k) => k.kind === "patient_record")).toBe(false);
     const admin = availableKinds({ kind: "hq", userId: "h", identity: { userId: "h", role: "hq_admin", departmentRole: "super_admin" } });
     expect(admin.find((k) => k.kind === "patient_activity")?.needsOffice).toBe(true);
+    expect(admin.find((k) => k.kind === "patient_record")).toMatchObject({ needsOffice: true, needsPatient: true });
+    const clinical = availableKinds({ kind: "hq", userId: "h", identity: { userId: "h", role: "hq_admin", departmentRole: "clinical" } });
+    expect(clinical.some((k) => k.kind === "patient_record")).toBe(false);
     expect(admin.find((k) => k.kind === "provider_directory")?.ranged).toBe(false);
   });
 });

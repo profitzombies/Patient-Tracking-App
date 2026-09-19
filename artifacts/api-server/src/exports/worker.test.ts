@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ admin: vi.fn(), save: vi.fn(), del: vi.fn(), rollups: vi.fn() }));
+const mocks = vi.hoisted(() => ({ admin: vi.fn(), save: vi.fn(), saveStream: vi.fn(), del: vi.fn(), rollups: vi.fn(), buildRecord: vi.fn() }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
-vi.mock("../lib/objectStorage", () => ({ objectStorage: { saveBuffer: mocks.save, deleteObjectStrict: mocks.del } }));
+vi.mock("../lib/objectStorage", () => ({ objectStorage: { saveBuffer: mocks.save, saveStream: mocks.saveStream, deleteObjectStrict: mocks.del } }));
 vi.mock("../routes/operational-rollups", () => ({ loadOfficeRollups: mocks.rollups }));
+vi.mock("./patient-record", () => ({ buildPatientRecordArchive: mocks.buildRecord }));
 import { csvBuffer, csvCell } from "./csv";
 import { AUDIT_EXPORT_ACTIONS, GENERATORS } from "./generators";
 import { drainQueuedExports, runExportJob, scopeFromJob, sweepExpiredExports, type ExportJobRow } from "./worker";
@@ -14,7 +15,7 @@ const job = (overrides: Partial<ExportJobRow> = {}): ExportJobRow => ({
   id: JOB_ID, kind: "office_comparison", status: "running", requested_by: "u", requester_kind: "hq", requester_role: "admin",
   provider_id: null, params: { start: "2026-08-01", end: "2026-09-06" }, file_name: "x.csv", object_path: null, size_bytes: null, row_count: null,
   error: null, attempts: 1, created_at: "2026-09-06T00:00:00Z", started_at: "2026-09-06T00:00:01Z", completed_at: null,
-  expires_at: "2026-09-07T00:00:00Z", download_count: 0, last_downloaded_at: null, ...overrides,
+  expires_at: "2026-09-07T00:00:00Z", download_count: 0, last_downloaded_at: null, parts: null, ...overrides,
 });
 const office = (overrides: Record<string, unknown> = {}) => ({
   providerId: "p1", officeName: "=One, Inc", providerName: "Dr One", firstPatientDate: "2026-09-01", available: true,
@@ -22,7 +23,7 @@ const office = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-beforeEach(() => { mocks.admin.mockReset(); mocks.save.mockReset().mockResolvedValue(undefined); mocks.del.mockReset().mockResolvedValue(undefined); mocks.rollups.mockReset(); });
+beforeEach(() => { mocks.admin.mockReset(); mocks.save.mockReset().mockResolvedValue(undefined); mocks.saveStream.mockReset(); mocks.del.mockReset().mockResolvedValue(undefined); mocks.rollups.mockReset(); mocks.buildRecord.mockReset(); });
 
 describe("csv", () => {
   it("quotes delimiters and neutralises formula-leading cells", () => {
@@ -159,19 +160,76 @@ describe("job lifecycle", () => {
     expect(claims).toBe(3);
     expect(mocks.save).toHaveBeenCalledTimes(2);
   });
+  it("streams every patient record part to storage and records the set in one ready flip", async () => {
+    const patches: Array<[string, Record<string, unknown>]> = [];
+    mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
+      if (method === "PATCH") { patches.push([path, body!]); return response([{ id: JOB_ID }]); }
+      throw new Error(path);
+    });
+    mocks.saveStream.mockImplementation(async (path: string) => ({ sizeBytes: path.includes("part-01") ? 10 : 20 }));
+    mocks.buildRecord.mockImplementation(async (patientId: string, options: { fileNameStem: string; writePart: (p: { part: number; fileName: string }, s: unknown) => Promise<{ sizeBytes: number }>; onPartWritten?: (d: number, t: number) => Promise<void> }) => {
+      expect(patientId).toBe("pt1");
+      expect(options.fileNameStem).toBe("thinnr_patient-record_ann-lee_2026-09-06");
+      const parts = [];
+      for (const part of [1, 2]) {
+        const fileName = `${options.fileNameStem}_part-0${part}-of-02.zip`;
+        const { sizeBytes } = await options.writePart({ part, fileName }, "stream");
+        parts.push({ part, fileName, sizeBytes, fileCount: part === 1 ? 20 : 3 });
+        await options.onPartWritten?.(part, 2);
+      }
+      return { parts, manifest: { fileCount: 23, omitted: [{ file: "media/x.jpg" }] } };
+    });
+    await runExportJob(job({ kind: "patient_record", provider_id: "p1", requester_kind: "provider", params: { officeName: "One", patientId: "pt1", patientName: "Ann Lee" }, file_name: "thinnr_patient-record_ann-lee_2026-09-06.zip" }));
+    expect(mocks.saveStream).toHaveBeenCalledTimes(2);
+    const [path1, , type1] = mocks.saveStream.mock.calls[0];
+    expect(path1).toMatch(new RegExp(`^/objects/exports/${JOB_ID}/record-part-01-[0-9a-f-]{36}\\.zip$`));
+    expect(type1).toBe("application/zip");
+    // Every patch is guarded on status=running; progress is visible along the way.
+    expect(patches.every(([path]) => path.includes("status=eq.running"))).toBe(true);
+    expect(patches.map(([, body]) => (body.params as { progress: { stage: string; partsDone?: number } }).progress)).toEqual([
+      { stage: "collecting" }, { stage: "writing", partsDone: 0 }, { stage: "writing", partsDone: 1, partsTotal: 2 }, { stage: "writing", partsDone: 2, partsTotal: 2 }, { stage: "ready", partsDone: 2, partsTotal: 2 },
+    ]);
+    const ready = patches[patches.length - 1][1];
+    expect(ready).toMatchObject({ status: "ready", object_path: path1, size_bytes: 30, row_count: 23, params: { patientId: "pt1", omitted: 1 } });
+    expect(ready.parts).toEqual([
+      { part: 1, fileName: "thinnr_patient-record_ann-lee_2026-09-06_part-01-of-02.zip", objectPath: path1, sizeBytes: 10, fileCount: 20 },
+      { part: 2, fileName: "thinnr_patient-record_ann-lee_2026-09-06_part-02-of-02.zip", objectPath: mocks.saveStream.mock.calls[1][0], sizeBytes: 20, fileCount: 3 },
+    ]);
+    expect(mocks.del).not.toHaveBeenCalled();
+  });
+  it("removes every written part when the record build fails, then marks the job failed", async () => {
+    const patches: Array<[string, Record<string, unknown>]> = [];
+    mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
+      if (method === "PATCH") { patches.push([path, body!]); return response([{ id: JOB_ID }]); }
+      throw new Error(path);
+    });
+    mocks.saveStream.mockResolvedValue({ sizeBytes: 5 });
+    mocks.buildRecord.mockImplementation(async (_id: string, options: { writePart: (p: { part: number; fileName: string }, s: unknown) => Promise<unknown> }) => {
+      await options.writePart({ part: 1, fileName: "a.zip" }, "s");
+      throw new Error("object read failed https://storage.example/secret");
+    });
+    await runExportJob(job({ kind: "patient_record", provider_id: "p1", params: { patientId: "pt1", patientName: "Ann" }, file_name: "x.zip" }));
+    expect(mocks.del).toHaveBeenCalledTimes(1);
+    expect(mocks.del.mock.calls[0][0]).toBe(mocks.saveStream.mock.calls[0][0]);
+    const failed = patches[patches.length - 1][1];
+    expect(failed).toMatchObject({ status: "failed", error: "object read failed [url]" });
+  });
   it("expires past-due jobs by deleting the object first, keeps rows whose delete failed, and prunes old expired rows", async () => {
     const patches: Array<[string, Record<string, unknown>]> = [];
     mocks.del.mockImplementation(async (path: string) => { if (path.includes("boom")) throw new Error("storage down"); });
     mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
-      if (method === "GET") { expect(path).toContain("status=in.(queued,running,ready,failed)"); return response([{ id: "a", object_path: "/objects/exports/a/export-1.csv", status: "ready" }, { id: "b", object_path: "/objects/exports/b/boom.csv", status: "ready" }, { id: "c", object_path: null, status: "queued" }]); }
+      if (method === "GET") { expect(path).toContain("status=in.(queued,running,ready,failed)"); expect(path).toContain("select=id,object_path,parts,status"); return response([{ id: "a", object_path: "/objects/exports/a/export-1.csv", status: "ready" }, { id: "b", object_path: "/objects/exports/b/boom.csv", status: "ready" }, { id: "c", object_path: null, status: "queued" }, { id: "d", object_path: "/objects/exports/d/record-part-01-x.zip", parts: [{ part: 1, objectPath: "/objects/exports/d/record-part-01-x.zip" }, { part: 2, objectPath: "/objects/exports/d/record-part-02-y.zip" }], status: "ready" }]); }
       if (method === "PATCH") { patches.push([path, body!]); return response([{ id: 1 }]); }
       if (method === "DELETE") { expect(path).toContain("status=eq.expired"); return response([{ id: "old" }]); }
       throw new Error(path);
     });
     const result = await sweepExpiredExports(new Date("2026-09-06T00:00:00Z"));
-    expect(result).toEqual({ expired: 2, pruned: 1 });
-    expect(patches.map(([path]) => path)).toEqual([expect.stringContaining("id=eq.a"), expect.stringContaining("id=eq.c")]);
-    expect(patches[0][1]).toEqual({ status: "expired", object_path: null });
+    expect(result).toEqual({ expired: 3, pruned: 1 });
+    expect(patches.map(([path]) => path)).toEqual([expect.stringContaining("id=eq.a"), expect.stringContaining("id=eq.c"), expect.stringContaining("id=eq.d")]);
+    // Both parts of the multi-part record go, not just the object_path.
+    expect(mocks.del.mock.calls.map(([path]) => path)).toEqual(expect.arrayContaining(["/objects/exports/d/record-part-01-x.zip", "/objects/exports/d/record-part-02-y.zip"]));
+    expect(mocks.del).toHaveBeenCalledTimes(4);
+    expect(patches[0][1]).toEqual({ status: "expired", object_path: null, parts: null });
     expect(patches[1][1]).toMatchObject({ status: "expired", error: "Expired before it could finish." });
   });
 });

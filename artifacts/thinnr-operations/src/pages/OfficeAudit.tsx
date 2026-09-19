@@ -32,7 +32,8 @@ const DEFAULT_ACTIONS = [
   'office_team_deactivated', 'office_team_reactivated', 'office_team_signed_out', 'conversation_transcript_read',
   'conversation_replied', 'conversation_assigned', 'conversation_status_changed', 'conversation_note_added',
   'conversation_escalated', 'conversation_escalation_resolved',
-  'data_export_requested', 'data_export_downloaded', 'office_team_sessions_viewed', 'patient_sessions_viewed',
+  'data_export_requested', 'data_export_downloaded', 'patient_record_export_requested', 'patient_record_export_downloaded',
+  'office_team_sessions_viewed', 'patient_sessions_viewed',
   'patient_signed_out', 'security_password_changed', 'security_sessions_signed_out', 'security_sign_in_reported',
   'security_recovery_completed', 'access_denied',
 ];

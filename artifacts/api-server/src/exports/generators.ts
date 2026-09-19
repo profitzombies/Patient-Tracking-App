@@ -45,8 +45,10 @@ export const AUDIT_EXPORT_ACTIONS = [
   "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
+  "patient_record_export_requested",
+  "patient_record_export_downloaded",
 ] as const;
-const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows"]);
+const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts"]);
 
 async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
   const rows: Record<string, unknown>[] = [];
@@ -393,4 +395,9 @@ export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<Expo
   billing_transactions: billingTransactions,
   billing_subscriptions: billingSubscriptions,
   billing_payouts: billingPayouts,
+  // Patient records are multi-part ZIPs built by exports/patient-record.ts;
+  // the worker branches before reaching this table.
+  patient_record: async () => {
+    throw new Error("patient_record is not a CSV export");
+  },
 };

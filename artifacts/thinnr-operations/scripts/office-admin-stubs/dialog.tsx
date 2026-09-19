@@ -16,9 +16,9 @@ export function Dialog({ open = false, onOpenChange, children }: { open?: boolea
 export function DialogTrigger({ children }: { children: ReactNode; asChild?: boolean }) { return <>{children}</>; }
 export function DialogPortal({ children }: { children: ReactNode }) { return <>{children}</>; }
 export function DialogOverlay() { return null; }
-export function DialogContent({ children, className }: { children: ReactNode; className?: string }) {
+export function DialogContent({ children, className, ...rest }: { children: ReactNode; className?: string; 'data-testid'?: string }) {
   const { open } = useContext(Ctx);
-  return open ? <div role="dialog" aria-modal="true" className={className}>{children}</div> : null;
+  return open ? <div role="dialog" aria-modal="true" className={className} data-testid={rest['data-testid']}>{children}</div> : null;
 }
 export function DialogClose({ children }: { children?: ReactNode; asChild?: boolean; className?: string }) {
   const { onOpenChange } = useContext(Ctx);

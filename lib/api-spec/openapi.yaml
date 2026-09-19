@@ -2055,6 +2055,12 @@ paths:
       operationId: listExports
       tags: [exports]
       summary: The caller's recent export jobs and the kinds they may request
+      parameters:
+        - name: patient
+          in: query
+          required: false
+          description: Narrow the list to one patient's record exports (still the caller's own jobs)
+          schema: { type: string }
       responses:
         "200":
           description: Export jobs newest first
@@ -2062,7 +2068,7 @@ paths:
     post:
       operationId: requestExport
       tags: [exports]
-      summary: Queue a CSV export scoped to the caller's permissions and office
+      summary: Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
       requestBody:
         required: true
         content:
@@ -2072,8 +2078,9 @@ paths:
         "202":
           description: Export queued
           content: { application/json: { schema: { $ref: "#/components/schemas/ExportJobResult" } } }
-        "400": { description: Invalid kind or office or range }
+        "400": { description: "Invalid kind or office or range, or a patient-level kind without a patient" }
         "403": { description: Export kind not allowed for this role or scope }
+        "404": { description: The named patient is not in the resolved office }
         "429": { description: Too many exports in progress }
   /exports/{exportId}:
     get:
@@ -2091,14 +2098,19 @@ paths:
     get:
       operationId: getExportDownloadUrl
       tags: [exports]
-      summary: Mint a short-lived signed download link for a ready export
+      summary: Mint a short-lived signed download link for a ready export (one numbered part of a multi-part archive)
       parameters:
         - $ref: "#/components/parameters/ExportId"
+        - name: part
+          in: query
+          required: false
+          description: Which numbered ZIP part to sign (multi-part archives; default 1)
+          schema: { type: number }
       responses:
         "200":
           description: Signed link
           content: { application/json: { schema: { $ref: "#/components/schemas/ExportDownloadResult" } } }
-        "404": { description: Not the caller's export }
+        "404": { description: "Not the caller's export, or no such part" }
         "409": { description: Export not ready }
         "410": { description: Export expired }
   /hq/overview:
@@ -3342,7 +3354,7 @@ components:
           items: { $ref: "#/components/schemas/OfficeSeriesPoint" }
     ExportKind:
       type: string
-      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory]
+      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory, billing_transactions, billing_subscriptions, billing_payouts, patient_record]
     ExportRequestInput:
       type: object
       required: [kind]
@@ -3351,9 +3363,25 @@ components:
         office: { type: ["string", "null"], description: "Office account id (HQ only) - office staff are pinned to their own office" }
         start: { type: string, format: date }
         end: { type: string, format: date }
+        patientId: { type: ["string", "null"], description: "Patient-level kinds (patient_record): the one patient the archive is about" }
+    ExportPart:
+      type: object
+      required: [part, fileName, sizeBytes, fileCount]
+      properties:
+        part: { type: number }
+        fileName: { type: string }
+        sizeBytes: { type: number }
+        fileCount: { type: number }
+    ExportProgress:
+      type: object
+      required: [stage, partsDone, partsTotal]
+      properties:
+        stage: { type: string, enum: [collecting, writing, ready] }
+        partsDone: { type: ["number", "null"] }
+        partsTotal: { type: ["number", "null"] }
     ExportJob:
       type: object
-      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable]
+      required: [id, kind, label, status, scope, range, fileName, sizeBytes, rowCount, error, createdAt, completedAt, expiresAt, downloadCount, downloadable, parts, progress, omittedFiles]
       properties:
         id: { type: string }
         kind: { $ref: "#/components/schemas/ExportKind" }
@@ -3361,10 +3389,12 @@ components:
         status: { type: string, enum: [queued, running, ready, failed, expired] }
         scope:
           type: object
-          required: [providerId, officeName]
+          required: [providerId, officeName, patientId, patientName]
           properties:
             providerId: { type: ["string", "null"] }
             officeName: { type: ["string", "null"] }
+            patientId: { type: ["string", "null"] }
+            patientName: { type: ["string", "null"] }
         range:
           oneOf:
             - $ref: "#/components/schemas/DateRangeKeys"
@@ -3378,14 +3408,24 @@ components:
         expiresAt: { type: string }
         downloadCount: { type: number }
         downloadable: { type: boolean }
+        parts:
+          type: ["array", "null"]
+          description: Multi-part archives (patient records) once ready; null for single-file exports
+          items: { $ref: "#/components/schemas/ExportPart" }
+        progress:
+          oneOf:
+            - $ref: "#/components/schemas/ExportProgress"
+            - type: "null"
+        omittedFiles: { type: ["number", "null"], description: "Stored files the archive names in its manifest but could not include" }
     ExportKindOption:
       type: object
-      required: [kind, label, ranged, needsOffice]
+      required: [kind, label, ranged, needsOffice, needsPatient]
       properties:
         kind: { $ref: "#/components/schemas/ExportKind" }
         label: { type: string }
         ranged: { type: boolean }
         needsOffice: { type: boolean }
+        needsPatient: { type: boolean }
     ExportJobResult:
       type: object
       required: [job]
@@ -3409,6 +3449,7 @@ components:
         url: { type: string }
         fileName: { type: ["string", "null"] }
         expiresInSeconds: { type: number }
+        part: { type: ["number", "null"], description: "Which numbered part was signed (null for single-file exports)" }
     OperationalRollup:
       type: object
       required: [providerCount, totalPatients, activePatients, enrollments30d, engaged7d, needsAttention, inactive, invited, watchlist, loggingLapsed, checkInsOverdue, avgPoundsLost, inbox]

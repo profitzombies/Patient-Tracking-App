@@ -11,4 +11,8 @@ export type ExportJobScope = {
   providerId: string | null;
   /** @nullable */
   officeName: string | null;
+  /** @nullable */
+  patientId: string | null;
+  /** @nullable */
+  patientName: string | null;
 };

@@ -20,6 +20,7 @@ import {
   type HqPermission,
   type StaffIdentity,
 } from "../lib/staff-auth";
+import { supabaseAdmin } from "../lib/supabase-admin";
 import type { DateRangeKeys } from "../routes/operational-rollups";
 
 export const EXPORT_KINDS = [
@@ -31,6 +32,7 @@ export const EXPORT_KINDS = [
   "billing_transactions",
   "billing_subscriptions",
   "billing_payouts",
+  "patient_record",
 ] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
@@ -47,6 +49,7 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   billing_transactions: "Billing transactions",
   billing_subscriptions: "Billing subscriptions",
   billing_payouts: "Billing payouts",
+  patient_record: "Patient record",
 };
 
 /** Kinds whose rows are bounded by a date range (others ignore start/end). */
@@ -59,6 +62,13 @@ export const RANGED_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "billing_subscriptions",
   "billing_payouts",
 ]);
+
+/**
+ * Kinds that concern exactly one patient (the request must name one). Office
+ * owners/admins and HQ with provider management may request them; office
+ * staff may not — a whole record leaving the building is an owner decision.
+ */
+export const PATIENT_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>(["patient_record"]);
 
 export type ExportRequester =
   | { kind: "hq"; userId: string; identity: StaffIdentity }
@@ -117,6 +127,8 @@ export interface ExportScope {
   requesterKind: "hq" | "provider" | "team_member";
   requesterRole: HqDepartmentRole | null;
   range: DateRangeKeys | null;
+  /** Set for PATIENT_KINDS only: the one patient the job is about. */
+  patient: { id: string; name: string } | null;
 }
 
 export type ScopeResult =
@@ -132,6 +144,7 @@ const HQ_PERMISSION_FOR_KIND: Record<ExportKind, HqPermission> = {
   billing_transactions: "financial_read",
   billing_subscriptions: "financial_read",
   billing_payouts: "financial_read",
+  patient_record: "provider_manage",
 };
 
 /** HQ kinds that may run network-wide (no office named). */
@@ -153,11 +166,16 @@ export async function authorizeExport(input: {
   kind: ExportKind;
   requestedOffice: string | null;
   range: DateRangeKeys | null;
+  patientId?: string | null;
 }): Promise<ScopeResult> {
   const { requester, kind } = input;
   const range = RANGED_KINDS.has(kind) ? input.range : null;
   if (RANGED_KINDS.has(kind) && !range) {
     return { kind: "denied", status: 400, message: "Choose a date range for this export." };
+  }
+  const patientId = PATIENT_KINDS.has(kind) ? input.patientId ?? null : null;
+  if (PATIENT_KINDS.has(kind) && !patientId) {
+    return { kind: "denied", status: 400, message: "Choose a patient for this export." };
   }
 
   if (requester.kind === "office") {
@@ -165,6 +183,11 @@ export async function authorizeExport(input: {
     if (kind.startsWith("billing_") && requester.officeRole === "staff") {
       return { kind: "denied", status: 403, message: NO_ACCESS };
     }
+    if (PATIENT_KINDS.has(kind) && requester.officeRole === "staff") {
+      return { kind: "denied", status: 403, message: "Only office owners and admins can download a patient's full record." };
+    }
+    const patient = patientId ? await findOfficePatient(requester.providerId, patientId) : null;
+    if (patientId && !patient) return { kind: "denied", status: 404, message: PATIENT_NOT_FOUND };
     return {
       kind: "ok",
       scope: {
@@ -173,6 +196,7 @@ export async function authorizeExport(input: {
         requesterKind: requester.actorKind,
         requesterRole: null,
         range,
+        patient,
       },
     };
   }
@@ -200,7 +224,7 @@ export async function authorizeExport(input: {
     }
     return {
       kind: "ok",
-      scope: { providerId: null, officeName: null, requesterKind: "hq", requesterRole: hqRole, range },
+      scope: { providerId: null, officeName: null, requesterKind: "hq", requesterRole: hqRole, range, patient: null },
     };
   }
 
@@ -213,6 +237,8 @@ export async function authorizeExport(input: {
     requireUnlocked: false,
   });
   if (office.kind !== "ok") return office;
+  const patient = patientId ? await findOfficePatient(office.scope.providerId, patientId) : null;
+  if (patientId && !patient) return { kind: "denied", status: 404, message: PATIENT_NOT_FOUND };
   return {
     kind: "ok",
     scope: {
@@ -221,12 +247,34 @@ export async function authorizeExport(input: {
       requesterKind: "hq",
       requesterRole: hqRole,
       range,
+      patient,
     },
   };
 }
 
+const PATIENT_NOT_FOUND = "That patient isn't in this office.";
+
+/**
+ * The patient must belong to the resolved office. Every chart state counts
+ * (open, paused, discharged, closed) — a right-of-access request does not
+ * care whether the patient is still active. Purged patients have no row.
+ */
+export async function findOfficePatient(providerId: string, patientId: string): Promise<{ id: string; name: string } | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(patientId)) return null;
+  const res = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${encodeURIComponent(patientId)}&provider_id=eq.${encodeURIComponent(providerId)}&select=id,first_name,last_name,name&limit=1`,
+  );
+  if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`patient lookup failed (${res.status})`);
+  const row = res.json[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const full = [row.first_name, row.last_name].filter((part) => typeof part === "string" && part.trim()).map((part) => String(part).trim()).join(" ");
+  const name = full || (typeof row.name === "string" && row.name.trim()) || "Patient";
+  return { id: String(row.id), name };
+}
+
 /** Human file name: kind + scope + range, safe for the file_name check. */
-export function exportFileName(kind: ExportKind, scope: ExportScope): string {
+export function exportFileName(kind: ExportKind, scope: ExportScope, now = new Date()): string {
   const slug = (value: string) =>
     value
       .toLowerCase()
@@ -234,6 +282,11 @@ export function exportFileName(kind: ExportKind, scope: ExportScope): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
   const parts = ["thinnr", kind.replace(/_/g, "-")];
+  if (scope.patient) {
+    // Patient records are ZIP parts named from this stem (see patient-record.ts).
+    parts.push(slug(scope.patient.name) || "patient", now.toISOString().slice(0, 10));
+    return `${parts.join("_")}.zip`;
+  }
   if (scope.officeName) parts.push(slug(scope.officeName) || "office");
   else if (scope.providerId) parts.push(slug(scope.providerId));
   else parts.push("all-offices");

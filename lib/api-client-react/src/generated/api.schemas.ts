@@ -664,6 +664,10 @@ export const ExportKind = {
   audit_events: 'audit_events',
   training_completion: 'training_completion',
   provider_directory: 'provider_directory',
+  billing_transactions: 'billing_transactions',
+  billing_subscriptions: 'billing_subscriptions',
+  billing_payouts: 'billing_payouts',
+  patient_record: 'patient_record',
 } as const;
 
 export interface ExportRequestInput {
@@ -675,6 +679,35 @@ export interface ExportRequestInput {
   office?: string | null;
   start?: string;
   end?: string;
+  /**
+     * Patient-level kinds (patient_record): the one patient the archive is about
+     * @nullable
+     */
+  patientId?: string | null;
+}
+
+export interface ExportPart {
+  part: number;
+  fileName: string;
+  sizeBytes: number;
+  fileCount: number;
+}
+
+export type ExportProgressStage = typeof ExportProgressStage[keyof typeof ExportProgressStage];
+
+
+export const ExportProgressStage = {
+  collecting: 'collecting',
+  writing: 'writing',
+  ready: 'ready',
+} as const;
+
+export interface ExportProgress {
+  stage: ExportProgressStage;
+  /** @nullable */
+  partsDone: number | null;
+  /** @nullable */
+  partsTotal: number | null;
 }
 
 export type ExportJobStatus = typeof ExportJobStatus[keyof typeof ExportJobStatus];
@@ -693,6 +726,10 @@ export type ExportJobScope = {
   providerId: string | null;
   /** @nullable */
   officeName: string | null;
+  /** @nullable */
+  patientId: string | null;
+  /** @nullable */
+  patientName: string | null;
 };
 
 export interface ExportJob {
@@ -716,6 +753,17 @@ export interface ExportJob {
   expiresAt: string;
   downloadCount: number;
   downloadable: boolean;
+  /**
+     * Multi-part archives (patient records) once ready; null for single-file exports
+     * @nullable
+     */
+  parts: ExportPart[] | null;
+  progress: ExportProgress | null;
+  /**
+     * Stored files the archive names in its manifest but could not include
+     * @nullable
+     */
+  omittedFiles: number | null;
 }
 
 export interface ExportKindOption {
@@ -723,6 +771,7 @@ export interface ExportKindOption {
   label: string;
   ranged: boolean;
   needsOffice: boolean;
+  needsPatient: boolean;
 }
 
 export interface ExportJobResult {
@@ -740,6 +789,11 @@ export interface ExportDownloadResult {
   /** @nullable */
   fileName: string | null;
   expiresInSeconds: number;
+  /**
+     * Which numbered part was signed (null for single-file exports)
+     * @nullable
+     */
+  part?: number | null;
 }
 
 export interface InboxMetrics {
@@ -5108,6 +5162,20 @@ export type GetHqPatientRetentionParams = {
 start: string;
 end: string;
 office?: string;
+};
+
+export type ListExportsParams = {
+/**
+ * Narrow the list to one patient's record exports (still the caller's own jobs)
+ */
+patient?: string;
+};
+
+export type GetExportDownloadUrlParams = {
+/**
+ * Which numbered ZIP part to sign (multi-part archives; default 1)
+ */
+part?: number;
 };
 
 export type GetOfficeSettingsParams = {

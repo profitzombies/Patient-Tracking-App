@@ -11,4 +11,9 @@ export interface ExportDownloadResult {
   /** @nullable */
   fileName: string | null;
   expiresInSeconds: number;
+  /**
+     * Which numbered part was signed (null for single-file exports)
+     * @nullable
+     */
+  part?: number | null;
 }

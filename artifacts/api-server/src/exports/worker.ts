@@ -19,7 +19,8 @@
  */
 import { csvBuffer } from "./csv";
 import { GENERATORS, MAX_EXPORT_ROWS } from "./generators";
-import { isExportKind, type ExportKind, type ExportScope } from "./kinds";
+import { isExportKind, PATIENT_KINDS, type ExportKind, type ExportScope } from "./kinds";
+import { buildPatientRecordArchive, type WrittenRecordPart } from "./patient-record";
 import { jobsDisabled } from "../jobs/scheduler";
 import { logger } from "../lib/logger";
 import { objectStorage } from "../lib/objectStorage";
@@ -49,10 +50,33 @@ export interface ExportJobRow {
   expires_at: string;
   download_count: number;
   last_downloaded_at: string | null;
+  /** Multi-part archives (patient records): every part, in order. */
+  parts: ExportPartRow[] | null;
+}
+
+export interface ExportPartRow {
+  part: number;
+  fileName: string;
+  objectPath: string;
+  sizeBytes: number;
+  fileCount: number;
 }
 
 export function exportObjectPath(jobId: string): string {
   return `/objects/exports/${jobId}/export-${randomUUID()}.csv`;
+}
+
+/** Numbered ZIP part of a patient record; the job id stays in the path. */
+export function exportPartObjectPath(jobId: string, part: number): string {
+  return `/objects/exports/${jobId}/record-part-${String(part).padStart(2, "0")}-${randomUUID()}.zip`;
+}
+
+/** Every stored object a job owns (part 1 doubles as object_path). */
+export function jobObjectPaths(job: Pick<ExportJobRow, "object_path" | "parts">): string[] {
+  const paths = new Set<string>();
+  if (job.object_path) paths.add(job.object_path);
+  for (const part of job.parts ?? []) if (part.objectPath) paths.add(part.objectPath);
+  return [...paths];
 }
 
 /** Rebuild the frozen scope from the job row (the only input generators get). */
@@ -66,6 +90,10 @@ export function scopeFromJob(job: ExportJobRow): ExportScope {
     requesterKind: job.requester_kind === "hq" ? "hq" : job.requester_kind === "provider" ? "provider" : "team_member",
     requesterRole: (job.requester_role as ExportScope["requesterRole"]) ?? null,
     range: start && end ? { start, end } : null,
+    patient:
+      typeof params.patientId === "string" && params.patientId
+        ? { id: params.patientId, name: typeof params.patientName === "string" ? params.patientName : "Patient" }
+        : null,
   };
 }
 
@@ -82,11 +110,84 @@ function shortError(error: unknown): string {
   return message.replace(/https?:\/\/\S+/g, "[url]").slice(0, 300) || "Export failed.";
 }
 
+/**
+ * One patient's full record: numbered ZIP parts streamed to storage, then a
+ * single atomic flip to ready with every part recorded. Progress (parts
+ * written so far) rides `params.progress` so the panel can show it.
+ */
+async function runPatientRecordJob(job: ExportJobRow, scope: ExportScope): Promise<void> {
+  const patient = scope.patient;
+  if (!patient) throw new Error("patient record export without a patient");
+  const objectPaths = new Map<number, string>();
+  const stem = (job.file_name ?? `thinnr_patient-record_${job.id}`).replace(/\.zip$/i, "");
+  const progress = async (patch: Record<string, unknown>) => {
+    try {
+      await patchJob(job.id, { params: { ...(job.params ?? {}), progress: patch } }, "running");
+    } catch (error) {
+      logger.warn({ err: error, jobId: job.id }, "export progress not recorded");
+    }
+  };
+  await progress({ stage: "collecting" });
+  try {
+    const result = await buildPatientRecordArchive(patient.id, {
+      exportId: job.id,
+      fileNameStem: stem,
+      writePart: async (part, stream) => {
+        if (objectPaths.size === 0) await progress({ stage: "writing", partsDone: 0 });
+        const objectPath = exportPartObjectPath(job.id, part.part);
+        objectPaths.set(part.part, objectPath);
+        return objectStorage.saveStream(objectPath, stream, "application/zip");
+      },
+      onPartWritten: async (done, total) => {
+        await progress({ stage: "writing", partsDone: done, partsTotal: total });
+      },
+    });
+    const parts: ExportPartRow[] = result.parts.map((part: WrittenRecordPart) => ({
+      part: part.part,
+      fileName: part.fileName,
+      objectPath: objectPaths.get(part.part) as string,
+      sizeBytes: part.sizeBytes,
+      fileCount: part.fileCount,
+    }));
+    const landed = await patchJob(
+      job.id,
+      {
+        status: "ready",
+        object_path: parts[0].objectPath,
+        parts,
+        size_bytes: parts.reduce((sum, part) => sum + part.sizeBytes, 0),
+        row_count: result.manifest.fileCount,
+        params: { ...(job.params ?? {}), progress: { stage: "ready", partsDone: parts.length, partsTotal: parts.length }, omitted: result.manifest.omitted.length },
+        completed_at: new Date().toISOString(),
+        error: null,
+      },
+      "running",
+    );
+    if (!landed) {
+      for (const path of objectPaths.values()) await objectStorage.deleteObjectStrict(path);
+    }
+  } catch (error) {
+    // Never leave half a record behind: a failed build owns no files.
+    for (const path of objectPaths.values()) {
+      try {
+        await objectStorage.deleteObjectStrict(path);
+      } catch (cleanupError) {
+        logger.error({ err: cleanupError, jobId: job.id, objectPath: path }, "failed export part not removed");
+      }
+    }
+    throw error;
+  }
+}
+
 /** Generate one claimed job to completion. Exported for tests. */
 export async function runExportJob(job: ExportJobRow): Promise<void> {
   const kind = job.kind;
   try {
     if (!isExportKind(kind)) throw new Error(`unknown export kind ${kind}`);
+    if (PATIENT_KINDS.has(kind)) {
+      await runPatientRecordJob(job, scopeFromJob(job));
+      return;
+    }
     const sheet = await GENERATORS[kind as ExportKind](scopeFromJob(job));
     const rows = sheet.rows.slice(0, MAX_EXPORT_ROWS);
     const buffer = csvBuffer(sheet.header, rows);
@@ -148,14 +249,16 @@ export async function sweepExpiredExports(now = new Date()): Promise<{ expired: 
   const nowIso = now.toISOString();
   const due = await supabaseAdmin(
     "GET",
-    `/rest/v1/data_exports?select=id,object_path,status&status=in.(queued,running,ready,failed)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
+    `/rest/v1/data_exports?select=id,object_path,parts,status&status=in.(queued,running,ready,failed)&expires_at=lt.${enc(nowIso)}&order=expires_at.asc&limit=200`,
   );
   if (due.status >= 300 || !Array.isArray(due.json)) throw new Error(`export expiry scan failed (${due.status})`);
   let expired = 0;
-  for (const row of due.json as Array<{ id: string; object_path: string | null; status: string }>) {
+  for (const row of due.json as Array<{ id: string; object_path: string | null; parts: ExportPartRow[] | null; status: string }>) {
     try {
-      if (row.object_path) await objectStorage.deleteObjectStrict(row.object_path);
-      const patch: Record<string, unknown> = { status: "expired", object_path: null };
+      // Every part goes before the row flips; a strict delete failure keeps
+      // the row (and its paths) so the next sweep retries the whole set.
+      for (const path of jobObjectPaths(row)) await objectStorage.deleteObjectStrict(path);
+      const patch: Record<string, unknown> = { status: "expired", object_path: null, parts: null };
       if (row.status === "queued" || row.status === "running") patch.error = "Expired before it could finish.";
       await patchJob(row.id, patch);
       expired += 1;

@@ -25,6 +25,7 @@ import { LiveMedications } from "@/components/office/LiveMedications";
 import { LiveProgressPhotos } from "@/components/office/LiveProgressPhotos";
 import { LivePatientPurchases, PatientPurchasesPanel, demoPurchasesSummary } from "@/components/office/PatientPurchases";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
+import { PatientRecordExport } from "@/components/office/PatientRecordExport";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
 import {
@@ -505,6 +506,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
             <button type="button" onClick={() => setSellOpen(true)} className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button>
             {!isHq && <button onClick={handleMessage} disabled={startConv.isPending} className={`${BTN_PRIMARY} h-9 px-4`} data-testid="button-message-patient">{startConv.isPending ? 'Starting...' : 'Message'}</button>}
             {canEdit && <EditPatientProfile patient={record.patient} office={office} />}
+            <PatientRecordExport patientId={identity.id} patientName={identity.name} office={office} />
           </div>
         </div>
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}

@@ -137,7 +137,7 @@ const PROFILE_FIELDS =
   "id,first_name,last_name,name,email,phone,date_of_birth,gender,sex,height_unit,height_cm,height_inches,starting_weight,current_weight,goal_weight,timezone,program_id,program_start_date,email_verified_at,phone_verified_at,profile_completed_at,created_at,onboarded_at,claimed_at";
 
 /** Media object paths referenced by the account's rows, deduplicated. */
-function mediaPathsOf(input: {
+export function mediaPathsOf(input: {
   photos: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   foods: Array<Record<string, unknown>>;
@@ -454,9 +454,90 @@ function stripPassword(flagRow: Record<string, unknown>): Record<string, unknown
   return flagRow;
 }
 
-function mediaFileName(objectPath: string): string {
+export function mediaFileName(objectPath: string): string {
   return objectPath.slice(objectPath.lastIndexOf("/") + 1);
 }
+
+/**
+ * The JSON sections every patient archive carries, in archive order. Shared
+ * by the patient self-export and the staff record download so the two can
+ * never drift apart on what a section is called or contains.
+ */
+export function archiveJsonSections(sections: PatientArchiveSections): Array<{ name: string; body: string }> {
+  const json = (value: unknown) => JSON.stringify(value, null, 2);
+  return [
+    { name: "profile.json", body: json(sections.profile) },
+    { name: "consents.json", body: json(sections.consents) },
+    { name: "preferences.json", body: json(sections.flags) },
+    { name: "diary.json", body: json(sections.diary) },
+    { name: "water.json", body: json(sections.water) },
+    { name: "targets.json", body: json(sections.targets) },
+    { name: "library.json", body: json(sections.library) },
+    { name: "check-ins.json", body: json(sections.checkIns) },
+    { name: "measurements.json", body: json(sections.measurements) },
+    { name: "medications.json", body: json(sections.medications) },
+    { name: "photos.json", body: json(sections.photos) },
+    { name: "chat.json", body: json(sections.chat) },
+    { name: "coach-memory.json", body: json(sections.coachMemory) },
+    { name: "billing.json", body: json(sections.billing) },
+    { name: "app-usage.json", body: json(sections.appUsage) },
+  ];
+}
+
+/** Every stored file the archive should carry, in archive order (photos, then bloodwork sources). */
+export function archiveMediaPlan(sections: PatientArchiveSections): Array<{
+  archiveFile: string;
+  objectPath: string | null;
+  source: "media" | "bloodwork";
+  /** Bloodwork source rows keep their metadata for bloodwork.json. */
+  bloodwork?: { reportId: string; fileId: string; metadata: Record<string, unknown> };
+}> {
+  const plan: ReturnType<typeof archiveMediaPlan> = [];
+  const mediaPaths = mediaPathsOf({
+    photos: sections.photos,
+    media: sections.media,
+    foods: sections.library.customFoods,
+    recipes: sections.library.savedRecipes,
+    messages: sections.chat.flatMap((c) => c.messages),
+  }).filter((path) => !/\/export-[0-9a-f-]{36}\.zip$/.test(path));
+  for (const objectPath of mediaPaths) plan.push({ archiveFile: `media/${mediaFileName(objectPath)}`, objectPath, source: "media" });
+  for (const row of sections.bloodwork.files) {
+    const { object_path: objectPath, ...metadata } = row;
+    const reportId = String(row.report_id);
+    const fileId = String(row.id);
+    const mimeType = typeof row.mime_type === "string" ? row.mime_type : row.declared_mime_type;
+    const extension = mimeType === "application/pdf" ? "pdf" : mimeType === "image/png" ? "png" : "jpg";
+    plan.push({
+      archiveFile: `bloodwork/files/${reportId}/${String(row.position).padStart(2, "0")}-${fileId}.${extension}`,
+      objectPath: typeof objectPath === "string" && objectPath !== "" ? objectPath : null,
+      source: "bloodwork",
+      bloodwork: { reportId, fileId, metadata },
+    });
+  }
+  return plan;
+}
+
+/** One-line description of each archive file, shared by both README variants and the PDF. */
+export const ARCHIVE_FILE_GUIDE: ReadonlyArray<readonly [string, string]> = [
+  ["profile.json", "Account profile and program details"],
+  ["consents.json", "Consent records by policy version"],
+  ["preferences.json", "Onboarding answers and notification preferences"],
+  ["diary.json", "Food diary entries"],
+  ["water.json", "Daily water totals"],
+  ["targets.json", "Daily target overrides"],
+  ["library.json", "Custom foods, saved recipes, favorites, recents"],
+  ["check-ins.json", "Check-ins (weight, mood, side effects, notes)"],
+  ["measurements.json", "Imported health data, body measurements, clinic-recorded weights"],
+  ["medications.json", "Medication list and dose logs (taken / skipped)"],
+  ["photos.json", "Progress photo records (bytes under media/)"],
+  ["chat.json", "AI and retained human transcripts, labeled by channel and business; human staff are attributed only as Care Team"],
+  ["coach-memory.json", "Patient-reported memories, approval/lifecycle states, sources, dates, and reusable-memory exclusions. Archiving keeps memory. Forgetting excludes reusable memory, not the original saved conversation."],
+  ["media.json", "Stored photo files included in media/ and any omitted"],
+  ["bloodwork.json", "Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints"],
+  ["billing.json", "Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers."],
+  ["app-usage.json", "Days the app was opened (first/last seen and platform per local day)"],
+  ["bloodwork/files/", "Original committed bloodwork source files"],
+];
 
 /**
  * Build the ZIP bytes for one patient. `readMedia` is injectable so tests can
@@ -481,21 +562,7 @@ export async function buildPatientArchive(
   const generatedAt = (options.generatedAt ?? new Date()).toISOString();
   const zip = new JSZip();
   const json = (value: unknown) => JSON.stringify(value, null, 2);
-  zip.file("profile.json", json(sections.profile));
-  zip.file("consents.json", json(sections.consents));
-  zip.file("preferences.json", json(sections.flags));
-  zip.file("diary.json", json(sections.diary));
-  zip.file("water.json", json(sections.water));
-  zip.file("targets.json", json(sections.targets));
-  zip.file("library.json", json(sections.library));
-  zip.file("check-ins.json", json(sections.checkIns));
-  zip.file("measurements.json", json(sections.measurements));
-  zip.file("medications.json", json(sections.medications));
-  zip.file("photos.json", json(sections.photos));
-  zip.file("chat.json", json(sections.chat));
-  zip.file("coach-memory.json", json(sections.coachMemory));
-  zip.file("billing.json", json(sections.billing));
-  zip.file("app-usage.json", json(sections.appUsage));
+  for (const section of archiveJsonSections(sections)) zip.file(section.name, section.body);
 
   const mediaPaths = mediaPathsOf({
     photos: sections.photos,

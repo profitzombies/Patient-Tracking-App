@@ -12,4 +12,5 @@ export interface ExportKindOption {
   label: string;
   ranged: boolean;
   needsOffice: boolean;
+  needsPatient: boolean;
 }

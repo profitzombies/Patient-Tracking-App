@@ -9,6 +9,8 @@ import type { DateRangeKeys } from './dateRangeKeys';
 import type { ExportJobScope } from './exportJobScope';
 import type { ExportJobStatus } from './exportJobStatus';
 import type { ExportKind } from './exportKind';
+import type { ExportPart } from './exportPart';
+import type { ExportProgress } from './exportProgress';
 
 export interface ExportJob {
   id: string;
@@ -31,4 +33,15 @@ export interface ExportJob {
   expiresAt: string;
   downloadCount: number;
   downloadable: boolean;
+  /**
+     * Multi-part archives (patient records) once ready; null for single-file exports
+     * @nullable
+     */
+  parts: ExportPart[] | null;
+  progress: ExportProgress | null;
+  /**
+     * Stored files the archive names in its manifest but could not include
+     * @nullable
+     */
+  omittedFiles: number | null;
 }

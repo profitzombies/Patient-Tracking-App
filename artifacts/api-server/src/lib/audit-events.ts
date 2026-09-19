@@ -67,6 +67,8 @@ export const AUDIT_ACTIONS = [
   "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
+  "patient_record_export_requested",
+  "patient_record_export_downloaded",
   "patient_consent_recorded",
   "patient_export_requested",
   "patient_export_ready",
@@ -128,6 +130,7 @@ export const AUDIT_METADATA_KEYS = [
   "page", "assigneeUserId", "previousAssigneeUserId", "self", "messageClientId", "length", "department", "escalationId", "hasNote",
   "order_id", "subscription_id", "link_id", "product_id", "amount_cents", "floor_price_cents",
   "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active", "max_uses",
+  "part", "parts",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -166,6 +169,8 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "conversation_escalation_resolved",
   "data_export_requested",
   "data_export_downloaded",
+  "patient_record_export_requested",
+  "patient_record_export_downloaded",
   "patient_consent_recorded",
   "patient_export_requested",
   "patient_export_ready",

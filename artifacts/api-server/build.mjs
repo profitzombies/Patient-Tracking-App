@@ -35,6 +35,9 @@ async function buildAll() {
       "canvas",
       "@napi-rs/canvas",
       "pdfjs-dist",
+      // pdfkit resolves its standard-font data and ICC profile relative to its
+      // own package (import.meta.url + `#standard-fonts` subpath imports).
+      "pdfkit",
       "bcrypt",
       "argon2",
       "fsevents",

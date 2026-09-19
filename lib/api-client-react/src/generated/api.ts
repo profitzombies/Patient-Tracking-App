@@ -89,6 +89,7 @@ import type {
   GetBloodworkFilePageParams,
   GetBloodworkFileSourceParams,
   GetBloodworkReportParams,
+  GetExportDownloadUrlParams,
   GetHqAppUsageInsightsParams,
   GetHqAppUsageParams,
   GetHqAuditEventsParams,
@@ -163,6 +164,7 @@ import type {
   KnowledgeUploadUrlResult,
   ListBloodworkCorrectionsParams,
   ListBloodworkReportsParams,
+  ListExportsParams,
   ListOfficePatientCoachConversationsParams,
   ListOfficePatientCoachMemoriesParams,
   ListPatientCoachConversationsParams,
@@ -7368,20 +7370,27 @@ export function useGetHqPatientRetention<TData = Awaited<ReturnType<typeof getHq
 
 
 
-export const getListExportsUrl = () => {
+export const getListExportsUrl = (params?: ListExportsParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/exports`
+  return stringifiedParams.length > 0 ? `/api/exports?${stringifiedParams}` : `/api/exports`
 }
 
 /**
  * @summary The caller's recent export jobs and the kinds they may request
  */
-export const listExports = async ( options?: Parameters<typeof customFetch>[1]): Promise<ExportJobListResult> => {
+export const listExports = async (params?: ListExportsParams, options?: Parameters<typeof customFetch>[1]): Promise<ExportJobListResult> => {
 
-  return customFetch<ExportJobListResult>(getListExportsUrl(),
+  return customFetch<ExportJobListResult>(getListExportsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -7394,23 +7403,23 @@ export const listExports = async ( options?: Parameters<typeof customFetch>[1]):
 
 
 
-export const getListExportsQueryKey = () => {
+export const getListExportsQueryKey = (params?: ListExportsParams,) => {
     return [
-    `/api/exports`
+    `/api/exports`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListExportsQueryOptions = <TData = Awaited<ReturnType<typeof listExports>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListExportsQueryOptions = <TData = Awaited<ReturnType<typeof listExports>>, TError = ErrorType<unknown>>(params?: ListExportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListExportsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListExportsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExports>>> = ({ signal }) => listExports({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listExports>>> = ({ signal }) => listExports(params, { signal, ...requestOptions });
 
 
 
@@ -7428,11 +7437,11 @@ export type ListExportsQueryError = ErrorType<unknown>
  */
 
 export function useListExports<TData = Awaited<ReturnType<typeof listExports>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: ListExportsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listExports>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListExportsQueryOptions(options)
+  const queryOptions = getListExportsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -7454,7 +7463,7 @@ export const getRequestExportUrl = () => {
 }
 
 /**
- * @summary Queue a CSV export scoped to the caller's permissions and office
+ * @summary Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
  */
 export const requestExport = async (exportRequestInput: ExportRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<ExportJobResult> => {
 
@@ -7503,7 +7512,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RequestExportMutationError = ErrorType<void>
 
     /**
- * @summary Queue a CSV export scoped to the caller's permissions and office
+ * @summary Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
  */
 export const useRequestExport = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestExport>>, TError,{data: BodyType<ExportRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -7593,20 +7602,29 @@ export function useGetExport<TData = Awaited<ReturnType<typeof getExport>>, TErr
 
 
 
-export const getGetExportDownloadUrlUrl = (exportId: string,) => {
+export const getGetExportDownloadUrlUrl = (exportId: string,
+    params?: GetExportDownloadUrlParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/exports/${exportId}/download-url`
+  return stringifiedParams.length > 0 ? `/api/exports/${exportId}/download-url?${stringifiedParams}` : `/api/exports/${exportId}/download-url`
 }
 
 /**
- * @summary Mint a short-lived signed download link for a ready export
+ * @summary Mint a short-lived signed download link for a ready export (one numbered part of a multi-part archive)
  */
-export const getExportDownloadUrl = async (exportId: string, options?: Parameters<typeof customFetch>[1]): Promise<ExportDownloadResult> => {
+export const getExportDownloadUrl = async (exportId: string,
+    params?: GetExportDownloadUrlParams, options?: Parameters<typeof customFetch>[1]): Promise<ExportDownloadResult> => {
 
-  return customFetch<ExportDownloadResult>(getGetExportDownloadUrlUrl(exportId),
+  return customFetch<ExportDownloadResult>(getGetExportDownloadUrlUrl(exportId,params),
   {
     ...options,
     method: 'GET'
@@ -7619,23 +7637,25 @@ export const getExportDownloadUrl = async (exportId: string, options?: Parameter
 
 
 
-export const getGetExportDownloadUrlQueryKey = (exportId: string,) => {
+export const getGetExportDownloadUrlQueryKey = (exportId: string,
+    params?: GetExportDownloadUrlParams,) => {
     return [
-    `/api/exports/${exportId}/download-url`
+    `/api/exports/${exportId}/download-url`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetExportDownloadUrlQueryOptions = <TData = Awaited<ReturnType<typeof getExportDownloadUrl>>, TError = ErrorType<void>>(exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetExportDownloadUrlQueryOptions = <TData = Awaited<ReturnType<typeof getExportDownloadUrl>>, TError = ErrorType<void>>(exportId: string,
+    params?: GetExportDownloadUrlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetExportDownloadUrlQueryKey(exportId);
+  const queryKey =  queryOptions?.queryKey ?? getGetExportDownloadUrlQueryKey(exportId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExportDownloadUrl>>> = ({ signal }) => getExportDownloadUrl(exportId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExportDownloadUrl>>> = ({ signal }) => getExportDownloadUrl(exportId,params, { signal, ...requestOptions });
 
 
 
@@ -7649,15 +7669,16 @@ export type GetExportDownloadUrlQueryError = ErrorType<void>
 
 
 /**
- * @summary Mint a short-lived signed download link for a ready export
+ * @summary Mint a short-lived signed download link for a ready export (one numbered part of a multi-part archive)
  */
 
 export function useGetExportDownloadUrl<TData = Awaited<ReturnType<typeof getExportDownloadUrl>>, TError = ErrorType<void>>(
- exportId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ exportId: string,
+    params?: GetExportDownloadUrlParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExportDownloadUrl>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetExportDownloadUrlQueryOptions(exportId,options)
+  const queryOptions = getGetExportDownloadUrlQueryOptions(exportId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

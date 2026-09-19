@@ -8,7 +8,7 @@ import type { ExportScope } from "./kinds";
 
 const scope: ExportScope = {
   providerId: "office-1", officeName: "Harbor", requesterKind: "provider", requesterRole: null,
-  range: { start: "2026-10-01", end: "2026-10-31" },
+  range: { start: "2026-10-01", end: "2026-10-31" }, patient: null,
 };
 const response = (json: unknown) => ({ status: 200, json, contentRange: null });
 

@@ -23,12 +23,13 @@ import {
   exportFileName,
   EXPORT_KINDS,
   EXPORT_KIND_LABELS,
+  PATIENT_KINDS,
   RANGED_KINDS,
   resolveExportRequester,
   type ExportKind,
   type ExportRequester,
 } from "../exports/kinds";
-import { drainQueuedExports, type ExportJobRow } from "../exports/worker";
+import { drainQueuedExports, type ExportJobRow, type ExportPartRow } from "../exports/worker";
 import { loadOrgPolicy } from "../lib/org-policy";
 import { hasHqPermission } from "../lib/staff-auth";
 
@@ -63,10 +64,22 @@ const RequestBody = z.object({
   office: z.string().trim().min(1).max(240).optional().nullable(),
   start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** Patient-level kinds (patient_record) name the one patient. */
+  patientId: z.string().regex(/^[0-9a-f-]{36}$/i).optional().nullable(),
 });
 
 const JOB_SELECT =
-  "id,kind,status,requested_by,requester_kind,requester_role,provider_id,params,file_name,object_path,size_bytes,row_count,error,attempts,created_at,started_at,completed_at,expires_at,download_count,last_downloaded_at";
+  "id,kind,status,requested_by,requester_kind,requester_role,provider_id,params,file_name,object_path,size_bytes,row_count,error,attempts,created_at,started_at,completed_at,expires_at,download_count,last_downloaded_at,parts";
+
+function progressOf(params: Record<string, unknown>): { stage: "collecting" | "writing" | "ready"; partsDone: number | null; partsTotal: number | null } | null {
+  const raw = params.progress;
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const stage = p.stage === "collecting" || p.stage === "writing" || p.stage === "ready" ? p.stage : null;
+  if (!stage) return null;
+  const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  return { stage, partsDone: num(p.partsDone), partsTotal: num(p.partsTotal) };
+}
 
 export function exportJobDto(row: ExportJobRow, now = Date.now()) {
   const params = row.params ?? {};
@@ -81,6 +94,8 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
     scope: {
       providerId: row.provider_id,
       officeName: typeof params.officeName === "string" ? params.officeName : null,
+      patientId: typeof params.patientId === "string" ? params.patientId : null,
+      patientName: typeof params.patientName === "string" ? params.patientName : null,
     },
     range:
       typeof params.start === "string" && typeof params.end === "string"
@@ -95,6 +110,15 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
     expiresAt: row.expires_at,
     downloadCount: row.download_count,
     downloadable: status === "ready" && Boolean(row.object_path),
+    /** Multi-part archives: one entry per numbered ZIP part (null for CSVs). */
+    parts:
+      status === "ready" && Array.isArray(row.parts) && row.parts.length > 0
+        ? row.parts.map((part) => ({ part: part.part, fileName: part.fileName, sizeBytes: part.sizeBytes, fileCount: part.fileCount }))
+        : null,
+    /** Build progress for multi-part archives while queued/running. */
+    progress: status === "queued" || status === "running" ? progressOf(params) : null,
+    /** Stored files the archive names but could not include (missing sources). */
+    omittedFiles: typeof params.omitted === "number" ? params.omitted : null,
   };
 }
 
@@ -146,6 +170,7 @@ router.post("/exports", async (req, res) => {
       kind: body.kind,
       requestedOffice: body.office ?? null,
       range,
+      patientId: body.patientId ?? null,
     });
     if (authorized.kind !== "ok") {
       res.status(authorized.status).json({ error: authorized.message });
@@ -179,6 +204,7 @@ router.post("/exports", async (req, res) => {
         params: {
           ...(scope.range ? { start: scope.range.start, end: scope.range.end } : {}),
           ...(scope.officeName ? { officeName: scope.officeName } : {}),
+          ...(scope.patient ? { patientId: scope.patient.id, patientName: scope.patient.name } : {}),
         },
         file_name: exportFileName(body.kind, scope),
         expires_at: expiresAt,
@@ -189,15 +215,30 @@ router.post("/exports", async (req, res) => {
       throw new Error(`export insert failed (${inserted.status})`);
     }
     const job = inserted.json[0] as ExportJobRow;
-    await recordAdminAuditEvent({
-      action: "data_export_requested",
-      ...auditActor(who),
-      providerId: scope.providerId,
-      targetKind: "data_export",
-      targetId: job.id,
-      requestId: req.headers["x-request-id"]?.toString() ?? null,
-      metadata: { kind: body.kind, office: scope.providerId ?? "all" },
-    });
+    // A patient's whole record leaving the office is audited against the
+    // patient (so the office Audit page shows who asked for whose chart),
+    // with the export id alongside so the download can be traced back.
+    await recordAdminAuditEvent(
+      scope.patient
+        ? {
+            action: "patient_record_export_requested",
+            ...auditActor(who),
+            providerId: scope.providerId,
+            targetKind: "patient",
+            targetId: scope.patient.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: body.kind, office: scope.providerId ?? "all", exportId: job.id },
+          }
+        : {
+            action: "data_export_requested",
+            ...auditActor(who),
+            providerId: scope.providerId,
+            targetKind: "data_export",
+            targetId: job.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: body.kind, office: scope.providerId ?? "all" },
+          },
+    );
     // Kick the worker so small exports finish before the first poll.
     void drainQueuedExports();
     res.status(202).json({ job: exportJobDto(job) });
@@ -211,9 +252,13 @@ router.get("/exports", async (req, res) => {
   try {
     const who = await requester(req);
     if (!who) return;
+    // ?patient=<id> narrows the list to one patient's record exports (the
+    // patient page); still pinned to the caller's own jobs.
+    const patientId = typeof req.query.patient === "string" && /^[0-9a-f-]{36}$/i.test(req.query.patient) ? req.query.patient : null;
+    const patientFilter = patientId ? `&params->>patientId=eq.${enc(patientId)}` : "";
     const rows = await supabaseAdmin(
       "GET",
-      `/rest/v1/data_exports?requested_by=eq.${enc(who.userId)}&select=${JOB_SELECT}&order=created_at.desc&limit=50`,
+      `/rest/v1/data_exports?requested_by=eq.${enc(who.userId)}${patientFilter}&select=${JOB_SELECT}&order=created_at.desc&limit=50`,
     );
     if (rows.status >= 300 || !Array.isArray(rows.json)) throw new Error(`export list failed (${rows.status})`);
     const now = Date.now();
@@ -262,37 +307,63 @@ router.get("/exports/:id/download-url", async (req, res) => {
       res.status(409).json({ error: dto.status === "failed" ? "That export failed." : "That export isn't ready yet." });
       return;
     }
-    const url = await objectStorage.signedDownloadURL(job.object_path, DOWNLOAD_URL_TTL_SEC);
+    // Multi-part archives: ?part=N picks the numbered part (default 1).
+    const parts: ExportPartRow[] = Array.isArray(job.parts) ? job.parts : [];
+    const rawPart = req.query.part;
+    const partNumber = rawPart === undefined ? 1 : Number(rawPart);
+    const part = parts.length > 0 ? parts.find((entry) => entry.part === partNumber) ?? null : partNumber === 1 ? null : undefined;
+    if (part === undefined || (parts.length > 0 && !part)) {
+      res.status(404).json({ error: "That export has no such part." });
+      return;
+    }
+    const objectPath = part ? part.objectPath : job.object_path;
+    const fileName = part ? part.fileName : job.file_name;
+    const url = await objectStorage.signedDownloadURL(objectPath, DOWNLOAD_URL_TTL_SEC);
     await supabaseAdmin(
       "PATCH",
       `/rest/v1/data_exports?id=eq.${enc(job.id)}`,
       { download_count: job.download_count + 1, last_downloaded_at: new Date().toISOString() },
     );
-    await recordAdminAuditEvent({
-      action: "data_export_downloaded",
-      ...auditActor(who),
-      providerId: job.provider_id,
-      targetKind: "data_export",
-      targetId: job.id,
-      requestId: req.headers["x-request-id"]?.toString() ?? null,
-      metadata: { kind: job.kind, rows: job.row_count ?? 0 },
-    });
-    res.json({ url, fileName: job.file_name, expiresInSeconds: DOWNLOAD_URL_TTL_SEC });
+    const patientId = typeof job.params?.patientId === "string" ? job.params.patientId : null;
+    await recordAdminAuditEvent(
+      PATIENT_KINDS.has(job.kind as ExportKind) && patientId
+        ? {
+            action: "patient_record_export_downloaded",
+            ...auditActor(who),
+            providerId: job.provider_id,
+            targetKind: "patient",
+            targetId: patientId,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: job.kind, exportId: job.id, part: part?.part ?? 1, parts: Math.max(parts.length, 1) },
+          }
+        : {
+            action: "data_export_downloaded",
+            ...auditActor(who),
+            providerId: job.provider_id,
+            targetKind: "data_export",
+            targetId: job.id,
+            requestId: req.headers["x-request-id"]?.toString() ?? null,
+            metadata: { kind: job.kind, rows: job.row_count ?? 0 },
+          },
+    );
+    res.json({ url, fileName, expiresInSeconds: DOWNLOAD_URL_TTL_SEC, part: part?.part ?? null });
   } catch (error) {
     req.log?.error({ err: error }, "export download failed");
     res.status(502).json({ error: "Could not prepare that download right now." });
   }
 });
 
-/** Which kinds the caller may request, plus whether each needs an office. */
-export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; label: string; ranged: boolean; needsOffice: boolean }> {
+/** Which kinds the caller may request, plus whether each needs an office / a patient. */
+export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; label: string; ranged: boolean; needsOffice: boolean; needsPatient: boolean }> {
   const all: ExportKind[] = [...EXPORT_KINDS];
   const kinds =
     who.kind === "office"
       ? all.filter((kind) => kind !== "provider_directory" &&
-          (!kind.startsWith("billing_") || who.officeRole !== "staff"))
+          (!kind.startsWith("billing_") || who.officeRole !== "staff") &&
+          (!PATIENT_KINDS.has(kind) || who.officeRole !== "staff"))
       : all.filter((kind) => {
           if (kind.startsWith("billing_")) return hasHqPermission(who.identity, "financial_read");
+          if (PATIENT_KINDS.has(kind)) return hasHqPermission(who.identity, "provider_manage");
           const role = who.identity.departmentRole;
           if (role === "super_admin" || role === "admin") return true;
           if (role === "clinical") return kind === "office_comparison" || kind === "training_completion";
@@ -303,7 +374,8 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
     kind,
     label: EXPORT_KIND_LABELS[kind],
     ranged: RANGED_KINDS.has(kind),
-    needsOffice: who.kind === "hq" && kind === "patient_activity",
+    needsOffice: who.kind === "hq" && (kind === "patient_activity" || PATIENT_KINDS.has(kind)),
+    needsPatient: PATIENT_KINDS.has(kind),
   }));
 }
 

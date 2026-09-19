@@ -8,13 +8,15 @@
  *   - HQ patient-activity exports need one explicit office (aggregate-only
  *     otherwise, enforced server-side and mirrored in the copy here),
  *   - jobs poll while queued/running, downloads mint a short-lived signed
- *     link on click, expired jobs stay listed but not downloadable.
+ *     link on click, expired jobs stay listed but not downloadable,
+ *   - patient-level kinds (a patient's full record) are requested from the
+ *     patient page, not here; their jobs still show up in this list with
+ *     build progress and one download per ZIP part.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Clock3, Download, FileDown, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, FileDown, Loader2, RefreshCw } from 'lucide-react';
 import {
-  getExportDownloadUrl,
   getListExportsQueryKey,
   useListExports,
   type ExportJob,
@@ -24,9 +26,9 @@ import {
 import { formatRangeLabel, useDateRange } from '@/contexts/date-range';
 import { useSession } from '@/contexts/session';
 import { useToast } from '@/hooks/use-toast';
-import { openDownload } from '@/lib/training-media';
-import { expiryLabel, requestExportJob } from '@/lib/export-jobs';
+import { countLabel, expiryLabel, formatBytes, progressLabel, requestExportJob } from '@/lib/export-jobs';
 import { politeInterval } from '@/lib/polite-refetch';
+import { ExportDownloadButtons, apiErrorMessage, useExportDownload } from './ExportDownloads';
 
 export interface ExportOfficeOption {
   /** Provider account id; an empty id means "whatever office the server pins me to". */
@@ -63,30 +65,11 @@ const STATUS_LABELS: Record<ExportJob['status'], string> = {
   failed: 'Failed',
   expired: 'Expired',
 };
-
-function apiErrorMessage(error: unknown, fallback: string): string {
-  if (error && typeof error === 'object') {
-    const data = (error as { data?: { error?: unknown } }).data;
-    if (data && typeof data.error === 'string' && data.error) return data.error;
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === 'string' && message) return message;
-  }
-  return fallback;
-}
-
 function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
-
-function formatBytes(bytes: number | null): string | null {
-  if (bytes == null) return null;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 'Exports', className, kinds }: ExportsPanelProps) {
   const { range, mode } = useDateRange();
   const { authUser, authStatus } = useSession();
@@ -94,7 +77,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
   const queryClient = useQueryClient();
 
   const signedIn = authStatus === 'signed-in';
-  const listQuery = useListExports({
+  const listQuery = useListExports(undefined, {
     query: {
       enabled: signedIn,
       queryKey: [...getListExportsQueryKey(), authUser?.id],
@@ -109,14 +92,15 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
     mutationFn: ({ data }: { data: Parameters<typeof requestExportJob>[0] }) => requestExportJob(data),
   });
 
-  const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter((option) => !kinds || kinds.includes(option.kind));
+  // Patient-level kinds need one patient, chosen on the patient page.
+  const available: ExportKindOption[] = (listQuery.data?.available ?? []).filter((option) => !option.needsPatient && (!kinds || kinds.includes(option.kind)));
   const jobs: ExportJob[] = (listQuery.data?.jobs ?? []).filter((job) => !kinds || kinds.includes(job.kind));
   const ttlHours = listQuery.data?.ttlHours ?? 24;
 
   const [kind, setKind] = useState<ExportKind | ''>('');
   const [officeId, setOfficeId] = useState<string>(pinnedOffice?.id ?? '');
   const [formError, setFormError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState<string | null>(null);
+  const { download, downloading } = useExportDownload();
 
   useEffect(() => {
     if (!kind && available.length > 0) setKind(available[0].kind);
@@ -155,29 +139,6 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
     }
   };
 
-  const download = async (job: ExportJob) => {
-    setDownloading(job.id);
-    try {
-      const result = await getExportDownloadUrl(job.id);
-      openDownload(result.url);
-      toast({
-        variant: 'success',
-        title: 'Download started',
-        description: `${result.fileName ?? job.fileName ?? 'export.csv'} · link valid for ${Math.round(result.expiresInSeconds / 60)} minutes.`,
-      });
-      queryClient.invalidateQueries({ queryKey: getListExportsQueryKey() });
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Download unavailable',
-        description: apiErrorMessage(error, 'This export could not be downloaded.'),
-      });
-      queryClient.invalidateQueries({ queryKey: getListExportsQueryKey() });
-    } finally {
-      setDownloading(null);
-    }
-  };
-
   return (
     <section
       className={`rounded-lg border border-card-border bg-card shadow-soft ${className ?? ''}`}
@@ -188,7 +149,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
         <div>
           <h2 id="exports-panel-title" className="font-serif text-[15px] font-bold text-navy">{title}</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            CSV files generated in the background. Downloads use a short-lived link and files expire after {ttlHours} hours.
+            Files generated in the background. Downloads use a short-lived link and files expire after {ttlHours} hours.
             {mode === 'demo' && ' Exports need a signed-in staff account.'}
           </p>
         </div>
@@ -295,6 +256,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
         {jobs.map((job) => {
           const pending = PENDING.has(job.status);
           const size = formatBytes(job.sizeBytes);
+          const count = countLabel(job);
           return (
             <li key={job.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5" data-testid={`export-job-${job.id}`} data-status={job.status}>
               <div className="min-w-0 flex-1">
@@ -308,13 +270,25 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
                     {STATUS_LABELS[job.status]}
                   </span>
                 </p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`text-export-scope-${job.id}`}>
+                  {job.scope.patientName ? <><b className="font-semibold text-navy">{job.scope.patientName}</b> · </> : null}
                   {job.scope.officeName ?? 'All offices'}
                   {job.range ? ` · ${formatRangeLabel(job.range)}` : ''}
                   {' · '}Requested {formatWhen(job.createdAt)}
-                  {job.rowCount != null ? ` · ${job.rowCount.toLocaleString('en-US')} rows` : ''}
+                  {count ? ` · ${count}` : ''}
                   {size ? ` · ${size}` : ''}
+                  {job.parts && job.parts.length > 1 ? ` · ${job.parts.length} parts` : ''}
                 </p>
+                {pending && (
+                  <p className="mt-1 text-[11px] text-primary" aria-live="polite" data-testid={`text-export-progress-${job.id}`}>
+                    {progressLabel(job.status, job.progress)}
+                  </p>
+                )}
+                {job.status === 'ready' && job.omittedFiles ? (
+                  <p className="mt-1 text-[11px] text-[#8a5a00]" data-testid={`text-export-omitted-${job.id}`}>
+                    {job.omittedFiles.toLocaleString('en-US')} stored file{job.omittedFiles === 1 ? ' was' : 's were'} not found in storage and could not be included; manifest.json lists {job.omittedFiles === 1 ? 'it' : 'each one'}.
+                  </p>
+                ) : null}
                 {job.status === 'failed' && job.error && (
                   <p className="mt-1 text-[11px] text-destructive" data-testid={`text-export-error-${job.id}`}>{job.error}</p>
                 )}
@@ -328,19 +302,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
                 <span className="text-[10px] text-muted-foreground" data-testid={`text-export-expiry-${job.id}`}>
                   {job.status === 'expired' ? 'Expired' : job.status === 'failed' ? '' : expiryLabel(job.expiresAt)}
                 </span>
-                {job.downloadable && (
-                  <button
-                    type="button"
-                    onClick={() => download(job)}
-                    disabled={downloading === job.id}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-[11px] font-semibold text-navy hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                    aria-label={`Download ${job.label} CSV (${job.fileName ?? 'export.csv'})`}
-                    data-testid={`button-download-export-${job.id}`}
-                  >
-                    {downloading === job.id ? <Loader2 size={12} className="animate-spin" aria-hidden="true" /> : <Download size={12} aria-hidden="true" />}
-                    Download
-                  </button>
-                )}
+                <ExportDownloadButtons job={job} downloading={downloading} onDownload={(target, part) => void download(target, part)} />
               </div>
             </li>
           );

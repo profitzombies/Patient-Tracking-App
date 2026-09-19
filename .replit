@@ -340,6 +340,14 @@ args = "idle-timeout-api"
 task = "workflow.run"
 args = "idle-timeout-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-record-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-record-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2408,6 +2416,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:idle-timeout && pnpm --filter @workspace/thinnr-operations run test:reauth && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run test:office-team && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-record-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/exports src/routes/exports.test.ts src/lib/audit-events.test.ts src/privacy/exports.test.ts && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/api-server run build"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-record-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-record-export && pnpm --filter @workspace/thinnr-operations run test:office-audit && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

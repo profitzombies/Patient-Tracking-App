@@ -12,6 +12,8 @@
  * directly and nothing long-lived ever lands in a table.
  */
 import { randomUUID } from "crypto";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { patientMediaObjectId, type PatientMediaKind } from "./patient-media-ids";
 import { File, Storage } from "@google-cloud/storage";
 
@@ -421,6 +423,32 @@ export class ObjectStorageService {
       metadata: { contentType },
       resumable: false,
     });
+  }
+
+  /**
+   * Stream a large object into storage (resumable upload) without holding it
+   * in memory. Resolves with the byte count written; rejects if the source
+   * or the upload fails, in which case nothing usable is left at the path.
+   */
+  async saveStream(objectPath: string, source: NodeJS.ReadableStream, contentType: string): Promise<{ sizeBytes: number }> {
+    let sizeBytes = 0;
+    const counter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += chunk.byteLength;
+        callback(null, chunk);
+      },
+    });
+    const sink = this.fileFor(objectPath).createWriteStream({ metadata: { contentType }, resumable: true });
+    await pipeline(source, counter, sink);
+    return { sizeBytes };
+  }
+
+  /** Size in bytes of a stored object (a HEAD, never the bytes). */
+  async objectSize(objectPath: string): Promise<number> {
+    const [metadata] = await this.fileFor(objectPath).getMetadata();
+    const size = Number(metadata.size);
+    if (!Number.isFinite(size) || size < 0) throw new Error(`object size unavailable for ${objectPath}`);
+    return size;
   }
 
   /** Create-only write used when verified staging bytes become immutable. */

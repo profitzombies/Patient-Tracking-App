@@ -3499,15 +3499,21 @@ export const GetHqPatientRetentionResponse = zod.object({
 /**
  * @summary The caller's recent export jobs and the kinds they may request
  */
+export const ListExportsQueryParams = zod.object({
+  "patient": zod.coerce.string().optional().describe('Narrow the list to one patient\'s record exports (still the caller\'s own jobs)')
+})
+
 export const ListExportsResponse = zod.object({
   "jobs": zod.array(zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
 }),
   "range": zod.union([zod.object({
   "start": zod.coerce.date(),
@@ -3521,37 +3527,53 @@ export const ListExportsResponse = zod.object({
   "completedAt": zod.string().nullable(),
   "expiresAt": zod.string(),
   "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable()
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
 })),
   "available": zod.array(zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
   "ranged": zod.boolean(),
-  "needsOffice": zod.boolean()
+  "needsOffice": zod.boolean(),
+  "needsPatient": zod.boolean()
 })),
   "ttlHours": zod.number()
 })
 
 
 /**
- * @summary Queue a CSV export scoped to the caller's permissions and office
+ * @summary Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
  */
 export const RequestExportBody = zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
   "start": zod.coerce.date().optional(),
-  "end": zod.coerce.date().optional()
+  "end": zod.coerce.date().optional(),
+  "patientId": zod.string().nullish().describe('Patient-level kinds (patient_record): the one patient the archive is about')
 })
 
 export const RequestExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
 }),
   "range": zod.union([zod.object({
   "start": zod.coerce.date(),
@@ -3565,7 +3587,19 @@ export const RequestExportResponse = zod.object({
   "completedAt": zod.string().nullable(),
   "expiresAt": zod.string(),
   "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable()
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
 })
 })
 
@@ -3580,12 +3614,14 @@ export const GetExportParams = zod.object({
 export const GetExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired']),
   "scope": zod.object({
   "providerId": zod.string().nullable(),
-  "officeName": zod.string().nullable()
+  "officeName": zod.string().nullable(),
+  "patientId": zod.string().nullable(),
+  "patientName": zod.string().nullable()
 }),
   "range": zod.union([zod.object({
   "start": zod.coerce.date(),
@@ -3599,22 +3635,39 @@ export const GetExportResponse = zod.object({
   "completedAt": zod.string().nullable(),
   "expiresAt": zod.string(),
   "downloadCount": zod.number(),
-  "downloadable": zod.boolean()
+  "downloadable": zod.boolean(),
+  "parts": zod.array(zod.object({
+  "part": zod.number(),
+  "fileName": zod.string(),
+  "sizeBytes": zod.number(),
+  "fileCount": zod.number()
+})).nullable().describe('Multi-part archives (patient records) once ready; null for single-file exports'),
+  "progress": zod.union([zod.object({
+  "stage": zod.enum(['collecting', 'writing', 'ready']),
+  "partsDone": zod.number().nullable(),
+  "partsTotal": zod.number().nullable()
+}),zod.null()]),
+  "omittedFiles": zod.number().nullable().describe('Stored files the archive names in its manifest but could not include')
 })
 })
 
 
 /**
- * @summary Mint a short-lived signed download link for a ready export
+ * @summary Mint a short-lived signed download link for a ready export (one numbered part of a multi-part archive)
  */
 export const GetExportDownloadUrlParams = zod.object({
   "exportId": zod.coerce.string()
 })
 
+export const GetExportDownloadUrlQueryParams = zod.object({
+  "part": zod.coerce.number().optional().describe('Which numbered ZIP part to sign (multi-part archives; default 1)')
+})
+
 export const GetExportDownloadUrlResponse = zod.object({
   "url": zod.string(),
   "fileName": zod.string().nullable(),
-  "expiresInSeconds": zod.number()
+  "expiresInSeconds": zod.number(),
+  "part": zod.number().nullish().describe('Which numbered part was signed (null for single-file exports)')
 })
 
 

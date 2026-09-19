@@ -28,6 +28,7 @@ const REQUIRED_ACTIONS = [
   "training_published", "training_unpublished", "training_deleted", "training_media_deleted", "training_attachment_downloaded",
   // AI support usage, transcript reads, exports, denials
   "ai_support_used", "conversation_transcript_read", "data_export_requested", "data_export_downloaded", "access_denied",
+  "patient_record_export_requested", "patient_record_export_downloaded",
   // staff-initiated billing changes
   "billing_refund_issued", "billing_subscription_cancelled", "billing_subscription_payment_retried",
   "billing_subscription_payment_email_sent", "billing_order_fulfillment_updated", "billing_prices_updated",
@@ -47,7 +48,7 @@ describe("audit action vocabulary", () => {
     for (const hqOnly of ["hq_team_invited", "hq_team_updated", "hq_team_revoked", "hq_settings_updated", "hq_file_uploaded", "hq_file_downloaded", "hq_file_deleted", "knowledge_document_uploaded", "training_published", "ai_support_used"]) {
       expect(officeVisibleActions.has(hqOnly)).toBe(false);
     }
-    for (const officeAction of ["office_team_deactivated", "patient_note_added", "data_export_downloaded", "access_denied", "billing_refund_issued", "billing_payment_link_created"]) {
+    for (const officeAction of ["office_team_deactivated", "patient_note_added", "data_export_downloaded", "patient_record_export_requested", "patient_record_export_downloaded", "access_denied", "billing_refund_issued", "billing_payment_link_created"]) {
       expect(officeVisibleActions.has(officeAction)).toBe(true);
     }
   });

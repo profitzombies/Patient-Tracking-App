@@ -28,6 +28,15 @@ describe("route labels and families", () => {
     expect(routeFamily("/api/office/roster/activity")).toBe("office/roster");
   });
 
+  it("gives the long-lived inbox stream its own family so it never lands in office/conversations", () => {
+    expect(routeFamily("/api/office/conversations/stream")).toBe("office/conversations/stream");
+    expect(routeFamily("/api/office/conversations")).toBe("office/conversations");
+    expect(routeFamily("/api/office/conversations/summary")).toBe("office/conversations");
+    expect(routeFamily("/api/office/conversations/:conversationId/events")).toBe("office/conversations");
+    expect(routeFamily("/api/hq/conversations/stream")).toBe("hq/conversations/stream");
+    expect(routeFamily("/api/hq/conversations/:conversationId/notes")).toBe("hq/conversations");
+  });
+
   it("normalises unmatched paths and caps their depth", () => {
     const label = routeLabel({ route: undefined, baseUrl: "", originalUrl: "/api/nope/8f0c1a2b-1111-2222-3333-444455556666/x/y/z/w?q=1", method: "GET" } as never);
     expect(label).toBe("unmatched:/api/nope/:id/x");
@@ -43,6 +52,12 @@ describe("latency budgets", () => {
     expect(latencyBudget("coach/chat").amberMs).toBeGreaterThan(latencyBudget("hq/system-health").redMs);
     expect(isSlowRequest("hq/system-health", 1_600)).toBe(true);
     expect(isSlowRequest("coach/chat", 1_600)).toBe(false);
+  });
+
+  it("gives long-lived subscriptions no budget at all: an hour-long inbox stream is never slow", () => {
+    expect(latencyBudget("office/conversations/stream")).toEqual({ amberMs: Number.POSITIVE_INFINITY, redMs: Number.POSITIVE_INFINITY });
+    expect(isSlowRequest("office/conversations/stream", 3_600_000)).toBe(false);
+    expect(isSlowRequest("hq/conversations/stream", 3_600_000)).toBe(false);
     expect(isSlowRequest("hq/system-health", 200)).toBe(false);
   });
 });

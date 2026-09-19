@@ -28,6 +28,8 @@ export const UNMATCHED_ROUTE = "unmatched";
  * streams and photo reads — get a wider budget so their normal duration is
  * not logged as slow or shown red.
  */
+const LONG_LIVED_FAMILIES_LIST = ["office/conversations/stream", "hq/conversations/stream"] as const;
+
 export const STREAMING_FAMILIES = new Set([
   "coach/chat",
   "coach/photo",
@@ -37,11 +39,21 @@ export const STREAMING_FAMILIES = new Set([
   "menu-scan",
   "label-scan",
   "support/chat",
-  "staff/conversations",
   "internal/jobs",
   "internal/notifications",
   "training/videos",
+  ...LONG_LIVED_FAMILIES_LIST,
 ]);
+
+/**
+ * Long-lived subscriptions (the staff inbox SSE feed) stay open for as long
+ * as a tab is open, so their "duration" is a session length, not a response
+ * time. They get their own three-segment family so they never land in the
+ * request family they share a path prefix with (`office/conversations`
+ * would otherwise show an hour-long p95 and page HQ red), and no latency
+ * budget at all: never logged slow, never a threshold finding.
+ */
+export const LONG_LIVED_FAMILIES: ReadonlySet<string> = new Set(LONG_LIVED_FAMILIES_LIST);
 
 export interface LatencyBudget {
   amberMs: number;
@@ -50,6 +62,9 @@ export interface LatencyBudget {
 
 /** Amber = worth a look; red = users are waiting. Env knobs blank-check before parsing. */
 export function latencyBudget(family: string): LatencyBudget {
+  if (LONG_LIVED_FAMILIES.has(family)) {
+    return { amberMs: Number.POSITIVE_INFINITY, redMs: Number.POSITIVE_INFINITY };
+  }
   if (STREAMING_FAMILIES.has(family)) {
     return { amberMs: envInt("LATENCY_STREAM_AMBER_MS", 20_000), redMs: envInt("LATENCY_STREAM_RED_MS", 45_000) };
   }
@@ -81,7 +96,9 @@ export function routeLabel(req: Pick<Request, "route" | "baseUrl" | "originalUrl
 /**
  * Route family: first two labelled segments after `/api`, stopping before
  * a parameter (`/api/patient/diary/:day` → `patient/diary`,
- * `/api/coach/chat` → `coach/chat`, `/api/health` → `health`).
+ * `/api/coach/chat` → `coach/chat`, `/api/health` → `health`). A long-lived
+ * subscription route keeps its third segment
+ * (`/api/office/conversations/stream` → `office/conversations/stream`).
  */
 export function routeFamily(label: string): string {
   if (label === "preflight") return "preflight";
@@ -90,8 +107,13 @@ export function routeFamily(label: string): string {
   if (segments[0] === "api") segments.shift();
   const named: string[] = [];
   for (const segment of segments) {
-    if (segment.startsWith(":") || named.length === 2) break;
+    if (segment.startsWith(":") || named.length === 3) break;
     named.push(segment);
+  }
+  if (named.length === 3) {
+    const longLived = named.join("/");
+    if (LONG_LIVED_FAMILIES.has(longLived)) return longLived;
+    named.pop();
   }
   return named.length ? named.join("/") : "root";
 }

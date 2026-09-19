@@ -1,11 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ admin: vi.fn() }));
 vi.mock("../../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
 
 import type { JobContext } from "../types";
 import type { LatencyFamilyDto } from "../../system/performance";
-import { buildThresholdNotifications, runSystemThresholds, systemThresholdsJob, thresholdDedupeKey } from "./system-thresholds";
+import { buildThresholdNotifications, runSystemThresholds, systemAlertEmailsMuted, systemThresholdsJob, thresholdDedupeKey } from "./system-thresholds";
 
 const NOW = new Date("2026-09-18T12:15:00Z");
 const MB = 1024 * 1024;
@@ -47,7 +47,16 @@ const readers = {
 };
 
 describe("system-thresholds job", () => {
-  beforeEach(() => mocks.admin.mockReset());
+  // The development environment mutes these emails (SYSTEM_ALERT_EMAILS=off);
+  // the suite pins the knob so it proves the production default.
+  const originalKnob = process.env.SYSTEM_ALERT_EMAILS;
+  beforeEach(() => {
+    mocks.admin.mockReset();
+    delete process.env.SYSTEM_ALERT_EMAILS;
+  });
+  afterAll(() => {
+    if (originalKnob === undefined) delete process.env.SYSTEM_ALERT_EMAILS; else process.env.SYSTEM_ALERT_EMAILS = originalKnob;
+  });
 
   it("queues one email per finding and recipient with a per-metric, level, and day dedupe key", async () => {
     mocks.admin.mockResolvedValue({ status: 201, json: [{ id: "n1" }] });
@@ -99,6 +108,32 @@ describe("system-thresholds job", () => {
     await runSystemThresholds(context, { readers, recipients: async () => recipients });
     expect(mocks.admin).not.toHaveBeenCalled();
     expect(tallies).toMatchObject({ findings: 1, alertsWouldQueue: 1 });
+  });
+
+  it("SYSTEM_ALERT_EMAILS=off still evaluates and logs findings but queues no email", async () => {
+    const original = process.env.SYSTEM_ALERT_EMAILS;
+    process.env.SYSTEM_ALERT_EMAILS = "off";
+    try {
+      const { context, tallies, logs } = ctx();
+      await runSystemThresholds(context, { readers, recipients: async () => { throw new Error("recipients must not be read while muted"); } });
+      expect(mocks.admin).not.toHaveBeenCalled();
+      expect(logs[0]).toMatchObject({ event: "system_thresholds", detail: { level: "red" } });
+      expect(logs[1]).toMatchObject({ event: "system_threshold_emails_muted", detail: { findings: 1, knob: "SYSTEM_ALERT_EMAILS" } });
+      expect(tallies).toEqual({ findings: 1, redFindings: 1, alertsMuted: 1 });
+    } finally {
+      if (original === undefined) delete process.env.SYSTEM_ALERT_EMAILS; else process.env.SYSTEM_ALERT_EMAILS = original;
+    }
+  });
+
+  it("treats only an explicit off/false/0 as muted; unset, blank, and other values keep emails on", () => {
+    expect(systemAlertEmailsMuted({})).toBe(false);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "" })).toBe(false);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "on" })).toBe(false);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "1" })).toBe(false);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "off" })).toBe(true);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: " OFF " })).toBe(true);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "false" })).toBe(true);
+    expect(systemAlertEmailsMuted({ SYSTEM_ALERT_EMAILS: "0" })).toBe(true);
   });
 
   it("records an unreadable section as an item failure and still evaluates the rest", async () => {

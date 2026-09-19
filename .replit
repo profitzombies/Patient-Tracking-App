@@ -1614,6 +1614,9 @@ CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
 CLAIM_EMAIL_FROM = "THINNR Dashboard <no-reply@appnotifications.thinnrweightloss.com>"
 
+[userenv.development]
+SYSTEM_ALERT_EMAILS = "off"
+
 [nix]
 channel = "stable-25_05"
 packages = ["ffmpeg"]

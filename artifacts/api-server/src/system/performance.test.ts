@@ -38,6 +38,8 @@ describe("thresholds", () => {
         { family: "patient/diary", requests: 3, p95Ms: 9_000 },
         { family: "coach/chat", requests: 40, p95Ms: 12_000 },
         { family: "office/roster", requests: 40, p95Ms: 5_000 },
+        { family: "office/conversations/stream", requests: 64, p95Ms: 3_600_000 },
+        { family: "hq/conversations/stream", requests: 30, p95Ms: 1_800_000 },
       ],
       growth: null,
     });

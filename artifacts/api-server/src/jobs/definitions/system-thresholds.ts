@@ -11,6 +11,12 @@
  * and recipient: a slow route that stays slow all day sends once at amber
  * and once more only if it turns red. Dry runs evaluate and log but queue
  * nothing.
+ *
+ * SYSTEM_ALERT_EMAILS=off mutes the emails without hiding the findings: the
+ * run still evaluates, logs, and tallies, but queues nothing and records
+ * `alertsMuted` instead. Development sets it off because the shared dev
+ * server also carries the automated test load, which crosses the production
+ * latency limits on its own; production leaves it unset (on).
  */
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import { readPerformance, type PerformanceReaders } from "../../system/performance";
@@ -38,6 +44,12 @@ async function defaultRecipients(): Promise<HqAlertRecipient[]> {
   );
   if (result.status >= 300) throw new Error(`hq recipients read failed (${result.status})`);
   return Array.isArray(result.json) ? (result.json as HqAlertRecipient[]) : [];
+}
+
+/** Emails are on unless SYSTEM_ALERT_EMAILS is explicitly off/false/0. Read per run so env-override restarts and tests see the current value. */
+export function systemAlertEmailsMuted(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.SYSTEM_ALERT_EMAILS ?? "").trim().toLowerCase();
+  return raw === "off" || raw === "false" || raw === "0";
 }
 
 export function thresholdDedupeKey(finding: ThresholdFinding, day: string, authUserId: string): string {
@@ -108,6 +120,11 @@ export async function runSystemThresholds(ctx: JobContext, deps: SystemThreshold
   ctx.tally("findings", findings.length);
   ctx.tally("redFindings", findings.filter((finding) => finding.level === "red").length);
   if (!findings.length) return;
+  if (systemAlertEmailsMuted()) {
+    ctx.log("system_threshold_emails_muted", { findings: findings.length, knob: "SYSTEM_ALERT_EMAILS" });
+    ctx.tally("alertsMuted", findings.length);
+    return;
+  }
   const recipients = await (deps.recipients ?? defaultRecipients)();
   const rows = buildThresholdNotifications({ findings, recipients, now: ctx.now });
   if (ctx.dryRun) {

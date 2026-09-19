@@ -88,6 +88,31 @@ describe("HQ patient deletions", () => {
     expect((await call("/hq/patient-deletions?limit=0")).status).toBe(400);
   });
 
+  it("lists who viewed the patient's record for a deletion, with names for HQ", async () => {
+    mocks.supabase.tables.providers = [{ provider_id: "office-1", provider_name: "Dr. Reyes", office_name: "Harbor Med Spa" }];
+    mocks.supabase.tables.team_members = [{ auth_user_id: fakeUuid(950), name: "Nurse Kim" }];
+    mocks.supabase.tables.hq_memberships = [];
+    mocks.supabase.tables.admin_audit_events.push(
+      { id: 1, occurred_at: "2026-09-03T14:00:00Z", action: "patient_record_viewed", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: fakeUuid(102), request_id: null, metadata: {} },
+      { id: 2, occurred_at: "2026-09-03T14:05:00Z", action: "bloodwork_report_opened", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: fakeUuid(102), request_id: null, metadata: { reportId: fakeUuid(800) } },
+      { id: 3, occurred_at: "2026-09-03T14:06:00Z", action: "patient_record_viewed", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: fakeUuid(103), request_id: null, metadata: {} },
+      { id: 4, occurred_at: "2026-09-03T14:07:00Z", action: "patient_updated", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: fakeUuid(102), request_id: null, metadata: {} },
+    );
+    // Audit readers may see it; anyone else is refused; unknown ids are neutral.
+    const res = await call(`/hq/patient-deletions/${fakeUuid(2)}/record-access`, "viewer");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { patientId: string; total: number; entries: Array<Record<string, unknown>> };
+    expect(body.patientId).toBe(fakeUuid(102));
+    expect(body.total).toBe(2);
+    expect(body.entries).toEqual([
+      expect.objectContaining({ occurredAt: "2026-09-03T14:00:00Z", action: "patient_record_viewed", label: "Viewed patient record", office: "Harbor Med Spa", role: "Office teammate", actorName: "Nurse Kim", actorUserId: fakeUuid(950), reportId: null }),
+      expect.objectContaining({ action: "bloodwork_report_opened", label: "Opened lab report", reportId: fakeUuid(800) }),
+    ]);
+    expect((await call(`/hq/patient-deletions/${fakeUuid(2)}/record-access`, "nobody")).status).toBe(401);
+    expect((await call(`/hq/patient-deletions/${fakeUuid(9)}/record-access`)).status).toBe(404);
+    expect((await call(`/hq/patient-deletions/not-a-uuid/record-access`)).status).toBe(404);
+  });
+
   it("retries only a failed purge, audits it, and kicks the worker", async () => {
     const res = await call(`/hq/patient-deletions/${fakeUuid(3)}/retry`, "admin", "POST");
     expect(res.status).toBe(200);

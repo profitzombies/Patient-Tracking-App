@@ -143,6 +143,15 @@ const hqSummary = () => ({ pending: 0, held: 0, cancelled: 0, purging: 0, purged
 
 const requests: Array<{ url: string; method: string }> = [];
 let recordResponse: { status: number; body: unknown } = { status: 200, body: detailFixture({ state: 'requested', requestedAt: iso(-2), purgeAfter: iso(5) }) };
+const RECORD_ACCESS = {
+  patientId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  total: 2,
+  entries: [
+    { occurredAt: '2026-09-02T14:00:00.000Z', action: 'patient_record_viewed', label: 'Viewed patient record', office: 'Beacon Hill Aesthetics', providerId: 'office-1', role: 'Office teammate', actorUserId: 'tm-1', actorName: 'Nurse Kim', thread: null, reportId: null, conversationId: null },
+    { occurredAt: '2026-09-03T09:30:00.000Z', action: 'conversation_transcript_opened', label: 'Opened conversation transcript', office: 'Beacon Hill Aesthetics', providerId: 'office-1', role: 'HQ staff', actorUserId: 'hq-1', actorName: 'Morgan HQ', thread: 'care_team', reportId: null, conversationId: 'conv-1' },
+  ],
+};
+
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const method = (init?.method ?? 'GET').toUpperCase();
@@ -151,8 +160,15 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   if (url.includes('/api/office/roster')) return json(ROSTER);
   if (url.includes('/notifications')) return json({ patientId: PENDING_ID, outreach: { state: 'none' }, notifications: [] });
   if (url.includes('/coach-conversations')) return json({ conversations: [], total: 0, nextOffset: null });
+  if (url.includes('/coach-memories')) return json({ memories: [], total: 0 });
   if (url.includes('/sessions')) return json({ sessions: [], lastSignInAt: null });
   if (url.includes('/api/office/patients/')) return json(recordResponse.body, recordResponse.status);
+  const access = /\/api\/hq\/patient-deletions\/([^/]+)\/record-access$/.exec(url);
+  if (access) {
+    const id = decodeURIComponent(access[1]);
+    if (!hqDeletions.some((d) => d.id === id)) return json({ error: 'Deletion request not found.' }, 404);
+    return json(id === 'del-purged' ? RECORD_ACCESS : { patientId: id, entries: [], total: 0 });
+  }
   const retry = /\/api\/hq\/patient-deletions\/([^/]+)\/retry$/.exec(url);
   if (retry && method === 'POST') {
     const row = hqDeletions.find((d) => d.id === decodeURIComponent(retry[1]));
@@ -278,6 +294,23 @@ console.log('\nHQ account deletions: admin view and retry');
   const retryCalls = requests.filter((r) => r.method === 'POST' && r.url.includes('/patient-deletions/del-failed/retry'));
   check('retry posts to the API once', retryCalls.length === 1, `calls=${retryCalls.length}`);
   check('after retry the row is pending again and the failed count drops', textOf(byTestId(root, 'metric-deletions-failed')[0]) === '0' && byTestId(root, 'button-retry-deletion-del-failed').length === 0 && textOf(byTestId(root, 'row-deletion-del-failed')[0]).includes('Pending'));
+
+  // "Who viewed this record" is loaded on demand per deletion, never up front.
+  check('record access is not fetched until asked', !requests.some((r) => r.url.includes('/record-access')));
+  const accessButton = byTestId(root, 'button-record-access-del-purged');
+  check('every row offers a Record access toggle', accessButton.length === 1 && byTestId(root, 'button-record-access-del-pending').length === 1 && accessButton[0].props['aria-expanded'] === false);
+  await act(async () => { accessButton[0].props.onClick(); });
+  await settle();
+  const accessCalls = requests.filter((r) => r.url.includes('/patient-deletions/del-purged/record-access'));
+  check('opening asks the API for that deletion once', accessCalls.length === 1, `calls=${accessCalls.length}`);
+  const panel = byTestId(root, 'panel-record-access-del-purged');
+  check('panel renders with the toggle expanded', panel.length === 1 && byTestId(root, 'button-record-access-del-purged')[0].props['aria-expanded'] === true);
+  const panelText = panel.length ? textOf(panel[0]) : '';
+  check('rows carry plain labels, viewer name + role, and office', panelText.includes('Viewed patient record') && panelText.includes('Opened conversation transcript') && panelText.includes('care team') && panelText.includes('Nurse Kim') && panelText.includes('Office teammate') && panelText.includes('Morgan HQ') && panelText.includes('HQ staff') && panelText.includes('Beacon Hill Aesthetics'));
+  check('two access rows rendered', byTestId(root, 'row-record-access-del-purged-0').length === 1 && byTestId(root, 'row-record-access-del-purged-1').length === 1 && byTestId(root, 'row-record-access-del-purged-2').length === 0);
+  await act(async () => { byTestId(root, 'button-record-access-del-pending')[0].props.onClick(); });
+  await settle();
+  check('a record nobody opened says so', byTestId(root, 'text-record-access-empty-del-pending').length === 1 && byTestId(root, 'panel-record-access-del-purged').length === 0);
 }
 
 console.log('\nHQ account deletions: demo persona');

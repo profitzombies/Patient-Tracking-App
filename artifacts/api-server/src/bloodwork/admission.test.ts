@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type http from "node:http";
 import bloodworkRouter from "../routes/bloodwork";
 import { admitPatient } from "./authorization";
+import { resetRecordAccessCache } from "../lib/record-access-audit";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 
 type Row = Record<string, unknown>;
@@ -61,6 +62,7 @@ const PDF_DRAFT = {
 };
 
 let reportState: Row | null;
+let readAudits: Row[] = [];
 let fileState: Row | null;
 
 function result(json: unknown, status = 200): AdminResult {
@@ -163,6 +165,10 @@ function configureBackend(): void {
     if (method === "POST" && path === "/rest/v1/rpc/record_admin_audit_event") {
       return result([]);
     }
+    if (method === "POST" && path === "/rest/v1/rpc/record_admin_audit_read_event") {
+      readAudits.push(body ?? {});
+      return result([{ recorded: true, window_started_at: new Date().toISOString() }]);
+    }
     throw new Error(`unexpected fake request: ${method} ${path}`);
   });
 }
@@ -241,6 +247,8 @@ beforeEach(() => {
     photo_analysis_accepted: true,
     recorded_at: "2026-09-01T00:00:00Z",
   }];
+  readAudits = [];
+  resetRecordAccessCache();
   mocks.fetchAuthUser.mockReset();
   mocks.supabaseAdmin.mockReset();
   mocks.resolveOfficeScope.mockReset().mockResolvedValue({
@@ -273,6 +281,32 @@ beforeEach(() => {
 });
 
 describe("bloodwork admission", () => {
+  it("records staff list and report reads as deduped record access, and nothing for the patient's own reads", async () => {
+    reportState = {
+      id: REPORT, patient_id: PATIENT, title: "CBC", report_date: null,
+      uploaded_at: "2026-09-01T00:00:00Z", version: 1, kind: "pdf",
+      extraction_status: "completed", extraction_error: null, lifecycle_status: "committed",
+      reviewed_at: null, reviewed_by: null,
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+    // Patient reading their own bloodwork: no record-access row.
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports`, { token: "patient-token" })).status).toBe(200);
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}`, { token: "patient-token" })).status).toBe(200);
+    await settle();
+    expect(readAudits).toEqual([]);
+
+    mocks.fetchAuthUser.mockResolvedValue({ id: "provider-user", email: null, phone: null });
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports`, { token: "provider-token" })).status).toBe(200);
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports`, { token: "provider-token" })).status).toBe(200);
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}`, { token: "provider-token" })).status).toBe(200);
+    expect((await api("GET", `/api/bloodwork/patients/${PATIENT}/reports/${REPORT}`, { token: "provider-token" })).status).toBe(200);
+    await settle();
+    expect(readAudits.map((row) => [row.p_action, row.p_actor_user_id, row.p_actor_kind, row.p_provider_id, row.p_target_id, row.p_dedupe_key, row.p_metadata])).toEqual([
+      ["patient_bloodwork_viewed", "provider-user", "provider", "provider-a", PATIENT, `patient_bloodwork_viewed:patient:${PATIENT}`, {}],
+      ["bloodwork_report_opened", "provider-user", "provider", "provider-a", PATIENT, `bloodwork_report_opened:patient:${PATIENT}:${REPORT}`, { reportId: REPORT }],
+    ]);
+  });
+
   it("allows staff to mark a completed report reviewed and clear the marker", async () => {
     reportState = {
       id: REPORT, patient_id: PATIENT, title: "CBC", report_date: null,

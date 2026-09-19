@@ -11,14 +11,16 @@
  * No PII: rows carry patient and provider ids only, and after a purge the
  * patient id resolves to nothing but a tombstone.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { ChevronLeft, RotateCcw, ShieldAlert } from 'lucide-react';
+import { ChevronLeft, Eye, RotateCcw, ShieldAlert } from 'lucide-react';
 import {
   getGetHqPatientDeletionsQueryKey,
+  getGetHqPatientDeletionRecordAccessQueryKey,
   useGetHqPatientDeletions,
+  useGetHqPatientDeletionRecordAccess,
   useRetryHqPatientDeletion,
   type HqPatientDeletion,
   type HqPatientDeletionStatus,
@@ -78,12 +80,67 @@ function stepSummary(steps: HqPatientDeletion['steps']): string {
     .join(' · ');
 }
 
+/**
+ * "Who viewed this record" — the record-access audit rows for the patient
+ * behind a deletion request. Loaded on demand (one request per opened row)
+ * because audit history is only wanted during an investigation.
+ */
+function RecordAccessPanel({ deletionId, sessionKey }: { deletionId: string; sessionKey: string }) {
+  const { data, isLoading, isError, error } = useGetHqPatientDeletionRecordAccess(deletionId, {
+    query: { queryKey: [...getGetHqPatientDeletionRecordAccessQueryKey(deletionId), sessionKey] },
+  });
+  return (
+    <div className="border-t border-border bg-secondary/40 px-4 py-3" data-testid={`panel-record-access-${deletionId}`}>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[.11em] text-muted-foreground">Who viewed this record</p>
+      {isLoading && <p className="text-muted-foreground">Loading record access…</p>}
+      {isError && (
+        <p className="text-destructive" role="alert">{(error as { data?: { error?: string } })?.data?.error ?? 'Record access could not be loaded.'}</p>
+      )}
+      {data && data.entries.length === 0 && (
+        <p className="text-muted-foreground" data-testid={`text-record-access-empty-${deletionId}`}>No staff or HQ views of this record are on file.</p>
+      )}
+      {data && data.entries.length > 0 && (
+        <table className="w-full text-left text-xs">
+          <thead className="text-[10px] uppercase tracking-[.11em] text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-4 font-semibold">When</th>
+              <th className="py-1 pr-4 font-semibold">What</th>
+              <th className="py-1 pr-4 font-semibold">Who</th>
+              <th className="py-1 pr-4 font-semibold">Office</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.entries.map((entry, index) => (
+              <tr key={`${entry.occurredAt}-${index}`} className="border-t border-border/60" data-testid={`row-record-access-${deletionId}-${index}`}>
+                <td className="whitespace-nowrap py-1.5 pr-4 text-muted-foreground">{when(entry.occurredAt)}</td>
+                <td className="py-1.5 pr-4 text-foreground">
+                  {entry.label}
+                  {entry.thread ? <span className="text-muted-foreground"> · {entry.thread.replace(/_/g, ' ')}</span> : null}
+                  {entry.reportId ? <span className="block font-mono text-[10px] text-muted-foreground">{entry.reportId}</span> : null}
+                </td>
+                <td className="py-1.5 pr-4">
+                  <span className="block text-foreground">{entry.actorName}</span>
+                  <span className="block text-[10px] text-muted-foreground">{entry.role}</span>
+                </td>
+                <td className="py-1.5 pr-4 text-muted-foreground">{entry.office ?? (entry.providerId ?? '—')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {data && data.total > 0 && (
+        <p className="mt-2 text-[10px] text-muted-foreground">{data.total} view{data.total === 1 ? '' : 's'} on file. Repeated views by the same person within 15 minutes are recorded once.</p>
+      )}
+    </div>
+  );
+}
 export default function PatientDeletions() {
   const { authStatus, authUser, hqRole } = useSession();
   const { findAccount } = useHqData();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<HqPatientDeletionStatus | ''>('');
+  const [openAccess, setOpenAccess] = useState<string | null>(null);
   const params = { limit: 200, ...(statusFilter ? { status: statusFilter } : {}) };
   const canLoad = authStatus === 'signed-in' && (hqRole === 'Super Admin' || hqRole === 'Admin');
   const canRetry = canLoad;
@@ -180,8 +237,10 @@ export default function PatientDeletions() {
                   )}
                   {!isLoading && !isError && data?.deletions.map((row) => {
                     const account = row.providerId ? findAccount(row.providerId) : undefined;
+                    const accessOpen = openAccess === row.id;
                     return (
-                      <tr key={row.id} data-testid={`row-deletion-${row.id}`} className={`border-b border-border last:border-0 ${row.status === 'failed' ? 'bg-[#fff0f0]/40' : ''}`}>
+                      <Fragment key={row.id}>
+                      <tr data-testid={`row-deletion-${row.id}`} className={`border-b border-border last:border-0 ${row.status === 'failed' ? 'bg-[#fff0f0]/40' : ''}`}>
                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{when(row.requestedAt)}</td>
                         <td className="px-4 py-3"><StatusChip status={row.status} /></td>
                         <td className="px-4 py-3">
@@ -206,6 +265,16 @@ export default function PatientDeletions() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            data-testid={`button-record-access-${row.id}`}
+                            aria-expanded={accessOpen}
+                            aria-controls={`record-access-${row.id}`}
+                            onClick={() => setOpenAccess(accessOpen ? null : row.id)}
+                            className="mr-2 inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-card px-3 font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <Eye size={12} aria-hidden="true" />{accessOpen ? 'Hide record access' : 'Record access'}
+                          </button>
                           {row.status === 'failed' && canRetry && (
                             <button
                               type="button"
@@ -219,6 +288,14 @@ export default function PatientDeletions() {
                           )}
                         </td>
                       </tr>
+                      {accessOpen && (
+                        <tr id={`record-access-${row.id}`} className="border-b border-border last:border-0">
+                          <td colSpan={7} className="p-0">
+                            <RecordAccessPanel deletionId={row.id} sessionKey={`${authUser?.id ?? ''}:${hqRole ?? ''}`} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>

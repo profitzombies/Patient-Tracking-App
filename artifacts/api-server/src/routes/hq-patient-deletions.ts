@@ -1,8 +1,9 @@
 /**
  * HQ visibility into patient account deletions.
  *
- *  - GET  /hq/patient-deletions?status=      lifecycle rows (ids and counts only — no PII)
- *  - POST /hq/patient-deletions/:id/retry    re-arm a failed purge right now
+ *  - GET  /hq/patient-deletions?status=                lifecycle rows (ids and counts only — no PII)
+ *  - GET  /hq/patient-deletions/:id/record-access      who viewed this patient's record (record-access audit)
+ *  - POST /hq/patient-deletions/:id/retry              re-arm a failed purge right now
  *
  * Failed purges are the point: a half-done purge must be seen and finished,
  * never left quietly stuck. The list is the same table the worker drives.
@@ -13,6 +14,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { DELETION_SELECT, drainDuePurges, type DeletionRequestRow } from "../privacy/purge";
+import { loadHqRecordAccess } from "../privacy/record-access";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -87,6 +89,34 @@ router.get("/hq/patient-deletions", requireHqPermission("audit_read"), async (re
   } catch (error) {
     req.log?.error({ err: error }, "HQ deletion list failed");
     res.status(502).json({ error: "Could not load account deletions right now." });
+  }
+});
+
+/**
+ * Record access for the patient behind a deletion request. Audit rows
+ * outlive the purge (they are the compliance record of who opened the
+ * chart), so this stays answerable after the patient row is gone.
+ */
+router.get("/hq/patient-deletions/:id/record-access", requireHqPermission("audit_read"), async (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) {
+    res.status(404).json({ error: "Deletion request not found." });
+    return;
+  }
+  try {
+    const found = await supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?id=eq.${enc(id)}&select=id,patient_id&limit=1`);
+    if (found.status >= 300 || !Array.isArray(found.json)) throw new Error(`deletion lookup failed (${found.status})`);
+    const row = found.json[0] as { id: string; patient_id: string } | undefined;
+    if (!row) {
+      res.status(404).json({ error: "Deletion request not found." });
+      return;
+    }
+    const entries = await loadHqRecordAccess(row.patient_id);
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json({ patientId: row.patient_id, entries, total: entries.length });
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ deletion record access failed");
+    res.status(502).json({ error: "Could not load record access right now." });
   }
 });
 

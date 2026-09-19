@@ -114,6 +114,13 @@ export const AUDIT_ACTIONS = [
   "billing_product_updated",
   "billing_product_archived",
   "billing_product_floor_updated",
+  // Record access (reads, deduped per actor + target — see lib/record-access-audit.ts)
+  "patient_record_viewed",
+  "patient_photos_viewed",
+  "patient_bloodwork_viewed",
+  "bloodwork_report_opened",
+  "patient_medications_viewed",
+  "conversation_transcript_opened",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -134,6 +141,7 @@ export const AUDIT_METADATA_KEYS = [
   "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active", "max_uses",
   "part", "parts",
   "holdId", "targetKind",
+  "reportId", "conversationId", "photos",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -207,6 +215,12 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "billing_connect_disconnected",
   "billing_settings_updated",
   "billing_office_settings_updated",
+  "patient_record_viewed",
+  "patient_photos_viewed",
+  "patient_bloodwork_viewed",
+  "bloodwork_report_opened",
+  "patient_medications_viewed",
+  "conversation_transcript_opened",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);
 

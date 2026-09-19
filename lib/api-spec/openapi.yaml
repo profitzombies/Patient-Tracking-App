@@ -2531,6 +2531,18 @@ paths:
         "200":
           description: Deletion requests newest first plus a status summary
           content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionsResult" } } }
+  /hq/patient-deletions/{id}/record-access:
+    get:
+      operationId: getHqPatientDeletionRecordAccess
+      tags: [hq]
+      summary: Who viewed this patient's record — record-access audit events (one per viewer, target, and 15-minute window), oldest first
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Record-access entries with the viewer's name and role, office, and what was opened
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientRecordAccessResult" } } }
+        "404": { description: Deletion request not found }
   /hq/patient-deletions/{id}/retry:
     post:
       operationId: retryHqPatientDeletion
@@ -5192,6 +5204,29 @@ components:
       required: [deletion]
       properties:
         deletion: { $ref: "#/components/schemas/HqPatientDeletion" }
+    HqPatientRecordAccessEntry:
+      type: object
+      description: One record-access audit event. Content is never carried — only what kind of thing was opened and by whom.
+      required: [occurredAt, action, label, office, providerId, role, actorUserId, actorName, thread, reportId, conversationId]
+      properties:
+        occurredAt: { type: string, format: date-time }
+        action: { type: string, enum: [patient_record_viewed, patient_photos_viewed, patient_bloodwork_viewed, bloodwork_report_opened, patient_medications_viewed, conversation_transcript_opened] }
+        label: { type: string, description: "Plain wording for the action" }
+        office: { type: ["string", "null"] }
+        providerId: { type: ["string", "null"] }
+        role: { type: string, description: "Viewer's role label (office account holder, office teammate, HQ staff)" }
+        actorUserId: { type: ["string", "null"] }
+        actorName: { type: string }
+        thread: { type: ["string", "null"] }
+        reportId: { type: ["string", "null"] }
+        conversationId: { type: ["string", "null"] }
+    HqPatientRecordAccessResult:
+      type: object
+      required: [patientId, entries, total]
+      properties:
+        patientId: { type: string }
+        entries: { type: array, items: { $ref: "#/components/schemas/HqPatientRecordAccessEntry" } }
+        total: { type: number }
     HqAuditEventsResult:
       type: object
       required: [events]

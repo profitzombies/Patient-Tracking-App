@@ -5255,6 +5255,32 @@ export const GetHqPatientDeletionsResponse = zod.object({
 
 
 /**
+ * @summary Who viewed this patient's record — record-access audit events (one per viewer, target, and 15-minute window), oldest first
+ */
+export const GetHqPatientDeletionRecordAccessParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetHqPatientDeletionRecordAccessResponse = zod.object({
+  "patientId": zod.string(),
+  "entries": zod.array(zod.object({
+  "occurredAt": zod.coerce.date(),
+  "action": zod.enum(['patient_record_viewed', 'patient_photos_viewed', 'patient_bloodwork_viewed', 'bloodwork_report_opened', 'patient_medications_viewed', 'conversation_transcript_opened']),
+  "label": zod.string().describe('Plain wording for the action'),
+  "office": zod.string().nullable(),
+  "providerId": zod.string().nullable(),
+  "role": zod.string().describe('Viewer\'s role label (office account holder, office teammate, HQ staff)'),
+  "actorUserId": zod.string().nullable(),
+  "actorName": zod.string(),
+  "thread": zod.string().nullable(),
+  "reportId": zod.string().nullable(),
+  "conversationId": zod.string().nullable()
+}).describe('One record-access audit event. Content is never carried — only what kind of thing was opened and by whom.')),
+  "total": zod.number()
+})
+
+
+/**
  * @summary Re-queue a failed purge (idempotent; only failed requests can be retried)
  */
 export const RetryHqPatientDeletionParams = zod.object({

@@ -37,6 +37,7 @@ vi.hoisted(() => {
 
 import router, { RECORD_NOT_FOUND } from "./office-roster";
 import { ensurePatientAuthUser } from "../auth/session";
+import { resetRecordAccessCache } from "../lib/record-access-audit";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -61,6 +62,7 @@ let outreachStates: Row[] = [];
 let deletionRequests: Row[] = [];
 let tombstones: Row[] = [];
 let billingSubscriptions: Row[] | "unavailable" = [];
+let readAudits: Row[] = [];
 let spendRows: Row[] | "unavailable" = [];
 const spendRequests: string[] = [];
 
@@ -118,6 +120,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  readAudits = [];
+  resetRecordAccessCache();
   authUsers = {
     "provider-token": "provider-user",
     "member-token": "member-user",
@@ -248,6 +252,10 @@ beforeEach(() => {
       );
     }
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") return response(null, 204);
+    if (url.pathname === "/rest/v1/rpc/record_admin_audit_read_event") {
+      readAudits.push(JSON.parse(String(init?.body)) as Row);
+      return response([{ recorded: true, window_started_at: new Date().toISOString() }]);
+    }
     if (url.pathname === "/rest/v1/rpc/provider_outreach_states") return response(outreachStates);
     if (url.pathname === "/rest/v1/rpc/billing_office_patient_spend") {
       const body = JSON.parse(String(init?.body)) as { p_provider_id: string };
@@ -910,6 +918,35 @@ describe("live patient records", () => {
       .not.toMatch(/Riley|office-2|Lakeside/i);
   });
 
+  it("audits each staff record read once per actor and target window, photos separately", async () => {
+    patientTables.patient_progress_photos.push(
+      { patient_id: "pat-own", photo_id: "p-1", date_key: "2026-01-05", label: "Start", angle: "front", object_path: "/objects/patient-media/pat-own/progress-1" },
+    );
+    expect((await api("/office/patients/pat-own", "provider-token")).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits.map((row) => [row.p_action, row.p_actor_user_id, row.p_actor_kind, row.p_provider_id, row.p_target_kind, row.p_target_id, row.p_dedupe_key])).toEqual([
+      ["patient_record_viewed", "provider-user", "provider", "office-1", "patient", "pat-own", "patient_record_viewed:patient:pat-own"],
+      ["patient_photos_viewed", "provider-user", "provider", "office-1", "patient", "pat-own", "patient_photos_viewed:patient:pat-own"],
+    ]);
+    expect(readAudits[1].p_metadata).toEqual({ photos: 1 });
+    expect(readAudits[0].p_window_seconds).toBe(900);
+    // Same actor again inside the window: the process already knows the window is open, no second write.
+    expect((await api("/office/patients/pat-own", "provider-token")).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits).toHaveLength(2);
+    // A different staffer opening the same chart is its own event.
+    expect((await api("/office/patients/pat-own", "member-token")).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits.map((row) => [row.p_action, row.p_actor_user_id])).toEqual([
+      ["patient_record_viewed", "provider-user"], ["patient_photos_viewed", "provider-user"],
+      ["patient_record_viewed", "member-user"], ["patient_photos_viewed", "member-user"],
+    ]);
+    // HQ drill-in reads are recorded as HQ against the office they entered.
+    expect((await api("/office/patients/pat-other?office=office-2", "hq-token")).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits.at(-1)).toMatchObject({ p_action: "patient_record_viewed", p_actor_kind: "hq", p_provider_id: "office-2", p_target_id: "pat-other" });
+  });
+
   it("requires explicit provider_read scope for HQ record reads", async () => {
     const missing = await api("/office/patients/pat-other", "hq-token");
     expect(missing.status).toBe(400);
@@ -966,6 +1003,15 @@ describe("staff photo page signing", () => {
     expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: [1, 2] })).status).toBe(400);
     expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: Array.from({ length: 101 }, (_, i) => `p-${i}`) })).status).toBe(400);
     expect((await post(`/office/patients/${ownId}/photos/urls`, "provider-token", { ids: ["p-1"], variant: "huge" })).status).toBe(400);
+  });
+
+  it("audits the photo page signing as one progress-photo view per actor window", async () => {
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "member-token", { ids: ["p-1", "p-2"], variant: "thumb" })).status).toBe(200);
+    expect((await post(`/office/patients/${ownId}/photos/urls`, "member-token", { ids: ["p-2"], variant: "medium" })).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits.map((row) => [row.p_action, row.p_actor_user_id, row.p_target_id, row.p_metadata])).toEqual([
+      ["patient_photos_viewed", "member-user", ownId, { photos: 2 }],
+    ]);
   });
 
   it("keeps office isolation and HQ scope rules identical to the record read", async () => {

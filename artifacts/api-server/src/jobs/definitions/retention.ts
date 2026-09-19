@@ -120,6 +120,8 @@ export async function trimNotificationHistory(ctx: JobContext): Promise<void> {
   }
 }
 
+/** Dedupe windows older than this are inert (the window itself is 15 minutes). */
+const READ_WINDOW_SWEEP_DAYS = 1;
 export async function archiveAuditEvents(ctx: JobContext): Promise<void> {
   const days = retentionDays((await policy()).retention.auditEventDays, "audit event");
   const cutoff = cutoffFor(ctx.now, days);
@@ -133,6 +135,17 @@ export async function archiveAuditEvents(ctx: JobContext): Promise<void> {
     ctx.tally(ctx.dryRun ? "eventsDue" : "eventsArchived", row.events_archived);
     ctx.tally("summariesTouched", row.summaries_touched);
     if (ctx.dryRun || row.events_archived < BATCH) break;
+  }
+  // Record-access dedupe windows are only meaningful for their 15 minutes;
+  // sweep anything a day old so the ledger stays the size of recent reads.
+  const windowCutoff = cutoffFor(ctx.now, READ_WINDOW_SWEEP_DAYS);
+  for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+    ctx.checkpoint();
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/retention_trim_audit_read_windows", { p_cutoff: windowCutoff, p_limit: BATCH, p_dry_run: ctx.dryRun });
+    if (result.status >= 300) throw new Error(`audit read window trim failed (${result.status})`);
+    const n = typeof result.json === "number" ? result.json : Number(result.json) || 0;
+    ctx.tally(ctx.dryRun ? "readWindowsDue" : "readWindowsDeleted", n);
+    if (ctx.dryRun || n < BATCH) break;
   }
 }
 

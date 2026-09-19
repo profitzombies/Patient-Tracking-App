@@ -19,6 +19,7 @@ vi.hoisted(() => {
 
 import editsRouter from "./office-patient-edits";
 import rosterRouter from "./office-roster";
+import { resetRecordAccessCache } from "../lib/record-access-audit";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -38,6 +39,7 @@ let medications: Row[] = [];
 let doseLogs: Row[] = [];
 let checkIns: Row[] = [];
 let audits: Row[] = [];
+let readAudits: Row[] = [];
 let requests: string[] = [];
 let profileRpcFailsWith: string | null = null;
 
@@ -91,6 +93,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  readAudits = [];
+  resetRecordAccessCache();
   authUsers = { "provider-token": "provider-user", "member-token": "member-user", "hq-token": "hq-user", "patient-token": "patient-user" };
   providers = [
     { provider_id: "office-1", provider_name: "Dr. Reyes", office_name: "Harbor Med Spa", onboarding_code: "483920", access_disabled: false, auth_user_id: "provider-user" },
@@ -143,6 +147,10 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/hq_memberships") return response(url.searchParams.get("auth_user_id") === "eq.hq-user" ? hqMemberships : []);
     if (url.pathname === "/rest/v1/profiles") return response(url.searchParams.get("id") === "eq.hq-user" ? [{ role: "hq_admin" }] : []);
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") { audits.push(body); return response(null, 204); }
+    if (url.pathname === "/rest/v1/rpc/record_admin_audit_read_event") {
+      readAudits.push(body);
+      return response([{ recorded: true, window_started_at: new Date().toISOString() }]);
+    }
     // The activity aggregate answers one fact row per patient (no activity of
     // any kind yet); a missing row would read as "unknown" rather than inactive.
     if (url.pathname === "/rest/v1/rpc/provider_patient_activity_summary") {
@@ -708,6 +716,12 @@ describe("medications", () => {
     expect(Array.isArray(body.adherence.days)).toBe(true);
     // Other office: neutral 404, no read of the record.
     expect((await api(`/office/patients/${OTHER}/medications`, "provider-token")).status).toBe(404);
+    // Reading the list is record access: one deduped event for the reader, none for the refused read.
+    expect((await api(`/office/patients/${OWN}/medications`, "member-token")).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readAudits.map((row) => [row.p_action, row.p_actor_user_id, row.p_actor_kind, row.p_provider_id, row.p_target_kind, row.p_target_id])).toEqual([
+      ["patient_medications_viewed", "member-user", "team_member", "office-1", "patient", OWN],
+    ]);
   });
 
   it("adds a medication on the patient's behalf (office source, staff attribution) and audits the id only", async () => {

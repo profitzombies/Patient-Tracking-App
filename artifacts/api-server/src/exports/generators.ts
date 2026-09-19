@@ -47,8 +47,14 @@ export const AUDIT_EXPORT_ACTIONS = [
   "data_export_downloaded",
   "patient_record_export_requested",
   "patient_record_export_downloaded",
+  "patient_record_viewed",
+  "patient_photos_viewed",
+  "patient_bloodwork_viewed",
+  "bloodwork_report_opened",
+  "patient_medications_viewed",
+  "conversation_transcript_opened",
 ] as const;
-const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts"]);
+const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos"]);
 
 async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
   const rows: Record<string, unknown>[] = [];

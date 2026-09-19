@@ -3381,6 +3381,49 @@ export interface HqPatientDeletionResult {
   deletion: HqPatientDeletion;
 }
 
+export type HqPatientRecordAccessEntryAction = typeof HqPatientRecordAccessEntryAction[keyof typeof HqPatientRecordAccessEntryAction];
+
+
+export const HqPatientRecordAccessEntryAction = {
+  patient_record_viewed: 'patient_record_viewed',
+  patient_photos_viewed: 'patient_photos_viewed',
+  patient_bloodwork_viewed: 'patient_bloodwork_viewed',
+  bloodwork_report_opened: 'bloodwork_report_opened',
+  patient_medications_viewed: 'patient_medications_viewed',
+  conversation_transcript_opened: 'conversation_transcript_opened',
+} as const;
+
+/**
+ * One record-access audit event. Content is never carried — only what kind of thing was opened and by whom.
+ */
+export interface HqPatientRecordAccessEntry {
+  occurredAt: string;
+  action: HqPatientRecordAccessEntryAction;
+  /** Plain wording for the action */
+  label: string;
+  /** @nullable */
+  office: string | null;
+  /** @nullable */
+  providerId: string | null;
+  /** Viewer's role label (office account holder, office teammate, HQ staff) */
+  role: string;
+  /** @nullable */
+  actorUserId: string | null;
+  actorName: string;
+  /** @nullable */
+  thread: string | null;
+  /** @nullable */
+  reportId: string | null;
+  /** @nullable */
+  conversationId: string | null;
+}
+
+export interface HqPatientRecordAccessResult {
+  patientId: string;
+  entries: HqPatientRecordAccessEntry[];
+  total: number;
+}
+
 export interface HqAuditEventsResult {
   events: HqAuditEvent[];
   total?: number;

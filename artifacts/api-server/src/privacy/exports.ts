@@ -25,6 +25,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { supabaseNotificationStore } from "../notifications/store";
 import { CONSENT_SELECT } from "./consent";
+import { loadPatientRecordAccess, type PatientRecordAccessEntry } from "./record-access";
 
 const enc = encodeURIComponent;
 
@@ -211,6 +212,8 @@ export interface PatientArchiveSections {
   };
   /** Days the app was opened (first/last seen and platform per local day). */
   appUsage: Array<Record<string, unknown>>;
+  /** Staff reads of this record: when, which office, and the viewer's role — never a staff name. */
+  recordAccess: PatientRecordAccessEntry[];
 }
 
 const MAX_ROWS = 20_000;
@@ -218,7 +221,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -242,6 +245,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
         "chat conversations",
       ),
       rows(`/rest/v1/patient_app_presence?${scope}&select=day,first_seen_at,last_seen_at,platform&order=day.asc&limit=${MAX_ROWS}`, "app usage"),
+      loadPatientRecordAccess(patientId),
     ]);
   const businessNames = new Map<string, string>();
   await Promise.all(
@@ -424,6 +428,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     chat,
     coachMemory: { memories, exclusions },
     appUsage,
+    recordAccess,
     bloodwork: {
       reports: bloodworkReports,
       files: bloodworkFiles,
@@ -481,6 +486,7 @@ export function archiveJsonSections(sections: PatientArchiveSections): Array<{ n
     { name: "coach-memory.json", body: json(sections.coachMemory) },
     { name: "billing.json", body: json(sections.billing) },
     { name: "app-usage.json", body: json(sections.appUsage) },
+    { name: "record-access.json", body: json(sections.recordAccess) },
   ];
 }
 
@@ -536,6 +542,7 @@ export const ARCHIVE_FILE_GUIDE: ReadonlyArray<readonly [string, string]> = [
   ["bloodwork.json", "Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints"],
   ["billing.json", "Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers."],
   ["app-usage.json", "Days the app was opened (first/last seen and platform per local day)"],
+  ["record-access.json", "Who viewed the record: each staff or HQ open of the record, photos, lab reports, medication list, or a transcript (date, office, viewer role; repeats within 15 minutes recorded once)"],
   ["bloodwork/files/", "Original committed bloodwork source files"],
 ];
 
@@ -668,6 +675,9 @@ export async function buildPatientArchive(
       "media.json          Stored photo files included in media/ and any skipped",
       "bloodwork.json      Reports, source omissions, published results, corrections, and distinctly labeled incomplete transcription checkpoints",
       "billing.json        Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers.",
+      "record-access.json  Who viewed your record: each time office or HQ staff opened your record, photos, lab reports,",
+      "                    medication list, or a conversation transcript (date, office, and the viewer's role; repeated views",
+      "                    by the same person within 15 minutes are recorded once)",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",
     ].join("\n"),
   );

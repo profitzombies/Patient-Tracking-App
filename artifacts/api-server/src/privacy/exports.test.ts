@@ -19,6 +19,10 @@ function emptySections(): PatientArchiveSections {
     chat: [],
     coachMemory: { memories: [], exclusions: [] },
     appUsage: [{ day: "2026-10-01", first_seen_at: "2026-10-01T12:00:00Z", last_seen_at: "2026-10-01T12:05:00Z", platform: "ios" }],
+    recordAccess: [
+      { occurredAt: "2026-10-01T15:00:00Z", action: "patient_record_viewed", label: "Viewed patient record", office: "Beacon Hill Aesthetics", role: "Office teammate", thread: null },
+      { occurredAt: "2026-10-01T15:02:00Z", action: "conversation_transcript_opened", label: "Opened conversation transcript", office: "Beacon Hill Aesthetics", role: "HQ staff", thread: "care_team" },
+    ],
     bloodwork: { reports: [], files: [], results: [], corrections: [], incompleteTranscriptionPages: [] },
     billing: {
       orders: [{
@@ -62,5 +66,18 @@ describe("patient billing export", () => {
       unit_price_cents: 12000,
     });
     expect(JSON.stringify(billing)).not.toContain("stripe");
+  });
+
+  it("includes who viewed the record (dates, office, role) without staff names", async () => {
+    const archive = await buildPatientArchive("patient-1", { sections: emptySections(), generatedAt: new Date("2026-10-02T00:00:00.000Z") });
+    const zip = await JSZip.loadAsync(archive.buffer);
+    const access = JSON.parse(await zip.file("record-access.json")!.async("string"));
+    expect(access).toEqual([
+      { occurredAt: "2026-10-01T15:00:00Z", action: "patient_record_viewed", label: "Viewed patient record", office: "Beacon Hill Aesthetics", role: "Office teammate", thread: null },
+      { occurredAt: "2026-10-01T15:02:00Z", action: "conversation_transcript_opened", label: "Opened conversation transcript", office: "Beacon Hill Aesthetics", role: "HQ staff", thread: "care_team" },
+    ]);
+    for (const entry of access) expect(Object.keys(entry).sort()).toEqual(["action", "label", "occurredAt", "office", "role", "thread"]);
+    const readme = await zip.file("README.txt")!.async("string");
+    expect(readme).toContain("record-access.json  Who viewed your record");
   });
 });

@@ -67,7 +67,7 @@ function check(name: string, condition: boolean, detail = '') {
 // ─── Fixture ─────────────────────────────────────────────────────────────────
 
 const RAW_IDS = ['office-1', 'auth-user-7', 'pt-91', 'tm-4'];
-const OFFICE_ACTIONS = ['patient_note_added', 'office_team_deactivated', 'data_export_downloaded', 'access_denied'];
+const OFFICE_ACTIONS = ['patient_note_added', 'office_team_deactivated', 'data_export_downloaded', 'access_denied', 'patient_record_viewed', 'bloodwork_report_opened', 'conversation_transcript_opened'];
 const BILLING_ACTIONS = [
   'billing_refund_issued', 'billing_subscription_cancelled', 'billing_subscription_payment_retried',
   'billing_subscription_payment_email_sent', 'billing_order_fulfillment_updated', 'billing_prices_updated',
@@ -90,6 +90,8 @@ const EVENTS: OfficeAuditEvent[] = [
   event(2, { action: 'office_team_deactivated', actorName: 'Dr. Priya Raman', actorKind: 'provider', targetName: 'Teammate: Dee Disabled', targetKind: 'team_member', metadata: { role: 'staff', status: 'disabled' } }),
   event(3, { action: 'data_export_downloaded', actorName: 'Adam Admin', targetName: 'Export: Patients (CSV)', targetKind: 'export', metadata: { kind: 'patients', rows: 42 } }),
   event(4, { action: 'access_denied', actorName: 'Sam Front Desk', targetName: 'Protected route: GET /office/team', targetKind: 'route', metadata: { reason: 'permission', route: '/office/team', method: 'GET', status: 403 } }),
+  event(5, { action: 'bloodwork_report_opened', actorName: 'Nurse Kim', metadata: { reportId: 'rep-0000-secret' } }),
+  event(6, { action: 'conversation_transcript_opened', actorName: 'Nurse Kim', metadata: { thread: 'care_team', conversationId: 'conv-0000-secret' } }),
 ];
 
 function page(events: OfficeAuditEvent[], total: number): OfficeAuditPage {
@@ -220,15 +222,16 @@ console.log('\noffice audit: rows, filters, pagination');
   };
   const { root, renderer } = await render(<OfficeAuditPageView />, '/audit');
   const table = one(root, 'table-office-audit');
-  check('four rows render, newest first as served', EVENTS.every((e) => Boolean(maybe(root, `row-audit-${e.id}`))) && table.findAll((n) => n.type === 'tr').length === 5);
+  check('six rows render, newest first as served', EVENTS.every((e) => Boolean(maybe(root, `row-audit-${e.id}`))) && table.findAll((n) => n.type === 'tr').length === 7);
   const pageText = textOf(root);
   check('office name shown as the card subtitle', pageText.includes('Beacon Hill Aesthetics'));
   check('rows use human-readable names, actions and targets', pageText.includes('Dr. Priya Raman') && pageText.includes('Deactivated a teammate') && pageText.includes('Teammate: Dee Disabled') && pageText.includes('Patient: Casey Ortiz') && pageText.includes('Downloaded a data export'), pageText.slice(0, 400));
   check('no raw provider / user / record id appears anywhere on the page', RAW_IDS.every((id) => !pageText.includes(id)) && !pageText.includes('n-1'), pageText);
+  check('record-access reads render with plain labels and the thread, never the report or conversation id', pageText.includes('Opened lab report') && pageText.includes('Opened a conversation transcript') && textOf(one(root, 'row-audit-6')).includes('Thread:care team') && !pageText.includes('-secret'), textOf(one(root, 'row-audit-6')));
   const denial = one(root, 'row-audit-4');
   check('denied attempt renders in the destructive style with the route and reason', denial.findAll((n) => typeof n.props.className === 'string' && n.props.className.includes('text-destructive')).length === 1 && textOf(denial).includes('Reason:permission') && textOf(denial).includes('Route:/office/team') && textOf(denial).includes('Status:403'), textOf(denial));
   check('metadata renders as labeled details (role / status / rows)', textOf(one(root, 'row-audit-2')).includes('Role:staff') && textOf(one(root, 'row-audit-2')).includes('Status:disabled') && textOf(one(root, 'row-audit-3')).includes('Rows:42'));
-  check('range text and pager: 1–4 of 120, Prev disabled, Next enabled', textOf(one(root, 'text-audit-range')).startsWith('Showing 1–4 of 120') && one(root, 'button-audit-prev').props.disabled === true && one(root, 'button-audit-next').props.disabled === false, textOf(one(root, 'text-audit-range')));
+  check('range text and pager: 1–6 of 120, Prev disabled, Next enabled', textOf(one(root, 'text-audit-range')).startsWith('Showing 1–6 of 120') && one(root, 'button-audit-prev').props.disabled === true && one(root, 'button-audit-next').props.disabled === false, textOf(one(root, 'text-audit-range')));
 
   // Action picker lists exactly the office-visible set.
   const actionTrigger = one(root, 'select-audit-action');

@@ -168,3 +168,4 @@
 - [Cold archive to object storage](cold-archive.md) — UTC closed days only, mark after every file+manifest lands, manifest bytes deterministic; off = no-op, on+unconfigured = loud; alert only while enabled.
 - [Legal holds](legal-holds.md) — hold predicate inside every delete statement (office resolves via provider); deletion requests park as `held`; HQ UI reads holds endpoint, office badge rides a computed column.
 - [Shared dev DB drift in live checks](shared-db-live-verification.md) — concurrent tasks seed fixtures mid-run; testers must compare tiles to the app's own response, not a stale baseline; disposable HQ admin recipe.
+- [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.

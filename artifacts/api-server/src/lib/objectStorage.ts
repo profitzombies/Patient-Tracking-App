@@ -234,6 +234,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /**
    * Same contract for lesson attachments (worksheets, PDFs, docs, images):
@@ -253,6 +254,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /**
    * Same contract for AI Support knowledge documents: a presigned PUT bound
@@ -271,6 +273,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /**
    * Per-patient media (custom-food / saved-recipe photos, chat photos,
@@ -297,6 +300,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /** PUT grant for one deterministic, patient-bound bloodwork staging key. */
   async bloodworkUploadURL(
@@ -315,6 +319,7 @@ export class ObjectStorageService {
       }),
       objectPath,
     };
+  }
 
   /** Private HQ document upload, bound to a server-generated metadata id. */
   async hqFileUploadURL(fileId: string): Promise<{ uploadUrl: string; objectPath: string }> {
@@ -329,6 +334,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /**
    * Product catalog image, bound to its product and a server-generated image
@@ -347,6 +353,7 @@ export class ObjectStorageService {
       ttlSec: UPLOAD_URL_TTL_SEC,
     });
     return { uploadUrl, objectPath };
+  }
 
   /** Resolve `/objects/...` to the underlying file; throws when absent. */
   async entityFile(objectPath: string): Promise<File> {
@@ -356,6 +363,7 @@ export class ObjectStorageService {
       throw new ObjectNotFoundError();
     }
     return file;
+  }
 
   /**
    * Read one immutable generation with a hard byte ceiling. Metadata is
@@ -401,11 +409,13 @@ export class ObjectStorageService {
       generation,
       contentType: typeof metadata.contentType === "string" ? metadata.contentType : null,
     };
+  }
 
   /** Short-lived signed GET so <video> range requests stream from storage. */
   async signedDownloadURL(objectPath: string, ttlSec: number = PLAYBACK_URL_TTL_SEC): Promise<string> {
     const { bucketName, objectName } = this.locate(objectPath);
     return signObjectURL({ bucketName, objectName, method: "GET", ttlSec });
+  }
 
   /** Server-side write (thumbnail frames). Overwrites are fine. */
   async saveBuffer(objectPath: string, content: Buffer, contentType: string): Promise<void> {
@@ -413,6 +423,7 @@ export class ObjectStorageService {
       metadata: { contentType },
       resumable: false,
     });
+  }
 
   /**
    * Stream a large object into storage (resumable upload) without holding it
@@ -430,6 +441,7 @@ export class ObjectStorageService {
     const sink = this.fileFor(objectPath).createWriteStream({ metadata: { contentType }, resumable: true });
     await pipeline(source, counter, sink);
     return { sizeBytes };
+  }
 
   /** Size in bytes of a stored object (a HEAD, never the bytes). */
   async objectSize(objectPath: string): Promise<number> {
@@ -437,6 +449,7 @@ export class ObjectStorageService {
     const size = Number(metadata.size);
     if (!Number.isFinite(size) || size < 0) throw new Error(`object size unavailable for ${objectPath}`);
     return size;
+  }
 
   /** Create-only write used when verified staging bytes become immutable. */
   async saveBufferImmutable(objectPath: string, content: Buffer, contentType: string): Promise<void> {
@@ -456,6 +469,7 @@ export class ObjectStorageService {
       }
       throw error;
     }
+  }
 
   /** Server-side immutable promotion; callers must ensure destination is new. */
   async copyObject(sourcePath: string, destinationPath: string): Promise<void> {
@@ -463,6 +477,7 @@ export class ObjectStorageService {
     const [exists] = await destination.exists();
     if (exists) return;
     await this.fileFor(sourcePath).copy(destination);
+  }
 
   /** Best-effort delete for replaced files; missing objects are not errors. */
   async deleteObject(objectPath: string): Promise<void> {
@@ -471,6 +486,7 @@ export class ObjectStorageService {
     } catch {
       // Orphaned objects cost pennies; never fail a request over cleanup.
     }
+  }
 
   /**
    * Strict delete for lifecycle paths that must never orphan silently: a
@@ -480,6 +496,7 @@ export class ObjectStorageService {
    */
   async deleteObjectStrict(objectPath: string): Promise<void> {
     await this.fileFor(objectPath).delete({ ignoreNotFound: true });
+  }
 
   /**
    * Every stored `/objects/...` path under a prefix (a patient's media dir).
@@ -497,6 +514,7 @@ export class ObjectStorageService {
       .map((file) => file.name)
       .filter((name) => name.startsWith(dirObjectName))
       .map((name) => `/objects/${name.slice(dirObjectName.length)}`);
+  }
 
   /**
    * Every stored object under a prefix with its creation time — what the
@@ -523,6 +541,7 @@ export class ObjectStorageService {
       });
     }
     return out;
+  }
 
   /**
    * Strict prefix purge: lists, deletes each object, and returns how many
@@ -535,17 +554,18 @@ export class ObjectStorageService {
       await this.deleteObjectStrict(path);
     }
     return paths.length;
-
+  }
 
   private fileFor(objectPath: string): File {
     const { bucketName, objectName } = this.locate(objectPath);
     return objectStorageClient.bucket(bucketName).file(objectName);
+  }
 
   /** Object-name prefix that `/objects/` maps to (with trailing slash). */
   private objectsDirName(): string {
     const { objectName } = parseObjectPath(`${getTrainingObjectDir()}/`);
     return objectName.endsWith("/") ? objectName : `${objectName}/`;
-
+  }
 
   private locate(objectPath: string): { bucketName: string; objectName: string } {
     if (!objectPath.startsWith("/objects/")) {
@@ -556,6 +576,7 @@ export class ObjectStorageService {
       throw new ObjectNotFoundError();
     }
     return parseObjectPath(`${getTrainingObjectDir()}/${entityId}`);
+  }
 
   /**
    * Server-side write to an absolute "/<bucket>/<object>" path outside the
@@ -569,6 +590,7 @@ export class ObjectStorageService {
       metadata: { contentType },
       resumable: false,
     });
+  }
 }
 
 export const objectStorage = new ObjectStorageService();

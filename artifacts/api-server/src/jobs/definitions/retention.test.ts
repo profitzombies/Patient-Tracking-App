@@ -154,16 +154,37 @@ describe("retention jobs", () => {
     expect(mocks.admin.mock.calls[1][2]).toMatchObject({ p_dry_run: true });
   });
 
-  it("archives audit events to summaries in batches and counts summaries touched", async () => {
+  it("archives audit events to summaries in batches, counts summaries touched, then sweeps day-old read windows", async () => {
     mocks.loadOrgPolicy.mockResolvedValue(policy({ auditEventDays: 365 }));
     mocks.admin
       .mockResolvedValueOnce({ status: 200, json: [{ events_archived: 500, summaries_touched: 9 }] })
-      .mockResolvedValueOnce({ status: 200, json: [{ events_archived: 40, summaries_touched: 2 }] });
+      .mockResolvedValueOnce({ status: 200, json: [{ events_archived: 40, summaries_touched: 2 }] })
+      .mockResolvedValueOnce({ status: 200, json: 500 })
+      .mockResolvedValueOnce({ status: 200, json: 12 });
     const { c, counts } = ctx();
     await archiveAuditEvents(c);
     expect(mocks.admin.mock.calls[0][1]).toBe("/rest/v1/rpc/retention_archive_audit_events");
     expect(mocks.admin.mock.calls[0][2]).toEqual({ p_cutoff: "2025-09-07T12:00:00.000Z", p_limit: 500, p_dry_run: false });
-    expect(counts).toEqual({ eventsArchived: 540, summariesTouched: 11 });
+    expect(mocks.admin.mock.calls[2][1]).toBe("/rest/v1/rpc/retention_trim_audit_read_windows");
+    expect(mocks.admin.mock.calls[2][2]).toEqual({ p_cutoff: "2026-09-06T12:00:00.000Z", p_limit: 500, p_dry_run: false });
+    expect(mocks.admin.mock.calls).toHaveLength(4);
+    expect(counts).toEqual({ eventsArchived: 540, summariesTouched: 11, readWindowsDeleted: 512 });
+  });
+
+  it("dry-runs the audit archive and the read-window sweep by counting only", async () => {
+    mocks.loadOrgPolicy.mockResolvedValue(policy({ auditEventDays: 365 }));
+    mocks.admin
+      .mockResolvedValueOnce({ status: 200, json: [{ events_archived: 7, summaries_touched: 3 }] })
+      .mockResolvedValueOnce({ status: 200, json: 9 });
+    const { c, counts } = ctx(true);
+    await archiveAuditEvents(c);
+    expect(mocks.admin.mock.calls).toHaveLength(2);
+    expect(mocks.admin.mock.calls[1][2]).toMatchObject({ p_dry_run: true });
+    expect(counts).toEqual({ eventsDue: 7, summariesTouched: 3, readWindowsDue: 9 });
+    mocks.admin.mockReset()
+      .mockResolvedValueOnce({ status: 200, json: [{ events_archived: 0, summaries_touched: 0 }] })
+      .mockResolvedValueOnce({ status: 500, json: null });
+    await expect(archiveAuditEvents(ctx().c)).rejects.toThrow("audit read window trim failed (500)");
   });
 
   it("export sweep delegates to both existing sweeps with the run instant, and dry-runs by counting due rows", async () => {

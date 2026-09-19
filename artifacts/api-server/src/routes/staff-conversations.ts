@@ -24,6 +24,7 @@ import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope } from "
 import { hasHqPermission, verifyStaffToken, type HqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { auditRecordAccess } from "../lib/record-access-audit";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
 import { loadOrgPolicy } from "../lib/org-policy";
 import { inboxFeed, inboxStreamMaxMs, type InboxChange } from "../lib/inbox-feed";
@@ -821,6 +822,11 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const kept = page.slice(0, parsed.data.limit);
       const nextBefore = hasMore ? Number(kept[kept.length - 1]?.seq) : null;
       const ordered = parsed.data.after ? kept : kept.reverse();
+      auditRecordAccess(req, {
+        action: "conversation_transcript_opened", actorUserId: found.scope.actorUserId, actorKind: found.scope.actorKind,
+        providerId: found.scope.providerId, targetKind: "patient", targetId: conversation.patientId,
+        facet: conversation.id, metadata: { thread: conversation.thread, conversationId: conversation.id },
+      });
       res.json({
         conversation, events: ordered.map(eventFromRow),
         nextBefore: parsed.data.after ? null : nextBefore,
@@ -1259,6 +1265,11 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
       const more = result.json.length > q.limit;
       let rows = (result.json as Row[]).slice(0, q.limit);
       if (!q.after) rows = rows.reverse();
+      auditRecordAccess(req, {
+        action: "conversation_transcript_opened", actorUserId: found.hq.staff.userId, actorKind: "hq",
+        providerId: String(found.row.provider_id), targetKind: "patient", targetId: String(found.row.patient_id),
+        facet: String(found.row.id), metadata: { thread: String(found.row.thread), conversationId: String(found.row.id) },
+      });
       res.json({ events: rows.map(eventFromRow),
         nextBefore: !q.after && more ? Number(rows[0]?.seq) : null,
         nextAfter: q.after && more ? Number(rows[rows.length - 1]?.seq) : null });

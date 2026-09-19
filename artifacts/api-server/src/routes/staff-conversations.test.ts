@@ -32,6 +32,7 @@ vi.mock("../lib/staff-auth", () => ({
 }));
 import { CARE_TEAM_REPLY_KIND, autoCloseCutoff, conversationStatus, createStaffConversationsRouter, replyPreview } from "./staff-conversations";
 import { invalidateOrgPolicyCache } from "../lib/org-policy";
+import { resetRecordAccessCache } from "../lib/record-access-audit";
 
 const CONV = "00000000-0000-4000-8000-000000000001";
 const OTHER = "00000000-0000-4000-8000-000000000002";
@@ -114,6 +115,8 @@ beforeEach(() => {
   calls = [];
   routes = [];
   invalidateOrgPolicyCache();
+  resetRecordAccessCache();
+  on("POST", "/rest/v1/rpc/record_admin_audit_read_event", () => ({ status: 200, json: [{ recorded: true, window_started_at: new Date().toISOString() }] }));
   mocks.scope.mockReset().mockResolvedValue(officeScope());
   mocks.audit.mockReset().mockResolvedValue(undefined);
   mocks.verify.mockReset().mockResolvedValue({ userId: STAFF_USER, role: "hq_admin", departmentRole: "admin" });
@@ -284,6 +287,18 @@ describe("transcript read", () => {
     expect(marker).toBeUndefined();
     await settle();
     expect(mocks.audit).not.toHaveBeenCalled();
+    // Opening the transcript is record access: one deduped "opened" event against the patient.
+    const opened = rpcCalls("record_admin_audit_read_event");
+    expect(opened).toHaveLength(1);
+    expect(opened[0].body).toMatchObject({
+      p_action: "conversation_transcript_opened", p_actor_user_id: STAFF_USER, p_actor_kind: "provider", p_provider_id: "office-a",
+      p_target_kind: "patient", p_target_id: PATIENT, p_dedupe_key: `conversation_transcript_opened:patient:${PATIENT}:${CONV}`,
+      p_metadata: { thread: "coach", conversationId: CONV }, p_window_seconds: 900,
+    });
+    // A second poll inside the window does not write again.
+    await call("GET", `/office/conversations/${CONV}/events`);
+    await settle();
+    expect(rpcCalls("record_admin_audit_read_event")).toHaveLength(1);
   });
 
   it("does not move the marker when paging back through older messages", async () => {

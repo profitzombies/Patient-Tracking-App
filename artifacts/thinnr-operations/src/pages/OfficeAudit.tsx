@@ -36,6 +36,8 @@ const DEFAULT_ACTIONS = [
   'office_team_sessions_viewed', 'patient_sessions_viewed',
   'patient_signed_out', 'security_password_changed', 'security_sessions_signed_out', 'security_sign_in_reported',
   'security_recovery_completed', 'access_denied',
+  'patient_record_viewed', 'patient_photos_viewed', 'patient_bloodwork_viewed', 'bloodwork_report_opened',
+  'patient_medications_viewed', 'conversation_transcript_opened',
 ];
 
 export default function OfficeAudit() {

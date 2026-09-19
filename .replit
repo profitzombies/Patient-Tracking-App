@@ -364,6 +364,14 @@ args = "legal-holds-api"
 task = "workflow.run"
 args = "legal-holds-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "record-access-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "record-access-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2498,6 +2506,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:legal-holds && pnpm --filter @workspace/thinnr-operations run test:account-deletion && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "record-access-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/record-access-audit.test.ts src/lib/record-access-audit.sql.test.ts src/lib/audit-events.test.ts src/routes/office-roster.test.ts src/routes/office-patient-edits.test.ts src/bloodwork/admission.test.ts src/routes/staff-conversations.test.ts src/routes/hq-patient-deletions.test.ts src/routes/patient-privacy.test.ts src/privacy src/exports src/jobs/definitions/retention.test.ts src/routes/office-audit-events.test.ts src/routes/hq-audit-events.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "record-access-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-audit && pnpm --filter @workspace/thinnr-operations run test:account-deletion && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

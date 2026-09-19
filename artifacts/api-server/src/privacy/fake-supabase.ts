@@ -32,7 +32,7 @@ function matches(row: Row, params: URLSearchParams): boolean {
     } else if (raw === "not.is.null") {
       if (row[key] == null) return false;
     } else if (raw.startsWith("in.(")) {
-      const set = raw.slice(4, -1).split(",");
+      const set = raw.slice(4, -1).split(",").map((item) => item.replace(/^"|"$/g, ""));
       if (!set.includes(value)) return false;
     } else if (raw.startsWith("lt.")) {
       if (!(value < raw.slice(3))) return false;

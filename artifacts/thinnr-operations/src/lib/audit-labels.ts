@@ -70,6 +70,12 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_sessions_viewed: 'Viewed a patient\'s sessions',
   patient_signed_out: 'Signed a patient out everywhere',
   access_denied: 'Was refused access',
+  patient_record_viewed: 'Viewed patient record',
+  patient_photos_viewed: 'Viewed progress photos',
+  patient_bloodwork_viewed: 'Viewed bloodwork list',
+  bloodwork_report_opened: 'Opened lab report',
+  patient_medications_viewed: 'Viewed medication list',
+  conversation_transcript_opened: 'Opened a conversation transcript',
   billing_refund_issued: 'Issued a refund',
   billing_subscription_cancelled: 'Cancelled a subscription',
   billing_subscription_payment_retried: 'Retried a subscription payment',
@@ -110,6 +116,9 @@ const METADATA_LABELS: Record<string, string> = {
   size: 'Size',
   contentType: 'Type',
   thread: 'Thread',
+  photos: 'Photos',
+  reportId: 'Report',
+  conversationId: 'Conversation',
   kind: 'Kind',
   office: 'Office scope',
   rows: 'Rows',
@@ -141,7 +150,7 @@ const METADATA_LABELS: Record<string, string> = {
 };
 
 /** Keys that are internal record ids: hidden from the office page, shown as fine print at HQ. */
-const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'medicationId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId', 'order_id', 'subscription_id', 'link_id', 'product_id']);
+const ID_KEYS = new Set(['noteId', 'weightId', 'visitId', 'medicationId', 'attachmentId', 'assigneeUserId', 'previousAssigneeUserId', 'messageClientId', 'escalationId', 'order_id', 'subscription_id', 'link_id', 'product_id', 'reportId', 'conversationId']);
 
 export interface AuditDetail {
   label: string;

@@ -23,6 +23,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope, type OfficeScopeDenied } from "../auth/office-scope";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { auditRecordAccess } from "../lib/record-access-audit";
 import { normalizeUsPhone } from "./provider-accounts";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import {
@@ -722,7 +723,12 @@ router.get("/office/patients/:id/medications", async (req, res) => {
   try {
     const scoped = await scopedPatient(req);
     if (scoped.kind !== "ok") { respondScoped(req, res, scoped); return; }
-    res.json(await medicationView(scoped.patient));
+    const view = await medicationView(scoped.patient);
+    auditRecordAccess(req, {
+      action: "patient_medications_viewed", actorUserId: scoped.scope.actorUserId, actorKind: scoped.scope.actorKind,
+      providerId: scoped.scope.providerId, targetKind: "patient", targetId: String(scoped.patient.id),
+    });
+    res.json(view);
   } catch (error) {
     req.log?.error({ err: error }, "office medication view failed");
     res.status(502).json({ error: SERVER_ERROR });

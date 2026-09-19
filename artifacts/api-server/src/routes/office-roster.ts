@@ -37,6 +37,7 @@ import { isPhotoSize, resolvePhotoObjectPath, type PhotoSize } from "../lib/phot
 import { programDayFor } from "../coach/real-patient";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { auditRecordAccess } from "../lib/record-access-audit";
 import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-activity";
 import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicationState, medicationAdherenceDto } from "../medications/store";
 import { shiftDateKey } from "../medications/schedule";
@@ -746,6 +747,15 @@ router.get("/office/patients/:id", async (req, res) => {
     const staffWeightList = (staffWeights.json as PatientRosterRow[]).map(staffWeightDto);
     const bodyMeasurements = (measurementVisits.json as PatientRosterRow[]).map(bodyMeasurementDto);
 
+    // Record access: opening the chart is one event; the signed photo grid
+    // that ships with it is a second, so "who saw the photos" stays askable
+    // on its own. Both collapse per actor for 15 minutes.
+    const access = { actorUserId: scope.actorUserId, actorKind: scope.actorKind, providerId: scope.providerId, targetKind: "patient" as const, targetId: patientId };
+    auditRecordAccess(req, { ...access, action: "patient_record_viewed" });
+    if ((photos.json as PatientRosterRow[]).length > 0) {
+      auditRecordAccess(req, { ...access, action: "patient_photos_viewed", metadata: { photos: (photos.json as PatientRosterRow[]).length } });
+    }
+
     const photoList = await Promise.all(
       (photos.json as PatientRosterRow[]).map(async (row) => ({
         id: String(row.photo_id),
@@ -964,6 +974,12 @@ router.post("/office/patients/:id/photos/urls", async (req, res) => {
       );
       if (ledger.status >= 300 || !Array.isArray(ledger.json)) throw new Error(`patient media lookup failed (${ledger.status})`);
       for (const row of ledger.json as Array<{ object_path: string; variants: unknown }>) variantsByPath.set(row.object_path, row.variants);
+    }
+    if (rows.length > 0) {
+      auditRecordAccess(req, {
+        action: "patient_photos_viewed", actorUserId: scope.actorUserId, actorKind: scope.actorKind, providerId: scope.providerId,
+        targetKind: "patient", targetId: patientId, metadata: { photos: rows.length },
+      });
     }
     const expiresAt = new Date(Date.now() + STAFF_PHOTO_TTL_SEC * 1000).toISOString();
     const urls: Array<{ id: string; url: string; size: PhotoSize }> = [];

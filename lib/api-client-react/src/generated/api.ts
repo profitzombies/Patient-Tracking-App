@@ -156,6 +156,7 @@ import type {
   HqOrganizationSettingsInput,
   HqPatientDeletionResult,
   HqPatientDeletionsResult,
+  HqPatientRecordAccessResult,
   InboxMetricsResult,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
@@ -9922,6 +9923,83 @@ export function useGetHqPatientDeletions<TData = Awaited<ReturnType<typeof getHq
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqPatientDeletionsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqPatientDeletionRecordAccessUrl = (id: string,) => {
+
+
+
+
+  return `/api/hq/patient-deletions/${id}/record-access`
+}
+
+/**
+ * @summary Who viewed this patient's record — record-access audit events (one per viewer, target, and 15-minute window), oldest first
+ */
+export const getHqPatientDeletionRecordAccess = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<HqPatientRecordAccessResult> => {
+
+  return customFetch<HqPatientRecordAccessResult>(getGetHqPatientDeletionRecordAccessUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqPatientDeletionRecordAccessQueryKey = (id: string,) => {
+    return [
+    `/api/hq/patient-deletions/${id}/record-access`
+    ] as const;
+    }
+
+
+export const getGetHqPatientDeletionRecordAccessQueryOptions = <TData = Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqPatientDeletionRecordAccessQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>> = ({ signal }) => getHqPatientDeletionRecordAccess(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqPatientDeletionRecordAccessQueryResult = NonNullable<Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>>
+export type GetHqPatientDeletionRecordAccessQueryError = ErrorType<void>
+
+
+/**
+ * @summary Who viewed this patient's record — record-access audit events (one per viewer, target, and 15-minute window), oldest first
+ */
+
+export function useGetHqPatientDeletionRecordAccess<TData = Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqPatientDeletionRecordAccess>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqPatientDeletionRecordAccessQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

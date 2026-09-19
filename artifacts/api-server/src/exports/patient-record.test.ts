@@ -89,6 +89,7 @@ function sections(): PatientArchiveSections {
       subscriptions: [{ product: "Plan", status: "active", unit_price_cents: 12000, current_period_end: "2026-10-05T00:00:00Z" }],
     },
     appUsage: [],
+    recordAccess: [],
   };
 }
 

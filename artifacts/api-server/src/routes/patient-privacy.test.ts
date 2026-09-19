@@ -289,6 +289,15 @@ describe("data export", () => {
         created_at: `2026-09-02T00:${String(seq % 60).padStart(2, "0")}:00Z`,
       });
     }
+    // Staff record access: two office reads and one HQ transcript open, plus a P2 read that must not leak.
+    mocks.supabase.tables.team_members = [{ auth_user_id: fakeUuid(950), name: "Nurse Kim" }];
+    mocks.supabase.tables.hq_memberships = [{ auth_user_id: fakeUuid(951), display_name: "Morgan HQ" }];
+    mocks.supabase.tables.admin_audit_events.push(
+      { id: 1, occurred_at: "2026-09-03T14:00:00Z", action: "patient_record_viewed", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: P1, request_id: null, metadata: {} },
+      { id: 2, occurred_at: "2026-09-03T14:05:00Z", action: "conversation_transcript_opened", actor_user_id: fakeUuid(951), actor_kind: "hq", provider_id: "office-1", target_kind: "patient", target_id: P1, request_id: null, metadata: { thread: "care_team", conversationId: fakeUuid(700) } },
+      { id: 3, occurred_at: "2026-09-03T14:06:00Z", action: "patient_record_viewed", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: P2, request_id: null, metadata: {} },
+      { id: 4, occurred_at: "2026-09-03T14:07:00Z", action: "patient_updated", actor_user_id: fakeUuid(950), actor_kind: "team_member", provider_id: "office-1", target_kind: "patient", target_id: P1, request_id: null, metadata: {} },
+    );
     let res = await call("/patient-data/export", "POST");
     expect(res.status).toBe(202);
     const queued = (await res.json() as { export: { id: string; status: string; expiresAt: string } }).export;
@@ -307,7 +316,7 @@ describe("data export", () => {
     const names = Object.keys(zip.files).sort();
     expect(names).toEqual(expect.arrayContaining([
       "README.txt", "profile.json", "consents.json", "preferences.json", "diary.json", "water.json", "targets.json", "library.json",
-      "check-ins.json", "measurements.json", "medications.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg",
+      "check-ins.json", "measurements.json", "medications.json", "photos.json", "chat.json", "media.json", "media/photo-1.jpg", "media/chat-1.jpg", "record-access.json",
       `bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`, "bloodwork.json",
     ]));
     const diary = JSON.parse(await zip.file("diary.json")!.async("string")) as Array<{ name: string }>;
@@ -336,6 +345,13 @@ describe("data export", () => {
     );
     expect(humanReads.map((call) => new URL(call.path, "http://fake").searchParams.get("offset"))).toEqual(["0", "1000", "1205"]);
     expect(JSON.parse(await zip.file("profile.json")!.async("string"))).toMatchObject({ id: P1, first_name: "Pat" });
+    // "Who viewed my record": P1's staff reads only, with office and role but no staff identity.
+    const access = JSON.parse(await zip.file("record-access.json")!.async("string")) as Array<Record<string, unknown>>;
+    expect(access).toEqual([
+      { occurredAt: "2026-09-03T14:00:00Z", action: "patient_record_viewed", label: "Viewed patient record", office: "Riverside Health", role: "Office teammate", thread: null },
+      { occurredAt: "2026-09-03T14:05:00Z", action: "conversation_transcript_opened", label: "Opened conversation transcript", office: "Riverside Health", role: "HQ staff", thread: "care_team" },
+    ]);
+    expect(JSON.stringify(access)).not.toMatch(new RegExp(`Nurse Kim|Morgan HQ|office-1|${fakeUuid(950)}|${fakeUuid(951)}|${fakeUuid(700)}`));
     expect(await zip.file(`bloodwork/files/${fakeUuid(801)}/00-${fakeUuid(802)}.pdf`)!.async("string")).toBe("LAB-PDF");
     const bloodwork = JSON.parse(await zip.file("bloodwork.json")!.async("string")) as {
       reports: Array<Record<string, unknown>>;
@@ -377,7 +393,7 @@ describe("data export", () => {
     // Ready notification rides the account category with a dedupe key; audit trail complete.
     expect(mocks.enqueue).toHaveBeenCalledTimes(1);
     expect(mocks.enqueue.mock.calls[0][0]).toMatchObject({ patientId: P1, category: "account", kind: "data_export_ready", dedupeKey: `data_export_ready:${queued.id}` });
-    expect(mocks.supabase.tables.admin_audit_events.map((e) => e.p_action)).toEqual(["patient_export_requested", "patient_export_ready"]);
+    expect(mocks.supabase.tables.admin_audit_events.filter((e) => e.p_action).map((e) => e.p_action)).toEqual(["patient_export_requested", "patient_export_ready"]);
 
     // Download: signed for five minutes, counted, audited.
     res = await call(`/patient-data/export/${queued.id}/download-url`);

@@ -23,6 +23,7 @@ import {
 import { recordUploadIntent } from "../jobs/upload-intents";
 import { signalJob } from "../jobs/scheduler";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { auditRecordAccess } from "../lib/record-access-audit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -51,6 +52,25 @@ function audit(req: Request, actor: Actor, action: string, targetKind: string, t
   }).catch((error) => req.log.warn({ err: error, action }, "bloodwork audit write failed"));
 }
 
+/**
+ * Record access for staff reads. Patients reading their own bloodwork are
+ * not record access and write nothing. A report's detail, source file, and
+ * rendered pages all collapse onto one "opened lab report" per 15 minutes.
+ */
+function auditStaffRead(req: Request, actor: Actor, reportId: string | null): void {
+  if (actor.kind !== "staff") return;
+  auditRecordAccess(req, {
+    action: reportId ? "bloodwork_report_opened" : "patient_bloodwork_viewed",
+    actorUserId: actor.scope.actorUserId,
+    actorKind: actor.scope.actorKind,
+    providerId: actor.scope.providerId,
+    targetKind: "patient",
+    targetId: actor.patientId,
+    facet: reportId,
+    metadata: reportId ? { reportId } : {},
+  });
+}
+
 router.use(BASE, (_req, res, next) => {
   res.setHeader("Cache-Control", NO_STORE);
   res.setHeader("Pragma", "no-cache");
@@ -75,6 +95,7 @@ router.get(BASE, async (req, res): Promise<void> => {
         `/rest/v1/patient_bloodwork_files?report_id=eq.${enc(report.id)}&select=${FILE_SELECT}&order=position.asc`);
       return reportDto(report, ensureRows<FileRow>(filesRes.status, filesRes.json, "bloodwork file counts"), observedAt);
     }));
+    auditStaffRead(req, actor, null);
     res.json({ reports: output, nextCursor: reports.length > 20 ? visible[visible.length - 1].uploaded_at : null });
   } catch (error) {
     req.log.error({ err: error }, "bloodwork list failed");
@@ -211,6 +232,7 @@ router.get(`${BASE}/:reportId`, async (req, res): Promise<void> => {
     const actor = await authorize(req, res, "read"); if (!actor) return;
     const detail = await detailDto(actor.patientId, first(req.params.reportId));
     if (!detail) { res.status(404).json({ error: "Report not found." }); return; }
+    auditStaffRead(req, actor, first(req.params.reportId));
     res.json(detail);
   } catch (error) { req.log.error({ err: error }, "bloodwork detail failed"); res.status(503).json({ error: "Bloodwork is unavailable right now." }); }
 });
@@ -318,6 +340,7 @@ router.get(`${BASE}/:reportId/files/:fileId/source`, async (req, res): Promise<v
   if (!GetBloodworkFileSourceParams.safeParse(req.params).success) { invalid(res); return; }
   try {
     const found = await authorizedFile(req, res); if (!found) return;
+    auditStaffRead(req, found.actor, first(req.params.reportId));
     const { bytes } = await objectStorage.readObjectBounded(found.file.object_path!, BLOODWORK_MAX_FILE_BYTES);
     res.setHeader("Content-Type", found.file.mime_type!);
     res.setHeader("Content-Length", String(bytes.byteLength));
@@ -337,6 +360,7 @@ router.get(`${BASE}/:reportId/files/:fileId/pages/:page`, async (req, res): Prom
     if (parsed.data.page > Number(found.file.page_count)) {
       res.status(404).json({ error: "Page not found." }); return;
     }
+    auditStaffRead(req, found.actor, first(req.params.reportId));
     const { bytes } = await objectStorage.readObjectBounded(found.file.object_path!, BLOODWORK_MAX_FILE_BYTES);
     const rendered = await renderBloodworkPage(bytes, found.file.mime_type!, parsed.data.page, undefined, {
       sha256: found.file.content_sha256 ?? null, pageCount: Number(found.file.page_count),
@@ -382,6 +406,7 @@ router.get(`${BASE}/:reportId/results/:resultId/corrections`, async (req, res): 
     if (!loaded || !loaded.results.some((result) => result.id === resultId)) {
       res.status(404).json({ error: "Result not found." }); return;
     }
+    auditStaffRead(req, actor, reportId);
     const rows = await fetchAllRows<Record<string, unknown>>(
       `/rest/v1/patient_bloodwork_corrections?patient_id=eq.${enc(actor.patientId)}&report_id=eq.${enc(reportId)}&result_id=eq.${enc(resultId)}` +
       "&select=id,result_id,actor_role,created_at,before_values,after_values,version&order=created_at.asc,id.asc",

@@ -210,7 +210,7 @@ content_type = "text/markdown"
 [[outputs]]
 id = "6Taya8W7U8pHOI2q2QbNo"
 uri = "file://docs/food-portion-audit/food-portion-audit.html"
-type = "text"
+type = "html"
 title = "Food portions and conversions audit"
 description = "Final source-backed report with prioritized issues, uncertainties, calculations, and reproducible evidence. No food records, patient history, or application behavior changed."
 logical_id = "f266c679-7bfd-4f8c-8dd1-c1fdab0a7d7f"
@@ -220,3 +220,17 @@ mtime_ms = 1789145973129
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/f266c679-7bfd-4f8c-8dd1-c1fdab0a7d7f/28a397cf-8b50-49a5-b1fe-11ee96e97644"
 storage_version_token = "1789145981681266"
 content_type = "text/html"
+
+[[outputs]]
+id = "y9RbTpAH6z8Pvmr3TRWjm"
+uri = "file://docs/hipaa-compliance-plan.md"
+type = "text"
+title = "THINNR HIPAA Compliance Plan"
+description = "Full written plan: vendor/BAA map, hosting options, retention and export build tasks, Security and Privacy Rule safeguards, breach response, policies, data-growth strategy, sequence and open decisions."
+logical_id = "38ce97fd-ae9e-4ad3-888f-8b624496fca6"
+content_hash = "sha256:0c94976ecaf8971cc6f0503ff299d6f01f2989f198b493d473fd56f647cda908"
+size = 24767
+mtime_ms = 1789827691956
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/38ce97fd-ae9e-4ad3-888f-8b624496fca6/0e96ee15-b543-48ac-bb30-f090e381cfc5"
+storage_version_token = "1789827699896562"
+content_type = "text/markdown"

@@ -5509,6 +5509,7 @@ end: string;
  */
 office?: OfficeIdParameter;
 };
+
 export type GetHqOfficeComparisonParams = {
 start: string;
 end: string;
@@ -5742,3 +5743,4 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
+

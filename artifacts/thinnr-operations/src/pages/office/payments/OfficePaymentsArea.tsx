@@ -59,6 +59,8 @@ import {
   formatDateTime,
   formatDeliveryWindow,
   fulfillmentTone,
+  deliveredLabel,
+  warehouseFeedDetail,
   FULFILLMENT_LABEL,
   humanizeRequirement,
   ORDER_KIND_LABEL,
@@ -1039,13 +1041,24 @@ function DetailView({
               <div key={line}>{line}</div>
             ))}
             <div className="mt-4">
-              <StatusPill tone={fulfillmentTone(order.fulfillment_status)}>
-                {FULFILLMENT_LABEL[order.fulfillment_status]}
-              </StatusPill>
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                <StatusPill tone={fulfillmentTone(order.fulfillment_status)}>
+                  {FULFILLMENT_LABEL[order.fulfillment_status]}
+                </StatusPill>
+                {deliveredLabel(order.shipment) && (
+                  <StatusPill tone="good" testId="pill-office-delivered">{deliveredLabel(order.shipment)}</StatusPill>
+                )}
+                {order.shipment?.back_ordered && (
+                  <StatusPill tone="warn" testId="pill-office-back-ordered">Back-ordered</StatusPill>
+                )}
+              </span>
               {order.tracking_number && (
                 <p className="mt-2">
                   {order.carrier} {order.tracking_number}
                 </p>
+              )}
+              {warehouseFeedDetail(order.shipment) && (
+                <p className="mt-2 text-muted-foreground" data-testid="text-office-warehouse-feed">{warehouseFeedDetail(order.shipment)}</p>
               )}
             </div>
             <div className="mt-4 border-t border-border pt-4" data-testid="office-shipping-breakdown">

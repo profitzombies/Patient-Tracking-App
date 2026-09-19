@@ -9,7 +9,7 @@ export type BillingTable =
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
-  | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions";
+  | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls";
 
 export interface TimestampedRow { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
@@ -179,6 +179,14 @@ export interface BillingShipmentRow extends TimestampedRow {
   /** Mirror of the WarehouseCraft submission outcome (see warehouse-submissions.ts). */
   warehouse_order_id?: string | null; warehouse_state?: WarehouseSubmissionState | null;
   warehouse_sent_at?: string | null; warehouse_error?: string | null;
+  /** Last state seen on the WarehouseCraft status feed (see warehouse-status-sync.ts). */
+  warehouse_status?: string | null; warehouse_status_at?: string | null; warehouse_back_ordered?: boolean | null;
+  warehouse_event_key?: string | null; warehouse_last_event?: Record<string, unknown> | null; warehouse_synced_at?: string | null;
+}
+/** One row per run of the warehouse status poll; feeds System health and the stalled-feed alert. */
+export interface BillingWarehouseSyncPollRow {
+  id: string; started_at: string; finished_at: string | null; ok: boolean; window_start: string; window_end: string;
+  rows_seen: number; matched: number; transitions: number; errors: number; error: string | null; created_at: string;
 }
 export type WarehouseSubmissionState = "pending" | "sent" | "needs_attention" | "skipped";
 /** One submission intent per paid order; created by the paid-transition trigger, drained by the warehouse-submit job. */
@@ -228,6 +236,7 @@ export type BillingRows = {
   billing_customer_emails: BillingCustomerEmailRow;
   billing_prebuilt_carts: BillingPrebuiltCartRow; billing_office_settings: BillingOfficeSettingsRow;
   billing_warehouse_submissions: BillingWarehouseSubmissionRow;
+  billing_warehouse_sync_polls: BillingWarehouseSyncPollRow;
 };
 
 export class BillingStoreError extends Error {

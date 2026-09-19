@@ -2308,6 +2308,41 @@ export const WarehouseSubmissionHealthRecentFailuresItemState = {
   skipped: 'skipped',
 } as const;
 
+export type WarehouseSyncHealthLastWindow = {
+  /** Warehouse calendar day (YYYY-MM-DD), inclusive. */
+  start: string;
+  end: string;
+} | null;
+
+export interface WarehouseSyncHealth {
+  /**
+     * Last poll that completed successfully.
+     * @nullable
+     */
+  last_success_at: string | null;
+  /** @nullable */
+  last_poll_at: string | null;
+  /**
+     * Error of the most recent poll when it failed.
+     * @nullable
+     */
+  last_error: string | null;
+  last_window: WarehouseSyncHealthLastWindow;
+  rows_seen_24h: number;
+  /** Shipment state changes applied from the feed. */
+  transitions_24h: number;
+  errors_24h: number;
+  polls_24h: number;
+  failed_polls_24h: number;
+  /** No successful poll for longer than the stalled limit. */
+  stalled: boolean;
+  stalled_after_minutes: number;
+  /** Submitted orders the warehouse currently reports as back-ordered. */
+  back_ordered: number;
+  /** Orders the feed reports shipped without a tracking number yet. */
+  awaiting_tracking: number;
+}
+
 export type WarehouseSubmissionHealthRecentFailuresItem = {
   order_id: string;
   /** @nullable */
@@ -2333,6 +2368,7 @@ export interface WarehouseSubmissionHealth {
   /** HQ kill switch state. */
   auto_submit: boolean;
   recent_failures: WarehouseSubmissionHealthRecentFailuresItem[];
+  sync?: WarehouseSyncHealth | null;
 }
 
 export interface SystemHealthResult {
@@ -2363,6 +2399,7 @@ export const ThresholdFindingMetric = {
   p95_latency: 'p95_latency',
   db_growth: 'db_growth',
   storage_growth: 'storage_growth',
+  warehouse_poll: 'warehouse_poll',
 } as const;
 
 export type ThresholdFindingLevel = typeof ThresholdFindingLevel[keyof typeof ThresholdFindingLevel];
@@ -2377,11 +2414,11 @@ export interface ThresholdFinding {
   metric: ThresholdFindingMetric;
   level: ThresholdFindingLevel;
   /**
-     * Route family for latency findings; null for growth.
+     * Route family for latency findings; null for growth and the warehouse feed.
      * @nullable
      */
   family: string | null;
-  /** Observed value: ms for latency, bytes per day for growth. */
+  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful warehouse poll. */
   value: number;
   /** The limit that was crossed */
   limit: number;

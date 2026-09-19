@@ -19,6 +19,7 @@ import { getOrderBundle, officeName } from "./store-orders";
 import type { OrderDetail, PublicOrderResponse, ShippingAddress } from "./types";
 import { dispatchStripeEvent, onStripeEvent, type StripeEventContext } from "./webhooks";
 import { cancelAtWarehouse, warehouseDto } from "./warehouse-submissions";
+import { shipmentStateDto } from "./shipments";
 
 export class BillingOrderError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -353,7 +354,7 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
   const bundle = await getOrderBundle(orderId);
   if (!bundle) throw new BillingOrderError("Order not found.", 404);
   const { order, items, payer, office } = bundle;
-  const [refunds, disputes, ledger, account, submission] = await Promise.all([
+  const [refunds, disputes, ledger, account, submission, shipment] = await Promise.all([
     selectMany("billing_refunds", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_disputes", `order_id=eq.${encodeURIComponent(order.id)}&order=created_at.desc`),
     selectMany("billing_ledger", `order_id=eq.${encodeURIComponent(order.id)}&order=occurred_at.desc`),
@@ -361,6 +362,7 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
     // charge: paid goods ship even after a disconnect or a capability pause.
     selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(order.provider_id)}`),
     selectOne("billing_warehouse_submissions", `order_id=eq.${encodeURIComponent(order.id)}`),
+    selectOne("billing_shipments", `order_id=eq.${encodeURIComponent(order.id)}`),
   ]);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const settings = (order.metadata?.settings ?? { card_fee_bps: 290, card_fee_fixed_cents: 30 }) as any;
@@ -391,6 +393,7 @@ export async function toOrderDetail(orderId: string, hq: boolean): Promise<Order
     subscription_id: order.subscription_id, tracking_number: order.tracking_number, carrier: order.carrier,
     shipped_at: order.shipped_at, shipped_by_name: null, canceled_reason: order.canceled_reason,
     warehouse: warehouseDto(submission),
+    shipment: shipmentStateDto(shipment),
     refunds: refunds.map((row) => ({ id: row.id, stripe_refund_id: row.stripe_refund_id, amount_cents: row.amount_cents,
       reason: row.reason, status: row.status, requested_by_name: null, created_at: row.created_at })),
     disputes: disputes as any, ledger: ledger as any,

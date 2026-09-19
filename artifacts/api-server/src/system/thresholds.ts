@@ -11,14 +11,14 @@ import { envInt } from "../lib/env";
 import { latencyBudget } from "../lib/request-metrics";
 
 export type ThresholdLevel = "ok" | "amber" | "red";
-export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth";
+export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth" | "warehouse_poll";
 
 export interface ThresholdFinding {
   metric: ThresholdMetric;
   level: Exclude<ThresholdLevel, "ok">;
   /** Route family for latency findings; null for growth. */
   family: string | null;
-  /** Observed value: ms for latency, bytes per day for growth. */
+  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful poll for the warehouse feed. */
   value: number;
   /** The limit that was crossed, in the same unit. */
   limit: number;
@@ -73,6 +73,14 @@ export interface LatencyFamilyInput {
   p95Ms: number | null;
 }
 
+/** Warehouse status feed freshness (see billing/warehouse-status-sync.ts); null when the feed has never polled. */
+export interface WarehousePollInput {
+  lastSuccessAt: string | null;
+  lastPollAt: string | null;
+  stalledAfterMinutes: number;
+  lastError: string | null;
+}
+
 export interface GrowthInput {
   /** Bytes added since the previous daily snapshot, normalised to one day; null when there is no previous day. */
   databaseBytesPerDay: number | null;
@@ -88,8 +96,26 @@ export function formatBytesShort(bytes: number): string {
 }
 
 /** Latency findings use the last hour; families under `minRequests` are skipped (too few samples to call slow). */
-export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
+export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null; warehousePoll?: WarehousePollInput | null; now?: Date }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
   const findings: ThresholdFinding[] = [];
+  // A dead warehouse feed is red once no poll has succeeded for longer than
+  // the stalled limit (only after at least one poll ran: a never-configured
+  // feed is not an outage).
+  if (input.warehousePoll && input.warehousePoll.lastPollAt) {
+    const now = input.now ?? new Date();
+    const limit = input.warehousePoll.stalledAfterMinutes;
+    const sinceMinutes = input.warehousePoll.lastSuccessAt
+      ? Math.floor((now.getTime() - new Date(input.warehousePoll.lastSuccessAt).getTime()) / 60_000)
+      : Math.floor((now.getTime() - new Date(input.warehousePoll.lastPollAt).getTime()) / 60_000);
+    if (sinceMinutes > limit) {
+      findings.push({
+        metric: "warehouse_poll", level: "red", family: null, value: sinceMinutes, limit,
+        message: input.warehousePoll.lastSuccessAt
+          ? `The WarehouseCraft status feed has not synced successfully for ${sinceMinutes} minutes (limit ${limit}).${input.warehousePoll.lastError ? ` Last error: ${input.warehousePoll.lastError}` : ""}`
+          : `The WarehouseCraft status feed has never synced successfully; the first poll ran ${sinceMinutes} minutes ago (limit ${limit}).${input.warehousePoll.lastError ? ` Last error: ${input.warehousePoll.lastError}` : ""}`,
+      });
+    }
+  }
   for (const family of input.latencyLastHour) {
     if (family.requests < config.latency.minRequests || family.p95Ms === null) continue;
     const budget = latencyBudget(family.family);

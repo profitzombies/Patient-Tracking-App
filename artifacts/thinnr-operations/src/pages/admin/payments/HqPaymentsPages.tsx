@@ -62,7 +62,11 @@ import {
   fulfillmentTone,
   WAREHOUSE_STATE_LABEL,
   warehouseDetail,
+  warehouseFeedDetail,
   warehouseTone,
+  canMarkDelivered,
+  canMarkShipped,
+  deliveredLabel,
   FULFILLMENT_LABEL,
   humanizeRequirement,
   ORDER_KIND_LABEL,
@@ -736,6 +740,13 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
                   { label: 'Carrier', value: order.carrier ?? '—' },
                   { label: 'Tracking', value: order.tracking_number ?? '—' },
                   { label: 'Shipped', value: order.shipped_at ? formatDateTime(order.shipped_at) : '—' },
+                  ...(order.shipment?.status === 'delivered'
+                    ? [{ label: 'Delivered', value: <span data-testid="text-transaction-delivered">{order.shipment.delivered_at ? formatDateTime(order.shipment.delivered_at) : 'Delivered'}</span> }]
+                    : []),
+                  ...(order.shipment?.back_ordered
+                    ? [{ label: 'Stock', value: <StatusPill tone="warn" testId="pill-transaction-back-ordered">Back-ordered at the warehouse</StatusPill> }]
+                    : []),
+                  ...(warehouseFeedDetail(order.shipment) ? [{ label: 'Warehouse status', value: <span data-testid="text-transaction-warehouse-status">{order.shipment?.warehouse_status}{order.shipment?.warehouse_status_at ? ` · ${formatDateTime(order.shipment.warehouse_status_at)}` : ''}</span> }] : []),
                   ...(order.canceled_reason ? [{ label: 'Canceled reason', value: order.canceled_reason }] : []),
                   ...(order.warehouse
                     ? [
@@ -916,7 +927,12 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
                     Copy address
                   </button>
                 </address>
-                {canWrite && order.fulfillment_status === 'shipped' && (
+                {deliveredLabel(order.shipment) && (
+                  <div className="flex items-start justify-end gap-2">
+                    <StatusPill tone="good" testId={`pill-fulfillment-delivered-${order.id}`}>{deliveredLabel(order.shipment)}</StatusPill>
+                  </div>
+                )}
+                {canWrite && order.fulfillment_status === 'shipped' && canMarkDelivered(order.shipment) && (
                   <div className="flex items-start justify-end gap-2">
                     <button
                       data-testid={`button-delivered-${order.id}`}
@@ -937,7 +953,7 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
                     </button>
                   </div>
                 )}
-                {canWrite && order.fulfillment_status === 'to_ship' && (
+                {canWrite && order.fulfillment_status === 'to_ship' && canMarkShipped(order.shipment) && (
                   <div className="flex items-start justify-end gap-2">
                     <button className={`${BTN_SECONDARY} h-8 px-3`} onClick={() => setDialog({ order, mode: 'cancel' })}>
                       Cancel order
@@ -955,6 +971,7 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
               <WarehouseStatus
                 orderId={order.id}
                 warehouse={order.warehouse}
+                shipment={order.shipment}
                 action={canWrite && order.warehouse?.state === 'needs_attention' && order.fulfillment_status === 'to_ship' ? (
                   <button
                     data-testid={`button-warehouse-retry-${order.id}`}

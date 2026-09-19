@@ -12,11 +12,11 @@ export interface ThresholdFinding {
   metric: ThresholdFindingMetric;
   level: ThresholdFindingLevel;
   /**
-     * Route family for latency findings; null for growth.
+     * Route family for latency findings; null for growth and the warehouse feed.
      * @nullable
      */
   family: string | null;
-  /** Observed value: ms for latency, bytes per day for growth. */
+  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful warehouse poll. */
   value: number;
   /** The limit that was crossed */
   limit: number;

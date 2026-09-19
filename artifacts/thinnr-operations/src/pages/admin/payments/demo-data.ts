@@ -1,6 +1,7 @@
 import { EMPTY_COACH_SUGGESTION } from '@/lib/billing-types';
 import type {
   WarehouseSubmission,
+  OrderShipmentState,
   AiCostModel, AiCostSummary, AiCostSurface, CatalogChange, CoachSuggestionRule, ConnectedAccount, HqCatalogResponse, HqOverview, HqProviderDetail, HqProviderRow,
   HqActivityRow, HqTodayOverview, OrderDetail, OrderKind, OrderStatus, ProductPageContent, SeriesPoint, SubscriptionRow,
 } from '@/lib/billing-types';
@@ -289,6 +290,7 @@ function makeOrder(index: number, kind: OrderKind, status: OrderStatus, fulfillm
     shipped_by_name: fulfillment === 'shipped' ? 'Alex Morgan' : null,
     canceled_reason: fulfillment === 'canceled' ? 'Patient requested cancellation before shipment.' : null,
     warehouse: demoWarehouse(index, status, fulfillment),
+    shipment: demoShipment(index, status, fulfillment),
     refunds: refunded ? [{ id: `refund-${index}`, stripe_refund_id: `re_demo_${index}`, amount_cents: refunded, reason: 'Patient request', status: 'succeeded', requested_by_name: 'Alex Morgan', created_at: '2026-09-24T16:00:00Z' }] : [],
     disputes: status === 'disputed' ? [{ id: `dispute-${index}`, stripe_dispute_id: `dp_demo_${index}`, amount_cents: total, status: 'needs_response', reason: 'fraudulent', evidence_due_by: '2026-10-05T00:00:00Z', created_at: '2026-09-24T16:00:00Z', closed_at: null }] : [],
     ledger: [
@@ -308,6 +310,23 @@ function demoWarehouse(index: number, status: OrderStatus, fulfillment: 'to_ship
   if (index === 1) return { ...base, state: 'needs_attention', attempts: 1, error: 'ItemSKU not recognized: REGULATE-OLD' };
   if (index === 4) return { ...base, state: 'pending', attempts: 0, last_attempt_at: null, next_attempt_at: '2026-09-24T14:06:00Z' };
   return { ...base, state: 'sent', warehouse_order_id: String(1436100 + index), warehouse_status: fulfillment === 'shipped' ? 'Shipped' : 'Imported', sent_at: paidAt.replace('14:02', '14:04') };
+}
+
+/**
+ * Shipment record as the WarehouseCraft status feed leaves it: one delivered order
+ * (feed-set, so HQ sees the date and no "Mark delivered"), one back-ordered order,
+ * and raw statuses on the rest of the sent orders. Orders the warehouse never
+ * received have no feed state.
+ */
+function demoShipment(index: number, status: OrderStatus, fulfillment: 'to_ship' | 'shipped' | 'canceled'): OrderShipmentState | null {
+  if (status === 'pending' || status === 'failed') return null;
+  const seenAt = `2026-09-${String(11 + index).padStart(2, '0')}T09:15:00Z`;
+  if (fulfillment === 'canceled') return { status: 'canceled', source: 'staff', delivered_at: null, back_ordered: false, warehouse_status: null, warehouse_status_at: null };
+  if (index === 1 || index === 4) return { status: 'processing', source: 'staff', delivered_at: null, back_ordered: false, warehouse_status: null, warehouse_status_at: null };
+  if (index === 7) return { status: 'delivered', source: 'provider', delivered_at: '2026-09-27T18:40:00Z', back_ordered: false, warehouse_status: 'Closed', warehouse_status_at: '2026-09-27T18:40:00Z' };
+  if (index === 9) return { status: 'processing', source: 'provider', delivered_at: null, back_ordered: true, warehouse_status: 'Back Order', warehouse_status_at: seenAt };
+  if (fulfillment === 'shipped') return { status: 'shipped', source: 'provider', delivered_at: null, back_ordered: false, warehouse_status: 'Shipped', warehouse_status_at: '2026-09-24T17:00:00Z' };
+  return { status: 'processing', source: 'provider', delivered_at: null, back_ordered: false, warehouse_status: index === 0 ? 'Being Fulfilled' : 'Imported', warehouse_status_at: seenAt };
 }
 
 const ORDER_STATES: Array<[OrderKind, OrderStatus, 'to_ship' | 'shipped' | 'canceled']> = [

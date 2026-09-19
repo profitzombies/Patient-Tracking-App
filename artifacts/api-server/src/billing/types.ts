@@ -480,6 +480,18 @@ export interface WarehouseSubmission {
   next_attempt_at: string | null;
   last_attempt_at: string | null;
 }
+/** Shipment state as the shipment record holds it (the legacy fulfillment_status folds delivered into shipped). */
+export interface OrderShipmentState {
+  status: "processing" | "shipped" | "delivered" | "canceled";
+  /** Who wrote the current state: staff from the fulfillment screens, or the warehouse feed. */
+  source: "staff" | "provider";
+  delivered_at: string | null;
+  /** The warehouse reports the order as back-ordered (staff-facing; patient copy stays neutral). */
+  back_ordered: boolean;
+  /** Raw WarehouseCraft status as last seen on the feed, Title Cased for staff; null before the first poll. */
+  warehouse_status: string | null;
+  warehouse_status_at: string | null;
+}
 export interface OrderDetail extends OrderSummary {
   items: OrderItem[];
   shipping_address: ShippingAddress;
@@ -494,6 +506,8 @@ export interface OrderDetail extends OrderSummary {
   canceled_reason: string | null;
   /** WarehouseCraft submission outcome; null until the order is paid (and for legacy rows). */
   warehouse: WarehouseSubmission | null;
+  /** Shipment record state; null for orders that predate shipment records. */
+  shipment: OrderShipmentState | null;
   refunds: Refund[];
   disputes: Dispute[];
   ledger: LedgerLine[];

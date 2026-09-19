@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WarehouseSubmissionHealthRecentFailuresItem } from './warehouseSubmissionHealthRecentFailuresItem';
+import type { WarehouseSyncHealth } from './warehouseSyncHealth';
 
 export interface WarehouseSubmissionHealth {
   /** Intents still waiting to be sent. */
@@ -21,4 +22,5 @@ export interface WarehouseSubmissionHealth {
   /** HQ kill switch state. */
   auto_submit: boolean;
   recent_failures: WarehouseSubmissionHealthRecentFailuresItem[];
+  sync?: WarehouseSyncHealth | null;
 }

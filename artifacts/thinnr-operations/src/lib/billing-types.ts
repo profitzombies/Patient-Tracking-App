@@ -500,6 +500,19 @@ export interface WarehouseSubmission {
   last_attempt_at: string | null;
 }
 
+/** Shipment record state, written by staff or by the WarehouseCraft status feed. */
+export interface OrderShipmentState {
+  status: "processing" | "shipped" | "delivered" | "canceled";
+  /** Who wrote the current state: staff from the fulfillment screens, or the warehouse feed. */
+  source: "staff" | "provider";
+  delivered_at: string | null;
+  /** The warehouse reports the order as back-ordered (staff-facing; patient copy stays neutral). */
+  back_ordered: boolean;
+  /** Raw WarehouseCraft status as last seen on the feed; null before the first poll. */
+  warehouse_status: string | null;
+  warehouse_status_at: string | null;
+}
+
 export interface OrderDetail extends OrderSummary {
   items: OrderItem[];
   shipping_address: ShippingAddress;
@@ -514,6 +527,8 @@ export interface OrderDetail extends OrderSummary {
   canceled_reason: string | null;
   /** Optional: older demo fixtures omit it; live rows carry it once paid. */
   warehouse?: WarehouseSubmission | null;
+  /** Optional: demo fixtures and pre-shipment-record orders omit it. */
+  shipment?: OrderShipmentState | null;
   refunds: Refund[];
   disputes: Dispute[];
   ledger: LedgerLine[];

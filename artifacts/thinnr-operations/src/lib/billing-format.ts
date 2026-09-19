@@ -2,7 +2,7 @@
  * Money and status formatting shared by every payments screen. Money is
  * integer cents on the wire; dollars exist only here and in price inputs.
  */
-import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/billing-types';
+import type { CadenceWeeks, FulfillmentStatus, OrderKind, OrderShipmentState, OrderStatus, ProductCategory, SubscriptionStatus, WarehouseSubmission } from '@/lib/billing-types';
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -230,4 +230,33 @@ export function warehouseDetail(warehouse: WarehouseSubmission): string {
     return 'Queued; the warehouse receives paid orders within a few minutes.';
   }
   return 'Canceled or refunded before it reached the warehouse.';
+}
+
+/**
+ * Staff-facing line for the shipment state the warehouse feed last reported:
+ * the raw WarehouseCraft status and when it was seen. Null until the first poll
+ * has matched the order, or when the order never went to the warehouse.
+ */
+export function warehouseFeedDetail(shipment: OrderShipmentState | null | undefined): string | null {
+  if (!shipment?.warehouse_status) return null;
+  const seen = shipment.warehouse_status_at ? ` · seen ${formatDateTime(shipment.warehouse_status_at)}` : '';
+  return `Warehouse status: ${shipment.warehouse_status}${seen}`;
+}
+
+/** "Delivered Nov 5, 2026" once the shipment is delivered; null otherwise. */
+export function deliveredLabel(shipment: OrderShipmentState | null | undefined): string | null {
+  if (shipment?.status !== 'delivered') return null;
+  return shipment.delivered_at ? `Delivered ${formatDate(shipment.delivered_at)}` : 'Delivered';
+}
+
+/**
+ * Whether staff may still move the shipment forward by hand. Delivered and canceled
+ * are terminal; a shipped record only accepts "delivered". The manual buttons stay
+ * for edge cases but never fight a state the warehouse feed already set.
+ */
+export function canMarkShipped(shipment: OrderShipmentState | null | undefined): boolean {
+  return !shipment || shipment.status === 'processing';
+}
+export function canMarkDelivered(shipment: OrderShipmentState | null | undefined): boolean {
+  return !shipment || shipment.status === 'shipped';
 }

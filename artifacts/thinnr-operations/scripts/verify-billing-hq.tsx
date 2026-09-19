@@ -248,6 +248,49 @@ await check('fulfillment demo rows', '/admin/payments/fulfillment?status=to_ship
   await act(async () => { renderer!.unmount(); });
 }
 await check('fulfillment shipped demo rows', '/admin/payments/fulfillment?status=shipped', PaymentsFulfillment, ['TH-D3MO03', 'Mark delivered', 'Sent to warehouse', 'Warehouse order 1436102']);
+{
+  // Status feed states on the queues: raw warehouse status and a back-order badge on to-ship,
+  // and a delivered order (set by the feed) on shipped that shows its date and no "Mark delivered".
+  const mount = async (path: string) => {
+    const location = memoryLocation({ path });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let renderer: ReturnType<typeof create> | undefined;
+    await act(async () => {
+      renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}><Route path="/admin/payments" nest><PaymentsFulfillment /></Route></Router></DateRangeProvider></QueryClientProvider>);
+    });
+    return renderer!;
+  };
+  const byId = (renderer: ReturnType<typeof create>, id: string) => renderer.root.findAll(node => typeof node.type === 'string' && node.props['data-testid'] === id)[0];
+  const textOf = (node: any) => JSON.stringify(node?.children ?? null);
+  const toShip = await mount('/admin/payments/fulfillment?status=to_ship');
+  const feed1 = byId(toShip, 'text-warehouse-feed-demo-order-1');
+  const feed10 = byId(toShip, 'text-warehouse-feed-demo-order-10');
+  const shipButtons = toShip.root.findAll(node => node.type === 'button' && String(node.props['data-testid'] ?? '').startsWith('button-ship-')).map(node => node.props['data-testid']);
+  const toShipProblems = [
+    !textOf(feed1).includes('Warehouse status: Being Fulfilled') || !textOf(feed1).includes('seen') ? `demo-order-1 feed line reads ${textOf(feed1)}` : '',
+    !byId(toShip, 'pill-back-ordered-demo-order-10') ? 'demo-order-10 should carry the Back-ordered badge' : '',
+    byId(toShip, 'pill-back-ordered-demo-order-1') ? 'demo-order-1 must not carry the Back-ordered badge' : '',
+    !textOf(feed10).includes('Preparing your order') ? `back-order line should say what the patient sees, got ${textOf(feed10)}` : '',
+    !shipButtons.includes('button-ship-demo-order-1') || !shipButtons.includes('button-ship-demo-order-10') ? `to-ship orders keep Mark shipped (edge cases), got ${shipButtons.join(', ')}` : '',
+  ].filter(Boolean);
+  if (toShipProblems.length) { failures += 1; console.error(`FAIL fulfillment feed states on to-ship: ${toShipProblems.join('; ')}`); }
+  else console.log('ok fulfillment feed states on to-ship');
+  await act(async () => { toShip.unmount(); });
+
+  const shipped = await mount('/admin/payments/fulfillment?status=shipped');
+  const deliveredButtons = shipped.root.findAll(node => node.type === 'button' && String(node.props['data-testid'] ?? '').startsWith('button-delivered-')).map(node => node.props['data-testid']);
+  const deliveredPill = byId(shipped, 'pill-fulfillment-delivered-demo-order-8');
+  const shippedProblems = [
+    textOf(deliveredPill) !== JSON.stringify(['Delivered Sep 27, 2026']) ? `demo-order-8 delivered pill reads ${textOf(deliveredPill)}` : '',
+    deliveredButtons.includes('button-delivered-demo-order-8') ? 'a delivered order must not offer Mark delivered' : '',
+    !deliveredButtons.includes('button-delivered-demo-order-3') ? `shipped orders still offer Mark delivered, got ${deliveredButtons.join(', ')}` : '',
+    byId(shipped, 'pill-fulfillment-delivered-demo-order-3') ? 'demo-order-3 is shipped, not delivered' : '',
+    !textOf(byId(shipped, 'text-warehouse-feed-demo-order-8')).includes('Warehouse status: Closed') ? 'delivered order should show the raw Closed status' : '',
+  ].filter(Boolean);
+  if (shippedProblems.length) { failures += 1; console.error(`FAIL fulfillment feed states on shipped: ${shippedProblems.join('; ')}`); }
+  else console.log('ok fulfillment feed states on shipped');
+  await act(async () => { shipped.unmount(); });
+}
 await check('catalog demo rows', '/admin/payments/catalog', PaymentsCatalog, [
   'Control', 'Maintenance + Detox Stack', 'Add product', 'Active products', 'Program settings', 'Card fee rate', '"2.90"', '/admin/payments/catalog/products/new',
   'Metabolic & Appetite Support', 'Supplement · Every 2, 4, 6, 8, 10 or 12 weeks · default 4', 'Drops · Every 4, 8 or 12 weeks · default 4', 'Subscribe and save',
@@ -278,7 +321,19 @@ await check(
   'transaction detail back link',
   '/admin/payments/transactions/demo-order-1',
   () => <PaymentTransactionDetail params={{ orderId: 'demo-order-1' }} />,
-  ['TH-D3MO01', 'Back to transactions', 'Warehouse', 'Sent to warehouse', 'Warehouse order 1436100'],
+  ['TH-D3MO01', 'Back to transactions', 'Warehouse', 'Sent to warehouse', 'Warehouse order 1436100', 'Warehouse status', 'Being Fulfilled'],
+);
+await check(
+  'transaction detail delivered and back-ordered rows',
+  '/admin/payments/transactions/demo-order-8',
+  () => <PaymentTransactionDetail params={{ orderId: 'demo-order-8' }} />,
+  ['TH-D3MO08', 'Delivered', 'Sep 27, 2026', 'text-transaction-delivered', 'Closed'],
+);
+await check(
+  'transaction detail back-ordered badge',
+  '/admin/payments/transactions/demo-order-10',
+  () => <PaymentTransactionDetail params={{ orderId: 'demo-order-10' }} />,
+  ['TH-D3MO10', 'Back-ordered at the warehouse', 'pill-transaction-back-ordered', 'Back Order'],
 );
 
 {

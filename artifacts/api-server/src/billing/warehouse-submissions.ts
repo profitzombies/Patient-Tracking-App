@@ -12,13 +12,13 @@
  * The HQ kill switch (billing_settings.warehouse_auto_submit) pauses the drain; intents keep
  * accumulating and resume untouched when it is switched back on.
  */
-import { supabaseAdmin } from "../lib/supabase-admin";
 import {
   WarehousePayloadError, buildWarehouseOrder, canCancelAtWarehouse, canEditAddressAtWarehouse, isCancelledAtWarehouse,
   warehouseOrderClient, type WarehouseOrderClient, type WarehouseOrderPayload,
 } from "../shipping/warehousecraft-orders";
 import { WarehouseCraftError } from "../shipping/warehousecraft";
 import { ensureShipment } from "./shipments";
+import { raiseWarehouseHqAlert } from "./warehouse-alerts";
 import {
   insertIgnore, nowIso, selectMany, selectOne, update, type BillingOrderItemRow, type BillingOrderRow, type BillingPayerRow,
   type BillingWarehouseSubmissionRow, type WarehouseSubmissionState,
@@ -68,20 +68,12 @@ async function mirror(order: Pick<BillingOrderRow, "id" | "provider_id" | "fulfi
 }
 
 async function raiseAttentionAlert(order: BillingOrderRow, message: string, now: Date): Promise<void> {
-  const recipients = await supabaseAdmin("GET", "/rest/v1/hq_memberships?select=auth_user_id,email,display_name&status=eq.active&department_role=in.(super_admin,admin)&email=not.is.null");
-  if (recipients.status >= 300) throw new Error(`hq recipients read failed (${recipients.status})`);
-  const rows = (Array.isArray(recipients.json) ? recipients.json as Array<{ auth_user_id: string; email: string | null; display_name: string | null }> : [])
-    .filter((row) => row.email).map((row) => ({
-      provider_id: null, auth_user_id: row.auth_user_id, channel: "email", email: row.email, kind: "system_threshold", category: "staff_alerts",
-      title: `Warehouse rejected order ${order.order_number}`,
-      body: `${message} Fix the product or address, then retry from Fulfillment.`,
-      data: { metric: "warehouse_submission", level: "red", family: order.order_number, value: null, limit: null, message, recipientName: row.display_name?.trim() || null, order_id: order.id },
-      dedupe_key: `warehouse_submission:${order.id}:${row.auth_user_id}:email`,
-      scheduled_at: now.toISOString(), next_attempt_at: now.toISOString(), expires_at: new Date(now.getTime() + 7 * 86_400_000).toISOString(),
-    }));
-  if (!rows.length) return;
-  const queued = await supabaseAdmin("POST", "/rest/v1/staff_notifications?on_conflict=dedupe_key", rows, "resolution=ignore-duplicates,return=minimal");
-  if (queued.status >= 300) throw new Error(`warehouse alert enqueue failed (${queued.status})`);
+  await raiseWarehouseHqAlert({
+    key: order.id, metric: "warehouse_submission", level: "red", family: order.order_number,
+    title: `Warehouse rejected order ${order.order_number}`,
+    body: `${message} Fix the product or address, then retry from Fulfillment.`,
+    data: { order_id: order.id },
+  }, now);
 }
 
 /** Submits one pending intent. Never throws for warehouse answers; only store failures propagate. */

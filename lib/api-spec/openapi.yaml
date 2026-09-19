@@ -4411,6 +4411,36 @@ components:
               error: { type: ["string", "null"] }
               at: { type: ["string", "null"] }
               state: { type: string, enum: [pending, sent, needs_attention, skipped] }
+        # Status feed (tracking / delivered / back-order sync). Optional so older servers
+        # still validate; null when the poll ledger could not be read.
+        sync:
+          oneOf:
+            - $ref: "#/components/schemas/WarehouseSyncHealth"
+            - type: "null"
+    WarehouseSyncHealth:
+      type: object
+      required: [last_success_at, last_poll_at, last_error, last_window, rows_seen_24h, transitions_24h, errors_24h, polls_24h, failed_polls_24h, stalled, stalled_after_minutes, back_ordered, awaiting_tracking]
+      properties:
+        last_success_at: { type: ["string", "null"], description: Last poll that completed successfully. }
+        last_poll_at: { type: ["string", "null"] }
+        last_error: { type: ["string", "null"], description: Error of the most recent poll when it failed. }
+        last_window:
+          oneOf:
+            - type: object
+              required: [start, end]
+              properties:
+                start: { type: string, description: "Warehouse calendar day (YYYY-MM-DD), inclusive." }
+                end: { type: string }
+            - type: "null"
+        rows_seen_24h: { type: number }
+        transitions_24h: { type: number, description: Shipment state changes applied from the feed. }
+        errors_24h: { type: number }
+        polls_24h: { type: number }
+        failed_polls_24h: { type: number }
+        stalled: { type: boolean, description: No successful poll for longer than the stalled limit. }
+        stalled_after_minutes: { type: number }
+        back_ordered: { type: number, description: Submitted orders the warehouse currently reports as back-ordered. }
+        awaiting_tracking: { type: number, description: Orders the feed reports shipped without a tracking number yet. }
     PushOutboxBacklog:
       type: object
       required: [due, oldestDueAt, oldestDueAgeMs, inFlight]
@@ -4437,10 +4467,10 @@ components:
       type: object
       required: [metric, level, family, value, limit, message]
       properties:
-        metric: { type: string, enum: [p95_latency, db_growth, storage_growth] }
+        metric: { type: string, enum: [p95_latency, db_growth, storage_growth, warehouse_poll] }
         level: { type: string, enum: [amber, red] }
-        family: { type: ["string", "null"], description: Route family for latency findings; null for growth. }
-        value: { type: number, description: "Observed value: ms for latency, bytes per day for growth." }
+        family: { type: ["string", "null"], description: Route family for latency findings; null for growth and the warehouse feed. }
+        value: { type: number, description: "Observed value: ms for latency, bytes per day for growth, minutes since the last successful warehouse poll." }
         limit: { type: number, description: The limit that was crossed, in the same unit. }
         message: { type: string }
     GrowthThresholds:

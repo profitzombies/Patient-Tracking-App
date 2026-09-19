@@ -4802,7 +4802,25 @@ export const GetHqSystemHealthResponse = zod.object({
   "error": zod.string().nullable(),
   "at": zod.string().nullable(),
   "state": zod.enum(['pending', 'sent', 'needs_attention', 'skipped'])
-}))
+})),
+  "sync": zod.union([zod.object({
+  "last_success_at": zod.string().nullable().describe('Last poll that completed successfully.'),
+  "last_poll_at": zod.string().nullable(),
+  "last_error": zod.string().nullable().describe('Error of the most recent poll when it failed.'),
+  "last_window": zod.union([zod.object({
+  "start": zod.string().describe('Warehouse calendar day (YYYY-MM-DD), inclusive.'),
+  "end": zod.string()
+}),zod.null()]),
+  "rows_seen_24h": zod.number(),
+  "transitions_24h": zod.number().describe('Shipment state changes applied from the feed.'),
+  "errors_24h": zod.number(),
+  "polls_24h": zod.number(),
+  "failed_polls_24h": zod.number(),
+  "stalled": zod.boolean().describe('No successful poll for longer than the stalled limit.'),
+  "stalled_after_minutes": zod.number(),
+  "back_ordered": zod.number().describe('Submitted orders the warehouse currently reports as back-ordered.'),
+  "awaiting_tracking": zod.number().describe('Orders the feed reports shipped without a tracking number yet.')
+}),zod.null()]).optional()
 }),zod.null()]).optional()
 })
 
@@ -4930,10 +4948,10 @@ export const GetHqSystemPerformanceResponse = zod.object({
 })
 }),
   "findings": zod.array(zod.object({
-  "metric": zod.enum(['p95_latency', 'db_growth', 'storage_growth']),
+  "metric": zod.enum(['p95_latency', 'db_growth', 'storage_growth', 'warehouse_poll']),
   "level": zod.enum(['amber', 'red']),
-  "family": zod.string().nullable().describe('Route family for latency findings; null for growth.'),
-  "value": zod.number().describe('Observed value: ms for latency, bytes per day for growth.'),
+  "family": zod.string().nullable().describe('Route family for latency findings; null for growth and the warehouse feed.'),
+  "value": zod.number().describe('Observed value: ms for latency, bytes per day for growth, minutes since the last successful warehouse poll.'),
   "limit": zod.number().describe('The limit that was crossed'),
   "message": zod.string()
 }))

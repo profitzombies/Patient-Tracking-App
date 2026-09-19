@@ -495,6 +495,33 @@ console.log('\noffice billing: activity, refunds and fulfillment status');
   check('offices never see the warehouse error text or a retry action', !queueText.includes('CONTROL-OLD') && liveQueue.root.findAll((node) => node.type === 'button' && /retry/i.test(text(node))).length === 0);
   liveQueue.renderer.unmount();
 
+  // Status feed states: the warehouse's raw status and a back-order badge on the to-ship queue; the delivered date on the shipped queue.
+  reset();
+  const feedShipment = (status: 'processing' | 'shipped' | 'delivered', extra: Record<string, unknown> = {}) => ({
+    status, source: 'provider', delivered_at: status === 'delivered' ? '2026-10-14T19:20:00Z' : null, back_ordered: false, warehouse_status: 'Imported', warehouse_status_at: '2026-10-11T15:00:00Z', ...extra,
+  });
+  responses = [json(200, status()), json(200, { items: [
+    { ...liveOrder('b1', sent), shipment: feedShipment('processing', { warehouse_status: 'Being Fulfilled' }) },
+    { ...liveOrder('b2', sent), shipment: feedShipment('processing', { back_ordered: true, warehouse_status: 'Back Order' }) },
+  ], next_cursor: null })];
+  const feedQueue = await render('/fulfillment');
+  await settle();
+  check('the to-ship queue shows the raw warehouse status and when it was seen', text(one(feedQueue.root, 'text-warehouse-feed-b1')).includes('Warehouse status: Being Fulfilled') && text(one(feedQueue.root, 'text-warehouse-feed-b1')).includes('seen Oct 11, 2026'), text(one(feedQueue.root, 'text-warehouse-feed-b1') ?? feedQueue.root));
+  check('a back-ordered order carries a badge and only that order does', Boolean(one(feedQueue.root, 'pill-back-ordered-b2')) && text(one(feedQueue.root, 'pill-back-ordered-b2')) === 'Back-ordered' && !one(feedQueue.root, 'pill-back-ordered-b1'));
+  feedQueue.renderer.unmount();
+
+  reset();
+  const shippedOrder = (id: string, shipment: Record<string, unknown> | null) => ({
+    ...liveOrder(id, { ...sent, warehouse_status: 'Shipped' }), fulfillment_status: 'shipped', tracking_number: '9400111899223857000', carrier: 'USPS', shipped_at: '2026-10-12T17:00:00Z', shipment,
+  });
+  responses = [json(200, status()), json(200, { items: [shippedOrder('c1', feedShipment('delivered', { warehouse_status: 'Closed' })), shippedOrder('c2', feedShipment('shipped', { warehouse_status: 'Shipped' }))], next_cursor: null })];
+  const deliveredQueue = await render('/fulfillment?status=shipped');
+  await settle();
+  const deliveredText = text(deliveredQueue.root);
+  check('a delivered order shows Delivered with the date and still lists when it shipped', text(one(deliveredQueue.root, 'text-delivered-c1')) === 'Delivered Oct 14, 2026' && deliveredText.includes('Shipped Oct 12, 2026'), text(one(deliveredQueue.root, 'text-delivered-c1') ?? deliveredQueue.root));
+  check('a shipped-but-not-delivered order shows no delivered line', !one(deliveredQueue.root, 'text-delivered-c2') && deliveredText.includes('9400111899223857000'));
+  deliveredQueue.renderer.unmount();
+
   reset();
   const today = { date: '2026-10-11', time_zone: 'America/New_York', current_hour: 10, hours: Array.from({ length: 24 }, (_, hour) => ({ hour, collected_cents: hour === 9 ? 8999 : 0, refunded_cents: 0, net_cents: hour === 9 ? 8999 : 0, fee_cents: hour === 9 ? 4599 : 0, profit_cents: hour === 9 ? 4109 : 0, orders: hour === 9 ? 1 : 0 })), collected_cents: 8999, net_cents: 8999, fee_cents: 4599, profit_cents: 4109, refunded_cents: 0, orders: 1 };
   const dashboard = { balance: { available_cents: 100, pending_cents: 0 }, next_payout: null, collected_cents: 8999, refunded_cents: 0, net_cents: 4109, thinnr_fee_cents: 4599, stripe_fee_cents: 291, orders: 1, active_subscriptions: 0, needs_attention_subscriptions: 0, to_ship: 1, series: [] };

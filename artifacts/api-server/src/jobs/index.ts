@@ -13,6 +13,7 @@ import { bloodworkCleanupJob } from "./definitions/bloodwork-cleanup";
 import { coachMemoryProcessingJob } from "./definitions/coach-memory-processing";
 import { coachTitleProcessingJob } from "./definitions/coach-title-processing";
 import { billingReconcileJob } from "./definitions/billing-reconcile";
+import { warehouseStatusSyncJob } from "./definitions/warehouse-status-sync";
 import { warehouseSubmitJob } from "./definitions/warehouse-submit";
 import { billingRenewalRemindersJob } from "./definitions/billing-renewal-reminders";
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
@@ -64,6 +65,7 @@ export const ALL_JOBS: JobDefinition[] = [
   billingReconcileJob,
   billingRenewalRemindersJob,
   warehouseSubmitJob,
+  warehouseStatusSyncJob,
   coachTitleProcessingJob,
   coachMemoryProcessingJob,
   abandonedUploadsJob,

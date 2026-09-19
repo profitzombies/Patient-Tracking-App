@@ -160,3 +160,4 @@
 - [JSX type args vs dev metadata plugin](jsx-type-args-metadata-plugin.md) — `<Comp<'a'|'b'>…>` typechecks but the dev-only metadata transform makes Vite fail on every route; instantiate the generic at module level.
 - [WarehouseCraft shipping rates](warehousecraft-shipping-rates.md) — NOVEX_* secrets are the WarehouseCraft creds; fallback = flat charge exactly, recovery always carrier+pick-pack; one rater via planCart, renewals re-quote.
 - [WarehouseCraft order submission](warehousecraft-order-submission.md) — tenant speaks legacy /api/OrderDatas routes; lookup echoes method display names; trigger-made intent queue + app fallback; revoke execute on definer trigger fns.
+- [WarehouseCraft status feed sync](warehousecraft-status-sync.md) — feed authoritative only for sent orders, provider writes share the staff shipment path + one forward-only guard; docs ByDate route is 404, tenant uses OrderStatusDatas date-only Central days.

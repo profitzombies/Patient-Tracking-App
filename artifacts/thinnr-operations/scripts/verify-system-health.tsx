@@ -151,10 +151,21 @@ let externalTrigger: Record<string, unknown> = {
 let healthStatus = 200;
 type OutboxFixture = { due: number; oldestDueAt: string | null; oldestDueAgeMs: number | null; inFlight: number } | null;
 let outbox: OutboxFixture = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
-type WarehouseFixture = { pending: number; due: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: 'pending' | 'sent' | 'needs_attention' | 'skipped' }> } | null | undefined;
+type WarehouseSyncFixture = {
+  last_success_at: string | null; last_poll_at: string | null; last_error: string | null; last_window: { start: string; end: string } | null;
+  rows_seen_24h: number; transitions_24h: number; errors_24h: number; polls_24h: number; failed_polls_24h: number;
+  stalled: boolean; stalled_after_minutes: number; back_ordered: number; awaiting_tracking: number;
+} | null | undefined;
+type WarehouseFixture = { pending: number; due: number; sent24h: number; failed24h: number; retries24h: number; needs_attention: number; auto_submit: boolean; recent_failures: Array<{ order_id: string; order_number: string | null; error: string | null; at: string | null; state: 'pending' | 'sent' | 'needs_attention' | 'skipped' }>; sync?: WarehouseSyncFixture } | null | undefined;
+const healthySync: WarehouseSyncFixture = {
+  last_success_at: new Date(NOW - 9 * 60_000).toISOString(), last_poll_at: new Date(NOW - 9 * 60_000).toISOString(), last_error: null,
+  last_window: { start: new Date(NOW - 3 * 3_600_000).toISOString(), end: new Date(NOW - 9 * 60_000).toISOString() },
+  rows_seen_24h: 118, transitions_24h: 7, errors_24h: 0, polls_24h: 96, failed_polls_24h: 0, stalled: false, stalled_after_minutes: 60, back_ordered: 2, awaiting_tracking: 0,
+};
 let warehouse: WarehouseFixture = {
   pending: 3, due: 1, sent24h: 41, failed24h: 2, retries24h: 1, needs_attention: 1, auto_submit: true,
   recent_failures: [{ order_id: 'order-77', order_number: 'TH-4Q7K2M', error: 'ItemSKU not recognized: REGULATE-OLD', at: new Date(NOW - 40 * 60_000).toISOString(), state: 'needs_attention' }],
+  sync: healthySync,
 };
 let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknown } = (name, dryRun) => ({
   status: 200,
@@ -400,7 +411,28 @@ console.log('\nsystem health: warehouse submissions');
     failure ? textOf(failure) : '(no failure row)');
   check('auto-submit on shows no paused notice', byTestId(root, 'text-warehouse-paused').length === 0 && byTestId(root, 'text-warehouse-unreadable').length === 0);
 
+  const syncTile = (id: string) => textOf(byTestId(root, `metric-warehouse-sync-${id}`)[0]);
+  const syncText = textOf(byTestId(root, 'system-health-warehouse-sync')[0]);
+  check('the status feed shows rows seen, transitions applied and row errors for the last 24 h, with the last poll time',
+    syncTile('rows') === '118' && syncTile('transitions') === '7' && syncTile('errors') === '0' && syncTile('last-poll') === 'Sep 18, 2026 22:09' && syncText.includes('96 in 24 h') && syncText.includes('No failed polls') && byTestId(root, 'text-warehouse-sync-stalled').length === 0,
+    `${syncTile('rows')} / ${syncTile('transitions')} / ${syncTile('errors')} / ${syncTile('last-poll')}`);
+  check('back-ordered orders at the warehouse are counted under the feed', textOf(byTestId(root, 'text-warehouse-sync-flags')[0]) === '2 back-ordered at the warehouse');
+
+  warehouse = { ...warehouse!, sync: { ...healthySync!, last_success_at: new Date(NOW - 95 * 60_000).toISOString(), last_poll_at: new Date(NOW - 4 * 60_000).toISOString(), last_error: 'WarehouseCraft 503', failed_polls_24h: 6, stalled: true, back_ordered: 0, awaiting_tracking: 1 } };
+  const stalled = await render('/admin/system-health', <SystemHealth />);
+  check('a stalled feed shows an alert naming the threshold and the last error, and the last-success tile says so',
+    byTestId(stalled.root, 'text-warehouse-sync-stalled').length === 1 && textOf(byTestId(stalled.root, 'text-warehouse-sync-stalled')[0]).includes('over 60 minutes') && textOf(byTestId(stalled.root, 'text-warehouse-sync-stalled')[0]).includes('WarehouseCraft 503')
+      && textOf(byTestId(stalled.root, 'system-health-warehouse-sync')[0]).includes('Feed stalled') && textOf(byTestId(stalled.root, 'text-warehouse-sync-flags')[0]) === '1 shipped without a tracking number yet',
+    textOf(byTestId(stalled.root, 'text-warehouse-sync-stalled')[0]));
+
+  warehouse = { ...warehouse!, sync: null };
+  const syncUnreadable = await render('/admin/system-health', <SystemHealth />);
+  check('an unreadable poll ledger shows dashes and a notice, never zeros',
+    textOf(byTestId(syncUnreadable.root, 'metric-warehouse-sync-rows')[0]) === '—' && textOf(byTestId(syncUnreadable.root, 'metric-warehouse-sync-last-poll')[0]) === '—' && byTestId(syncUnreadable.root, 'text-warehouse-sync-unreadable').length === 1 && byTestId(syncUnreadable.root, 'text-warehouse-sync-stalled').length === 0);
+
   warehouse = { pending: 5, due: 5, sent24h: 0, failed24h: 0, retries24h: 0, needs_attention: 0, auto_submit: false, recent_failures: [] };
+  const legacy = await render('/admin/system-health', <SystemHealth />);
+  check('a payload without the feed block renders no status feed section', byTestId(legacy.root, 'system-health-warehouse-sync').length === 0);
   const paused = await render('/admin/system-health', <SystemHealth />);
   check('the kill switch off shows a paused notice with the queued count, and no failure list',
     byTestId(paused.root, 'text-warehouse-paused').length === 1 && textOf(byTestId(paused.root, 'text-warehouse-paused')[0]).includes('5 paid orders are queued') && byTestId(paused.root, 'list-warehouse-failures').length === 0,

@@ -1,0 +1,211 @@
+{
+  "recorded_at": "2026-09-18T21:57:36.398Z",
+  "note": "Recorded against the NovEx WarehouseCraft test account. The documented api/OrderStatus/ByDate route answers 404 on the tenant; the tenant speaks /api/OrderStatusDatas?startDate=&endDate= (date-only bounds are inclusive by calendar day; datetime bounds without a zone designator are honoured to the second in the server's local clock, which trails UTC by 5 hours in the ImportDate column) plus /api/OrderStatusDatas/{OrderId} and ?clientOrderId=. No order on the test account has shipped; the by_id_foreign_order call (OrderId 1, another client's 2019 ISC test order that the tenant returned for a bare numeric id) is the only LIVE shipped row: its ShippingData carries ShipDate, Carrier, TrackingNumber, PalletCount, WeightInLbs, UCC128 and NO DeliverDate/TrackingStatus keys, matching the 3PL's note that this API does not report delivered. The published schema (doc_sample) also lists DeliverDate, TrackingStatus and TrackingDeliveryExceptions; the parser reads them when present. Because by-id answers for ids outside our account, every by-id read must be matched on ClientOrderId before it is trusted.",
+  "doc_sample": {
+    "source": "https://api.imaginesupplychain.com/Help/Api/GET-api-OrderStatus-ByDate_StartDate_EndDate",
+    "body": [
+      {
+        "OrderId": 2,
+        "ClientOrderId": "sample string 3",
+        "OrderDate": "2026-09-17T22:26:24.4360613+00:00",
+        "ImportDate": "2026-09-17T22:26:24.4360613+00:00",
+        "OrderStatus": "sample string 6",
+        "CarrierCode": "sample string 7",
+        "ShippingMethod": "sample string 8",
+        "ShippingData": [
+          {
+            "ShipDate": "2026-09-17T22:26:24.4360613+00:00",
+            "DeliverDate": "2026-09-17T22:26:24.4360613+00:00",
+            "TrackingStatus": "sample string 4",
+            "TrackingDeliveryExceptions": "sample string 5",
+            "Carrier": "sample string 6",
+            "WeightInLbs": 1.1,
+            "TrackingNumber": "sample string 7"
+          }
+        ]
+      }
+    ]
+  },
+  "calls": [
+    {
+      "label": "by_date_window",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-17&endDate=2026-09-18",
+      "status": 200,
+      "content_type": "application/json",
+      "body": [
+        {
+          "OrderId": 1436119,
+          "ClientOrderId": "TH-APITEST2",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-18T12:00:00",
+          "ImportDate": "2026-09-18T15:38:13.093",
+          "OrderStatus": "Cancelled",
+          "CarrierCode": "USPS",
+          "ShippingMethod": "USPS Ground Advantage",
+          "ShippingData": []
+        },
+        {
+          "OrderId": 1436120,
+          "ClientOrderId": "TH-APITEST2-NOITEMS",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-18T12:00:00",
+          "ImportDate": "2026-09-18T15:38:14.743",
+          "OrderStatus": "Cancelled",
+          "CarrierCode": "USPS",
+          "ShippingMethod": "USPS Ground Advantage",
+          "ShippingData": []
+        },
+        {
+          "OrderId": 1435883,
+          "ClientOrderId": "TH-APITEST1",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-17T12:00:00",
+          "ImportDate": "2026-09-17T09:34:31.597",
+          "OrderStatus": "Committed",
+          "CarrierCode": "UPS",
+          "ShippingMethod": "UPS Ground",
+          "ShippingData": []
+        }
+      ]
+    },
+    {
+      "label": "by_date_same_day_inclusive",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-18&endDate=2026-09-18",
+      "status": 200,
+      "content_type": "application/json",
+      "body": [
+        {
+          "OrderId": 1436119,
+          "ClientOrderId": "TH-APITEST2",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-18T12:00:00",
+          "ImportDate": "2026-09-18T15:38:13.093",
+          "OrderStatus": "Cancelled",
+          "CarrierCode": "USPS",
+          "ShippingMethod": "USPS Ground Advantage",
+          "ShippingData": []
+        },
+        {
+          "OrderId": 1436120,
+          "ClientOrderId": "TH-APITEST2-NOITEMS",
+          "ClientOrderId2": null,
+          "OrderDate": "2026-09-18T12:00:00",
+          "ImportDate": "2026-09-18T15:38:14.743",
+          "OrderStatus": "Cancelled",
+          "CarrierCode": "USPS",
+          "ShippingMethod": "USPS Ground Advantage",
+          "ShippingData": []
+        }
+      ]
+    },
+    {
+      "label": "by_date_time_bounds_exclude",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-18T13:00:00&endDate=2026-09-19T00:00:00",
+      "status": 200,
+      "content_type": "application/json",
+      "body": []
+    },
+    {
+      "label": "by_date_empty",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-01&endDate=2026-09-02",
+      "status": 200,
+      "content_type": "application/json",
+      "body": []
+    },
+    {
+      "label": "by_date_reversed",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?startDate=2026-09-19&endDate=2026-09-10",
+      "status": 200,
+      "content_type": "application/json",
+      "body": []
+    },
+    {
+      "label": "by_id",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas/1436119",
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "OrderDate": "2026-09-18T12:00:00",
+        "ImportDate": "2026-09-18T15:38:13.093",
+        "OrderStatus": "Cancelled",
+        "CarrierCode": "USPS",
+        "ShippingMethod": "USPS Ground Advantage",
+        "ShippingData": []
+      }
+    },
+    {
+      "label": "by_id_foreign_order",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas/1",
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1,
+        "ClientOrderId": "ISC_TEST2019032801",
+        "ClientOrderId2": null,
+        "OrderDate": "2019-03-28T00:00:00",
+        "ImportDate": "2019-03-28T21:40:48",
+        "OrderStatus": "Closed",
+        "CarrierCode": "USPS",
+        "ShippingMethod": "Priority Mail",
+        "ShippingData": [
+          {
+            "ShipDate": "2019-03-28T22:20:22.513",
+            "Carrier": "USPS",
+            "PalletCount": null,
+            "WeightInLbs": null,
+            "TrackingNumber": "TEST12345678901",
+            "UCC128": null
+          }
+        ]
+      }
+    },
+    {
+      "label": "by_client_order_id",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?clientOrderId=TH-APITEST2",
+      "status": 200,
+      "content_type": "application/json",
+      "body": {
+        "OrderId": 1436119,
+        "ClientOrderId": "TH-APITEST2",
+        "ClientOrderId2": null,
+        "OrderDate": "2026-09-18T12:00:00",
+        "ImportDate": "2026-09-18T15:38:13.093",
+        "OrderStatus": "Cancelled",
+        "CarrierCode": "USPS",
+        "ShippingMethod": "USPS Ground Advantage",
+        "ShippingData": []
+      }
+    },
+    {
+      "label": "by_client_order_id_miss",
+      "method": "GET",
+      "path": "/api/OrderStatusDatas?clientOrderId=TH-NOPE",
+      "status": 404,
+      "content_type": "application/json",
+      "body": {
+        "Message": "Not Found."
+      }
+    },
+    {
+      "label": "documented_route_404",
+      "method": "GET",
+      "path": "/api/OrderStatus/ByDate?StartDate=2026-09-17&EndDate=2026-09-18",
+      "status": 404,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "Message": "No HTTP resource was found that matches the request URI 'https://novexapi.warehousecraft.com/api/OrderStatus/ByDate?StartDate=2026-09-17&EndDate=2026-09-18'."
+      }
+    }
+  ]
+}

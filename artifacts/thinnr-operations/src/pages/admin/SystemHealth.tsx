@@ -146,6 +146,7 @@ function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemH
         <MetricTile label="Waiting" value={warehouse ? warehouse.pending.toLocaleString() : '—'} detail={warehouse ? (warehouse.due === 0 ? 'Nothing due' : `${warehouse.due.toLocaleString()} due now`) : detailWhenMissing} testId="metric-warehouse-pending" />
         <MetricTile label="Needs attention" value={warehouse ? warehouse.needs_attention.toLocaleString() : '—'} detail={warehouse ? (warehouse.needs_attention === 0 ? 'Queue is clean' : 'Fix and retry in Fulfillment') : detailWhenMissing} testId="metric-warehouse-attention" />
       </div>
+      {warehouse && <WarehouseSyncTiles sync={warehouse.sync} />}
       {warehouse && warehouse.recent_failures.length > 0 && (
         <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-card text-xs" data-testid="list-warehouse-failures">
           {warehouse.recent_failures.map((failure) => (
@@ -160,6 +161,49 @@ function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemH
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * The status feed poll (shipped, tracking, delivered). `undefined` = the API predates
+ * the sync (older payloads), `null` = the poll ledger could not be read. A stalled
+ * feed is called out in words because the tiles alone would still look calm.
+ */
+function WarehouseSyncTiles({ sync }: { sync: NonNullable<SystemHealthResult['warehouse']>['sync'] }) {
+  if (sync === undefined) return null;
+  const missing = 'Poll ledger unreadable';
+  const lastPoll = sync?.last_poll_at ? when(sync.last_poll_at) : sync ? 'Never polled' : '—';
+  const lastSuccess = sync?.last_success_at ? when(sync.last_success_at) : sync ? 'No success yet' : '—';
+  return (
+    <div className="mt-4" data-testid="system-health-warehouse-sync">
+      <h3 className="text-xs font-semibold text-navy">Status feed</h3>
+      <p className="text-[11px] text-muted-foreground">Shipped, tracking and delivered updates polled from WarehouseCraft every 15 minutes.</p>
+      {sync === null && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-warehouse-sync-unreadable">
+          The status feed poll ledger could not be read, so these figures are unavailable rather than zero.
+        </p>
+      )}
+      {sync?.stalled && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-warehouse-sync-stalled">
+          No successful poll for over {sync.stalled_after_minutes} minutes. Shipped and delivered updates are not reaching patients until the feed recovers.
+          {sync.last_error ? ` Last error: ${sync.last_error}` : ''}
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <MetricTile label="Last poll" value={lastPoll} detail={sync ? (sync.last_error ? sync.last_error : `${sync.polls_24h.toLocaleString()} in 24 h`) : missing} testId="metric-warehouse-sync-last-poll" />
+        <MetricTile label="Last success" value={lastSuccess} detail={sync ? (sync.stalled ? 'Feed stalled' : sync.failed_polls_24h === 0 ? 'No failed polls' : `${sync.failed_polls_24h.toLocaleString()} failed in 24 h`) : missing} testId="metric-warehouse-sync-last-success" />
+        <MetricTile label="Rows seen" value={sync ? sync.rows_seen_24h.toLocaleString() : '—'} detail={sync ? 'Last 24 hours' : missing} testId="metric-warehouse-sync-rows" />
+        <MetricTile label="Transitions" value={sync ? sync.transitions_24h.toLocaleString() : '—'} detail={sync ? 'Shipment states changed' : missing} testId="metric-warehouse-sync-transitions" />
+        <MetricTile label="Row errors" value={sync ? sync.errors_24h.toLocaleString() : '—'} detail={sync ? (sync.errors_24h === 0 ? 'None' : 'Rows the sync could not apply') : missing} testId="metric-warehouse-sync-errors" />
+      </div>
+      {sync && (sync.back_ordered > 0 || sync.awaiting_tracking > 0) && (
+        <p className="mt-2 text-[11px] text-muted-foreground" data-testid="text-warehouse-sync-flags">
+          {sync.back_ordered > 0 ? `${sync.back_ordered.toLocaleString()} back-ordered at the warehouse` : ''}
+          {sync.back_ordered > 0 && sync.awaiting_tracking > 0 ? ' · ' : ''}
+          {sync.awaiting_tracking > 0 ? `${sync.awaiting_tracking.toLocaleString()} shipped without a tracking number yet` : ''}
+        </p>
+      )}
+    </div>
   );
 }
 

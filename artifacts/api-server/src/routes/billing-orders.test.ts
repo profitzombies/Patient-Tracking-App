@@ -495,6 +495,22 @@ describe("billing order routes", () => {
     expect(blocked.status).toBe(409);
   });
 
+  it("never moves a shipment backwards: a shipped or delivered order refuses processing with a 409 and no email", async () => {
+    const shipped = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "shipped", carrier: "UPS", tracking_number: "1Z999" });
+    expect(shipped.status).toBe(200);
+    const back = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "to_ship" });
+    expect(back.status).toBe(409);
+    expect(back.json.error).toBe("A shipped order cannot go back to processing.");
+    expect(tables.billing_shipments[0]).toMatchObject({ status: "shipped", tracking_number: "1Z999" });
+    const delivered = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "delivered" });
+    expect(delivered.status).toBe(200);
+    expect(delivered.json.order.shipment).toMatchObject({ status: "delivered", delivered_at: expect.any(String), warehouse_status: null, back_ordered: false });
+    const reship = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "shipped", carrier: "UPS", tracking_number: "1Z999" });
+    expect(reship.status).toBe(409);
+    expect(customerEmails).toHaveBeenCalledTimes(2);
+    expect(tables.billing_shipments[0].status).toBe("delivered");
+  });
+
   it("treats a non-UUID order id as not found instead of a server error", async () => {
     const result = await call("GET", "/billing/public/orders/TH-ABC123/status?token=good-token");
     expect(result.status).toBe(404);

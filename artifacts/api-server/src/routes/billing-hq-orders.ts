@@ -8,6 +8,7 @@ import {
   resendSubscriptionPaymentEmail, resumeSubscription, retrySubscriptionPayment, toSubscriptionRow,
 } from "../billing/subscriptions";
 import { recordShipment } from "../billing/shipments";
+import { ShipmentTransitionError } from "../billing/warehouse-status";
 import { cancelAtWarehouse, retrySubmission } from "../billing/warehouse-submissions";
 import { encodeCursor, pagination, selectMany, selectOne, toOrderSummary } from "../billing/store";
 import { getOrderBundle, officeName } from "../billing/store-orders";
@@ -25,7 +26,7 @@ function audit(req: Request, res: Response, action: string, targetKind: string, 
 }
 function fail(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing HQ orders request failed");
-  if (error instanceof BillingReportingError) { res.status(error.status).json({ error: error.message }); return; }
+  if (error instanceof BillingReportingError || error instanceof ShipmentTransitionError) { res.status(error.status).json({ error: error.message }); return; }
   if (error instanceof BillingOrderError || error instanceof BillingSubscriptionError) {
     res.status(error.status).json({ error: error.message, ...(error.field ? { field: error.field } : {}) }); return;
   }

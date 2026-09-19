@@ -4,7 +4,8 @@ import {
   insertIgnore, nowIso, selectMany, selectOne, update, type BillingOrderRow, type BillingShipmentRow,
   type BillingShipmentStatus,
 } from "./store";
-import type { PatientShipment } from "./types";
+import type { OrderShipmentState, PatientShipment } from "./types";
+import { assertShipmentTransition, warehouseStatusLabel } from "./warehouse-status";
 
 /**
  * One shipment per order. Staff fulfillment writes (and, later, shipping
@@ -37,6 +38,8 @@ export type ShipmentWrite = {
   delivered_at?: string | null;
   event?: Record<string, unknown> | null;
   updated_by?: string | null;
+  /** Extra shipment columns written in the same patch (warehouse feed bookkeeping). */
+  extra?: Partial<Pick<BillingShipmentRow, "warehouse_status" | "warehouse_status_at" | "warehouse_back_ordered" | "warehouse_event_key" | "warehouse_last_event" | "warehouse_synced_at">>;
 };
 
 /** Ensures the row exists (orders created before the trigger, or in test backends). */
@@ -63,6 +66,10 @@ export async function ensureShipment(order: Pick<BillingOrderRow, "id" | "provid
  */
 export async function recordShipment(order: BillingOrderRow, write: ShipmentWrite): Promise<{ order: BillingOrderRow; shipment: BillingShipmentRow }> {
   const current = await ensureShipment(order);
+  // One forward-only guard for staff and provider writes alike: a delivered or
+  // canceled order never moves again, and a shipped order never goes back to
+  // processing. Re-saving the same status is fine (no email rides a re-save).
+  assertShipmentTransition(current.status, write.status);
   const now = nowIso();
   const tracking = write.tracking_number === undefined ? current.tracking_number : write.tracking_number;
   const carrier = write.carrier === undefined ? current.carrier : write.carrier;
@@ -73,6 +80,7 @@ export async function recordShipment(order: BillingOrderRow, write: ShipmentWrit
     external_id: write.external_id === undefined ? current.external_id : write.external_id,
     label_created_at: write.label_created_at === undefined ? current.label_created_at : write.label_created_at,
     events: write.event ? [...(current.events ?? []), { at: now, status: write.status, detail: write.event }] : current.events ?? [],
+    ...(write.extra ?? {}),
   };
   if (write.status === "processing") {
     Object.assign(patch, { carrier: null, tracking_number: null, tracking_url: null, shipped_at: null, delivered_at: null, canceled_at: null, canceled_reason: null });
@@ -114,6 +122,16 @@ export function shipmentDto(order: BillingOrderRow, shipment: BillingShipmentRow
     status, carrier: order.carrier, tracking_number: order.tracking_number,
     tracking_url: order.tracking_number ? trackingUrl(order.carrier, order.tracking_number) : null,
     shipped_at: order.shipped_at, delivered_at: null, canceled_at: null, updated_at: order.updated_at ?? order.created_at,
+  };
+}
+
+/** Staff-facing shipment state block for order detail rows. */
+export function shipmentStateDto(shipment: BillingShipmentRow | null): OrderShipmentState | null {
+  if (!shipment) return null;
+  return {
+    status: shipment.status, source: shipment.source, delivered_at: shipment.delivered_at,
+    back_ordered: shipment.warehouse_back_ordered === true,
+    warehouse_status: warehouseStatusLabel(shipment.warehouse_status), warehouse_status_at: shipment.warehouse_status_at ?? null,
   };
 }
 

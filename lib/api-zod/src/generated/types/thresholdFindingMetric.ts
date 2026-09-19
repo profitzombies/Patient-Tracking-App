@@ -13,4 +13,5 @@ export const ThresholdFindingMetric = {
   p95_latency: 'p95_latency',
   db_growth: 'db_growth',
   storage_growth: 'storage_growth',
+  warehouse_poll: 'warehouse_poll',
 } as const;

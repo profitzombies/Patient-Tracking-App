@@ -42,6 +42,7 @@ const readers = {
   }),
   slowStatements: async () => ({ statsResetAt: null, byTotal: [], byMean: [] }),
   growth: async () => null,
+  warehousePoll: async () => null,
 };
 
 describe("system-thresholds job", () => {
@@ -108,6 +109,25 @@ describe("system-thresholds job", () => {
     });
     expect(failures).toEqual(["growth"]);
     expect(tallies.alertsQueued).toBe(1);
+  });
+
+  it("raises a red HQ alert when the warehouse status feed has not synced for over the limit", async () => {
+    mocks.admin.mockResolvedValue({ status: 201, json: [{ id: "n1" }] });
+    const { context, tallies } = ctx();
+    await runSystemThresholds(context, {
+      readers: {
+        ...readers, latency: async () => ({ lastHour: { since: "h", families: [] }, lastDay: { since: "d", families: [] } }),
+        warehousePoll: async () => ({ lastSuccessAt: "2026-09-18T09:00:00.000Z", lastPollAt: "2026-09-18T12:00:00.000Z", stalledAfterMinutes: 60, lastError: "HTTP 503" }),
+      },
+      recipients: async () => recipients,
+    });
+    expect(tallies).toMatchObject({ findings: 1, redFindings: 1, alertsQueued: 1 });
+    const rows = mocks.admin.mock.calls[0]![2] as Array<Record<string, unknown>>;
+    expect(rows[0]).toMatchObject({
+      title: "Red: Warehouse status feed stalled",
+      dedupe_key: "system_threshold:warehouse_poll:-:red:2026-09-18:u1:email",
+      data: expect.objectContaining({ metric: "warehouse_poll", limit: 60, message: expect.stringContaining("Last error: HTTP 503") }),
+    });
   });
 
   it("runs every 15 minutes", () => {

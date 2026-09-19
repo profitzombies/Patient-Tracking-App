@@ -9,7 +9,8 @@
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { estimateQuantile, latencyBudget, STREAMING_FAMILIES } from "../lib/request-metrics";
-import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel } from "./thresholds";
+import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
+import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -313,12 +314,19 @@ export interface PerformanceReaders {
   latency?: (now: Date) => Promise<{ lastHour: LatencyWindowDto; lastDay: LatencyWindowDto }>;
   slowStatements?: () => Promise<SlowStatementsDto>;
   growth?: (now: Date, config: ThresholdConfig) => Promise<GrowthDto | null>;
-  onError?: (section: "latency" | "slowStatements" | "growth", error: unknown) => void;
+  /** Warehouse status feed freshness; feeds the stalled-feed threshold. */
+  warehousePoll?: (now: Date) => Promise<WarehousePollInput | null>;
+  onError?: (section: "latency" | "slowStatements" | "growth" | "warehousePoll", error: unknown) => void;
+}
+
+async function readWarehousePoll(now: Date): Promise<WarehousePollInput | null> {
+  const health = await warehouseSyncHealth(now);
+  return { lastSuccessAt: health.last_success_at, lastPollAt: health.last_poll_at, stalledAfterMinutes: health.stalled_after_minutes, lastError: health.last_error };
 }
 
 export async function readPerformance(now: Date, readers: PerformanceReaders = {}): Promise<PerformanceDto> {
   const config = thresholdConfig();
-  const guard = async <T>(section: "latency" | "slowStatements" | "growth", read: () => Promise<T>): Promise<T | null> => {
+  const guard = async <T>(section: "latency" | "slowStatements" | "growth" | "warehousePoll", read: () => Promise<T>): Promise<T | null> => {
     try {
       return await read();
     } catch (error) {
@@ -326,15 +334,17 @@ export async function readPerformance(now: Date, readers: PerformanceReaders = {
       return null;
     }
   };
-  const [latency, slowStatements, growth] = await Promise.all([
+  const [latency, slowStatements, growth, warehousePoll] = await Promise.all([
     guard("latency", () => (readers.latency ?? readLatency)(now)),
     guard("slowStatements", () => (readers.slowStatements ?? readSlowStatements)()),
     guard("growth", () => (readers.growth ?? readGrowth)(now, config)),
+    guard("warehousePoll", () => (readers.warehousePoll ?? readWarehousePoll)(now)),
   ]);
   const findings = evaluateThresholds(
     {
       latencyLastHour: latency ? latency.lastHour.families.map((family) => ({ family: family.family, requests: family.requests, p95Ms: family.p95Ms })) : [],
       growth: growth ? { databaseBytesPerDay: growth.database.bytesPerDay, storageBytesPerDay: growth.storage.bytesPerDay } : null,
+      warehousePoll, now,
     },
     config,
   );

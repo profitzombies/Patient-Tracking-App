@@ -17,7 +17,7 @@ import { ExportsPanel } from '@/components/exports/ExportsPanel';
 import { useOfficeBillingScope } from '@/hooks/use-billing';
 import { useDateRange } from '@/contexts/date-range';
 import { useOfficeActivity, useOfficeFulfillment, useOfficeRefunds } from '@/hooks/use-billing';
-import { FULFILLMENT_LABEL, WAREHOUSE_STATE_LABEL, formatDate, formatDateTime, fulfillmentTone, warehouseTone, type PillTone } from '@/lib/billing-format';
+import { FULFILLMENT_LABEL, WAREHOUSE_STATE_LABEL, deliveredLabel, formatDate, formatDateTime, fulfillmentTone, warehouseFeedDetail, warehouseTone, type PillTone } from '@/lib/billing-format';
 import type { WarehouseSubmission } from '@/lib/billing-types';
 
 /** Offices read the warehouse state, HQ acts on it: the queue line says where the order actually is. */
@@ -353,10 +353,15 @@ function FulfillmentView({ status, demo = false }: { status: OfficeBillingStatus
                   ))}
                 </address>
                 <div>
-                  <p className={PANEL_LABEL}>{order.fulfillment_status === 'shipped' ? 'Shipped' : order.fulfillment_status === 'canceled' ? 'Canceled' : 'Status'}</p>
+                  <p className={PANEL_LABEL}>{order.shipment?.status === 'delivered' ? 'Delivered' : order.fulfillment_status === 'shipped' ? 'Shipped' : order.fulfillment_status === 'canceled' ? 'Canceled' : 'Status'}</p>
                   {order.fulfillment_status === 'shipped' ? (
                     <>
-                      <p className="mt-1">{formatDateTime(order.shipped_at)}</p>
+                      {deliveredLabel(order.shipment) && (
+                        <p className="mt-1" data-testid={`text-delivered-${order.id}`}>
+                          <StatusPill tone="good">{deliveredLabel(order.shipment)}</StatusPill>
+                        </p>
+                      )}
+                      <p className="mt-1">{order.shipment?.status === 'delivered' ? `Shipped ${formatDateTime(order.shipped_at)}` : formatDateTime(order.shipped_at)}</p>
                       <p className="mt-1 text-muted-foreground">
                         {order.carrier ?? 'Carrier'} · <span className="tabular-nums">{order.tracking_number ?? 'No tracking number'}</span>
                       </p>
@@ -372,7 +377,13 @@ function FulfillmentView({ status, demo = false }: { status: OfficeBillingStatus
                       {order.warehouse.state === 'sent' && order.warehouse.warehouse_order_id && (
                         <span className="ml-2 text-muted-foreground">Warehouse order {order.warehouse.warehouse_order_id}</span>
                       )}
+                      {order.shipment?.back_ordered && (
+                        <StatusPill tone="warn" testId={`pill-back-ordered-${order.id}`}>Back-ordered</StatusPill>
+                      )}
                     </p>
+                  )}
+                  {warehouseFeedDetail(order.shipment) && (
+                    <p className="mt-1 text-muted-foreground" data-testid={`text-warehouse-feed-${order.id}`}>{warehouseFeedDetail(order.shipment)}</p>
                   )}
                   <Link href={`/transactions/${order.id}`} className="mt-3 inline-flex font-semibold text-primary hover:underline" data-testid={`link-fulfillment-order-${order.id}`}>
                     View transaction

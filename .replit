@@ -304,6 +304,18 @@ args = "warehouse-submit-web"
 task = "workflow.run"
 args = "warehouse-submit-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-status-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-status-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-status-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2272,6 +2284,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-status-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/warehouse-status-sync.test.ts src/billing/warehouse-status.test.ts src/shipping/warehousecraft-status.test.ts src/jobs/definitions/system-thresholds.test.ts src/routes/billing-orders.test.ts src/routes/system-jobs.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-status-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "warehouse-status-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

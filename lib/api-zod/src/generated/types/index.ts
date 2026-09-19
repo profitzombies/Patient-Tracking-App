@@ -513,3 +513,5 @@ export * from './updateOfficeSettingsOverridesParams';
 export * from './warehouseSubmissionHealth';
 export * from './warehouseSubmissionHealthRecentFailuresItem';
 export * from './warehouseSubmissionHealthRecentFailuresItemState';
+export * from './warehouseSyncHealth';
+export * from './warehouseSyncHealthLastWindow';

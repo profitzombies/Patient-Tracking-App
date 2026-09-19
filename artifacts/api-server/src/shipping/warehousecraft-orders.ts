@@ -149,7 +149,8 @@ export function parseWarehouseOrder(body: unknown): WarehouseOrder {
   };
 }
 
-async function call(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown; text: string }> {
+/** One authenticated call against the tenant order API (shared with the status feed client). */
+export async function callOrderApi(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown; text: string }> {
   const config = warehouseCraftConfig();
   if (!config.orderApiBaseUrl || !config.authorization) throw new WarehouseCraftError("WarehouseCraft order API is not configured.", "transient", null);
   let response: Response;
@@ -180,35 +181,35 @@ export interface WarehouseOrderClient {
 }
 
 /** 5xx / network / auth problems are retried later; anything else is a definite answer. */
-function failure(status: number, json: unknown, text: string): WarehouseCraftError {
+export function orderApiFailure(status: number, json: unknown, text: string): WarehouseCraftError {
   return new WarehouseCraftError(`WarehouseCraft HTTP ${status}: ${messageOf(json, text)}`, status >= 500 || status === 401 || status === 429 ? "transient" : "bad_address", status);
 }
 
 export const warehouseOrderClient: WarehouseOrderClient = {
   async create(payload) {
     if (!payload.OrderDetailData.length) throw new WarehousePayloadError("Refusing to submit an order without lines.");
-    const result = await call("POST", "/api/OrderDatas", payload);
-    if (result.status !== 200) throw failure(result.status, result.json, result.text);
+    const result = await callOrderApi("POST", "/api/OrderDatas", payload);
+    if (result.status !== 200) throw orderApiFailure(result.status, result.json, result.text);
     return parseCreateResponse(result.json, payload.ClientOrderId);
   },
   async lookup(clientOrderId) {
-    const result = await call("GET", `/api/OrderDatas?clientOrderId=${encodeURIComponent(clientOrderId)}`);
+    const result = await callOrderApi("GET", `/api/OrderDatas?clientOrderId=${encodeURIComponent(clientOrderId)}`);
     if (result.status === 404) return null;
-    if (result.status !== 200) throw failure(result.status, result.json, result.text);
+    if (result.status !== 200) throw orderApiFailure(result.status, result.json, result.text);
     return parseWarehouseOrder(result.json);
   },
   async editAddress(orderId, address) {
-    const result = await call("PUT", `/api/OrderDatas/${orderId}`, {
+    const result = await callOrderApi("PUT", `/api/OrderDatas/${orderId}`, {
       OrderId: orderId, CompanyOrName: address.name.trim(), AddressLine1: address.line1.trim(), AddressLine2: address.line2?.trim() || null,
       City: address.city.trim(), State: address.state.trim().toUpperCase(), PostalCode: address.postal_code.trim(),
       Country: (address.country || "US").trim().toUpperCase(), Phone: address.phone?.replace(/[^\d+]/g, "") || null,
     });
-    if (result.status !== 200) throw failure(result.status, result.json, result.text);
+    if (result.status !== 200) throw orderApiFailure(result.status, result.json, result.text);
     return parseWarehouseOrder(result.json);
   },
   async cancel(orderId) {
-    const result = await call("PUT", `/api/OrderDatas/${orderId}`, { OrderId: orderId, OrderStatus: "Cancelled" });
-    if (result.status !== 200) throw failure(result.status, result.json, result.text);
+    const result = await callOrderApi("PUT", `/api/OrderDatas/${orderId}`, { OrderId: orderId, OrderStatus: "Cancelled" });
+    if (result.status !== 200) throw orderApiFailure(result.status, result.json, result.text);
     return parseWarehouseOrder(result.json);
   },
 };

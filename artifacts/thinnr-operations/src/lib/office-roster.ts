@@ -99,6 +99,8 @@ export interface OfficePatient {
   outreach: OutreachRoster;
   /** Non-null while the patient's own deletion request is in its grace period. */
   deletion?: PatientDeletionState | null;
+  /** True while HQ holds this patient (or the whole office) for legal reasons: nothing may be deleted. Read-only for the office. */
+  legalHold?: boolean;
   /** Optional summary values supplied by the roster endpoint as they become available. */
 
   status?: string | null;
@@ -340,6 +342,7 @@ export interface OfficePatientDetail {
     version: string | null;
     /** Non-null while the patient's own deletion request is in its grace period. */
     deletion?: PatientDeletionState | null;
+    legalHold?: boolean;
   };
   diary: {
     entries: OfficeDiaryEntry[];

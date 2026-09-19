@@ -97,6 +97,7 @@ import type {
   GetHqConversationsParams,
   GetHqEscalationsParams,
   GetHqFilesParams,
+  GetHqLegalHoldsParams,
   GetHqOfficeComparisonParams,
   GetHqPatientDeletionsParams,
   GetHqPatientRetentionParams,
@@ -147,6 +148,10 @@ import type {
   HqFolderCreateInput,
   HqFolderDeleteResult,
   HqFolderUpdateInput,
+  HqLegalHoldLiftInput,
+  HqLegalHoldPlaceInput,
+  HqLegalHoldResult,
+  HqLegalHoldsResult,
   HqOrganizationSettings,
   HqOrganizationSettingsInput,
   HqPatientDeletionResult,
@@ -9998,6 +10003,233 @@ export const useRetryHqPatientDeletion = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRetryHqPatientDeletionMutationOptions(options));
+    }
+
+export const getGetHqLegalHoldsUrl = (params?: GetHqLegalHoldsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/hq/legal-holds?${stringifiedParams}` : `/api/hq/legal-holds`
+}
+
+/**
+ * @summary Legal holds (active by default) with who placed them, when, and why. A hold blocks every deletion path for the patient or for every patient of the office.
+ */
+export const getHqLegalHolds = async (params?: GetHqLegalHoldsParams, options?: Parameters<typeof customFetch>[1]): Promise<HqLegalHoldsResult> => {
+
+  return customFetch<HqLegalHoldsResult>(getGetHqLegalHoldsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqLegalHoldsQueryKey = (params?: GetHqLegalHoldsParams,) => {
+    return [
+    `/api/hq/legal-holds`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetHqLegalHoldsQueryOptions = <TData = Awaited<ReturnType<typeof getHqLegalHolds>>, TError = ErrorType<unknown>>(params?: GetHqLegalHoldsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqLegalHolds>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqLegalHoldsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqLegalHolds>>> = ({ signal }) => getHqLegalHolds(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqLegalHolds>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqLegalHoldsQueryResult = NonNullable<Awaited<ReturnType<typeof getHqLegalHolds>>>
+export type GetHqLegalHoldsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Legal holds (active by default) with who placed them, when, and why. A hold blocks every deletion path for the patient or for every patient of the office.
+ */
+
+export function useGetHqLegalHolds<TData = Awaited<ReturnType<typeof getHqLegalHolds>>, TError = ErrorType<unknown>>(
+ params?: GetHqLegalHoldsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqLegalHolds>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqLegalHoldsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getPlaceHqLegalHoldUrl = () => {
+
+
+
+
+  return `/api/hq/legal-holds`
+}
+
+/**
+ * @summary Place a legal hold on one patient or on a whole office (idempotent per active target; audited)
+ */
+export const placeHqLegalHold = async (hqLegalHoldPlaceInput: HqLegalHoldPlaceInput, options?: Parameters<typeof customFetch>[1]): Promise<HqLegalHoldResult> => {
+
+  return customFetch<HqLegalHoldResult>(getPlaceHqLegalHoldUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqLegalHoldPlaceInput)
+  }
+);}
+
+
+
+
+
+export const getPlaceHqLegalHoldMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof placeHqLegalHold>>, TError,{data: BodyType<HqLegalHoldPlaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof placeHqLegalHold>>, TError,{data: BodyType<HqLegalHoldPlaceInput>}, TContext> => {
+
+const mutationKey = ['placeHqLegalHold'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof placeHqLegalHold>>, {data: BodyType<HqLegalHoldPlaceInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  placeHqLegalHold(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlaceHqLegalHoldMutationResult = NonNullable<Awaited<ReturnType<typeof placeHqLegalHold>>>
+    export type PlaceHqLegalHoldMutationBody = BodyType<HqLegalHoldPlaceInput>
+    export type PlaceHqLegalHoldMutationError = ErrorType<void>
+
+    /**
+ * @summary Place a legal hold on one patient or on a whole office (idempotent per active target; audited)
+ */
+export const usePlaceHqLegalHold = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof placeHqLegalHold>>, TError,{data: BodyType<HqLegalHoldPlaceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof placeHqLegalHold>>,
+        TError,
+        {data: BodyType<HqLegalHoldPlaceInput>},
+        TContext
+      > => {
+      return useMutation(getPlaceHqLegalHoldMutationOptions(options));
+    }
+
+export const getLiftHqLegalHoldUrl = (id: string,) => {
+
+
+
+
+  return `/api/hq/legal-holds/${id}/lift`
+}
+
+/**
+ * @summary Lift a legal hold (second audited action); parked deletion requests resume their remaining grace
+ */
+export const liftHqLegalHold = async (id: string,
+    hqLegalHoldLiftInput: HqLegalHoldLiftInput, options?: Parameters<typeof customFetch>[1]): Promise<HqLegalHoldResult> => {
+
+  return customFetch<HqLegalHoldResult>(getLiftHqLegalHoldUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqLegalHoldLiftInput)
+  }
+);}
+
+
+
+
+
+export const getLiftHqLegalHoldMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof liftHqLegalHold>>, TError,{id: string;data: BodyType<HqLegalHoldLiftInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof liftHqLegalHold>>, TError,{id: string;data: BodyType<HqLegalHoldLiftInput>}, TContext> => {
+
+const mutationKey = ['liftHqLegalHold'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof liftHqLegalHold>>, {id: string;data: BodyType<HqLegalHoldLiftInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  liftHqLegalHold(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LiftHqLegalHoldMutationResult = NonNullable<Awaited<ReturnType<typeof liftHqLegalHold>>>
+    export type LiftHqLegalHoldMutationBody = BodyType<HqLegalHoldLiftInput>
+    export type LiftHqLegalHoldMutationError = ErrorType<void>
+
+    /**
+ * @summary Lift a legal hold (second audited action); parked deletion requests resume their remaining grace
+ */
+export const useLiftHqLegalHold = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof liftHqLegalHold>>, TError,{id: string;data: BodyType<HqLegalHoldLiftInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof liftHqLegalHold>>,
+        TError,
+        {id: string;data: BodyType<HqLegalHoldLiftInput>},
+        TContext
+      > => {
+      return useMutation(getLiftHqLegalHoldMutationOptions(options));
     }
 
 export const getListBloodworkReportsUrl = (patientId: string,

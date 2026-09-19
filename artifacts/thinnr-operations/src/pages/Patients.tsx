@@ -44,6 +44,7 @@ import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivit
 import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
 import { OutreachChip } from "@/components/office/NotificationTimeline";
 import { DeletedAccountsSection, DeletionChip } from "@/components/office/AccountDeletion";
+import { LegalHoldBadge } from "@/components/admin/LegalHold";
 import {
   useUpdateOfficePatientFollowUp,
   type PatientOperationalFollowUpReason,
@@ -180,6 +181,7 @@ function StatusCell({ patient, office, align = 'left' }: {
       {!patient.showResend && <StatusChip status={patient.status} />}
       {patient.activeSubscription === true && <SubscriptionChip patientId={patient.id} />}
       {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
+      {patient.rawLive?.legalHold && <LegalHoldBadge testId={`chip-legal-hold-${patient.id}`} />}
       {reasons.length > 0 && (
         <div className={`flex flex-wrap gap-1 ${align === 'right' ? 'justify-end' : ''}`} onClick={(e) => e.stopPropagation()} data-testid={`follow-ups-${patient.id}`}>
           {reasons.map((reason) => {

@@ -5222,7 +5222,7 @@ export const GetHqAuditEventsResponse = zod.object({
  * @summary Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
  */
 export const GetHqPatientDeletionsQueryParams = zod.object({
-  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']).optional(),
+  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']).optional(),
   "limit": zod.coerce.number().optional()
 })
 
@@ -5231,9 +5231,10 @@ export const GetHqPatientDeletionsResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "providerId": zod.string().nullable(),
-  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']),
+  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']),
   "requestedAt": zod.coerce.date(),
   "purgeAfter": zod.coerce.date(),
+  "heldAt": zod.coerce.date().nullish().describe('Set while a legal hold parks the request; the remaining grace resumes when the hold lifts'),
   "cancelledAt": zod.coerce.date().nullable(),
   "startedAt": zod.coerce.date().nullable(),
   "purgedAt": zod.coerce.date().nullable(),
@@ -5244,6 +5245,7 @@ export const GetHqPatientDeletionsResponse = zod.object({
 }).describe('One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.')),
   "summary": zod.object({
   "pending": zod.number(),
+  "held": zod.number(),
   "cancelled": zod.number(),
   "purging": zod.number(),
   "purged": zod.number(),
@@ -5264,9 +5266,10 @@ export const RetryHqPatientDeletionResponse = zod.object({
   "id": zod.string(),
   "patientId": zod.string(),
   "providerId": zod.string().nullable(),
-  "status": zod.enum(['pending', 'cancelled', 'purging', 'purged', 'failed']),
+  "status": zod.enum(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed']),
   "requestedAt": zod.coerce.date(),
   "purgeAfter": zod.coerce.date(),
+  "heldAt": zod.coerce.date().nullish().describe('Set while a legal hold parks the request; the remaining grace resumes when the hold lifts'),
   "cancelledAt": zod.coerce.date().nullable(),
   "startedAt": zod.coerce.date().nullable(),
   "purgedAt": zod.coerce.date().nullable(),
@@ -5275,6 +5278,106 @@ export const RetryHqPatientDeletionResponse = zod.object({
   "lastError": zod.string().nullable(),
   "steps": zod.record(zod.string(), zod.unknown())
 }).describe('One patient-initiated deletion request. Steps records each purge stage (storage, rows, auth) with its outcome; no PII is carried.')
+})
+
+
+/**
+ * @summary Legal holds (active by default) with who placed them, when, and why. A hold blocks every deletion path for the patient or for every patient of the office.
+ */
+export const GetHqLegalHoldsQueryParams = zod.object({
+  "status": zod.enum(['active', 'lifted', 'all']).optional(),
+  "providerId": zod.coerce.string().optional().describe('Only holds on this office or on its patients'),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetHqLegalHoldsResponse = zod.object({
+  "holds": zod.array(zod.object({
+  "id": zod.string(),
+  "targetKind": zod.enum(['patient', 'provider']),
+  "targetId": zod.string(),
+  "targetLabel": zod.string().nullable(),
+  "providerId": zod.string().nullable().describe('The office the hold belongs to (the office itself'),
+  "reason": zod.string(),
+  "placedBy": zod.string().nullable(),
+  "placedByName": zod.string().nullable(),
+  "placedAt": zod.coerce.date(),
+  "liftedAt": zod.coerce.date().nullable(),
+  "liftedBy": zod.string().nullable(),
+  "liftedByName": zod.string().nullable(),
+  "liftReason": zod.string().nullable(),
+  "active": zod.boolean()
+}).describe('One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient\'s name for HQ readers); the reason is HQ-typed free text.')),
+  "activeCount": zod.number()
+})
+
+
+/**
+ * @summary Place a legal hold on one patient or on a whole office (idempotent per active target; audited)
+ */
+export const placeHqLegalHoldBodyReasonMin = 3;
+export const placeHqLegalHoldBodyReasonMax = 500;
+
+
+
+export const PlaceHqLegalHoldBody = zod.object({
+  "targetKind": zod.enum(['patient', 'provider']),
+  "targetId": zod.string(),
+  "reason": zod.string().min(placeHqLegalHoldBodyReasonMin).max(placeHqLegalHoldBodyReasonMax)
+})
+
+export const PlaceHqLegalHoldResponse = zod.object({
+  "hold": zod.object({
+  "id": zod.string(),
+  "targetKind": zod.enum(['patient', 'provider']),
+  "targetId": zod.string(),
+  "targetLabel": zod.string().nullable(),
+  "providerId": zod.string().nullable().describe('The office the hold belongs to (the office itself'),
+  "reason": zod.string(),
+  "placedBy": zod.string().nullable(),
+  "placedByName": zod.string().nullable(),
+  "placedAt": zod.coerce.date(),
+  "liftedAt": zod.coerce.date().nullable(),
+  "liftedBy": zod.string().nullable(),
+  "liftedByName": zod.string().nullable(),
+  "liftReason": zod.string().nullable(),
+  "active": zod.boolean()
+}).describe('One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient\'s name for HQ readers); the reason is HQ-typed free text.')
+})
+
+
+/**
+ * @summary Lift a legal hold (second audited action); parked deletion requests resume their remaining grace
+ */
+export const LiftHqLegalHoldParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const liftHqLegalHoldBodyReasonMin = 3;
+export const liftHqLegalHoldBodyReasonMax = 500;
+
+
+
+export const LiftHqLegalHoldBody = zod.object({
+  "reason": zod.string().min(liftHqLegalHoldBodyReasonMin).max(liftHqLegalHoldBodyReasonMax)
+})
+
+export const LiftHqLegalHoldResponse = zod.object({
+  "hold": zod.object({
+  "id": zod.string(),
+  "targetKind": zod.enum(['patient', 'provider']),
+  "targetId": zod.string(),
+  "targetLabel": zod.string().nullable(),
+  "providerId": zod.string().nullable().describe('The office the hold belongs to (the office itself'),
+  "reason": zod.string(),
+  "placedBy": zod.string().nullable(),
+  "placedByName": zod.string().nullable(),
+  "placedAt": zod.coerce.date(),
+  "liftedAt": zod.coerce.date().nullable(),
+  "liftedBy": zod.string().nullable(),
+  "liftedByName": zod.string().nullable(),
+  "liftReason": zod.string().nullable(),
+  "active": zod.boolean()
+}).describe('One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient\'s name for HQ readers); the reason is HQ-typed free text.')
 })
 
 

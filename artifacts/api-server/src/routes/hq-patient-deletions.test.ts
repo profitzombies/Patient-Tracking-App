@@ -77,7 +77,7 @@ describe("HQ patient deletions", () => {
     expect(res.status).toBe(200);
     let body = await res.json() as { deletions: Array<Record<string, unknown>>; summary: Record<string, number> };
     expect(body.deletions.map((d) => d.id)).toEqual([fakeUuid(3), fakeUuid(2), fakeUuid(1)]);
-    expect(body.summary).toEqual({ pending: 1, cancelled: 0, purging: 0, purged: 1, failed: 1 });
+    expect(body.summary).toEqual({ pending: 1, held: 0, cancelled: 0, purging: 0, purged: 1, failed: 1 });
     expect(body.deletions[0]).toMatchObject({ patientId: fakeUuid(103), providerId: "office-1", status: "failed", attempts: 3, lastError: "auth: auth user delete failed (503)", nextAttemptAt: "2026-09-14T00:00:00.000Z" });
     expect((body.deletions[0].steps as { auth: { ok: boolean } }).auth.ok).toBe(false);
     res = await call("/hq/patient-deletions?status=failed&limit=10");

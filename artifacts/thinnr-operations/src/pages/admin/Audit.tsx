@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/admin/primitives';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AUDIT_ACTION_LABELS, auditActionLabel, auditDetails } from '@/lib/audit-labels';
 import { format } from 'date-fns';
-import { Filter, ChevronLeft, ChevronRight, ShieldOff } from 'lucide-react';
+import { Filter, ChevronLeft, ChevronRight, Scale, ShieldOff } from 'lucide-react';
 import { Link } from 'wouter';
 
 const ALL = '__all__';
@@ -69,13 +69,22 @@ export default function Audit() {
         title="Audit Log"
         sub="Review system actions and events across the THINNR network."
         action={(
-          <Link
-            href="/admin/audit/deletions"
-            data-testid="link-account-deletions"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ShieldOff size={14} aria-hidden="true" />Account deletions
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/admin/audit/legal-holds"
+              data-testid="link-legal-holds"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Scale size={14} aria-hidden="true" />Legal holds
+            </Link>
+            <Link
+              href="/admin/audit/deletions"
+              data-testid="link-account-deletions"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ShieldOff size={14} aria-hidden="true" />Account deletions
+            </Link>
+          </div>
         )}
       />
 

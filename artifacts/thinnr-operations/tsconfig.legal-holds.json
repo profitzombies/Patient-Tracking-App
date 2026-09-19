@@ -1,0 +1,25 @@
+{
+  // tsx config for scripts/verify-legal-holds.tsx ONLY (not part of
+  // typecheck — tsconfig.json includes src/**/* alone).
+  //
+  // Renders the REAL HQ Legal holds page, the hold controls, and the office
+  // PatientDetail record (as office staff and as the HQ drill-in) under
+  // react-test-renderer against a scripted global fetch. Same stub map as
+  // the account-deletion suite.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/contexts/hq-data": ["./scripts/a11y-stubs/hq-data.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
+      "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],
+      "@/components/ui/calendar": ["./scripts/office-admin-stubs/calendar.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

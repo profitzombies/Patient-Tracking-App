@@ -3250,6 +3250,7 @@ export type HqPatientDeletionStatus = typeof HqPatientDeletionStatus[keyof typeo
 
 export const HqPatientDeletionStatus = {
   pending: 'pending',
+  held: 'held',
   cancelled: 'cancelled',
   purging: 'purging',
   purged: 'purged',
@@ -3269,6 +3270,11 @@ export interface HqPatientDeletion {
   status: HqPatientDeletionStatus;
   requestedAt: string;
   purgeAfter: string;
+  /**
+     * Set while a legal hold parks the request; the remaining grace resumes when the hold lifts
+     * @nullable
+     */
+  heldAt?: string | null;
   /** @nullable */
   cancelledAt: string | null;
   /** @nullable */
@@ -3285,6 +3291,7 @@ export interface HqPatientDeletion {
 
 export interface HqPatientDeletionsSummary {
   pending: number;
+  held: number;
   cancelled: number;
   purging: number;
   purged: number;
@@ -3294,6 +3301,80 @@ export interface HqPatientDeletionsSummary {
 export interface HqPatientDeletionsResult {
   deletions: HqPatientDeletion[];
   summary: HqPatientDeletionsSummary;
+}
+
+export type HqLegalHoldTargetKind = typeof HqLegalHoldTargetKind[keyof typeof HqLegalHoldTargetKind];
+
+
+export const HqLegalHoldTargetKind = {
+  patient: 'patient',
+  provider: 'provider',
+} as const;
+
+/**
+ * One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient's name for HQ readers); the reason is HQ-typed free text.
+ */
+export interface HqLegalHold {
+  id: string;
+  targetKind: HqLegalHoldTargetKind;
+  targetId: string;
+  /** @nullable */
+  targetLabel: string | null;
+  /**
+     * The office the hold belongs to (the office itself
+     * @nullable
+     */
+  providerId: string | null;
+  reason: string;
+  /** @nullable */
+  placedBy: string | null;
+  /** @nullable */
+  placedByName: string | null;
+  placedAt: string;
+  /** @nullable */
+  liftedAt: string | null;
+  /** @nullable */
+  liftedBy: string | null;
+  /** @nullable */
+  liftedByName: string | null;
+  /** @nullable */
+  liftReason: string | null;
+  active: boolean;
+}
+
+export interface HqLegalHoldsResult {
+  holds: HqLegalHold[];
+  activeCount: number;
+}
+
+export interface HqLegalHoldResult {
+  hold: HqLegalHold;
+}
+
+export type HqLegalHoldPlaceInputTargetKind = typeof HqLegalHoldPlaceInputTargetKind[keyof typeof HqLegalHoldPlaceInputTargetKind];
+
+
+export const HqLegalHoldPlaceInputTargetKind = {
+  patient: 'patient',
+  provider: 'provider',
+} as const;
+
+export interface HqLegalHoldPlaceInput {
+  targetKind: HqLegalHoldPlaceInputTargetKind;
+  targetId: string;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export interface HqLegalHoldLiftInput {
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
 }
 
 export interface HqPatientDeletionResult {
@@ -5325,10 +5406,29 @@ export type GetHqPatientDeletionsStatus = typeof GetHqPatientDeletionsStatus[key
 
 export const GetHqPatientDeletionsStatus = {
   pending: 'pending',
+  held: 'held',
   cancelled: 'cancelled',
   purging: 'purging',
   purged: 'purged',
   failed: 'failed',
+} as const;
+
+export type GetHqLegalHoldsParams = {
+status?: GetHqLegalHoldsStatus;
+/**
+ * Only holds on this office or on its patients
+ */
+providerId?: string;
+limit?: number;
+};
+
+export type GetHqLegalHoldsStatus = typeof GetHqLegalHoldsStatus[keyof typeof GetHqLegalHoldsStatus];
+
+
+export const GetHqLegalHoldsStatus = {
+  active: 'active',
+  lifted: 'lifted',
+  all: 'all',
 } as const;
 
 export type ListBloodworkReportsParams = {

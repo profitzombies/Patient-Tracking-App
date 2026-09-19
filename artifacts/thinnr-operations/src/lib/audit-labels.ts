@@ -38,6 +38,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   hq_file_downloaded: 'Downloaded a file',
   hq_file_previewed: 'Opened a file preview',
   hq_file_deleted: 'Deleted a file',
+  legal_hold_placed: 'Placed a legal hold',
+  legal_hold_lifted: 'Lifted a legal hold',
   knowledge_document_uploaded: 'Uploaded a knowledge document',
   knowledge_document_replaced: 'Replaced a knowledge document',
   knowledge_document_deleted: 'Deleted a knowledge document',

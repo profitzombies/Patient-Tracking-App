@@ -134,8 +134,12 @@ const pendingDeletion = {
   id: 'del-pending', patientId: PENDING_ID, providerId: 'office-1', status: 'pending', requestedAt: iso(-2), purgeAfter: iso(5),
   cancelledAt: null, startedAt: null, purgedAt: null, attempts: 0, nextAttemptAt: null, lastError: null, steps: {},
 };
-let hqDeletions = [failedDeletion, purgedDeletion, pendingDeletion];
-const hqSummary = () => ({ pending: 0, cancelled: 0, purging: 0, purged: 0, failed: 0, ...Object.fromEntries(['pending', 'cancelled', 'purging', 'purged', 'failed'].map((s) => [s, hqDeletions.filter((d) => d.status === s).length])) });
+const heldDeletion = {
+  id: 'del-held', patientId: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd1', providerId: 'office-1', status: 'held', requestedAt: iso(-20), purgeAfter: iso(-6),
+  cancelledAt: null, startedAt: null, purgedAt: null, heldAt: iso(-8), attempts: 0, nextAttemptAt: null, lastError: null, steps: {},
+};
+let hqDeletions = [failedDeletion, purgedDeletion, pendingDeletion, heldDeletion];
+const hqSummary = () => ({ pending: 0, held: 0, cancelled: 0, purging: 0, purged: 0, failed: 0, ...Object.fromEntries(['pending', 'held', 'cancelled', 'purging', 'purged', 'failed'].map((s) => [s, hqDeletions.filter((d) => d.status === s).length])) });
 
 const requests: Array<{ url: string; method: string }> = [];
 let recordResponse: { status: number; body: unknown } = { status: 200, body: detailFixture({ state: 'requested', requestedAt: iso(-2), purgeAfter: iso(5) }) };
@@ -146,6 +150,8 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   if (url.includes('/api/office/roster')) return json(ROSTER);
   if (url.includes('/notifications')) return json({ patientId: PENDING_ID, outreach: { state: 'none' }, notifications: [] });
+  if (url.includes('/coach-conversations')) return json({ conversations: [], total: 0, nextOffset: null });
+  if (url.includes('/sessions')) return json({ sessions: [], lastSignInAt: null });
   if (url.includes('/api/office/patients/')) return json(recordResponse.body, recordResponse.status);
   const retry = /\/api\/hq\/patient-deletions\/([^/]+)\/retry$/.exec(url);
   if (retry && method === 'POST') {
@@ -260,6 +266,9 @@ console.log('\nHQ account deletions: admin view and retry');
   __setSupabaseSession('hq-token');
   const { root } = await render('/admin/audit/deletions', <PatientDeletions />);
   check('summary counts one failed purge', textOf(byTestId(root, 'metric-deletions-failed')[0]) === '1');
+  check('summary counts the held request', textOf(byTestId(root, 'metric-deletions-held')[0]) === '1');
+  const heldRow = byTestId(root, 'row-deletion-del-held');
+  check('held row is parked (no Retry) and says it resumes when the hold lifts', heldRow.length === 1 && textOf(heldRow[0]).includes('Held') && textOf(heldRow[0]).includes('resumes when lifted') && byTestId(root, 'button-retry-deletion-del-held').length === 0);
   const failedRow = byTestId(root, 'row-deletion-del-failed');
   check('failed row renders its last error and step outcomes', failedRow.length === 1 && textOf(failedRow[0]).includes('returned 503') && textOf(failedRow[0]).includes('storage: failed') && textOf(failedRow[0]).includes('rows: done') && textOf(failedRow[0]).includes('automatic retries exhausted'));
   check('office name resolves from the directory, patient shown by id only', textOf(failedRow[0]).includes('Beacon Hill Aesthetics') && textOf(failedRow[0]).includes('cccccccc-cccc') && !textOf(root).includes('@'));

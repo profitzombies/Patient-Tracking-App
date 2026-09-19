@@ -43,14 +43,15 @@ import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-cli
 const enc = encodeURIComponent;
 
 export const DELETION_SELECT =
-  "id,patient_id,provider_id,auth_user_id,status,requested_at,purge_after,cancelled_at,started_at,purged_at,attempts,next_attempt_at,lease_owner,lease_until,last_error,steps";
+  "id,patient_id,provider_id,auth_user_id,status,requested_at,purge_after,cancelled_at,started_at,purged_at,attempts,next_attempt_at,lease_owner,lease_until,last_error,steps,held_at";
 
 export interface DeletionRequestRow {
   id: string;
   patient_id: string;
   provider_id: string | null;
   auth_user_id: string | null;
-  status: "pending" | "cancelled" | "purging" | "purged" | "failed";
+  /** `held` = a legal hold parked the request; the grace clock resumes when the hold lifts. */
+  status: "pending" | "held" | "cancelled" | "purging" | "purged" | "failed";
   requested_at: string;
   purge_after: string;
   cancelled_at: string | null;
@@ -60,6 +61,7 @@ export interface DeletionRequestRow {
   next_attempt_at: string | null;
   lease_owner: string | null;
   lease_until: string | null;
+  held_at?: string | null;
   last_error: string | null;
   steps: Record<string, unknown>;
 }

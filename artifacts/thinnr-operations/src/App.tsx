@@ -75,6 +75,7 @@ import Security from '@/pages/Security';
 import SecurityReport from '@/pages/SecurityReport';
 import PublicPayArea from '@/pages/public/pay/PublicPayArea';
 import HqPaymentsArea from '@/pages/admin/payments/HqPaymentsArea';
+import LegalHolds from '@/pages/admin/LegalHolds';
 
 const queryClient = new QueryClient();
 
@@ -132,6 +133,9 @@ function AdminArea() {
               <Route path="/admin/support-test" component={SupportTestBench} />
               <Route path="/admin/audit/deletions">
                 {canViewAudit ? <PatientDeletions /> : <Redirect to="/admin" replace />}
+              </Route>
+              <Route path="/admin/audit/legal-holds">
+                {canViewAudit ? <LegalHolds /> : <Redirect to="/admin" replace />}
               </Route>
               <Route path="/admin/audit">
                 {canViewAudit ? <Audit /> : <Redirect to="/admin" replace />}

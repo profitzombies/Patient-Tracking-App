@@ -32,6 +32,7 @@ const STATUS_OPTIONS: { value: HqPatientDeletionStatus | ''; label: string }[] =
   { value: '', label: 'All statuses' },
   { value: 'failed', label: 'Failed' },
   { value: 'pending', label: 'Pending (grace period)' },
+  { value: 'held', label: 'Held (legal hold)' },
   { value: 'purging', label: 'Purging' },
   { value: 'purged', label: 'Purged' },
   { value: 'cancelled', label: 'Cancelled' },
@@ -39,6 +40,7 @@ const STATUS_OPTIONS: { value: HqPatientDeletionStatus | ''; label: string }[] =
 
 const STATUS_LABEL: Record<HqPatientDeletionStatus, string> = {
   pending: 'Pending',
+  held: 'Held',
   purging: 'Purging',
   purged: 'Purged',
   cancelled: 'Cancelled',
@@ -47,6 +49,7 @@ const STATUS_LABEL: Record<HqPatientDeletionStatus, string> = {
 
 function statusClass(status: HqPatientDeletionStatus): string {
   if (status === 'failed') return 'border-[#d5a7a7] bg-[#fff0f0] text-destructive';
+  if (status === 'held') return 'border-[#b9c4dc] bg-[#eef2fb] text-navy';
   if (status === 'pending' || status === 'purging') return 'border-[#e8b47c] bg-[#fff4e6] text-[#b65c22]';
   if (status === 'purged') return 'border-accent-border bg-accent text-primary';
   return 'border-border bg-secondary text-muted-foreground';
@@ -126,9 +129,10 @@ export default function PatientDeletions() {
         </p>
       ) : (
         <>
-          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-5" data-testid="deletions-summary">
+          <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-6" data-testid="deletions-summary">
             <MetricTile label="Failed purges" value={summary ? String(summary.failed) : '—'} detail={summary && summary.failed > 0 ? 'Needs attention' : 'Nothing stuck'} testId="metric-deletions-failed" />
             <MetricTile label="Pending" value={summary ? String(summary.pending) : '—'} detail="In the grace period" />
+            <MetricTile label="Held" value={summary ? String(summary.held) : '—'} detail="Parked by a legal hold" testId="metric-deletions-held" />
             <MetricTile label="Purging" value={summary ? String(summary.purging) : '—'} detail="Running now" />
             <MetricTile label="Purged" value={summary ? String(summary.purged) : '—'} detail="Complete" />
             <MetricTile label="Cancelled" value={summary ? String(summary.cancelled) : '—'} detail="Patient signed back in" />
@@ -186,7 +190,7 @@ export default function PatientDeletions() {
                         </td>
                         <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{row.patientId}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                          {row.status === 'purged' ? `Purged ${when(row.purgedAt)}` : row.status === 'cancelled' ? `Cancelled ${when(row.cancelledAt)}` : when(row.purgeAfter)}
+                          {row.status === 'purged' ? `Purged ${when(row.purgedAt)}` : row.status === 'cancelled' ? `Cancelled ${when(row.cancelledAt)}` : row.status === 'held' ? `On hold since ${when(row.heldAt)} · resumes when lifted` : when(row.purgeAfter)}
                         </td>
                         <td className="px-4 py-3">
                           <span className="block text-foreground">{stepSummary(row.steps)}</span>

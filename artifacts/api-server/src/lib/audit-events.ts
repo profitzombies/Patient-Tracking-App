@@ -79,6 +79,8 @@ export const AUDIT_ACTIONS = [
   "patient_deletion_purged",
   "patient_deletion_failed",
   "patient_deletion_retried",
+  "legal_hold_placed",
+  "legal_hold_lifted",
   "security_password_changed",
   "security_sessions_signed_out",
   "security_sign_in_reported",
@@ -131,6 +133,7 @@ export const AUDIT_METADATA_KEYS = [
   "order_id", "subscription_id", "link_id", "product_id", "amount_cents", "floor_price_cents",
   "at_period_end", "fulfillment_status", "has_tracking", "keys_changed", "products_changed", "active", "max_uses",
   "part", "parts",
+  "holdId", "targetKind",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 

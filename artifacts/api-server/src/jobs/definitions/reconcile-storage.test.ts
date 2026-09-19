@@ -10,7 +10,7 @@ vi.mock("../../lib/objectStorage", () => ({
   objectStorage: { deleteObjectStrict: mocks.deleteObjectStrict, listObjects: mocks.listObjects },
 }));
 
-import { RECONCILE_PREFIXES, orphanGraceMs, reconcilePrefix, reconcileStorage } from "./reconcile-storage";
+import { RECONCILE_PREFIXES, isHeldPath, orphanGraceMs, reconcilePrefix, reconcileStorage } from "./reconcile-storage";
 import type { JobContext } from "../types";
 
 const NOW = new Date("2026-09-07T12:00:00Z");
@@ -35,7 +35,7 @@ function ctx(dryRun = false) {
 interface LedgerRow { object_path: string; source: string; missing: boolean }
 interface VariantRow { object_path: string; variants: string[] }
 
-function fakeAdmin(ledger: LedgerRow[], intents: string[] = [], variantRows: VariantRow[] = []) {
+function fakeAdmin(ledger: LedgerRow[], intents: string[] = [], variantRows: VariantRow[] = [], heldPatients: string[] = []) {
   const flagged: Array<{ paths: string[]; missing: boolean }> = [];
   const variantPatches: Array<{ path: string; variants: string[] }> = [];
   mocks.admin.mockImplementation(async (method: string, path: string, body?: Record<string, unknown>) => {
@@ -66,6 +66,9 @@ function fakeAdmin(ledger: LedgerRow[], intents: string[] = [], variantRows: Var
     if (path === "/rest/v1/rpc/storage_mark_object_missing") {
       flagged.push({ paths: body?.p_paths as string[], missing: body?.p_missing as boolean });
       return { status: 200, json: (body?.p_paths as string[]).length };
+    }
+    if (path === "/rest/v1/rpc/legal_hold_patient_ids") {
+      return { status: 200, json: heldPatients.slice() };
     }
     if (method === "GET" && path.startsWith("/rest/v1/storage_upload_intents")) {
       const raw = decodeURIComponent(path.split("object_path=in.(")[1].slice(0, -1));
@@ -138,6 +141,31 @@ describe("storage reconciliation", () => {
     expect(counts).toMatchObject({ objects: 5, ledgerRows: 1, orphansDeleted: 1, orphanYoung: 2, orphanPendingUpload: 1 });
     expect(flagged).toEqual([]);
     expect(failures).toEqual([]);
+  });
+
+  it("never deletes an orphan under a patient on legal hold, and stops the prefix when the hold list cannot be read", async () => {
+    fakeAdmin([], [], [], ["p-held"]);
+    mocks.listObjects.mockResolvedValue([
+      { path: `${PM}p-held/orphan-old`, createdAt: daysAgo(2), sizeBytes: 1 },
+      { path: `${PM}p-held/orphan-old.thumb`, createdAt: daysAgo(2), sizeBytes: 1 },
+      { path: `${PM}p1/orphan-old`, createdAt: daysAgo(2), sizeBytes: 1 },
+    ]);
+    const { c, counts, failures } = ctx();
+    await reconcilePrefix(c, PM);
+    expect(mocks.deleteObjectStrict.mock.calls.map((call) => call[0])).toEqual([`${PM}p1/orphan-old`]);
+    expect(counts).toMatchObject({ orphansDeleted: 1, orphanHeld: 2 });
+    expect(failures).toEqual([]);
+    // A prefix that merely contains the id as a substring of another id is not held.
+    expect(isHeldPath(`${PM}p-held2/x`, ["p-held"])).toBe(false);
+
+    mocks.admin.mockReset();
+    mocks.deleteObjectStrict.mockReset().mockResolvedValue(undefined);
+    mocks.admin.mockImplementation(async (_m: string, path: string) => {
+      if (path === "/rest/v1/rpc/legal_hold_patient_ids") return { status: 503, json: null };
+      return { status: 200, json: [] };
+    });
+    await expect(reconcilePrefix(ctx().c, PM)).rejects.toThrow(/legal hold lookup failed/);
+    expect(mocks.deleteObjectStrict).not.toHaveBeenCalled();
   });
 
   it("treats photo variants as owned by their original: kept while the original is on a ledger, orphans otherwise", async () => {

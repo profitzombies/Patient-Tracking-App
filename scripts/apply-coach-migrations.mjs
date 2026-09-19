@@ -28,6 +28,7 @@ const migrationNames = [
   "20261027000000_ledger_retention.sql",
   "20261106000000_clinical_record_retention.sql",
   "20261107000000_cold_archive.sql",
+  "20261107000000_legal_holds.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -151,6 +152,16 @@ await query(`
        or to_regclass('public.system_cold_archive_days') is null
        or to_regprocedure('public.cold_archive_rows(text,date,text,integer)') is null
        or to_regprocedure('public.cold_archive_status(date)') is null
+       or to_regclass('public.legal_holds') is null
+       or to_regprocedure('public.legal_hold_active(uuid)') is null
+       or to_regprocedure('public.legal_hold_office_active(text)') is null
+       or to_regprocedure('public.legal_hold_place(text,text,text,uuid)') is null
+       or to_regprocedure('public.legal_hold_lift(uuid,text,uuid)') is null
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.patient_deletion_requests'::regclass
+            and contype = 'c' and pg_get_constraintdef(oid) like '%held%'
+       )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

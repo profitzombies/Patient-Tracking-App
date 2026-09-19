@@ -196,6 +196,28 @@ async function markMissing(paths: string[], missing: boolean): Promise<number> {
   return changed;
 }
 
+/**
+ * Patients under an HQ legal hold (directly or through their office). Every
+ * patient-owned object path carries the patient id, so an orphan under a
+ * held patient is kept — a hold means nothing about that patient is deleted,
+ * ledger row or not. Fetched once per prefix so the guard cannot go stale
+ * across a long delete loop without a fresh read; a failed read stops the
+ * prefix rather than deleting blind.
+ */
+export async function loadHeldPatientIds(): Promise<string[]> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/legal_hold_patient_ids", {});
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`legal hold lookup failed (${result.status})`);
+  }
+  return (result.json as Array<string | { legal_hold_patient_ids?: string }>).map((row) =>
+    typeof row === "string" ? row : String(row.legal_hold_patient_ids ?? ""),
+  ).filter(Boolean);
+}
+
+export function isHeldPath(path: string, heldIds: readonly string[]): boolean {
+  return heldIds.some((id) => path.includes(`/${id}/`));
+}
+
 export async function reconcilePrefix(ctx: JobContext, prefix: string): Promise<void> {
   let objects: StoredObjectSummary[];
   try {
@@ -205,6 +227,7 @@ export async function reconcilePrefix(ctx: JobContext, prefix: string): Promise<
     return;
   }
   const ledger = await loadLedger(prefix);
+  const heldIds = await loadHeldPatientIds();
   const stored = new Map(objects.map((o) => [o.path, o]));
   ctx.tally("objects", objects.length);
   ctx.tally("ledgerRows", ledger.size);
@@ -220,6 +243,11 @@ export async function reconcilePrefix(ctx: JobContext, prefix: string): Promise<
     if (protectedPaths.has(orphan.path)) {
       // An intent still exists: the abandoned-upload sweep owns this path.
       ctx.tally("orphanPendingUpload");
+      continue;
+    }
+    if (isHeldPath(orphan.path, heldIds)) {
+      // Legal hold: keep it, whatever the ledger says.
+      ctx.tally("orphanHeld");
       continue;
     }
     if (ctx.dryRun) {

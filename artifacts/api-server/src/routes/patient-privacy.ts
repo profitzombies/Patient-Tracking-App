@@ -72,7 +72,7 @@ export function deletionDto(row: DeletionRequestRow | null): DeletionDto | null 
 export async function loadPendingDeletion(patientId: string): Promise<DeletionRequestRow | null> {
   const result = await supabaseAdmin(
     "GET",
-    `/rest/v1/patient_deletion_requests?patient_id=eq.${enc(patientId)}&status=eq.pending&select=${DELETION_SELECT}&limit=1`,
+    `/rest/v1/patient_deletion_requests?patient_id=eq.${enc(patientId)}&status=in.(pending,held)&select=${DELETION_SELECT}&limit=1`,
   );
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`deletion lookup failed (${result.status})`);
   return (result.json[0] as DeletionRequestRow | undefined) ?? null;

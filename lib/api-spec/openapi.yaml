@@ -2525,7 +2525,7 @@ paths:
       tags: [hq]
       summary: Patient-requested account deletions across the network, with purge progress and failures surfaced for HQ
       parameters:
-        - { name: status, in: query, schema: { type: string, enum: [pending, cancelled, purging, purged, failed] } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, held, cancelled, purging, purged, failed] } }
         - { name: limit, in: query, schema: { type: number } }
       responses:
         "200":
@@ -2544,6 +2544,48 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqPatientDeletionResult" } } }
         "404": { description: Deletion request not found }
         "409": { description: Only a failed purge can be retried }
+  /hq/legal-holds:
+    get:
+      operationId: getHqLegalHolds
+      tags: [hq]
+      summary: Legal holds (active by default) with who placed them, when, and why. A hold blocks every deletion path for the patient or for every patient of the office.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [active, lifted, all] } }
+        - { name: providerId, in: query, schema: { type: string }, description: Only holds on this office or on its patients }
+        - { name: limit, in: query, schema: { type: number } }
+      responses:
+        "200":
+          description: Holds newest first
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldsResult" } } }
+    post:
+      operationId: placeHqLegalHold
+      tags: [hq]
+      summary: Place a legal hold on one patient or on a whole office (idempotent per active target; audited)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldPlaceInput" } } }
+      responses:
+        "200":
+          description: The active hold
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldResult" } } }
+        "400": { description: Invalid target or reason }
+        "404": { description: Patient or office not found }
+  /hq/legal-holds/{id}/lift:
+    post:
+      operationId: liftHqLegalHold
+      tags: [hq]
+      summary: Lift a legal hold (second audited action); parked deletion requests resume their remaining grace
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldLiftInput" } } }
+      responses:
+        "200":
+          description: The lifted hold
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldResult" } } }
+        "404": { description: Hold not found }
+        "409": { description: Hold already lifted }
   /bloodwork/patients/{patientId}/reports:
     get:
       operationId: listBloodworkReports
@@ -5076,9 +5118,10 @@ components:
         id: { type: string }
         patientId: { type: string }
         providerId: { type: ["string", "null"] }
-        status: { type: string, enum: [pending, cancelled, purging, purged, failed] }
+        status: { type: string, enum: [pending, held, cancelled, purging, purged, failed] }
         requestedAt: { type: string, format: date-time }
         purgeAfter: { type: string, format: date-time }
+        heldAt: { type: ["string", "null"], format: date-time, description: Set while a legal hold parks the request; the remaining grace resumes when the hold lifts }
         cancelledAt: { type: ["string", "null"], format: date-time }
         startedAt: { type: ["string", "null"], format: date-time }
         purgedAt: { type: ["string", "null"], format: date-time }
@@ -5088,9 +5131,10 @@ components:
         steps: { type: object, additionalProperties: true }
     HqPatientDeletionsSummary:
       type: object
-      required: [pending, cancelled, purging, purged, failed]
+      required: [pending, held, cancelled, purging, purged, failed]
       properties:
         pending: { type: number }
+        held: { type: number }
         cancelled: { type: number }
         purging: { type: number }
         purged: { type: number }
@@ -5101,6 +5145,48 @@ components:
       properties:
         deletions: { type: array, items: { $ref: "#/components/schemas/HqPatientDeletion" } }
         summary: { $ref: "#/components/schemas/HqPatientDeletionsSummary" }
+    HqLegalHold:
+      type: object
+      description: One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient's name for HQ readers); the reason is HQ-typed free text.
+      required: [id, targetKind, targetId, targetLabel, providerId, reason, placedBy, placedByName, placedAt, liftedAt, liftedBy, liftedByName, liftReason, active]
+      properties:
+        id: { type: string }
+        targetKind: { type: string, enum: [patient, provider] }
+        targetId: { type: string }
+        targetLabel: { type: ["string", "null"] }
+        providerId: { type: ["string", "null"], description: The office the hold belongs to (the office itself, or the held patient's office) }
+        reason: { type: string }
+        placedBy: { type: ["string", "null"] }
+        placedByName: { type: ["string", "null"] }
+        placedAt: { type: string, format: date-time }
+        liftedAt: { type: ["string", "null"], format: date-time }
+        liftedBy: { type: ["string", "null"] }
+        liftedByName: { type: ["string", "null"] }
+        liftReason: { type: ["string", "null"] }
+        active: { type: boolean }
+    HqLegalHoldsResult:
+      type: object
+      required: [holds, activeCount]
+      properties:
+        holds: { type: array, items: { $ref: "#/components/schemas/HqLegalHold" } }
+        activeCount: { type: number }
+    HqLegalHoldResult:
+      type: object
+      required: [hold]
+      properties:
+        hold: { $ref: "#/components/schemas/HqLegalHold" }
+    HqLegalHoldPlaceInput:
+      type: object
+      required: [targetKind, targetId, reason]
+      properties:
+        targetKind: { type: string, enum: [patient, provider] }
+        targetId: { type: string }
+        reason: { type: string, minLength: 3, maxLength: 500 }
+    HqLegalHoldLiftInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 3, maxLength: 500 }
     HqPatientDeletionResult:
       type: object
       required: [deletion]

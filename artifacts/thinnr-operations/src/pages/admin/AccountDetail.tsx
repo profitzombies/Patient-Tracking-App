@@ -25,6 +25,7 @@ import {
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
+import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
@@ -341,6 +342,11 @@ export default function AccountDetail() {
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations
         </Link>
+      </div>
+
+      {/* Legal hold: HQ-only, outranks every retention timer for this office's patients. */}
+      <div className="mb-5">
+        <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
       </div>
 
       <div className="mb-5">

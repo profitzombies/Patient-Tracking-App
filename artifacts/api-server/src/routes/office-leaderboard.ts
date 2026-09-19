@@ -165,7 +165,7 @@ router.get("/office/leaderboard", async (req, res) => {
         p_at: now.toISOString(),
         p_window_days: PERIOD_WINDOW_DAYS[period],
       }),
-      supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?${providerFilter}status=eq.pending&select=patient_id&limit=5000`),
+      supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?${providerFilter}status=in.(pending,held)&select=patient_id&limit=5000`),
       target.kind === "all"
         ? supabaseAdmin("GET", "/rest/v1/providers?select=provider_id,office_name,provider_name,access_disabled&order=office_name.asc.nullslast,provider_id.asc&limit=2000")
         : Promise.resolve({ status: 200, json: [] as OfficeRow[] }),

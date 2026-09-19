@@ -73,7 +73,7 @@ function resendCooldownSeconds(): number {
 }
 
 export const PATIENT_SELECT =
-  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date,deletion_requested_at";
+  "id,provider_id,first_name,last_name,name,email,phone,activation_status,activation_reason,activation_updated_at,auth_user_id,claimed_at,created_at,updated_at,invited_at,invited_by,invite_email_status,invite_email_updated_at,program_id,program_start_date,date_of_birth,height,height_inches,starting_weight,current_weight,goal_weight,weight_gain_lost,timezone,profile_completed_at,last_login_at,last_log_date,deletion_requested_at,legal_hold";
 
 export type PatientRosterRow = Record<string, unknown>;
 type OperationalRow = Record<string, unknown>;
@@ -108,6 +108,9 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
     // Account deletion the PATIENT asked for (staff-initiated deletion is not
     // a thing). `purgeAfter` is filled in by the roster from the request row.
     deletion: deletionStateDto(row),
+    // HQ legal hold (direct or via the office): read-only for the office, it
+    // only ever blocks deletion. Never shown to the patient.
+    legalHold: row.legal_hold === true,
     program: {
       id: row.program_id ? String(row.program_id) : null,
       startDate: programStartDate,
@@ -464,7 +467,7 @@ router.get("/office/roster", async (req, res) => {
       }),
       supabaseAdmin("GET", `/rest/v1/patient_operational_follow_ups?provider_id=eq.${enc(scope.providerId)}&select=patient_id,reason,status,created_at,resolved_at&order=created_at.desc&limit=2000`),
       supabaseAdmin("POST", "/rest/v1/rpc/provider_outreach_states", { p_provider_id: scope.providerId }),
-      supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?provider_id=eq.${enc(scope.providerId)}&status=eq.pending&select=patient_id,requested_at,purge_after&limit=500`),
+      supabaseAdmin("GET", `/rest/v1/patient_deletion_requests?provider_id=eq.${enc(scope.providerId)}&status=in.(pending,held)&select=patient_id,requested_at,purge_after&limit=500`),
       supabaseAdmin("GET", `/rest/v1/patient_tombstones?provider_id=eq.${enc(scope.providerId)}&select=id,requested_at,purged_at,was_activated,program_id,enrolled_on&order=purged_at.desc&limit=200`),
       // Medication adherence is an additional roster input (own field,
       // own null semantics); the engagement definitions above are untouched.
@@ -682,7 +685,7 @@ router.get("/office/patients/:id", async (req, res) => {
         ),
         supabaseAdmin(
           "GET",
-          `/rest/v1/patient_deletion_requests?patient_id=eq.${pid}&status=eq.pending&select=patient_id,requested_at,purge_after&limit=1`,
+          `/rest/v1/patient_deletion_requests?patient_id=eq.${pid}&status=in.(pending,held)&select=patient_id,requested_at,purge_after&limit=1`,
         ),
       ]);
     const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion];

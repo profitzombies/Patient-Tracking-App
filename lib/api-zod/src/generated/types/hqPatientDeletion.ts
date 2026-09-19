@@ -19,6 +19,11 @@ export interface HqPatientDeletion {
   status: HqPatientDeletionStatus;
   requestedAt: Date;
   purgeAfter: Date;
+  /**
+     * Set while a legal hold parks the request; the remaining grace resumes when the hold lifts
+     * @nullable
+     */
+  heldAt?: Date | null;
   /** @nullable */
   cancelledAt: Date | null;
   /** @nullable */

@@ -57,6 +57,7 @@ import billingPublicCartsRouter from "./billing-public-carts";
 import officeAlertsRouter from "./office-alerts";
 import staffNotificationsRouter from "./staff-notifications";
 import hqStaffAlertsRouter from "./hq-staff-alerts";
+import hqLegalHoldsRouter from "./hq-legal-holds";
 
 const router: IRouter = Router();
 
@@ -105,6 +106,7 @@ router.use(officeFilesRouter);
 router.use(officeAuditEventsRouter);
 router.use(hqAuditEventsRouter);
 router.use(hqPatientDeletionsRouter);
+router.use(hqLegalHoldsRouter);
 router.use(operationalRollupsRouter);
 router.use(hqPatientRetentionRouter);
 router.use(staffConversationsRouter);

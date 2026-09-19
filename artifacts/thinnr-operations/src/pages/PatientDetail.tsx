@@ -44,6 +44,7 @@ import { usePatientSession } from "@/contexts/patient-session";
 import { useToast } from "@/hooks/use-toast";
 import { useSession } from "@/contexts/session";
 import { useProviderScope } from "@/contexts/provider-scope";
+import { LegalHoldBadge, LegalHoldControls } from "@/components/admin/LegalHold";
 import { PatientBloodwork } from "@/components/bloodwork/PatientBloodwork";
 import { SellToPatientDialog } from "@/components/billing/SellToPatientDialog";
 import {
@@ -497,7 +498,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           <div className="flex items-start gap-4">
             <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border border-accent-border bg-accent text-xl font-bold text-primary">{initials}</div>
             <div>
-              <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={headerStatus === 'activated' ? 'active' : headerStatus} /></div>
+              <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={headerStatus === 'activated' ? 'active' : headerStatus} />{!isHq && record.patient.legalHold && <LegalHoldBadge />}</div>
               <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
             </div>
@@ -509,6 +510,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
             <PatientRecordExport patientId={identity.id} patientName={identity.name} office={office} />
           </div>
         </div>
+        {isHq && <div className="mt-5"><LegalHoldControls targetKind="patient" targetId={identity.id} providerId={office} label={identity.name} /></div>}
         {record.patient.deletion && <div className="mt-5"><DeletionBanner deletion={record.patient.deletion} /></div>}
       </header>
       <SellToPatientDialog open={sellOpen} onOpenChange={setSellOpen} patient={{ id: identity.id, name: identity.name }} office={office} />

@@ -165,3 +165,4 @@
 - [PHI-free push and email](phi-free-outbound.md) — all email through one transport seam with per-template PHI class + catalog lint; both push senders wrap the client in sendGuarded; copy generic, data ids-only.
 - [Staff idle timeout & fresh-code re-auth](staff-idle-timeout-reauth.md) — idle window is client-side (stable signOut, BroadcastChannel); code proof = session-bound ledger stamp, gate after authz, fail closed.
 - [Staff patient-record export](staff-patient-record-export.md) — one shared archive builder; staff path splits ZIP parts under a byte budget (no omission); server `available` list gates the button; ?part=N downloads.
+- [Cold archive to object storage](cold-archive.md) — UTC closed days only, mark after every file+manifest lands, manifest bytes deterministic; off = no-op, on+unconfigured = loud; alert only while enabled.

@@ -167,6 +167,7 @@ function hqFixture(): HqOrganizationSettings {
     exportLinkHours: 24,
     staffIdleTimeoutMinutes: 15,
     hqIdleTimeoutMinutes: 15,
+    coldArchiveEnabled: false,
     version: 3,
     updatedAt: '2026-09-06T12:00:00.000Z',
     sections: {
@@ -176,7 +177,9 @@ function hqFixture(): HqOrganizationSettings {
       conversations: null,
       retention: null,
       security: null,
+      archive: null,
     },
+    coldArchive: { storageConfigured: true, lastArchivedDay: '2026-09-05', daysPending: 1 },
   };
 }
 
@@ -205,7 +208,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
       return json({ error: 'Someone else saved these settings first. Reload to see the latest values.', version: hqSettings.version }, 409);
     }
     const { expectedVersion: _v, defaultCategories, retention, ...rest } = body;
-    const touched = 'staffIdleTimeoutMinutes' in body ? 'security' : 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'notifications';
+    const touched = 'staffIdleTimeoutMinutes' in body ? 'security' : 'coachAvailable' in body || 'escalationEmail' in body ? 'coach' : 'organizationName' in body || 'appStoreUrl' in body ? 'organization' : 'conversationAutoCloseDays' in body ? 'conversations' : retention ? 'retention' : 'coldArchiveEnabled' in body ? 'archive' : 'notifications';
     hqSettings = {
       ...hqSettings,
       ...rest,
@@ -308,7 +311,7 @@ console.log('HQ settings — signed-in admin');
   const { root } = await render('/admin/settings', <OrgSettings />);
   check('live page loads the persisted settings', requests.filter((request) => request.method === 'GET' && request.url.includes('/api/hq/settings')).length === 1);
   check('demo group cards are gone for live users', root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('button-save-') && !node.props['data-testid'].startsWith('button-save-policy-')).length === 0);
-  check('six policy sections, each with a Save', ['organization', 'coach', 'notifications', 'conversations', 'retention', 'security'].every((section) => byTestId(root, `button-save-policy-${section}`).length === 1));
+  check('seven policy sections, each with a Save', ['organization', 'coach', 'notifications', 'conversations', 'retention', 'security', 'archive'].every((section) => byTestId(root, `button-save-policy-${section}`).length === 1));
   check('organization stamp names its last editor', textOf(oneByTestId(root, 'policy-stamp-organization')).startsWith('Last changed by Avery Admin · '));
   check('notifications stamp names its last editor', textOf(oneByTestId(root, 'policy-stamp-notifications')).startsWith('Last changed by Blake Ops · '));
   check('untouched coach section reads Never changed', textOf(oneByTestId(root, 'policy-stamp-coach')) === 'Never changed');
@@ -405,6 +408,32 @@ console.log('HQ settings — signed-in admin');
   const securityPut = requests.filter((request) => request.method === 'PUT').at(-1);
   check('Security Save posts only both idle fields and the current version', securityPut !== undefined && JSON.stringify(securityPut.body) === JSON.stringify({ staffIdleTimeoutMinutes: 20, hqIdleTimeoutMinutes: 10, expectedVersion: 8 }), JSON.stringify(securityPut?.body));
   check('security section stamp updates after saving', textOf(oneByTestId(root, 'policy-stamp-security')).startsWith('Last changed by Test Admin · '));
+  // Cold archive: off by default, the status line reads the last archived
+  // day and backlog, and turning it on posts only the archive field.
+  check('cold archive switch is off and enabled when storage is configured', switchOf(root, 'switch-policy-cold-archive')?.props['aria-checked'] === false && switchOf(root, 'switch-policy-cold-archive')?.props.disabled !== true);
+  check('cold archive status names the last archived day and the backlog', textOf(oneByTestId(root, 'text-cold-archive-status')) === 'Last archived day: Sep 5, 2026. 1 day pending.', textOf(oneByTestId(root, 'text-cold-archive-status')));
+  check('archive section reads Never changed', textOf(oneByTestId(root, 'policy-stamp-archive')) === 'Never changed');
+  await press(switchOf(root, 'switch-policy-cold-archive'));
+  check('flipping the archive switch arms only the archive Save', oneByTestId(root, 'button-save-policy-archive').props.disabled === false && oneByTestId(root, 'button-save-policy-coach').props.disabled === true);
+  const archiveVersion = hqSettings.version;
+  await press(oneByTestId(root, 'button-save-policy-archive'));
+  const archivePut = requests.filter((request) => request.method === 'PUT').at(-1);
+  check('archive Save posts just the toggle with expectedVersion', archivePut !== undefined && JSON.stringify(archivePut.body) === JSON.stringify({ coldArchiveEnabled: true, expectedVersion: archiveVersion }), JSON.stringify(archivePut?.body));
+  check('after saving the archive is on and the stamp names the editor', hqSettings.coldArchiveEnabled === true && switchOf(root, 'switch-policy-cold-archive')?.props['aria-checked'] === true && textOf(oneByTestId(root, 'policy-stamp-archive')).startsWith('Last changed by Test Admin · '));
+  check('status line notes the nightly bound once the archive is on', textOf(oneByTestId(root, 'text-cold-archive-status')).endsWith('1 day pending (up to 30 per nightly run).'), textOf(oneByTestId(root, 'text-cold-archive-status')));
+}
+
+console.log('live HQ settings — cold archive without storage configured');
+{
+  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } });
+  __setSupabaseSession('hq-token');
+  hqSettings = { ...hqFixture(), coldArchive: { storageConfigured: false, lastArchivedDay: null, daysPending: null } };
+  requests.length = 0;
+  toasts.length = 0;
+  const { root } = await render('/admin/settings', <OrgSettings />);
+  check('archive switch is disabled until the server has a storage prefix', switchOf(root, 'switch-policy-cold-archive')?.props.disabled === true && switchOf(root, 'switch-policy-cold-archive')?.props['aria-checked'] === false);
+  check('status line explains the missing configuration', textOf(oneByTestId(root, 'text-cold-archive-status')).startsWith('Cold storage is not configured on the server'), textOf(oneByTestId(root, 'text-cold-archive-status')));
+  check('archive Save stays disarmed', oneByTestId(root, 'button-save-policy-archive').props.disabled === true);
 }
 
 // ─── Office settings page ────────────────────────────────────────────────────

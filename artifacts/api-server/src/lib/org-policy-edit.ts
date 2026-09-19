@@ -5,6 +5,7 @@
  */
 import type { UpdateHqSettingsBody } from "@workspace/api-zod";
 import type { z } from "zod";
+import { COLD_ARCHIVE_NOT_CONFIGURED, coldArchiveConfigured } from "./cold-archive";
 import { supabaseAdmin } from "./supabase-admin";
 import {
   APP_STORE_URL_RE,
@@ -82,6 +83,7 @@ function boundedInt(value: number, bounds: { min: number; max: number }): number
 export function mergePolicyInput(
   current: OrgPolicy,
   input: SettingsInput,
+  options: { coldArchiveConfigured?: boolean } = {},
 ): { ok: true; policy: OrgPolicy } | { ok: false; error: string } {
   const next: OrgPolicy = { ...current, defaultCategories: { ...current.defaultCategories }, retention: { ...current.retention } };
   const fail = (error = INVALID_SETTINGS) => ({ ok: false as const, error });
@@ -123,6 +125,14 @@ export function mergePolicyInput(
     next.escalationEmail = email.value;
   }
   if (input.defaultCategories !== undefined) next.defaultCategories = { ...input.defaultCategories };
+  if (input.coldArchiveEnabled !== undefined) {
+    // Turning the archive on needs somewhere to write: the storage prefix is
+    // an environment knob, so the toggle refuses until it is set. Turning it
+    // off is always allowed.
+    const configured = options.coldArchiveConfigured ?? coldArchiveConfigured();
+    if (input.coldArchiveEnabled && !configured) return fail(COLD_ARCHIVE_NOT_CONFIGURED);
+    next.coldArchiveEnabled = input.coldArchiveEnabled;
+  }
   if (input.defaultQuietHours !== undefined) {
     const quiet = cleanQuietHours(input.defaultQuietHours);
     if (!quiet.ok) return fail("Quiet hours need a start and end time (HH:MM) that differ.");

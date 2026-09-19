@@ -40,6 +40,7 @@ import { defaultWorkerDrains, runWorkerDrains, type WorkerDrains } from "../jobs
 import { supabaseNotificationStore, type OutboxBacklog } from "../notifications/store";
 import type { JobDefinition, JobItemFailureRecord, JobRunRecord, JobStateRecord } from "../jobs/types";
 import { readPerformance } from "../system/performance";
+import { readColdArchiveHealth, type ColdArchiveHealth } from "../lib/cold-archive";
 import { readPatientSignInMetrics, type PatientSignInMonth } from "../security/sign-in-metrics";
 
 export type JobHealthStatus = "ok" | "failing" | "stale" | "never_ran" | "running" | "on_demand";
@@ -144,6 +145,8 @@ export interface SystemJobsRouterOptions {
   outboxBacklog?: (now: Date) => Promise<OutboxBacklog>;
   /** Performance reader (fake in tests). */
   readPerformance?: typeof readPerformance;
+  /** Cold archive backlog reader (fake in tests). */
+  coldArchiveHealth?: (now: Date) => Promise<ColdArchiveHealth>;
 }
 
 export interface OutboxBacklogDto extends OutboxBacklog {
@@ -166,6 +169,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
   const tickStore = options.tickStore ?? supabaseExternalTickStore;
   const drains = options.drains ?? defaultWorkerDrains;
   const readOutbox = options.outboxBacklog ?? ((now: Date) => supabaseNotificationStore.outboxBacklog(now));
+  const readColdArchive = options.coldArchiveHealth ?? readColdArchiveHealth;
 
   r.get("/hq/system-health", requireHqPermission("settings_manage"), async (req: Request, res: Response) => {
     try {
@@ -173,7 +177,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
       // The outbox read is separate from the job ledger: when it fails the
       // page still shows the jobs, and the outbox tiles read as unavailable
       // rather than an empty, healthy-looking queue.
-      const [states, recentRuns, ticks, outbox, warehouse] = await Promise.all([
+      const [states, recentRuns, ticks, outbox, warehouse, coldArchive] = await Promise.all([
         store.listStates(),
         store.listRecentRuns(25),
         tickStore.list(),
@@ -199,6 +203,11 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
             return null;
           },
         ),
+        // Cold archive backlog: a failed tally shows as unavailable, never as an empty, caught-up archive.
+        readColdArchive(now).catch((error: unknown) => {
+          req.log?.error({ err: error }, "cold archive health read failed");
+          return null;
+        }),
       ]);
       const stateByName = new Map(states.map((s) => [s.jobName, s]));
       const jobs: JobHealthDto[] = [];
@@ -227,6 +236,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
         recentRuns: recentRuns.map(runDto),
         outbox,
         warehouse,
+        coldArchive,
         patientSignIns,
         externalTrigger: toExternalTriggerHealth(ticks, now),
       });

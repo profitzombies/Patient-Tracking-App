@@ -11,14 +11,14 @@ import { envInt } from "../lib/env";
 import { latencyBudget } from "../lib/request-metrics";
 
 export type ThresholdLevel = "ok" | "amber" | "red";
-export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth" | "warehouse_poll";
+export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth" | "warehouse_poll" | "cold_archive";
 
 export interface ThresholdFinding {
   metric: ThresholdMetric;
   level: Exclude<ThresholdLevel, "ok">;
   /** Route family for latency findings; null for growth. */
   family: string | null;
-  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful poll for the warehouse feed. */
+  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful poll for the warehouse feed, consecutive failed runs (red) or pending days (amber) for the cold archive. */
   value: number;
   /** The limit that was crossed, in the same unit. */
   limit: number;
@@ -81,6 +81,21 @@ export interface WarehousePollInput {
   lastError: string | null;
 }
 
+/** Cold archive job health (see lib/cold-archive.ts); null when the ledger could not be read. */
+export interface ColdArchiveInput {
+  enabled: boolean;
+  storageConfigured: boolean;
+  /** Failed runs in a row on the cold-archive job state. */
+  consecutiveFailures: number;
+  daysPending: number;
+  lastError: string | null;
+}
+
+/** Consecutive failed cold-archive runs that turn red (the nightly job has missed more than one night). */
+export const COLD_ARCHIVE_FAILURES_RED = 2;
+/** Closed days still pending that turn amber once the archive is on (a healthy nightly job keeps this near zero after the initial catch-up). */
+export const COLD_ARCHIVE_BACKLOG_AMBER_DAYS = 45;
+
 export interface GrowthInput {
   /** Bytes added since the previous daily snapshot, normalised to one day; null when there is no previous day. */
   databaseBytesPerDay: number | null;
@@ -96,8 +111,25 @@ export function formatBytesShort(bytes: number): string {
 }
 
 /** Latency findings use the last hour; families under `minRequests` are skipped (too few samples to call slow). */
-export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null; warehousePoll?: WarehousePollInput | null; now?: Date }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
+export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null; warehousePoll?: WarehousePollInput | null; coldArchive?: ColdArchiveInput | null; now?: Date }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
   const findings: ThresholdFinding[] = [];
+  // The cold archive only counts while HQ has it on: repeated failed runs are
+  // red (nights are being missed), a backlog past the limit is amber (the
+  // job runs but is not keeping up). Off = no finding, whatever the ledger says.
+  if (input.coldArchive && input.coldArchive.enabled) {
+    const archive = input.coldArchive;
+    if (archive.consecutiveFailures >= COLD_ARCHIVE_FAILURES_RED) {
+      findings.push({
+        metric: "cold_archive", level: "red", family: null, value: archive.consecutiveFailures, limit: COLD_ARCHIVE_FAILURES_RED,
+        message: `The cold archive job has failed ${archive.consecutiveFailures} runs in a row (limit ${COLD_ARCHIVE_FAILURES_RED}); ${archive.daysPending} day${archive.daysPending === 1 ? "" : "s"} pending.${archive.lastError ? ` Last error: ${archive.lastError}` : ""}`,
+      });
+    } else if (archive.daysPending > COLD_ARCHIVE_BACKLOG_AMBER_DAYS) {
+      findings.push({
+        metric: "cold_archive", level: "amber", family: null, value: archive.daysPending, limit: COLD_ARCHIVE_BACKLOG_AMBER_DAYS,
+        message: `The cold archive is ${archive.daysPending} days behind (limit ${COLD_ARCHIVE_BACKLOG_AMBER_DAYS}).`,
+      });
+    }
+  }
   // A dead warehouse feed is red once no poll has succeeded for longer than
   // the stalled limit (only after at least one poll ran: a never-configured
   // feed is not an outage).

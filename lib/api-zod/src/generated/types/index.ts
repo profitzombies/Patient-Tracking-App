@@ -118,6 +118,8 @@ export * from './coachMenuScanResult';
 export * from './coachMenuScanResultResult';
 export * from './coachRecipeImageInput';
 export * from './coachRecipeImageResult';
+export * from './coldArchiveHealth';
+export * from './coldArchiveSettingsStatus';
 export * from './conversationAssignee';
 export * from './conversationAssignInput';
 export * from './conversationEscalation';

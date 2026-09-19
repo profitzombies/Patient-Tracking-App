@@ -61,6 +61,22 @@ describe("thresholds", () => {
     expect(findings[1]?.message).toBe("Database grew 300.0 MB in a day, above the 250.0 MB per day amber limit.");
     expect(evaluateThresholds({ latencyLastHour: [], growth: { databaseBytesPerDay: null, storageBytesPerDay: -5 * MB } })).toEqual([]);
   });
+
+  it("raises the cold archive alert only while HQ has it on: repeated failures red, a long backlog amber", () => {
+    const base = { latencyLastHour: [], growth: null };
+    const archive = { enabled: true, storageConfigured: true, consecutiveFailures: 0, daysPending: 3, lastError: null };
+    expect(evaluateThresholds({ ...base, coldArchive: archive })).toEqual([]);
+    expect(evaluateThresholds({ ...base, coldArchive: { ...archive, consecutiveFailures: 1 } })).toEqual([]);
+    const red = evaluateThresholds({ ...base, coldArchive: { ...archive, consecutiveFailures: 2, daysPending: 1, lastError: "storage returned 503" } });
+    expect(red.map((f) => [f.metric, f.level, f.value, f.limit])).toEqual([["cold_archive", "red", 2, 2]]);
+    expect(red[0]?.message).toBe("The cold archive job has failed 2 runs in a row (limit 2); 1 day pending. Last error: storage returned 503");
+    const amber = evaluateThresholds({ ...base, coldArchive: { ...archive, daysPending: 46 } });
+    expect(amber.map((f) => [f.metric, f.level, f.value, f.limit])).toEqual([["cold_archive", "amber", 46, 45]]);
+    expect(evaluateThresholds({ ...base, coldArchive: { ...archive, daysPending: 45 } })).toEqual([]);
+    // Off (or unreadable) archive never alerts, whatever the ledger says.
+    expect(evaluateThresholds({ ...base, coldArchive: { ...archive, enabled: false, consecutiveFailures: 9, daysPending: 400 } })).toEqual([]);
+    expect(evaluateThresholds({ ...base, coldArchive: null })).toEqual([]);
+  });
 });
 
 describe("latencyFamilyFromRow", () => {

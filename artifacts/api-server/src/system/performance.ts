@@ -10,7 +10,9 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { estimateQuantile, latencyBudget, STREAMING_FAMILIES } from "../lib/request-metrics";
 import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
-import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
+import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ColdArchiveInput, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
+import { readColdArchiveHealth } from "../lib/cold-archive";
+import { supabaseJobStore } from "../jobs/store";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -316,7 +318,9 @@ export interface PerformanceReaders {
   growth?: (now: Date, config: ThresholdConfig) => Promise<GrowthDto | null>;
   /** Warehouse status feed freshness; feeds the stalled-feed threshold. */
   warehousePoll?: (now: Date) => Promise<WarehousePollInput | null>;
-  onError?: (section: "latency" | "slowStatements" | "growth" | "warehousePoll", error: unknown) => void;
+  /** Cold archive job health; feeds the repeated-failure / backlog threshold. */
+  coldArchive?: (now: Date) => Promise<ColdArchiveInput | null>;
+  onError?: (section: "latency" | "slowStatements" | "growth" | "warehousePoll" | "coldArchive", error: unknown) => void;
 }
 
 async function readWarehousePoll(now: Date): Promise<WarehousePollInput | null> {
@@ -324,9 +328,20 @@ async function readWarehousePoll(now: Date): Promise<WarehousePollInput | null> 
   return { lastSuccessAt: health.last_success_at, lastPollAt: health.last_poll_at, stalledAfterMinutes: health.stalled_after_minutes, lastError: health.last_error };
 }
 
+async function readColdArchive(now: Date): Promise<ColdArchiveInput | null> {
+  const [health, state] = await Promise.all([readColdArchiveHealth(now), supabaseJobStore.getState("cold-archive")]);
+  return {
+    enabled: health.enabled,
+    storageConfigured: health.storageConfigured,
+    consecutiveFailures: state?.consecutiveFailures ?? 0,
+    daysPending: health.daysPending,
+    lastError: state?.lastError ?? null,
+  };
+}
+
 export async function readPerformance(now: Date, readers: PerformanceReaders = {}): Promise<PerformanceDto> {
   const config = thresholdConfig();
-  const guard = async <T>(section: "latency" | "slowStatements" | "growth" | "warehousePoll", read: () => Promise<T>): Promise<T | null> => {
+  const guard = async <T>(section: "latency" | "slowStatements" | "growth" | "warehousePoll" | "coldArchive", read: () => Promise<T>): Promise<T | null> => {
     try {
       return await read();
     } catch (error) {
@@ -334,17 +349,18 @@ export async function readPerformance(now: Date, readers: PerformanceReaders = {
       return null;
     }
   };
-  const [latency, slowStatements, growth, warehousePoll] = await Promise.all([
+  const [latency, slowStatements, growth, warehousePoll, coldArchive] = await Promise.all([
     guard("latency", () => (readers.latency ?? readLatency)(now)),
     guard("slowStatements", () => (readers.slowStatements ?? readSlowStatements)()),
     guard("growth", () => (readers.growth ?? readGrowth)(now, config)),
     guard("warehousePoll", () => (readers.warehousePoll ?? readWarehousePoll)(now)),
+    guard("coldArchive", () => (readers.coldArchive ?? readColdArchive)(now)),
   ]);
   const findings = evaluateThresholds(
     {
       latencyLastHour: latency ? latency.lastHour.families.map((family) => ({ family: family.family, requests: family.requests, p95Ms: family.p95Ms })) : [],
       growth: growth ? { databaseBytesPerDay: growth.database.bytesPerDay, storageBytesPerDay: growth.storage.bytesPerDay } : null,
-      warehousePoll, now,
+      warehousePoll, coldArchive, now,
     },
     config,
   );

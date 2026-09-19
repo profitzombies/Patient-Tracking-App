@@ -27,6 +27,9 @@
  *     - the patient push outbox tiles show backlog size, oldest due age, and
  *       in-flight rows; an unreadable outbox shows dashes and a notice, never
  *       zeros.
+ *     - the cold storage archive tiles show days pending, last archived day,
+ *       days archived, and bytes written; off / unconfigured / unreadable
+ *       states each read in words rather than as a calm zero.
  *
  *   Login codes per active patient (verification cost)
  *     - this month's tiles and the per-month table come straight from the
@@ -168,6 +171,11 @@ let warehouse: WarehouseFixture = {
   recent_failures: [{ order_id: 'order-77', order_number: 'TH-4Q7K2M', error: 'ItemSKU not recognized: REGULATE-OLD', at: new Date(NOW - 40 * 60_000).toISOString(), state: 'needs_attention' }],
   sync: healthySync,
 };
+type ColdArchiveFixture = { enabled: boolean; storageConfigured: boolean; earliestDay: string | null; lastArchivedDay: string | null; lastArchivedAt: string | null; daysArchived: number; daysPending: number; rowsArchived: number; bytesWritten: number } | null | undefined;
+let coldArchive: ColdArchiveFixture = {
+  enabled: true, storageConfigured: true, earliestDay: '2026-08-01', lastArchivedDay: '2026-09-16', lastArchivedAt: new Date(NOW - 7 * 3_600_000).toISOString(),
+  daysArchived: 47, daysPending: 2, rowsArchived: 1_284_311, bytesWritten: 3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024,
+};
 let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknown } = (name, dryRun) => ({
   status: 200,
   body: { run: { id: 'run-9', jobName: name, trigger: 'manual', dryRun, status: 'succeeded', owner: 'api:1', startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), counts: dryRun ? { wouldDelete: 3 } : { deleted: 3 }, failureCount: 0, error: null } },
@@ -245,7 +253,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger, warehouse });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger, warehouse, coldArchive });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -395,6 +403,46 @@ console.log('\nsystem health: push outbox backlog');
     textOf(byTestId(unreadable.root, 'metric-outbox-due')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-outbox-in-flight')[0]) === '—' && byTestId(unreadable.root, 'text-outbox-unreadable').length === 1
       && byTestId(unreadable.root, 'job-retention-chat').length === 1);
   outbox = { due: 4200, oldestDueAt: new Date(NOW - 12 * 60_000).toISOString(), oldestDueAgeMs: 12 * 60_000, inFlight: 200 };
+}
+
+console.log('\nsystem health: cold storage archive');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  const tile = (id: string) => textOf(byTestId(root, `metric-cold-archive-${id}`)[0]);
+  check('the archive tiles show backlog, last archived day, days archived, and bytes written',
+    tile('pending') === '2' && tile('last-day') === 'Sep 16, 2026' && tile('days') === '47' && tile('bytes') === '3.3 GB',
+    `${tile('pending')} / ${tile('last-day')} / ${tile('days')} / ${tile('bytes')}`);
+  const section = textOf(byTestId(root, 'system-health-cold-archive')[0]);
+  check('an on, configured archive shows the nightly bound and the data start, no notices',
+    section.includes('Up to 30 archived per night') && section.includes('Data starts Aug 1, 2026') && section.includes('1,284,311 rows')
+      && byTestId(root, 'text-cold-archive-off').length === 0 && byTestId(root, 'text-cold-archive-unreadable').length === 0 && byTestId(root, 'text-cold-archive-unconfigured').length === 0,
+    section);
+
+  coldArchive = { enabled: false, storageConfigured: false, earliestDay: '2026-08-01', lastArchivedDay: null, lastArchivedAt: null, daysArchived: 0, daysPending: 48, rowsArchived: 0, bytesWritten: 0 };
+  const off = await render('/admin/system-health', <SystemHealth />);
+  const offText = textOf(byTestId(off.root, 'text-cold-archive-off')[0]);
+  check('an off archive says so, names the missing prefix, and counts the days it would archive',
+    offText.includes('switched off in Organization settings') && offText.includes('COLD_ARCHIVE_OBJECT_DIR') && offText.includes('48 closed days would be archived once it is on')
+      && textOf(byTestId(off.root, 'metric-cold-archive-last-day')[0]) === 'None yet' && textOf(byTestId(off.root, 'metric-cold-archive-bytes')[0]) === '0 B'
+      && textOf(byTestId(off.root, 'system-health-cold-archive')[0]).includes('Archive is off'),
+    offText);
+
+  coldArchive = { enabled: true, storageConfigured: false, earliestDay: null, lastArchivedDay: null, lastArchivedAt: null, daysArchived: 0, daysPending: 0, rowsArchived: 0, bytesWritten: 0 };
+  const unconfigured = await render('/admin/system-health', <SystemHealth />);
+  check('on without a storage prefix raises the alert and reads no data yet',
+    byTestId(unconfigured.root, 'text-cold-archive-unconfigured').length === 1 && textOf(byTestId(unconfigured.root, 'system-health-cold-archive')[0]).includes('No data to archive yet'));
+
+  coldArchive = null;
+  const unreadable = await render('/admin/system-health', <SystemHealth />);
+  check('an unreadable archive ledger shows dashes and a notice, never zeros',
+    textOf(byTestId(unreadable.root, 'metric-cold-archive-pending')[0]) === '—' && textOf(byTestId(unreadable.root, 'metric-cold-archive-bytes')[0]) === '—'
+      && byTestId(unreadable.root, 'text-cold-archive-unreadable').length === 1 && byTestId(unreadable.root, 'job-retention-chat').length === 1);
+
+  coldArchive = undefined;
+  const older = await render('/admin/system-health', <SystemHealth />);
+  check('an API without the archive field shows waiting dashes and no unreadable notice',
+    textOf(byTestId(older.root, 'metric-cold-archive-pending')[0]) === '—' && byTestId(older.root, 'text-cold-archive-unreadable').length === 0);
+  coldArchive = { enabled: true, storageConfigured: true, earliestDay: '2026-08-01', lastArchivedDay: '2026-09-16', lastArchivedAt: new Date(NOW - 7 * 3_600_000).toISOString(), daysArchived: 47, daysPending: 2, rowsArchived: 1_284_311, bytesWritten: 3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024 };
 }
 
 console.log('\nsystem health: warehouse submissions');

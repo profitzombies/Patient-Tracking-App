@@ -14,4 +14,5 @@ export interface PolicySectionChanges {
   conversations: PolicySectionChange | null;
   retention: PolicySectionChange | null;
   security: PolicySectionChange | null;
+  archive: PolicySectionChange | null;
 }

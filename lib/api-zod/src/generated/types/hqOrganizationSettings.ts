@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ColdArchiveSettingsStatus } from './coldArchiveSettingsStatus';
 import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
 import type { PolicySectionChanges } from './policySectionChanges';
 import type { QuietHoursWindow } from './quietHoursWindow';
@@ -37,6 +38,8 @@ export interface HqOrganizationSettings {
   conversationAutoCloseDays: number;
   retention: RetentionPolicy;
   exportLinkHours: number;
+  /** Nightly cold archive of raw events and business rows to object storage (off by default). */
+  coldArchiveEnabled: boolean;
   /** Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten). */
   staffIdleTimeoutMinutes: number;
   /** Same window for HQ members (5–120). */
@@ -44,4 +47,5 @@ export interface HqOrganizationSettings {
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;
+  coldArchive: ColdArchiveSettingsStatus;
 }

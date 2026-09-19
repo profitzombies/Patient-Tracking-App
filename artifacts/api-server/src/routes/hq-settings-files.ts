@@ -27,6 +27,7 @@ import {
   sectionChangesFromRow,
 } from "../lib/org-policy";
 import { INVALID_SETTINGS, diffPolicy, hqActorName, mergePolicyInput, settingsDto, validHqTimezone } from "../lib/org-policy-edit";
+import { coldArchiveConfigured, readColdArchiveStatus } from "../lib/cold-archive";
 import {
   FILE_SELECT,
   HQ_FILE_TOO_LARGE_MESSAGE,
@@ -289,10 +290,26 @@ function isDuplicateFolder(name: string, parentId: string | null, folders: Folde
   );
 }
 
+/**
+ * Read-only cold archive facts beside the toggle. The status read is best
+ * effort: a failed tally leaves the settings page usable (daysPending null,
+ * no last day) rather than failing the whole settings read.
+ */
+async function coldArchiveSettingsStatus(log: { error?: (obj: unknown, msg: string) => void } | undefined) {
+  const storageConfigured = coldArchiveConfigured();
+  try {
+    const status = await readColdArchiveStatus(new Date());
+    return { storageConfigured, lastArchivedDay: status.lastArchivedDay, daysPending: status.daysPending };
+  } catch (error) {
+    log?.error?.({ err: error }, "cold archive status read failed");
+    return { storageConfigured, lastArchivedDay: null, daysPending: null };
+  }
+}
+
 router.get("/hq/settings", async (req, res) => {
   try {
     const row = await readOrgSettingsRow();
-    res.json(settingsDto(row));
+    res.json({ ...settingsDto(row), coldArchive: await coldArchiveSettingsStatus(req.log) });
   } catch (error) {
     req.log?.error({ err: error }, "HQ settings read failed");
     res.status(502).json({ error: "Could not load organization settings right now." });
@@ -320,7 +337,7 @@ router.put("/hq/settings", async (req, res) => {
     }
     const changes = diffPolicy(current, merged.policy);
     if (changes.length === 0) {
-      res.json(settingsDto(currentRow));
+      res.json({ ...settingsDto(currentRow), coldArchive: await coldArchiveSettingsStatus(req.log) });
       return;
     }
     const now = new Date().toISOString();
@@ -359,7 +376,7 @@ router.put("/hq/settings", async (req, res) => {
         }).catch(error => req.log?.error({ err: error, field: change.field }, "HQ settings audit failed")),
       ),
     );
-    res.json(settingsDto(row));
+    res.json({ ...settingsDto(row), coldArchive: await coldArchiveSettingsStatus(req.log) });
   } catch (error) {
     req.log?.error({ err: error }, "HQ settings update failed");
     res.status(502).json({ error: "Could not save organization settings right now." });

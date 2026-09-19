@@ -11,7 +11,7 @@
  */
 import { supabaseAdmin } from "./supabase-admin";
 
-export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention", "security"] as const;
+export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention", "security", "archive"] as const;
 
 /** 6 years: HIPAA's minimum for compliance documentation and the audit trail. */
 export const AUDIT_EVENT_RETENTION_FLOOR_DAYS = 2190;
@@ -73,6 +73,8 @@ export interface OrgPolicy {
    */
   staffIdleTimeoutMinutes: number;
   hqIdleTimeoutMinutes: number;
+  /** Nightly cold archive of raw events and business rows to object storage (off by default; needs COLD_ARCHIVE_OBJECT_DIR). */
+  coldArchiveEnabled: boolean;
   version: number;
   updatedAt: string;
 }
@@ -104,6 +106,7 @@ export const FIELD_SECTIONS = {
   exportLinkHours: "retention",
   staffIdleTimeoutMinutes: "security",
   hqIdleTimeoutMinutes: "security",
+  coldArchiveEnabled: "archive",
 } as const satisfies Record<Exclude<keyof OrgPolicy, "version" | "updatedAt">, PolicySection>;
 export type PolicyField = keyof typeof FIELD_SECTIONS;
 
@@ -162,6 +165,7 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
   exportLinkHours: 24,
   staffIdleTimeoutMinutes: 15,
   hqIdleTimeoutMinutes: 15,
+  coldArchiveEnabled: false,
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
 };
@@ -180,7 +184,7 @@ export const SETTINGS_SELECT =
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
-  "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,section_changes";
+  "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled,section_changes";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -232,6 +236,7 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
     exportLinkHours: int(row.export_link_hours, d.exportLinkHours),
     staffIdleTimeoutMinutes: int(row.staff_idle_timeout_minutes, d.staffIdleTimeoutMinutes),
     hqIdleTimeoutMinutes: int(row.hq_idle_timeout_minutes, d.hqIdleTimeoutMinutes),
+    coldArchiveEnabled: row.cold_archive_enabled === true,
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
   };
@@ -286,6 +291,7 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     export_link_hours: policy.exportLinkHours,
     staff_idle_timeout_minutes: policy.staffIdleTimeoutMinutes,
     hq_idle_timeout_minutes: policy.hqIdleTimeoutMinutes,
+    cold_archive_enabled: policy.coldArchiveEnabled,
   };
 }
 

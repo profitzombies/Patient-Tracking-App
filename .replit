@@ -348,6 +348,14 @@ args = "patient-record-api"
 task = "workflow.run"
 args = "patient-record-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "cold-archive-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "cold-archive-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2432,12 +2440,34 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vi
 isValidation = true
 
 [[workflows.workflow]]
+name = "cold-archive-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/jobs/cold-archive.sql.test.ts src/lib/cold-archive.test.ts src/system/performance.test.ts src/jobs/definitions/system-thresholds.test.ts src/routes/hq-org-policy.test.ts src/routes/system-jobs.test.ts src/routes/hq-settings-files.test.ts src/jobs/scheduler.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
 name = "patient-record-web"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-record-export && pnpm --filter @workspace/thinnr-operations run test:office-audit && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "cold-archive-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

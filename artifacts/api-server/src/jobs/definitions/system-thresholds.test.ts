@@ -43,6 +43,7 @@ const readers = {
   slowStatements: async () => ({ statsResetAt: null, byTotal: [], byMean: [] }),
   growth: async () => null,
   warehousePoll: async () => null,
+  coldArchive: async () => null,
 };
 
 describe("system-thresholds job", () => {
@@ -128,6 +129,29 @@ describe("system-thresholds job", () => {
       dedupe_key: "system_threshold:warehouse_poll:-:red:2026-09-18:u1:email",
       data: expect.objectContaining({ metric: "warehouse_poll", limit: 60, message: expect.stringContaining("Last error: HTTP 503") }),
     });
+  });
+
+  it("raises a red HQ alert when the cold archive job keeps failing, and stays quiet while HQ has the archive off", async () => {
+    mocks.admin.mockResolvedValue({ status: 201, json: [{ id: "n1" }] });
+    const quietLatency = async () => ({ lastHour: { since: "h", families: [] }, lastDay: { since: "d", families: [] } });
+    const failing = { enabled: true, storageConfigured: true, consecutiveFailures: 2, daysPending: 4, lastError: "storage returned 503" };
+    const off = ctx();
+    await runSystemThresholds(off.context, {
+      readers: { ...readers, latency: quietLatency, coldArchive: async () => ({ ...failing, enabled: false }) },
+      recipients: async () => { throw new Error("recipients must not be read"); },
+    });
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(off.tallies).toEqual({ findings: 0, redFindings: 0 });
+
+    const { context, tallies } = ctx();
+    await runSystemThresholds(context, { readers: { ...readers, latency: quietLatency, coldArchive: async () => failing }, recipients: async () => recipients });
+    expect(tallies).toMatchObject({ findings: 1, redFindings: 1, alertsQueued: 1 });
+    const rows = mocks.admin.mock.calls[0]![2] as Array<Record<string, unknown>>;
+    expect(rows[0]).toMatchObject({
+      dedupe_key: "system_threshold:cold_archive:-:red:2026-09-18:u1:email",
+      data: expect.objectContaining({ metric: "cold_archive", level: "red", value: 2, limit: 2, message: expect.stringContaining("4 days pending. Last error: storage returned 503") }),
+    });
+    expect(rows[0]!.title).toBe("Red: Cold archive failing");
   });
 
   it("runs every 15 minutes", () => {

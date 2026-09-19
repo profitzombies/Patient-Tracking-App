@@ -1,7 +1,8 @@
 /**
  * system-thresholds: every 15 minutes, evaluate the System health thresholds
  * (p95 latency per route family over the last hour, database growth per
- * day, object-storage growth per day, warehouse status feed freshness) and queue an email to each active HQ
+ * day, object-storage growth per day, warehouse status feed freshness, cold
+ * archive failures/backlog) and queue an email to each active HQ
  * administrator for every amber or red finding.
  *
  * The rows ride the staff alert outbox (kind system_threshold, no office) so
@@ -47,7 +48,8 @@ export function thresholdTitle(finding: ThresholdFinding): string {
   const label = finding.metric === "p95_latency" ? `Slow route ${finding.family}`
     : finding.metric === "db_growth" ? "Database growing fast"
       : finding.metric === "warehouse_poll" ? "Warehouse status feed stalled"
-        : "Storage growing fast";
+        : finding.metric === "cold_archive" ? (finding.level === "red" ? "Cold archive failing" : "Cold archive behind")
+          : "Storage growing fast";
   return `${finding.level === "red" ? "Red" : "Amber"}: ${label}`;
 }
 

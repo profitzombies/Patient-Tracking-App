@@ -3975,7 +3975,7 @@ components:
         changedByName: { type: ["string", "null"] }
     PolicySectionChanges:
       type: object
-      required: [organization, coach, notifications, conversations, retention, security]
+      required: [organization, coach, notifications, conversations, retention, security, archive]
       properties:
         organization: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         coach: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
@@ -3983,6 +3983,15 @@ components:
         conversations: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         retention: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         security: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        archive: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+    ColdArchiveSettingsStatus:
+      type: object
+      description: Read-only cold archive facts shown next to the toggle.
+      required: [storageConfigured, lastArchivedDay, daysPending]
+      properties:
+        storageConfigured: { type: boolean, description: "True when COLD_ARCHIVE_OBJECT_DIR names a storage prefix on the server." }
+        lastArchivedDay: { type: ["string", "null"], description: "Last UTC day (YYYY-MM-DD) whose files and manifest all landed; null before the first run." }
+        daysPending: { type: ["number", "null"], description: "Closed UTC days not yet archived; null when the tally could not be read." }
     ConversationAssignInput:
       type: object
       additionalProperties: false
@@ -4104,11 +4113,13 @@ components:
         - conversationAutoCloseDays
         - retention
         - exportLinkHours
+        - coldArchiveEnabled
         - staffIdleTimeoutMinutes
         - hqIdleTimeoutMinutes
         - version
         - updatedAt
         - sections
+        - coldArchive
       properties:
         organizationName: { type: string }
         supportEmail: { type: ["string", "null"] }
@@ -4129,6 +4140,7 @@ components:
         conversationAutoCloseDays: { type: number }
         retention: { $ref: "#/components/schemas/RetentionPolicy" }
         exportLinkHours: { type: number }
+        coldArchiveEnabled: { type: boolean, description: "Nightly cold archive of raw events and business rows to object storage (off by default)." }
         staffIdleTimeoutMinutes:
           type: number
           description: Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten).
@@ -4138,6 +4150,7 @@ components:
         version: { type: number }
         updatedAt: { type: string }
         sections: { $ref: "#/components/schemas/PolicySectionChanges" }
+        coldArchive: { $ref: "#/components/schemas/ColdArchiveSettingsStatus" }
     HqOrganizationSettingsInput:
       type: object
       additionalProperties: false
@@ -4158,6 +4171,7 @@ components:
         conversationAutoCloseDays: { type: number, minimum: 1, maximum: 365 }
         retention: { $ref: "#/components/schemas/RetentionPolicy" }
         exportLinkHours: { type: number, minimum: 1, maximum: 168 }
+        coldArchiveEnabled: { type: boolean }
         staffIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
         hqIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
     OfficeQuietHoursOverride:
@@ -4464,6 +4478,25 @@ components:
           oneOf:
             - $ref: "#/components/schemas/WarehouseSubmissionHealth"
             - type: "null"
+        # Cold archive backlog and high-water mark; null when it could not be read.
+        # Optional so older servers still validate.
+        coldArchive:
+          oneOf:
+            - $ref: "#/components/schemas/ColdArchiveHealth"
+            - type: "null"
+    ColdArchiveHealth:
+      type: object
+      required: [enabled, storageConfigured, earliestDay, lastArchivedDay, lastArchivedAt, daysArchived, daysPending, rowsArchived, bytesWritten]
+      properties:
+        enabled: { type: boolean }
+        storageConfigured: { type: boolean }
+        earliestDay: { type: ["string", "null"], description: "First UTC day with any archivable data." }
+        lastArchivedDay: { type: ["string", "null"] }
+        lastArchivedAt: { type: ["string", "null"] }
+        daysArchived: { type: number }
+        daysPending: { type: number, description: "Closed UTC days not yet archived." }
+        rowsArchived: { type: number }
+        bytesWritten: { type: number, description: "Compressed bytes written across every archived day." }
     WarehouseSubmissionHealth:
       type: object
       required: [pending, due, sent24h, failed24h, retries24h, needs_attention, auto_submit, recent_failures]
@@ -4544,7 +4577,7 @@ components:
       type: object
       required: [metric, level, family, value, limit, message]
       properties:
-        metric: { type: string, enum: [p95_latency, db_growth, storage_growth, warehouse_poll] }
+        metric: { type: string, enum: [p95_latency, db_growth, storage_growth, warehouse_poll, cold_archive] }
         level: { type: string, enum: [amber, red] }
         family: { type: ["string", "null"], description: Route family for latency findings; null for growth and the warehouse feed. }
         value: { type: number, description: "Observed value: ms for latency, bytes per day for growth, minutes since the last successful warehouse poll." }

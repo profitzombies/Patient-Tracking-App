@@ -9,6 +9,8 @@ import { ensureBillingWebhookEndpoints } from "./billing/webhook-endpoints";
 import { usageStore } from "./coach/usage-store";
 import { installModelUsageLedger } from "./ai-usage/ledger";
 import { modelAssignments } from "./ai/models";
+import { COLD_ARCHIVE_ENV, coldArchiveObjectDir, validateColdArchiveStartup } from "./lib/cold-archive";
+import { loadOrgPolicy } from "./lib/org-policy";
 
 const rawPort = process.env["PORT"];
 
@@ -19,6 +21,11 @@ if (!rawPort) {
 }
 
 const port = Number(rawPort);
+
+// The cold archive prefix knob must parse before anything boots: a malformed
+// value is a misconfiguration, not something to discover at 02:00 when the
+// nightly job runs.
+const coldArchiveDir = coldArchiveObjectDir();
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
@@ -74,6 +81,13 @@ app.listen(port, (err) => {
   registerAllJobs();
   startJobScheduler();
   void ensureBillingWebhookEndpoints();
+  // Cold archive: an enabled toggle with no storage prefix is logged loudly
+  // at boot (the job fails visibly on every run until one of the two changes).
+  void loadOrgPolicy().then((policy) => {
+    const check = validateColdArchiveStartup({ enabled: policy.coldArchiveEnabled });
+    if (!check.ok) logger.error({ knob: COLD_ARCHIVE_ENV }, check.error);
+    else if (policy.coldArchiveEnabled) logger.info({ prefix: coldArchiveDir }, "cold archive is on");
+  }).catch((error: unknown) => logger.warn({ err: error }, "cold archive startup check skipped: organization policy unavailable"));
 });
 
 // Land the in-memory latency histogram (including the open minute) before a

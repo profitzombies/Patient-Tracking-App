@@ -1585,8 +1585,26 @@ export interface PolicySectionChanges {
   conversations: PolicySectionChange | null;
   retention: PolicySectionChange | null;
   security: PolicySectionChange | null;
+  archive: PolicySectionChange | null;
 }
 
+/**
+ * Read-only cold archive facts shown next to the toggle.
+ */
+export interface ColdArchiveSettingsStatus {
+  /** True when COLD_ARCHIVE_OBJECT_DIR names a storage prefix on the server. */
+  storageConfigured: boolean;
+  /**
+     * Last UTC day (YYYY-MM-DD) whose files and manifest all landed; null before the first run.
+     * @nullable
+     */
+  lastArchivedDay: string | null;
+  /**
+     * Closed UTC days not yet archived; null when the tally could not be read.
+     * @nullable
+     */
+  daysPending: number | null;
+}
 export interface ConversationAssignInput {
   /**
      * A staff user id from the staff list, "me" to claim, or null to unassign
@@ -1776,6 +1794,8 @@ export interface HqOrganizationSettings {
   conversationAutoCloseDays: number;
   retention: RetentionPolicy;
   exportLinkHours: number;
+  /** Nightly cold archive of raw events and business rows to object storage (off by default). */
+  coldArchiveEnabled: boolean;
   /** Minutes without activity before the operations web app warns, then signs office staff out (5–120; offices may shorten). */
   staffIdleTimeoutMinutes: number;
   /** Same window for HQ members (5–120). */
@@ -1783,6 +1803,7 @@ export interface HqOrganizationSettings {
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;
+  coldArchive: ColdArchiveSettingsStatus;
 }
 
 export interface HqOrganizationSettingsInput {
@@ -1847,6 +1868,7 @@ export interface HqOrganizationSettingsInput {
      * @maximum 168
      */
   exportLinkHours?: number;
+  coldArchiveEnabled?: boolean;
   /**
      * @minimum 5
      * @maximum 120
@@ -2485,6 +2507,25 @@ export interface WarehouseSubmissionHealth {
   sync?: WarehouseSyncHealth | null;
 }
 
+export interface ColdArchiveHealth {
+  enabled: boolean;
+  storageConfigured: boolean;
+  /**
+     * First UTC day with any archivable data.
+     * @nullable
+     */
+  earliestDay: string | null;
+  /** @nullable */
+  lastArchivedDay: string | null;
+  /** @nullable */
+  lastArchivedAt: string | null;
+  daysArchived: number;
+  /** Closed UTC days not yet archived. */
+  daysPending: number;
+  rowsArchived: number;
+  /** Compressed bytes written across every archived day. */
+  bytesWritten: number;
+}
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
@@ -2495,6 +2536,7 @@ export interface SystemHealthResult {
   patientSignIns: PatientSignInMonth[] | null;
   externalTrigger: ExternalTriggerHealth;
   warehouse?: WarehouseSubmissionHealth | null;
+  coldArchive?: ColdArchiveHealth | null;
 }
 
 export type ThresholdLevel = typeof ThresholdLevel[keyof typeof ThresholdLevel];
@@ -2514,6 +2556,7 @@ export const ThresholdFindingMetric = {
   db_growth: 'db_growth',
   storage_growth: 'storage_growth',
   warehouse_poll: 'warehouse_poll',
+  cold_archive: 'cold_archive',
 } as const;
 
 export type ThresholdFindingLevel = typeof ThresholdFindingLevel[keyof typeof ThresholdFindingLevel];
@@ -5346,4 +5389,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

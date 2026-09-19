@@ -27,6 +27,7 @@ const migrationNames = [
   "20261020000000_hq_file_size_limit.sql",
   "20261027000000_ledger_retention.sql",
   "20261106000000_clinical_record_retention.sql",
+  "20261107000000_cold_archive.sql",
 ];
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
@@ -143,6 +144,13 @@ await query(`
             and conname = 'hq_organization_settings_retention_audit_days_check'
             and pg_get_constraintdef(oid) like '%2190%'
        )
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema='public' and table_name='hq_organization_settings' and column_name='cold_archive_enabled'
+       )
+       or to_regclass('public.system_cold_archive_days') is null
+       or to_regprocedure('public.cold_archive_rows(text,date,text,integer)') is null
+       or to_regprocedure('public.cold_archive_status(date)') is null
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

@@ -381,6 +381,8 @@ const retentionPayload = (d: RetentionDraft): HqOrganizationSettingsInput => ({
   exportLinkHours: d.exportLinkHours,
 });
 
+interface ArchiveDraft { coldArchiveEnabled: boolean }
+
 interface SecurityDraft {
   staffIdleTimeoutMinutes: number;
   hqIdleTimeoutMinutes: number;
@@ -639,6 +641,37 @@ export function LivePolicySettings() {
           </>
         )}
       </PolicyCard>
+
+      <PolicyCard
+        section="archive"
+        title="Cold storage archive"
+        sub="A nightly copy of raw app events, audit events, orders, shipments, payments, refunds, and subscription changes into compressed files in a dedicated storage prefix. An insurance policy for the day raw rows are trimmed from the live database; nothing is ever deleted by it."
+        settings={settings}
+        fromSettings={archiveFrom}
+        toPayload={archivePayload}
+        incomplete={(draft) => (draft.coldArchiveEnabled && !settings.coldArchive.storageConfigured ? 'Cold storage is not configured on the server yet.' : null)}
+      >
+        {(draft, setDraft) => (
+          <FieldRow
+            label="Archive to cold storage"
+            help="Off by default. When on, each closed day (UTC) is written once, oldest first, as one gzip file per table plus a manifest with row counts and checksums; a day only counts once every file landed. Rows are copied as stored. Clinical records are not included; they are covered by exports and record sealing."
+            last
+          >
+            <div className="flex flex-col items-end gap-2">
+              <Switch
+                checked={draft.coldArchiveEnabled}
+                onCheckedChange={(checked) => setDraft({ coldArchiveEnabled: checked })}
+                disabled={!settings.coldArchive.storageConfigured && !draft.coldArchiveEnabled}
+                aria-label="Archive to cold storage"
+                data-testid="switch-policy-cold-archive"
+              />
+              <p className="max-w-[34ch] text-right text-[11px] leading-relaxed text-muted-foreground" data-testid="text-cold-archive-status">
+                {describeArchiveStatus(settings.coldArchive, settings.coldArchiveEnabled)}
+              </p>
+            </div>
+          </FieldRow>
+        )}
+      </PolicyCard>
     </>
   );
 }
@@ -661,3 +694,24 @@ const securityFrom = (s: HqOrganizationSettings): SecurityDraft => ({
   staffIdleTimeoutMinutes: s.staffIdleTimeoutMinutes,
   hqIdleTimeoutMinutes: s.hqIdleTimeoutMinutes,
 });
+
+const archiveFrom = (s: HqOrganizationSettings): ArchiveDraft => ({ coldArchiveEnabled: s.coldArchiveEnabled });
+
+/** "18 Sep 2026" for a YYYY-MM-DD archive day (UTC days; no timezone shift). */
+function formatArchiveDay(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+function describeArchiveStatus(status: HqOrganizationSettings['coldArchive'], enabled: boolean): string {
+  if (!status.storageConfigured) return 'Cold storage is not configured on the server (COLD_ARCHIVE_OBJECT_DIR), so the archive cannot be turned on yet.';
+  const last = status.lastArchivedDay ? `Last archived day: ${formatArchiveDay(status.lastArchivedDay)}.` : 'No day has been archived yet.';
+  const pending = status.daysPending === null || status.daysPending === undefined
+    ? 'Backlog unavailable right now.'
+    : status.daysPending === 0
+      ? 'Nothing pending.'
+      : `${status.daysPending.toLocaleString('en-US')} day${status.daysPending === 1 ? '' : 's'} pending${enabled ? ' (up to 30 per nightly run)' : ''}.`;
+  return `${last} ${pending}`;
+}
+
+const archivePayload = (d: ArchiveDraft): HqOrganizationSettingsInput => ({ coldArchiveEnabled: d.coldArchiveEnabled });

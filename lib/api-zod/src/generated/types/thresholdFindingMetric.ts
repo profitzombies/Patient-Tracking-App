@@ -14,4 +14,5 @@ export const ThresholdFindingMetric = {
   db_growth: 'db_growth',
   storage_growth: 'storage_growth',
   warehouse_poll: 'warehouse_poll',
+  cold_archive: 'cold_archive',
 } as const;

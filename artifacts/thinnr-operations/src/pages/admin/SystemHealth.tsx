@@ -47,6 +47,7 @@ import { MetricTile, PageHeader } from '@/components/admin/primitives';
 import { useToast } from '@/hooks/use-toast';
 import { fetchStaffAlertDeliveries } from '@/lib/office-alerts-api';
 import { SystemPerformancePanels } from './SystemPerformance';
+import { formatBytes } from '@/components/admin/files/utils';
 
 export const STATUS_LABEL: Record<SystemJobHealthStatus, string> = {
   ok: 'Healthy',
@@ -182,6 +183,75 @@ function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemH
  * the sync (older payloads), `null` = the poll ledger could not be read. A stalled
  * feed is called out in words because the tiles alone would still look calm.
  */
+/** "Sep 18, 2026" for a YYYY-MM-DD archive day (UTC days; no timezone shift). */
+function archiveDay(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return format(new Date(y, m - 1, d), 'MMM d, yyyy');
+}
+
+/**
+ * Nightly cold archive backlog. `undefined` = not loaded yet, `null` = the
+ * archive ledger could not be read (unavailable, never a caught-up zero).
+ * Off by default: the section then says so instead of showing a backlog as
+ * if it were a problem.
+ */
+function ColdArchiveSection({ archive, loaded }: { archive: SystemHealthResult['coldArchive'] | undefined; loaded: boolean }) {
+  const unreadable = loaded && archive === null;
+  const missing = unreadable ? 'Archive ledger unreadable' : 'Waiting for first read';
+  const on = archive?.enabled === true;
+  return (
+    <section className="mt-6" aria-labelledby="cold-archive-heading" data-testid="system-health-cold-archive">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="cold-archive-heading" className="font-serif text-base font-bold text-navy">Cold storage archive</h2>
+        <p className="text-[11px] text-muted-foreground">Nightly gzip copies of raw app events, audit events, and billing rows, one closed UTC day at a time, under the cold storage prefix. Never deletes anything.</p>
+      </div>
+      {unreadable && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-cold-archive-unreadable">
+          The archive ledger could not be read, so these figures are unavailable rather than zero.
+        </p>
+      )}
+      {archive && !archive.enabled && (
+        <p role="status" className="mt-3 rounded-md border border-border bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground" data-testid="text-cold-archive-off">
+          The archive is switched off in Organization settings, so the nightly job does nothing.
+          {archive.storageConfigured ? '' : ' Cold storage is not configured on the server (COLD_ARCHIVE_OBJECT_DIR), which is needed before it can be turned on.'}
+          {archive.daysPending > 0 ? ` ${archive.daysPending.toLocaleString()} closed ${archive.daysPending === 1 ? 'day' : 'days'} would be archived once it is on.` : ''}
+        </p>
+      )}
+      {archive && archive.enabled && !archive.storageConfigured && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-cold-archive-unconfigured">
+          The archive is on but COLD_ARCHIVE_OBJECT_DIR is not set on the server, so every nightly run fails until it is.
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MetricTile
+          label="Days pending"
+          value={archive ? archive.daysPending.toLocaleString() : '—'}
+          detail={archive ? (archive.daysPending === 0 ? (archive.earliestDay ? 'Caught up' : 'No data to archive yet') : on ? 'Up to 30 archived per night' : 'Archive is off') : missing}
+          testId="metric-cold-archive-pending"
+        />
+        <MetricTile
+          label="Last archived day"
+          value={archive ? (archive.lastArchivedDay ? archiveDay(archive.lastArchivedDay) : 'None yet') : '—'}
+          detail={archive ? (archive.lastArchivedAt ? `Written ${when(archive.lastArchivedAt)}` : on ? 'Waiting for the first nightly run' : 'Nothing archived') : missing}
+          testId="metric-cold-archive-last-day"
+        />
+        <MetricTile
+          label="Days archived"
+          value={archive ? archive.daysArchived.toLocaleString() : '—'}
+          detail={archive ? (archive.earliestDay ? `Data starts ${archiveDay(archive.earliestDay)}` : 'No archivable rows yet') : missing}
+          testId="metric-cold-archive-days"
+        />
+        <MetricTile
+          label="Bytes written"
+          value={archive ? formatBytes(archive.bytesWritten) : '—'}
+          detail={archive ? `${archive.rowsArchived.toLocaleString()} rows, compressed` : missing}
+          testId="metric-cold-archive-bytes"
+        />
+      </div>
+    </section>
+  );
+}
+
 function WarehouseSyncTiles({ sync }: { sync: NonNullable<SystemHealthResult['warehouse']>['sync'] }) {
   if (sync === undefined) return null;
   const missing = 'Poll ledger unreadable';
@@ -514,6 +584,8 @@ export default function SystemHealth() {
           </section>
 
           <WarehouseSubmissionsSection warehouse={data?.warehouse} loaded={Boolean(data)} />
+
+          <ColdArchiveSection archive={data?.coldArchive} loaded={Boolean(data)} />
 
           {isError && (
             <div role="alert" className="mt-6 rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-4 py-3 text-xs text-destructive" data-testid="text-system-health-error">

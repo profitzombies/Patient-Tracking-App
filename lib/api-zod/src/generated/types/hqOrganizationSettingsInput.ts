@@ -71,6 +71,7 @@ export interface HqOrganizationSettingsInput {
      * @maximum 168
      */
   exportLinkHours?: number;
+  coldArchiveEnabled?: boolean;
   /**
      * @minimum 5
      * @maximum 120

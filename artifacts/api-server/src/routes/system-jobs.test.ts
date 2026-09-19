@@ -28,6 +28,7 @@ import type { JobDefinition } from "../jobs/types";
 import type { WorkerDrains } from "../jobs/worker-drains";
 import { createSystemJobsRouter, describeInterval, jobHealthStatus, type JobHealthDto } from "./system-jobs";
 import type { PerformanceDto } from "../system/performance";
+import type { ColdArchiveHealth } from "../lib/cold-archive";
 import { thresholdConfig } from "../system/thresholds";
 
 let clock = new Date("2026-09-07T12:00:00Z");
@@ -51,6 +52,8 @@ let outbox: (now: Date) => Promise<{ due: number; oldestDueAt: string | null; in
 });
 let server: http.Server;
 let base = "";
+const coldArchiveIdle: ColdArchiveHealth = { enabled: false, storageConfigured: false, earliestDay: null, lastArchivedDay: null, lastArchivedAt: null, daysArchived: 0, daysPending: 0, rowsArchived: 0, bytesWritten: 0 };
+let coldArchive: (now: Date) => Promise<ColdArchiveHealth> = async () => coldArchiveIdle;
 let performance: (now: Date) => Promise<PerformanceDto> = async (now) => ({
   asOf: now.toISOString(), latency: null, slowStatements: null, growth: null,
   thresholds: { level: "ok", config: thresholdConfig(), findings: [] },
@@ -63,7 +66,7 @@ function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinit
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now), readPerformance: (now) => performance(now) }));
+  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now), readPerformance: (now) => performance(now), coldArchiveHealth: (now) => coldArchive(now) }));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -82,6 +85,7 @@ beforeEach(() => {
   drainReturns.purges = async () => 0;
   resetJobRegistry();
   outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
+  coldArchive = async () => coldArchiveIdle;
   mocks.audit.mockReset().mockResolvedValue(undefined);
   // No ledger by default: the sign-in metric degrades to null.
   mocks.admin.mockReset().mockResolvedValue({ status: 503, json: null });
@@ -159,6 +163,21 @@ describe("GET /hq/system-health", () => {
     const broken = await fetch(`${base}/hq/system-health`, { headers: admin });
     expect(broken.status).toBe(200);
     expect((await broken.json() as { outbox: unknown }).outbox).toBeNull();
+  });
+
+  it("reports the cold archive backlog, last archived day, and bytes written, and null (not a caught-up archive) when the ledger is unreadable", async () => {
+    coldArchive = async () => ({ enabled: true, storageConfigured: true, earliestDay: "2026-08-01", lastArchivedDay: "2026-09-05", lastArchivedAt: "2026-09-06T02:00:00.000Z", daysArchived: 36, daysPending: 1, rowsArchived: 90_210, bytesWritten: 7_340_032 });
+    const res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { coldArchive: ColdArchiveHealth | null };
+    expect(body.coldArchive).toEqual({ enabled: true, storageConfigured: true, earliestDay: "2026-08-01", lastArchivedDay: "2026-09-05", lastArchivedAt: "2026-09-06T02:00:00.000Z", daysArchived: 36, daysPending: 1, rowsArchived: 90_210, bytesWritten: 7_340_032 });
+
+    coldArchive = async () => { throw new Error("pg down"); };
+    const broken = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(broken.status).toBe(200);
+    const degraded = await broken.json() as { coldArchive: unknown; jobs: unknown[] };
+    expect(degraded.coldArchive).toBeNull();
+    expect(Array.isArray(degraded.jobs)).toBe(true);
   });
 
   it("carries text-message login codes per active patient per month, newest first", async () => {

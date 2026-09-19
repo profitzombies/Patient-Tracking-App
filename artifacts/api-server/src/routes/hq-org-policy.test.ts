@@ -7,7 +7,7 @@
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
@@ -47,6 +47,7 @@ const db = vi.hoisted(() => {
     export_link_hours: 24,
     staff_idle_timeout_minutes: 15,
     hq_idle_timeout_minutes: 15,
+    cold_archive_enabled: false,
     section_changes: {},
   });
   const state = {
@@ -176,10 +177,54 @@ describe("HQ organization policy", () => {
       exportLinkHours: 24,
       staffIdleTimeoutMinutes: 15,
       hqIdleTimeoutMinutes: 15,
+      coldArchiveEnabled: false,
       version: 1,
-      sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null },
+      sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null, archive: null },
+      // The cold storage status rides the settings read: knob state plus the
+      // ledger's last day / backlog (null when the ledger cannot be read).
+      coldArchive: { storageConfigured: false, lastArchivedDay: null, daysPending: null },
     });
   });
+
+  describe("cold archive toggle", () => {
+    const saved = process.env.COLD_ARCHIVE_OBJECT_DIR;
+    afterEach(() => {
+      if (saved === undefined) delete process.env.COLD_ARCHIVE_OBJECT_DIR;
+      else process.env.COLD_ARCHIVE_OBJECT_DIR = saved;
+    });
+
+    it("refuses to turn the archive on while the storage prefix is not configured, and audits nothing", async () => {
+      delete process.env.COLD_ARCHIVE_OBJECT_DIR;
+      const { status, json } = await putSettings({ coldArchiveEnabled: true });
+      expect(status).toBe(400);
+      expect(json.error).toContain("COLD_ARCHIVE_OBJECT_DIR");
+      expect(db.settings.version).toBe(1);
+      expect(db.settings.cold_archive_enabled).toBe(false);
+      expect(mocks.audit).not.toHaveBeenCalled();
+      // Turning it off (or leaving it off) never needs the prefix.
+      expect((await putSettings({ coldArchiveEnabled: false })).status).toBe(200);
+    });
+
+    it("turns on once the prefix is set, stamps only the archive section, audits the change, and reports the knob", async () => {
+      process.env.COLD_ARCHIVE_OBJECT_DIR = "/bucket-1/cold";
+      const { status, json } = await putSettings({ expectedVersion: 1, coldArchiveEnabled: true });
+      expect(status).toBe(200);
+      expect(json).toMatchObject({ coldArchiveEnabled: true, version: 2, coldArchive: { storageConfigured: true, lastArchivedDay: null, daysPending: null } });
+      expect(json.sections.archive).toMatchObject({ changedByName: "Avery Admin" });
+      expect(json.sections.retention).toBeNull();
+      expect(db.settings.cold_archive_enabled).toBe(true);
+      expect(mocks.audit).toHaveBeenCalledTimes(1);
+      expect(mocks.audit.mock.calls[0][0]).toMatchObject({ action: "hq_settings_updated", metadata: { section: "archive", from: false, to: true, version: 2 } });
+      invalidateOrgPolicyCache();
+      expect((await loadOrgPolicy()).coldArchiveEnabled).toBe(true);
+      // Off again works with the prefix still set, and once it is gone.
+      delete process.env.COLD_ARCHIVE_OBJECT_DIR;
+      const off = await putSettings({ coldArchiveEnabled: false });
+      expect(off.status).toBe(200);
+      expect(off.json).toMatchObject({ coldArchiveEnabled: false, version: 3, coldArchive: { storageConfigured: false } });
+    });
+  });
+
 
   it("still accepts the original four-field body (backward compatible merge)", async () => {
     const { status, json } = await putSettings({

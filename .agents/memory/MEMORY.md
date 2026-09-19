@@ -179,3 +179,4 @@
 - [Merge-stripped closing braces](merge-splice-repair.md) — a merge commit can strip every method's closing `}` from a hot lib file (objectStorage); typecheck main before trusting a green subagent report.
 - [Whole-office bundle export](office-bundle-export.md) — entity-page request + panel lists jobs; resumable step keeps in-run cursor ahead of committed one; estimate from size snapshot or null; stash under stale index.lock silently no-ops.
 - [Office offboarding flow](office-offboarding.md) — status flips first, access_disabled only at completion; SQL rollups need the id-set exclusion; batch enqueue must skip already-due requests or the job loop spins.
+- [Office offboarding live proof](office-offboarding-live-proof.md) — data_exports parts check rejects `[]` (first checkpoint must be null); fresh-code stamp = auth_sign_ins row keyed by JWT session_id; live 403 shapes.

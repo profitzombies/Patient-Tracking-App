@@ -370,7 +370,10 @@ export async function runOfficeBundleStep(input: {
 
 async function patchRow(db: OfficeBundleDeps["db"], jobId: string, patch: Record<string, unknown>, expectStatus: string, filter = ""): Promise<boolean> {
   const res = await db("PATCH", `/rest/v1/data_exports?id=eq.${enc(jobId)}&status=eq.${enc(expectStatus)}${filter}`, patch, "return=representation");
-  if (res.status >= 300) throw new Error(`office bundle row update failed (${res.status})`);
+  if (res.status >= 300) {
+    const reason = res.json && typeof res.json === "object" && typeof (res.json as { message?: unknown }).message === "string" ? `: ${(res.json as { message: string }).message}` : "";
+    throw new Error(`office bundle row update failed (${res.status})${reason}`);
+  }
   return Array.isArray(res.json) && res.json.length === 1;
 }
 
@@ -425,10 +428,13 @@ class BundleBuilder {
    */
   private async commit(extra: Record<string, unknown> = {}): Promise<void> {
     this.params = { ...this.params, bundle: this.state };
+    // The parts column's check (data_export_parts_valid) accepts null or a
+    // non-empty list, never `[]`: before the first part lands the row keeps null.
+    const parts = this.parts.length > 0 ? this.parts : null;
     const landed = await patchRow(
       this.deps.db,
       this.row.id,
-      { parts: this.parts, size_bytes: this.state.bytesWritten, row_count: this.state.fileCount, params: this.params, ...extra },
+      { parts, size_bytes: this.state.bytesWritten, row_count: this.state.fileCount, params: this.params, ...extra },
       "running",
       "&cancel_requested_at=is.null",
     );

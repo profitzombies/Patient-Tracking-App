@@ -78,6 +78,12 @@ function office(options: { includeTombstones?: boolean } = {}) {
       const expected = decodeURIComponent(/status=eq\.([^&]+)/.exec(path)![1]);
       if (row.status !== expected) return { status: 200, json: [], contentRange: null };
       if (path.includes("cancel_requested_at=is.null") && row.cancel_requested_at) return { status: 200, json: [], contentRange: null };
+      // Mirror data_export_parts_valid: parts is null or a non-empty list (the
+      // live project rejected the builder's first `[]` checkpoint with a 400).
+      const parts = (body as { parts?: unknown }).parts;
+      if (parts !== undefined && parts !== null && (!Array.isArray(parts) || parts.length === 0)) {
+        return { status: 400, json: { code: "23514", message: 'new row for relation "data_exports" violates check constraint "data_exports_parts_check"' }, contentRange: null };
+      }
       Object.assign(row, structuredClone(body));
       return { status: 200, json: [structuredClone(row)], contentRange: null };
     }

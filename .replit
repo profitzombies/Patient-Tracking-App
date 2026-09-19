@@ -440,6 +440,10 @@ args = "office-offboarding-web"
 task = "workflow.run"
 args = "office-offboarding-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-offboarding-live"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2800,6 +2804,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-offboarding-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run src/exports/office-bundle.test.ts && pnpm --filter @workspace/thinnr-operations run test:office-offboarding-live"
 
 [workflows.workflow.metadata]
 isValidation = true

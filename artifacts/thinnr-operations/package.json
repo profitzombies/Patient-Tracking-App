@@ -38,6 +38,7 @@
     "test:account-deletion": "TZ=UTC tsx --tsconfig tsconfig.account-deletion.json scripts/verify-account-deletion.tsx",
     "test:legal-holds": "TZ=UTC tsx --tsconfig tsconfig.legal-holds.json scripts/verify-legal-holds.tsx",
     "test:office-offboarding": "TZ=UTC tsx --tsconfig tsconfig.office-offboarding.json scripts/verify-office-offboarding.tsx",
+    "test:office-offboarding-live": "tsx scripts/verify-office-offboarding-live.ts",
     "test:office-comparison": "TZ=UTC tsx scripts/verify-office-comparison.ts && TZ=Pacific/Kiritimati tsx scripts/verify-office-comparison.ts",
     "test:exports": "tsx scripts/verify-exports.ts",
     "test:live-patient-edits": "tsx --tsconfig tsconfig.invite-patients.json scripts/verify-live-patient-edits.ts",

@@ -468,6 +468,10 @@ args = "office-reactivation-live"
 task = "workflow.run"
 args = "office-bundle-live"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-edit-history-live"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2906,6 +2910,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run src/jobs/scheduler.test.ts src/routes/system-jobs.test.ts src/lib/patient-analytics-trigger.sql.test.ts && pnpm --filter @workspace/thinnr-operations run test:office-bundle-live"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-edit-history-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history-live && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history"
 
 [workflows.workflow.metadata]
 isValidation = true

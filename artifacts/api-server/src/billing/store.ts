@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { currentBillingIdentity, type BillingIdentity } from "./stripe-environment";
 import type { ShipmentQuote } from "../shipping/rating";
 import type { CadenceWeeks, OrderSummary, Payer, PickPackTier, ProductCategory, ProductFactRow, ProductFaq, ShipmentTerms, ShippingMethod, ShippingSource } from "./types";
 
@@ -11,7 +12,11 @@ export type BillingTable =
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
   | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls";
 
-export interface TimestampedRow { created_at: string; updated_at?: string }
+export interface BillingIdentityColumns {
+  stripe_mode?: "test" | "live" | null;
+  stripe_platform_account_id?: string | null;
+}
+export interface TimestampedRow extends BillingIdentityColumns { created_at: string; updated_at?: string }
 export interface BillingSettingsRow extends TimestampedRow {
   id: number; shipping_charge_cents: number; shipping_cost_cents: number;
   card_fee_bps: number; card_fee_fixed_cents: number; version: number; updated_by: string | null;
@@ -217,7 +222,7 @@ export interface BillingWebhookEndpointRow extends TimestampedRow {
   id: string; kind: "platform" | "connect"; url: string; stripe_endpoint_id: string;
   secret: string; livemode: boolean;
 }
-export interface BillingWebhookEventRow {
+export interface BillingWebhookEventRow extends BillingIdentityColumns {
   stripe_event_id: string; kind: string; type: string; account: string | null; livemode: boolean;
   received_at: string; claimed_at: string | null; processed_at: string | null; error: string | null;
   payload: Record<string, unknown>;
@@ -249,10 +254,30 @@ function messageOf(json: unknown): string {
 }
 function qs(query = ""): string { return query ? `?${query.replace(/^\?/, "")}` : ""; }
 
+/** Catalog and commercial configuration are shared; all Stripe-derived data is isolated. */
+const SHARED_TABLES = new Set<BillingTable>([
+  "billing_settings", "billing_products", "billing_product_images", "billing_catalog_changes", "billing_office_settings",
+]);
+export function billingScope(table: BillingTable): BillingIdentity | undefined {
+  if (SHARED_TABLES.has(table)) return undefined;
+  const identity = currentBillingIdentity();
+  if (!identity) throw new BillingStoreError("Billing identity is required.", 503);
+  return identity;
+}
+export function scopedBillingQuery(table: BillingTable, query = ""): string {
+  const identity = billingScope(table);
+  if (!identity) return query;
+  return `${query ? `${query.replace(/^\?/, "")}&` : ""}stripe_mode=eq.${identity.mode}&stripe_platform_account_id=eq.${encodeURIComponent(identity.platformAccountId)}`;
+}
+function scopedRow(table: BillingTable, row: object): object {
+  const identity = billingScope(table);
+  return identity ? { ...row, stripe_mode: identity.mode, stripe_platform_account_id: identity.platformAccountId } : row;
+}
+
 export async function selectMany<T extends BillingTable>(
   table: T, query = "",
 ): Promise<BillingRows[T][]> {
-  const result = await supabaseAdmin("GET", `/rest/v1/${table}${qs(query)}`);
+  const result = await supabaseAdmin("GET", `/rest/v1/${table}${qs(scopedBillingQuery(table, query))}`);
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
   return (Array.isArray(result.json) ? result.json : []) as BillingRows[T][];
 }
@@ -265,14 +290,14 @@ export async function selectOne<T extends BillingTable>(
 export async function insert<T extends BillingTable>(
   table: T, row: Partial<BillingRows[T]>,
 ): Promise<BillingRows[T]> {
-  const result = await supabaseAdmin("POST", `/rest/v1/${table}`, row, "return=representation");
+  const result = await supabaseAdmin("POST", `/rest/v1/${table}`, scopedRow(table, row), "return=representation");
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
   return (Array.isArray(result.json) ? result.json[0] : result.json) as BillingRows[T];
 }
 export async function insertIgnore<T extends BillingTable>(
   table: T, row: Partial<BillingRows[T]>, expectedConstraint?: string,
 ): Promise<BillingRows[T] | null> {
-  const result = await supabaseAdmin("POST", `/rest/v1/${table}`, row, "resolution=ignore-duplicates,return=representation");
+  const result = await supabaseAdmin("POST", `/rest/v1/${table}`, scopedRow(table, row), "resolution=ignore-duplicates,return=representation");
   const code = result.json && typeof result.json === "object" && "code" in result.json
     ? String((result.json as { code?: unknown }).code) : "";
   const constraintText = result.json && typeof result.json === "object"
@@ -284,20 +309,21 @@ export async function insertIgnore<T extends BillingTable>(
 export async function upsert<T extends BillingTable>(
   table: T, row: Partial<BillingRows[T]>, onConflict?: string,
 ): Promise<BillingRows[T]> {
-  const query = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : "";
-  const result = await supabaseAdmin("POST", `/rest/v1/${table}${query}`, row, "resolution=merge-duplicates,return=representation");
+  const conflict = onConflict && billingScope(table) ? `${onConflict},stripe_mode,stripe_platform_account_id` : onConflict;
+  const query = conflict ? `?on_conflict=${encodeURIComponent(conflict)}` : "";
+  const result = await supabaseAdmin("POST", `/rest/v1/${table}${query}`, scopedRow(table, row), "resolution=merge-duplicates,return=representation");
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
   return (Array.isArray(result.json) ? result.json[0] : result.json) as BillingRows[T];
 }
 export async function update<T extends BillingTable>(
   table: T, query: string, patch: Partial<BillingRows[T]>,
 ): Promise<BillingRows[T] | null> {
-  const result = await supabaseAdmin("PATCH", `/rest/v1/${table}${qs(query)}`, patch, "return=representation");
+  const result = await supabaseAdmin("PATCH", `/rest/v1/${table}${qs(scopedBillingQuery(table, query))}`, scopedRow(table, patch), "return=representation");
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
   return (Array.isArray(result.json) ? result.json[0] ?? null : result.json) as BillingRows[T] | null;
 }
 export async function remove(table: BillingTable, query: string): Promise<void> {
-  const result = await supabaseAdmin("DELETE", `/rest/v1/${table}${qs(query)}`);
+  const result = await supabaseAdmin("DELETE", `/rest/v1/${table}${qs(scopedBillingQuery(table, query))}`);
   if (result.status >= 300) throw new BillingStoreError(messageOf(result.json), result.status);
 }
 export function nowIso(): string { return new Date().toISOString(); }

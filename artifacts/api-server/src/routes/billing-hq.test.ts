@@ -1,7 +1,8 @@
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type Stripe from "stripe";
 
 vi.mock("../lib/staff-auth", async (original) => {
   const actual = await original<typeof import("../lib/staff-auth")>();
@@ -40,6 +41,8 @@ vi.mock("../lib/objectStorage", async (original) => {
 import router from "./billing-hq";
 import { objectStorage as objectStorageMock } from "../lib/objectStorage";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
+import { __setStripeForTests, __setCredentialsForTests } from "../billing/stripe-client";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
@@ -64,13 +67,15 @@ function response(body: unknown, status = 200) {
 }
 async function call(method: string, path: string, token: string, body?: unknown) {
   const res = await originalFetch(`${base}${path}`, {
-    method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: res.status, json: await res.json().catch(() => null) };
 }
 beforeAll(async () => {
-  const app = express(); app.use(express.json()); app.use(router);
+  const app = express(); app.use(express.json());
+  app.use((req, _res, next) => req.path.endsWith("/mode") ? next() : runWithBillingIdentity({ mode: "test", platformAccountId: "acct_synthetic" }, next));
+  app.use(router);
   server = app.listen(0); await new Promise<void>((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -396,5 +401,104 @@ describe("billing HQ AI costs", () => {
   it("answers 503 when the summary RPC fails", async () => {
     aiSummaryStatus = 500;
     expect((await call("GET", "/billing/hq/ai-costs", "reader")).status).toBe(503);
+  });
+});
+
+describe("HQ payment mode HTTP contract", () => {
+  let selection: { mode: string; version: number; platform_account_id: string } | null;
+  let storageStatus = 200;
+  let writes: Row[];
+  const suffixes = ["SECRET_KEY", "PUBLISHABLE_KEY", "PLATFORM_ACCOUNT_ID", "CONNECT_CLIENT_ID", "PLATFORM_WEBHOOK_SECRET", "CONNECT_WEBHOOK_SECRET"];
+  function configure(mode: "test" | "live") {
+    const values = [`sk_${mode}_synthetic`, `pk_${mode}_synthetic`, "acct_synthetic", "ca_synthetic", "whsec_platformsynthetic", "whsec_connectsynthetic"];
+    suffixes.forEach((suffix, index) => vi.stubEnv(`STRIPE_${mode.toUpperCase()}_${suffix}`, values[index]));
+  }
+  beforeEach(() => {
+    selection = null; writes = []; storageStatus = 200;
+    vi.stubEnv("BILLING_DEPLOYMENT_ID", "synthetic-route-suite");
+    for (const mode of ["TEST", "LIVE"]) for (const suffix of suffixes) vi.stubEnv(`STRIPE_${mode}_${suffix}`, "");
+    __setCredentialsForTests(null);
+    __setStripeForTests({ accounts: { retrieve: vi.fn(async () => ({ id: "acct_synthetic" })) } } as unknown as Stripe);
+    const fixtureFetch = global.fetch;
+    global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.pathname === "/rest/v1/billing_mode_state") {
+        expect(url.searchParams.get("deployment_id")).toBe("eq.synthetic-route-suite");
+        if (storageStatus !== 200) return response({ code: "42P01", message: "synthetic internal database diagnostic" }, storageStatus);
+        return response(selection ? [selection] : []);
+      }
+      if (url.pathname === "/rest/v1/rpc/switch_billing_mode") {
+        const body = JSON.parse(String(init?.body)) as Row;
+        writes.push(body);
+        if (body.p_expected_version !== (selection?.version ?? 0)) return response({ code: "40001" }, 409);
+        selection = { mode: String(body.p_mode), platform_account_id: String(body.p_platform_account_id), version: (selection?.version ?? 0) + 1 };
+        return response(selection);
+      }
+      return fixtureFetch(input, init);
+    }) as typeof fetch;
+  });
+  afterEach(() => { __setStripeForTests(null); __setCredentialsForTests(null); vi.unstubAllEnvs(); });
+  it("reports safe default Test and missing key names without needing Stripe credentials", async () => {
+    const result = await call("GET", "/billing/hq/mode", "reader");
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ mode: "test", version: 0, configuration: { test: { configured: false }, live: { configured: false } } });
+    expect(result.json).toHaveProperty("configuration.test.missing.length", 6);
+    expect(writes).toHaveLength(0);
+  });
+  it("reports missing deployment setup without pretending a saved mode was loaded", async () => {
+    vi.stubEnv("BILLING_DEPLOYMENT_ID", "");
+    configure("live");
+    const result = await call("GET", "/billing/hq/mode", "manager");
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ mode: "test", version: null, selection_loaded: false,
+      setup: { ready: false, missing: ["BILLING_DEPLOYMENT_ID"] } });
+    expect((await call("PUT", "/billing/hq/mode", "manager", { mode: "live", expected_version: 0, confirm_live: true })).status).toBe(503);
+    expect(writes).toHaveLength(0);
+  });
+  it("reports unavailable mode storage with migration guidance and blocks switches", async () => {
+    storageStatus = 404;
+    configure("live");
+    const result = await call("GET", "/billing/hq/mode", "manager");
+    expect(result.status).toBe(200);
+    expect(result.json).toMatchObject({ version: null, selection_loaded: false,
+      setup: { ready: false, missing: ["billing_mode_state"] } });
+    expect(result.json).toHaveProperty("setup.message", expect.stringContaining("migration"));
+    expect(JSON.stringify(result.json)).not.toContain("synthetic internal database diagnostic");
+    expect((await call("PUT", "/billing/hq/mode", "manager", { mode: "live", expected_version: 0, confirm_live: true })).status).toBe(503);
+    expect(writes).toHaveLength(0);
+  });
+  it("requires sign-in and settings permission before any mode mutation", async () => {
+    expect((await call("GET", "/billing/hq/mode", "")).status).toBe(401);
+    expect((await call("PUT", "/billing/hq/mode", "reader", { mode: "live", expected_version: 0, confirm_live: true })).status).toBe(403);
+    expect(writes).toHaveLength(0);
+  });
+  it("rejects invalid mode, missing version and missing explicit Live confirmation", async () => {
+    configure("live");
+    for (const body of [{ mode: "production", expected_version: 0 }, { mode: "live", confirm_live: true }, { mode: "live", expected_version: 0 }, { mode: "live", expected_version: 0, confirm_live: false }]) {
+      expect((await call("PUT", "/billing/hq/mode", "manager", body)).status).toBe(400);
+    }
+    expect(writes).toHaveLength(0);
+  });
+  it("blocks absent and wrong-mode target credentials without leaking any key values", async () => {
+    const input = { mode: "live", expected_version: 0, confirm_live: true };
+    expect((await call("PUT", "/billing/hq/mode", "manager", input)).status).toBe(503);
+    configure("live");
+    vi.stubEnv("STRIPE_LIVE_SECRET_KEY", "sk_test_syntheticwrongmode");
+    const status = await call("GET", "/billing/hq/mode", "reader");
+    expect(status.json).toHaveProperty("configuration.live.configured", false);
+    expect(JSON.stringify(status.json)).not.toContain("sk_test_syntheticwrongmode");
+    expect((await call("PUT", "/billing/hq/mode", "manager", input)).status).toBe(503);
+    expect(writes).toHaveLength(0);
+  });
+  it("persists an explicitly confirmed switch and rejects the competing stale version", async () => {
+    configure("live"); configure("test");
+    const results = await Promise.all([0, 1].map(() => call("PUT", "/billing/hq/mode", "manager", { mode: "live", expected_version: 0, confirm_live: true })));
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+    expect(writes[0]).toMatchObject({ p_actor_user_id: "hq-user", p_confirm_live: true, p_deployment_id: "synthetic-route-suite" });
+    expect((await call("GET", "/billing/hq/mode", "reader")).json).toMatchObject({ mode: "live", version: 1 });
+    const back = await call("PUT", "/billing/hq/mode", "manager", { mode: "test", expected_version: 1 });
+    expect(back.status).toBe(200);
+    expect(back.json).toMatchObject({ mode: "test", version: 2 });
+    expect(JSON.stringify(back.json)).not.toContain("sk_test_synthetic");
   });
 });

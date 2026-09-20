@@ -17,11 +17,89 @@ import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { getBillingWebhookHealth } from "../billing/webhook-endpoints";
 import { publicOrigin } from "../billing/app-origin";
-import { getConnectClientId, getStripeCredentials, isSandbox } from "../billing/stripe-client";
+import { getConnectClientId, getStripeCredentials } from "../billing/stripe-client";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 import { AiCostSummaryError, loadAiCostSummary } from "../ai-usage/summary";
+import { getBillingModeSelection, getBillingModeStatus, switchBillingMode } from "../billing/mode-state";
 
 const router: IRouter = Router();
+const ModeSchema = z.object({
+  mode: z.enum(["test", "live"]),
+  expected_version: z.number().int().nonnegative(),
+  confirm_live: z.boolean().default(false),
+}).strict();
+function modeConfiguration() {
+  const configuration = (mode: "test" | "live") => {
+    const prefix = `STRIPE_${mode.toUpperCase()}_`;
+    const formats: Record<string, RegExp> = {
+      SECRET_KEY: new RegExp(`^sk_${mode}_[A-Za-z0-9]+$`),
+      PUBLISHABLE_KEY: new RegExp(`^pk_${mode}_[A-Za-z0-9]+$`),
+      PLATFORM_ACCOUNT_ID: /^acct_[A-Za-z0-9]+$/,
+      CONNECT_CLIENT_ID: /^ca_[A-Za-z0-9]+$/,
+      PLATFORM_WEBHOOK_SECRET: /^whsec_[A-Za-z0-9]+$/,
+      CONNECT_WEBHOOK_SECRET: /^whsec_[A-Za-z0-9]+$/,
+    };
+    const missing: string[] = [];
+    const errors: string[] = [];
+    for (const [suffix, format] of Object.entries(formats)) {
+      const name = prefix + suffix;
+      const value = process.env[name]?.trim();
+      if (!value) missing.push(name);
+      else if (!format.test(value)) errors.push(`${name} has an invalid format.`);
+    }
+    return { configured: missing.length === 0 && errors.length === 0, missing, errors };
+  };
+  return { test: configuration("test"), live: configuration("live") };
+}
+async function modeResponse() {
+  const configuration = modeConfiguration();
+  const unavailable = (missing: string[], message: string) => ({
+    mode: "test" as const, version: null, selection_loaded: false, configuration,
+    setup: { ready: false, missing, message },
+  });
+  if (!process.env.BILLING_DEPLOYMENT_ID?.trim()) {
+    return unavailable(["BILLING_DEPLOYMENT_ID"], "Set BILLING_DEPLOYMENT_ID to a stable, deployment-specific value, then apply the billing mode database migration. No saved payment mode has been loaded.");
+  }
+  try {
+    const { mode, version } = await getBillingModeSelection();
+    return { mode, version, selection_loaded: true, configuration, setup: { ready: true, missing: [], message: null } };
+  } catch {
+    // Setup status is informational only. A failed read is never interpreted as
+    // a persisted Test selection, and cannot authorize a mode change.
+    return unavailable(["billing_mode_state"], "Payment mode storage is unavailable. Apply the billing mode database migration and check the server database connection and permissions. No saved payment mode has been loaded.");
+  }
+}
+router.get("/billing/hq/mode", requireHqPermission("financial_read"), async (req, res) => {
+  try { res.json(await modeResponse()); }
+  catch { res.status(503).json({ error: "Payment mode is unavailable. Try again." }); }
+});
+router.put("/billing/hq/mode", requireHqPermission("settings_manage"), requireHqPermission("financial_read"), async (req, res) => {
+  const parsed = ModeSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Choose Test or Live and supply the current settings version." }); return; }
+  if (parsed.data.mode === "live" && !parsed.data.confirm_live) {
+    res.status(400).json({ error: "Confirm that Live payments charge real money." }); return;
+  }
+  if (!(await modeResponse()).setup.ready) {
+    res.status(503).json({ error: "Payment mode setup is incomplete. Configure BILLING_DEPLOYMENT_ID and apply the billing mode database migration before switching." }); return;
+  }
+  if (!modeConfiguration()[parsed.data.mode].configured) {
+    res.status(503).json({ error: "Configure all six target-mode environment settings before switching." }); return;
+  }
+  try {
+    const changed = await switchBillingMode({
+      mode: parsed.data.mode, expectedVersion: parsed.data.expected_version, confirmLive: parsed.data.confirm_live,
+      actorUserId: actor(res), requestId: requestIdOf(req),
+    });
+    res.json({ mode: changed.mode, version: changed.version, selection_loaded: true, configuration: modeConfiguration(),
+      setup: { ready: true, missing: [], message: null } });
+  } catch (error) {
+    const status = typeof error === "object" && error !== null && "status" in error ? error.status : null;
+    // Never return arbitrary exception text: SDK/network errors can contain credentials.
+    if (status === 409) { res.status(409).json({ error: "Payment settings changed or billing work is still in progress. Refresh and try again." }); return; }
+    if (status === 400) { res.status(400).json({ error: "This mode change is not allowed. Check the confirmation and configuration." }); return; }
+    res.status(503).json({ error: "The target payment mode is not ready. Check its environment configuration and try again." });
+  }
+});
 const Cadence = z.union([z.literal(2), z.literal(4), z.literal(6), z.literal(8), z.literal(10), z.literal(12)]);
 const ProductSchema = z.object({
   name: z.string().trim().min(1).max(120), slug: z.string().trim().min(1).max(120).optional(),
@@ -127,10 +205,10 @@ router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_
   const hourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
   const dayAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
   let credentialsOk = true;
-  let sandbox = false;
+  let sandbox = true;
   try {
+    sandbox = (await getBillingModeStatus()).mode === "test";
     await getStripeCredentials();
-    sandbox = await isSandbox();
   } catch {
     credentialsOk = false;
   }

@@ -9,6 +9,7 @@
  * logged, and the money/fulfillment write it decorates stands on its own.
  */
 import { logger } from "../lib/logger";
+import { forEachBillingScope, liveBillingEffectsAllowed } from "./lifecycle-scopes";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
 import { selectMany } from "./store";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
@@ -36,6 +37,7 @@ export function orderRoute(orderId: string): string { return `/orders/${orderId}
 export function subscriptionRoute(subscriptionId: string): string { return `/my-subscriptions/${subscriptionId}`; }
 
 async function queue(store: NotificationStore, what: string, input: Parameters<NotificationStore["enqueue"]>[0]): Promise<boolean> {
+  if (!liveBillingEffectsAllowed()) return false;
   try {
     const { created } = await store.enqueue(input);
     return created;
@@ -51,7 +53,7 @@ export async function notifyOrderShipped(
   store: NotificationStore = supabaseNotificationStore,
 ): Promise<boolean> {
   const { order, shipment } = input;
-  if (!order.patient_id || shipment.status !== "shipped") return false;
+  if (order.livemode !== true || !order.patient_id || shipment.status !== "shipped") return false;
   return queue(store, "order shipped", {
     patientId: order.patient_id,
     kind: ORDER_SHIPPED_KIND,
@@ -69,7 +71,7 @@ export async function notifySubscriptionPaymentFailed(
   store: NotificationStore = supabaseNotificationStore,
 ): Promise<boolean> {
   const { subscription, invoiceId } = input;
-  if (!subscription.patient_id) return false;
+  if (subscription.livemode !== true || !subscription.patient_id) return false;
   return queue(store, "payment failed", {
     patientId: subscription.patient_id,
     kind: PAYMENT_FAILED_KIND,
@@ -119,13 +121,22 @@ export async function runRenewalReminderEvaluation(options: {
   days?: number;
   load?: (now: Date, days: number) => Promise<UpcomingRenewal[]>;
 } = {}): Promise<RenewalReminderSummary> {
+  // The notification worker has no interactive billing context. Always evaluate
+  // the persisted live subscriptions, even while staff are viewing Test.
+  if (!options.load && !liveBillingEffectsAllowed()) {
+    let summary: RenewalReminderSummary = { evaluated: 0, queued: 0 };
+    await forEachBillingScope(async () => {
+      summary = await runRenewalReminderEvaluation({ ...options, load: loadUpcomingRenewals });
+    }, ["live"]);
+    return summary;
+  }
   const store = options.store ?? supabaseNotificationStore;
   const now = (options.now ?? (() => new Date()))();
   const days = options.days ?? RENEWAL_REMINDER_DAYS;
   const upcoming = await (options.load ?? loadUpcomingRenewals)(now, days);
   let queued = 0;
   for (const { subscription } of upcoming) {
-    if (!subscription.patient_id || !subscription.next_shipment_at) continue;
+    if (subscription.livemode !== true || !subscription.patient_id || !subscription.next_shipment_at) continue;
     const dateKey = subscription.next_shipment_at.slice(0, 10);
     const created = await queue(store, "renewal reminder", {
       patientId: subscription.patient_id,

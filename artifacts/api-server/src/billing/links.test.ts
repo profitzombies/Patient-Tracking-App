@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 
 const admin = vi.hoisted(() => vi.fn());
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: admin }));
@@ -30,6 +31,7 @@ describe("payment link availability and claims", () => {
     admin.mockImplementation(async (...args: unknown[]) => {
       if (!args.length) return response(null);
       const path = String(args[1] ?? "");
+      if (path.startsWith("/rest/v1/billing_payment_links?")) return response([link]);
       if (path.endsWith("billing_claim_payment_link_use")) {
         if (!available) return response(false);
         available = false;

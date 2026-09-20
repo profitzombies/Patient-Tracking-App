@@ -1,3 +1,4 @@
+import { liveBillingEffectsAllowed } from "./lifecycle-scopes";
 import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
 import { sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
@@ -81,8 +82,15 @@ export async function notifyOnce(
   dedupeKey: string, templateId: EmailTemplateId, refs: NotifyRefs,
   compose: () => Promise<{ to: string | null; variables: EmailVariables } | null>,
 ): Promise<NotifyOutcome> {
+  if (!liveBillingEffectsAllowed()) return "skipped";
   let claimId: string | null = null;
   try {
+    // A live request must not accidentally deliver a notification for a test row.
+    const source = refs.order_id
+      ? await selectOne("billing_orders", `id=eq.${encodeURIComponent(refs.order_id)}`)
+      : refs.subscription_id
+        ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(refs.subscription_id)}`) : null;
+    if (!source || source.livemode !== true) return "skipped";
     const claim = await insertIgnore("billing_customer_emails", {
       dedupe_key: dedupeKey, template_id: templateId, provider_id: refs.provider_id ?? null,
       subscription_id: refs.subscription_id ?? null, order_id: refs.order_id ?? null, status: "claimed",

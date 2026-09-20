@@ -4,6 +4,39 @@ Investor-demo platform for the THINNR weight-loss program: a staff/HQ operations
 
 ## Run & Operate
 
+### Portable Stripe configuration
+
+Stripe billing uses server environment variables only, with no Replit connector
+fallback. Set a stable, deployment-specific `BILLING_DEPLOYMENT_ID` (distinct for
+development and production); it namespaces the persisted HQ Test/Live selection.
+Do not change or share it casually. New selections default to Test.
+
+Configure `STRIPE_TEST_SECRET_KEY`, `STRIPE_TEST_PUBLISHABLE_KEY`,
+`STRIPE_TEST_PLATFORM_ACCOUNT_ID`, `STRIPE_TEST_CONNECT_CLIENT_ID`,
+`STRIPE_TEST_PLATFORM_WEBHOOK_SECRET`, and `STRIPE_TEST_CONNECT_WEBHOOK_SECRET`.
+For Live use `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_PUBLISHABLE_KEY`,
+`STRIPE_LIVE_PLATFORM_ACCOUNT_ID`, `STRIPE_LIVE_CONNECT_CLIENT_ID`,
+`STRIPE_LIVE_PLATFORM_WEBHOOK_SECRET`, and `STRIPE_LIVE_CONNECT_WEBHOOK_SECRET`.
+The Connect client ID is needed only for OAuth; signing secrets belong to separate
+platform/Connect destinations for each mode. Set `BILLING_PUBLIC_ORIGIN` to the
+intended public HTTPS origin. Never put secret values in source, browser/mobile
+build variables, logs, or `.replit`. See `docs/billing-connect/LAUNCH.md` for
+destination URLs/events and launch checks.
+
+Matching key prefixes and the authenticated platform identity are checked before
+Stripe operations. No keys means payments are unavailable, not an application-wide
+startup failure. Nullable legacy billing identities are quarantined: classify them
+only after verifying the actual Stripe platform and mode, including related rows.
+Do not assume legacy means Test, relabel records Live, or silently migrate financial
+data. Sandbox records are usable only after verified classification.
+
+The installed Replit integration is separate from runtime code. If the owner elects
+to remove it, the documented manual path is **Integrations → Stripe → Manage →
+disconnect**. We do not disconnect it automatically or claim this clears a Publish
+gate; the owner must check the platform's current publishing requirements afterward.
+Synthetic tests do not validate real Stripe credentials, webhook delivery, or live
+account activation; those remain separate authorized checks after configuration.
+
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages

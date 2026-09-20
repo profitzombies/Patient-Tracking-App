@@ -94,12 +94,18 @@ export async function resolveActiveLink(token: string): Promise<BillingPaymentLi
   return row;
 }
 export async function touchLinkUse(id: string): Promise<void> {
+  if (!(await selectOne("billing_payment_links", `id=eq.${encodeURIComponent(id)}`))) {
+    throw new BillingLinkError("Payment link not found in this billing environment.", 404);
+  }
   if (claimedLink.getStore() === id) return;
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_claim_payment_link_use", { p_link_id: id });
   if (result.status >= 300) throw new BillingLinkError("Could not claim this payment link.", 502);
   if (result.json !== true) throw new BillingLinkError("This payment link has already been used.", 409);
 }
 export async function releaseLinkUse(id: string): Promise<void> {
+  if (!(await selectOne("billing_payment_links", `id=eq.${encodeURIComponent(id)}`))) {
+    throw new BillingLinkError("Payment link not found in this billing environment.", 404);
+  }
   const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_release_payment_link_use", { p_link_id: id });
   if (result.status >= 300) throw new BillingLinkError("Could not release this payment link.", 502);
 }

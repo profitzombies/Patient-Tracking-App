@@ -29,12 +29,15 @@ import hqOrders from "./billing-hq-orders";
 import office from "./billing-office";
 import officeOrders from "./billing-office-orders";
 import publicBilling from "./billing-public";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 
 type Access = "public" | "office-read" | "office-write" | "hq-read" | "hq-provider-write" | "hq-settings-write";
 type Identity = "anonymous" | "patient" | "staff" | "admin" | "owner" | "other-office" | "hq-none" | "hq-read" | "hq-provider";
 type Outcome = "allowed" | 401 | 403 | "403-or-404";
 
 const ROUTES: Record<string, Access> = {
+  "GET /billing/hq/mode": "hq-read",
+  "PUT /billing/hq/mode": "hq-settings-write",
   "GET /billing/public/config": "public",
   "GET /billing/public/product-images/:imageId": "public",
   "GET /billing/public/links/:token": "public",
@@ -113,7 +116,9 @@ const ROUTES: Record<string, Access> = {
   "PUT /billing/hq/catalog/settings": "hq-settings-write",
 };
 
-const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manage" | "settings_manage"> = {
+const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manage" | "settings_manage" | "settings_manage,financial_read"> = {
+  "GET /billing/hq/mode": "financial_read",
+  "PUT /billing/hq/mode": "settings_manage,financial_read",
   "GET /billing/hq/health": "financial_read",
   "GET /billing/hq/ai-costs": "financial_read",
   "GET /billing/hq/catalog": "financial_read",
@@ -299,6 +304,7 @@ beforeAll(async () => {
   }) as typeof fetch;
   const app = express();
   app.use(express.json());
+  app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_synthetic" }, next));
   app.use(hq, hqOrders, office, officeOrders, publicBilling);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -333,7 +339,7 @@ describe("billing route permission matrix", () => {
   });
 
   it("binds every HQ route to its exact named permission", () => {
-    expect(permissionMocks.created).toHaveLength(Object.keys(EXPECTED_HQ_PERMISSIONS).length);
+    expect(permissionMocks.created).toHaveLength(Object.values(EXPECTED_HQ_PERMISSIONS).reduce((sum, value) => sum + value.split(",").length, 0));
     expect(hqPermissionInventory()).toEqual(EXPECTED_HQ_PERMISSIONS);
   });
 });

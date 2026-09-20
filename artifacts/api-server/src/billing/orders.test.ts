@@ -1,4 +1,5 @@
-import { beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterAll, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 import { __setCredentialsForTests, __setStripeForTests } from "./stripe-client";
 import {
   BillingOrderError, createOneTimeOrder, quoteOrder, refundOrder, registerOrderWebhookHandlers,
@@ -54,6 +55,11 @@ function installFetch() {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     const table = url.pathname.split("/").at(-1)!;
     const rows = tables[table] ?? (tables[table] = []);
+    // Historical test fixtures model known Test records, not quarantined data.
+    for (const row of rows) {
+      if (!("stripe_mode" in row)) row.stripe_mode = "test";
+      if (!("stripe_platform_account_id" in row)) row.stripe_platform_account_id = "acct_platform";
+    }
     const method = init?.method ?? "GET";
     if (method === "GET") return result(rows.filter((row) => matches(row, url.searchParams)));
     const body = init?.body ? JSON.parse(String(init.body)) : {};

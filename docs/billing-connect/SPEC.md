@@ -86,9 +86,8 @@ Migration: `supabase/migrations/20261103000000_warehousecraft_shipping.sql`.
   a formula, recomputed whenever floor / shipping / card-fee assumptions change;
   an office price that ends up below the new minimum is *flagged*, never
   auto-changed.
-- **Test vs live:** the environment decides. Credentials come from the Replit
-  Stripe connection (sandbox keys in the workspace, live keys after publish).
-  No toggle. Payment/onboarding screens show a loud "SANDBOX" badge whenever
+- **Test vs live:** credentials come only from mode-specific server environment
+  variables (see LAUNCH.md). Payment/onboarding screens show a loud "SANDBOX" badge whenever
   the publishable key starts with `pk_test_`.
 - **Roles:** HQ users with `financial_read` see the HQ Payments area; catalog
   and settings writes need `settings_manage`; refunds/fulfillment writes need
@@ -103,7 +102,7 @@ Migration: `supabase/migrations/20261103000000_warehousecraft_shipping.sql`.
 
 ```
 artifacts/api-server/src/billing/
-  stripe-client.ts      credentials from the Replit connection + cached Stripe instance
+  stripe-client.ts      environment credentials + identity-verified Stripe instance
   fees.ts               pure fee math (tested, no I/O)
   money.ts              cents/dollars formatting + parsing helpers (pure)
   store.ts              typed Supabase REST helpers for billing_* tables
@@ -338,14 +337,13 @@ by (provider_id, status); payers by (provider_id, lower(email)).
 
 ## 5. Stripe flows
 
-**Credentials** (`stripe-client.ts`): GET
-`https://$REPLIT_CONNECTORS_HOSTNAME/api/v2/connection?include_secrets=true&connector_names=stripe`
-with header `X_REPLIT_TOKEN: repl <REPL_IDENTITY>` (or `depl <WEB_REPL_RENEWAL>`
-when published). `items[0].settings` has `secret`, `publishable`, `account_id`.
-Cache for 5 minutes; refetch on 401 from Stripe. Export `getStripe()`,
-`getPublishableKey()`, `isSandbox()` (`pk_test_`), `getPlatformAccountId()`.
-Also read `STRIPE_CONNECT_CLIENT_ID` from env (the `ca_…` value; required for
-the OAuth path only — missing ⇒ that path shows "not configured").
+**Credentials** (`stripe-client.ts`): mode-specific `STRIPE_TEST_*` / `STRIPE_LIVE_*`
+server variables only; see LAUNCH.md for the complete setup contract.
+`getStripe(mode?)` verifies the expected platform identity before operations.
+Identity checks cache for five minutes and invalidate on key/account rotation.
+`getPublishableKey(mode?)`, `isSandbox(mode?)`, and `getPlatformAccountId(mode?)`
+use the pinned request identity, defaulting to Test outside a billing context.
+Connect client ID comes from the same mode and is required for OAuth only.
 Stripe SDK: `new Stripe(secret, { apiVersion: <the SDK default>, appInfo: { name: "THINNR Operations" } })`.
 
 **App URL** for redirects/emails: `BILLING_PUBLIC_ORIGIN` env if set, else
@@ -738,4 +736,4 @@ HTML matching the existing email builder style in `src/claim/delivery.ts`.
 - `STRIPE_CONNECT_CLIENT_ID` (env, `ca_…`) — OAuth path. Absent ⇒ path hidden with a note.
 - `BILLING_PUBLIC_ORIGIN` (optional) — overrides the origin used in links/emails/redirects.
 - `BILLING_WEBHOOKS_DISABLED=1` — skips endpoint self-registration (tests, CI).
-- Stripe secret/publishable keys: ONLY via the Replit connection. Never in env, code, or logs.
+- Stripe keys: ONLY via mode-specific server environment variables. Never in source or logs.

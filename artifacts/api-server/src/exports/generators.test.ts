@@ -7,6 +7,7 @@ import { GENERATORS } from "./generators";
 import type { ExportScope } from "./kinds";
 
 const scope: ExportScope = {
+  billingIdentity: { mode: "test", platformAccountId: "acct_fixture" },
   providerId: "office-1", officeName: "Harbor", requesterKind: "provider", requesterRole: null,
   range: { start: "2026-10-01", end: "2026-10-31" }, patient: null,
 };

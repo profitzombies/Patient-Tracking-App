@@ -165,6 +165,7 @@ export type ShopUnavailableReason = 'not_connected' | 'no_products';
 
 /** The patient's office storefront. Empty products + a reason when the office cannot sell today. */
 export interface PatientShop {
+  billing_scope?: string;
   office: PatientBillingOffice | null;
   available: boolean;
   unavailable_reason: ShopUnavailableReason | null;
@@ -277,6 +278,7 @@ export interface CartQuote {
 }
 
 export interface CartCheckoutRequest extends CartQuoteRequest {
+  billing_scope?: string;
   shipping_address: ShippingAddress;
   /** A Stripe PaymentMethod created on the office's connected account (new card) or one already saved to the patient. */
   payment_method_id: string;
@@ -331,12 +333,14 @@ export interface PatientCard {
 }
 
 export interface PatientCardList {
+  billing_scope?: string;
   cards: PatientCard[];
   default_payment_method_id: string | null;
 }
 
 /** SetupIntent for adding a card outside checkout. */
 export interface PatientCardSetup {
+  billing_scope?: string;
   client_secret: string;
   stripe_account_id: string;
   publishable_key: string;

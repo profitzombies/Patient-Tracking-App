@@ -71,7 +71,11 @@ export default function CheckoutScreen() {
     if (cart.shopStatus === 'idle') void cart.loadShop();
   }, [cart.shopStatus, cart.loadShop, cart]);
 
-  const shop = cart.shop;
+  // Keep the form's original mode/key/account together until the screen closes.
+  const displayedShop = useRef<{ scope: typeof cart.scope; shop: NonNullable<typeof cart.shop> } | null>(null);
+  if (displayedShop.current?.scope !== cart.scope) displayedShop.current = null;
+  if (!displayedShop.current && cart.shop) displayedShop.current = { scope: cart.scope, shop: cart.shop };
+  const shop = displayedShop.current?.shop ?? null;
   const products = useMemo(() => (shop?.available ? shop.products : []), [shop]);
   const lines = cart.lines;
   const officeName = shop?.office?.office_name ?? 'your office';
@@ -273,7 +277,7 @@ export default function CheckoutScreen() {
         attempt = {
           cartId: newCartId(),
           // The total on the button rides along: the server refuses a cart that no longer prices to it.
-            request: buildCheckoutRequest(lines, normalized, paymentMethodId, choice.kind === 'new' ? saveDefault : false, authorized.total_due_cents as number, shippingMethod),
+            request: { ...buildCheckoutRequest(lines, normalized, paymentMethodId, choice.kind === 'new' ? saveDefault : false, authorized.total_due_cents as number, shippingMethod), billing_scope: shop?.billing_scope },
           quote: authorized,
         };
         // Written and read back BEFORE the request leaves, so a reload

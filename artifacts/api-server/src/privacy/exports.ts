@@ -354,11 +354,11 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
   ]);
   const [billingOrders, billingSubscriptions] = await Promise.all([
     allRows(
-      `/rest/v1/billing_orders?${scope}&select=id,order_number,created_at,subtotal_cents,shipping_charge_cents,tax_cents,total_cents,status,fulfillment_status&order=created_at.asc,id.asc`,
+      `/rest/v1/billing_orders?${scope}&select=id,stripe_mode,stripe_platform_account_id,order_number,created_at,subtotal_cents,shipping_charge_cents,tax_cents,total_cents,status,fulfillment_status&order=created_at.asc,id.asc`,
       "billing orders",
     ),
     allRows(
-      `/rest/v1/billing_subscriptions?${scope}&select=id,product_id,status,unit_price_cents,current_period_end&order=created_at.asc,id.asc`,
+      `/rest/v1/billing_subscriptions?${scope}&select=id,stripe_mode,stripe_platform_account_id,product_id,status,unit_price_cents,current_period_end&order=created_at.asc,id.asc`,
       "billing subscriptions",
     ),
   ]);
@@ -366,7 +366,7 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
   const items = orderIds.length === 0
     ? []
     : await allRows(
-      `/rest/v1/billing_order_items?order_id=in.(${orderIds.map(enc).join(",")})&select=order_id,product_name_snapshot,quantity,unit_price_cents&order=created_at.asc,id.asc`,
+      `/rest/v1/billing_order_items?order_id=in.(${orderIds.map(enc).join(",")})&select=order_id,stripe_mode,stripe_platform_account_id,product_name_snapshot,quantity,unit_price_cents&order=created_at.asc,id.asc`,
       "billing order items",
     );
   const productIds = [...new Set(billingSubscriptions.map((subscription) => String(subscription.product_id)))];

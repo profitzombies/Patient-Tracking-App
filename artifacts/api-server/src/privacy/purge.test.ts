@@ -5,10 +5,11 @@
  * end against the in-memory Supabase double (claim → purge → finish →
  * tombstone). Real row deletion is proven on PostgreSQL in purge.sql.test.ts.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { createFakeSupabase, fakeUuid } from "./fake-supabase";
-import { __setStripeForTests } from "../billing/stripe-client";
+import { __setStripeForTests, __setCredentialsForTests } from "../billing/stripe-client";
+import { currentBillingIdentity, runWithBillingIdentity } from "../billing/stripe-environment";
 
 const mocks = vi.hoisted(() => ({
   supabase: null as unknown as ReturnType<typeof import("./fake-supabase").createFakeSupabase>,
@@ -240,10 +241,18 @@ describe("runClosure", () => {
 });
 
 describe("default billing purge steps", () => {
+  const scope = { stripe_mode: "live", stripe_platform_account_id: "acct_live" };
   beforeEach(() => {
     mocks.supabase.reset();
     __setStripeForTests(null);
+    __setCredentialsForTests(null);
+    for (const mode of ["test", "live"]) {
+      vi.stubEnv(`STRIPE_${mode.toUpperCase()}_SECRET_KEY`, `sk_${mode}_synthetic`);
+      vi.stubEnv(`STRIPE_${mode.toUpperCase()}_PUBLISHABLE_KEY`, `pk_${mode}_synthetic`);
+      vi.stubEnv(`STRIPE_${mode.toUpperCase()}_PLATFORM_ACCOUNT_ID`, `acct_${mode}`);
+    }
   });
+  afterEach(() => { vi.unstubAllEnvs(); __setStripeForTests(null); });
 
   it("cancels active subscriptions immediately on the connected account", async () => {
     const cancel = vi.fn(async () => ({
@@ -255,9 +264,11 @@ describe("default billing purge steps", () => {
     }));
     __setStripeForTests({ subscriptions: { cancel } } as any);
     mocks.supabase.tables.billing_connected_accounts.push({
+      ...scope,
       provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true,
     });
     mocks.supabase.tables.billing_subscriptions.push({
+      ...scope,
       id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
       product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
     });
@@ -268,6 +279,7 @@ describe("default billing purge steps", () => {
 
   it("fails loudly when a live subscription's office has no Stripe account", async () => {
     mocks.supabase.tables.billing_subscriptions.push({
+      ...scope,
       id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
       product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
     });
@@ -283,9 +295,11 @@ describe("default billing purge steps", () => {
     const cancel = vi.fn(async () => ({ id: "sub_1", status: "canceled", canceled_at: 1_791_158_400 }));
     __setStripeForTests({ subscriptions: { cancel } } as any);
     mocks.supabase.tables.billing_connected_accounts.push({
+      ...scope,
       provider_id: "office-1", stripe_account_id: "acct_paused", disconnected_at: null, charges_enabled: false,
     });
     mocks.supabase.tables.billing_subscriptions.push({
+      ...scope,
       id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
       product_id: fakeUuid(32), stripe_subscription_id: "sub_1", status: "active",
     });
@@ -301,9 +315,11 @@ describe("default billing purge steps", () => {
     });
     __setStripeForTests({ subscriptions: { cancel } } as any);
     mocks.supabase.tables.billing_connected_accounts.push({
+      ...scope,
       provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null, charges_enabled: true,
     });
     mocks.supabase.tables.billing_subscriptions.push({
+      ...scope,
       id: fakeUuid(30), patient_id: P1, provider_id: "office-1", payer_id: fakeUuid(31),
       product_id: fakeUuid(32), stripe_subscription_id: "sub_missing", status: "active",
     });
@@ -315,9 +331,11 @@ describe("default billing purge steps", () => {
     const update = vi.fn(async () => ({ id: "cus_1" }));
     __setStripeForTests({ customers: { update } } as any);
     mocks.supabase.tables.billing_connected_accounts.push({
+      ...scope,
       provider_id: "office-1", stripe_account_id: "acct_1", disconnected_at: null,
     });
     mocks.supabase.tables.billing_payers.push({
+      ...scope,
       id: fakeUuid(40), patient_id: P1, provider_id: "office-1", stripe_customer_id: "cus_1",
     });
     await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).resolves.toBe(1);
@@ -333,6 +351,101 @@ describe("default billing purge steps", () => {
       message: "No such customer", code: "resource_missing", type: "invalid_request_error",
     }));
     await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).resolves.toBe(1);
+  });
+
+  function seedBothModes() {
+    for (const [index, mode] of ["test", "live"].entries()) {
+      const identity = { stripe_mode: mode, stripe_platform_account_id: `acct_${mode}` };
+      mocks.supabase.tables.billing_connected_accounts.push({
+        ...identity, provider_id: "office-1", stripe_account_id: `acct_office${mode}`, disconnected_at: null,
+      });
+      mocks.supabase.tables.billing_subscriptions.push({
+        ...identity, id: fakeUuid(60 + index), patient_id: P1, provider_id: "office-1",
+        stripe_subscription_id: `sub_${mode}`, status: "active",
+      });
+      mocks.supabase.tables.billing_payers.push({
+        ...identity, id: fakeUuid(70 + index), patient_id: P1, provider_id: "office-1", stripe_customer_id: `cus_${mode}`,
+      });
+    }
+  }
+
+  it("cancels and scrubs BOTH original scopes even inside a selected Test request", async () => {
+    seedBothModes();
+    const seen: string[] = [];
+    const cancel = vi.fn(async (id: string, _params: unknown, opts: { stripeAccount: string }) => {
+      const mode = currentBillingIdentity()!.mode;
+      expect(id).toBe(`sub_${mode}`);
+      expect(opts.stripeAccount).toBe(`acct_office${mode}`);
+      seen.push(`cancel:${mode}`);
+      return { status: "canceled" };
+    });
+    const update = vi.fn(async (id: string, _params: unknown, opts: { stripeAccount: string }) => {
+      const mode = currentBillingIdentity()!.mode;
+      expect(id).toBe(`cus_${mode}`);
+      expect(opts.stripeAccount).toBe(`acct_office${mode}`);
+      seen.push(`scrub:${mode}`);
+      return {};
+    });
+    __setStripeForTests({ subscriptions: { cancel }, customers: { update } } as any);
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, async () => {
+      expect(await defaultPurgeDeps.cancelBillingSubscriptions(P1)).toBe(2);
+      expect(await defaultPurgeDeps.scrubBillingCustomers(P1)).toBe(2);
+      expect(currentBillingIdentity()?.mode).toBe("test");
+    });
+    expect(seen).toEqual(["cancel:test", "cancel:live", "scrub:test", "scrub:live"]);
+    expect(mocks.supabase.tables.billing_subscriptions.every(row => row.status === "canceled")).toBe(true);
+  });
+
+  it("blocks later purge steps for unknown financial identities instead of filtering them away", async () => {
+    mocks.supabase.tables.billing_subscriptions.push({
+      id: fakeUuid(80), patient_id: P1, stripe_subscription_id: "sub_unknown", status: "active",
+      stripe_mode: null, stripe_platform_account_id: null,
+    });
+    const cancel = vi.fn();
+    __setStripeForTests({ subscriptions: { cancel } } as any);
+    const failed = deps({ cancelBillingSubscriptions: defaultPurgeDeps.cancelBillingSubscriptions });
+    expect(await runPurge(request(), failed.d)).toBe("failed");
+    expect(failed.d.purgeRows).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(failed.finish.mock.calls[0][0].error).toContain("unknown Stripe identity");
+  });
+
+  it("continues the configured mode but fails the step when historical Live credentials are missing", async () => {
+    seedBothModes();
+    vi.stubEnv("STRIPE_LIVE_SECRET_KEY", "");
+    const cancel = vi.fn(async () => ({ status: "canceled" }));
+    __setStripeForTests({ subscriptions: { cancel } } as any);
+    await expect(defaultPurgeDeps.cancelBillingSubscriptions(P1)).rejects.toThrow("STRIPE_LIVE_SECRET_KEY");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(mocks.supabase.tables.billing_subscriptions.map(row => row.status)).toEqual(["canceled", "active"]);
+  });
+
+  it("blocks customer scrubbing when the original platform is no longer configured", async () => {
+    seedBothModes();
+    vi.stubEnv("STRIPE_LIVE_PLATFORM_ACCOUNT_ID", "acct_replacement");
+    const update = vi.fn(async (_id: string) => ({}));
+    __setStripeForTests({ customers: { update } } as any);
+    await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).rejects.toThrow();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0][0]).toBe("cus_test");
+  });
+
+  it("never treats an unclassified Stripe customer as successfully scrubbed", async () => {
+    mocks.supabase.tables.billing_payers.push({
+      id: fakeUuid(90), patient_id: P1, provider_id: "office-1", stripe_customer_id: "cus_legacy",
+      stripe_mode: null, stripe_platform_account_id: null,
+    });
+    const update = vi.fn(async (_id: string) => ({}));
+    __setStripeForTests({ customers: { update } } as any);
+    await expect(defaultPurgeDeps.scrubBillingCustomers(P1)).rejects.toThrow("unknown Stripe identity");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("keeps no-financial-record accounts deletable without Stripe configuration", async () => {
+    vi.stubEnv("STRIPE_TEST_SECRET_KEY", "");
+    vi.stubEnv("STRIPE_LIVE_SECRET_KEY", "");
+    expect(await defaultPurgeDeps.cancelBillingSubscriptions(P1)).toBe(0);
+    expect(await defaultPurgeDeps.scrubBillingCustomers(P1)).toBe(0);
   });
 });
 

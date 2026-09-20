@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 
 const state = vi.hoisted(() => ({
   subscriptions: [] as any[],
@@ -227,12 +228,11 @@ describe("subscription controls", () => {
     expect(first.cancel_at_period_end).toBe(true);
     expect(state.stripeUpdates.filter((entry) => entry.patch.cancel_at_period_end)).toHaveLength(1);
     const claims = () => state.emailClaims.filter((claim) => claim.template_id === "subscription-cancelled");
-    expect(claims()).toHaveLength(1);
-    expect(claims()[0].dedupe_key).toBe("cancelled:sub-local:period-end");
+    expect(claims()).toHaveLength(0); // Test mode never queues real customer emails.
 
     const again = await cancelSubscription("sub-local", { at_period_end: true });
     expect(again.cancel_at_period_end).toBe(true);
     expect(state.stripeUpdates.filter((entry) => entry.patch.cancel_at_period_end)).toHaveLength(1);
-    expect(claims()).toHaveLength(1);
+    expect(claims()).toHaveLength(0);
   });
 });

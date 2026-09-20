@@ -971,6 +971,7 @@ export interface PatientPurchasesTotals {
 
 
 export interface StaffSaleContext {
+  billing_scope?: string;
   patient: { id: string; name: string; email: string | null; phone: string | null };
   default_address: ShippingAddress | null;
   products: PublicLinkProduct[];

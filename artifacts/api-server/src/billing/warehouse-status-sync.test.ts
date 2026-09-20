@@ -114,6 +114,7 @@ const ADDRESS = { name: "Pat Example", line1: "123 Test Street", line2: null, ci
 
 function order(overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    livemode: true,
     id: "ord-1", order_number: "TH-000123", provider_id: "office-1", patient_id: "pat-1", payer_id: "payer-1", subscription_id: null,
     kind: "one_time", status: "paid", fulfillment_status: "to_ship", shipping_address: ADDRESS, shipping_method: "standard",
     paid_at: "2026-09-17T11:58:00.000Z", created_at: "2026-09-17T11:57:00.000Z", carrier: null, tracking_number: null, shipped_at: null, canceled_reason: null, shipped_by: null,

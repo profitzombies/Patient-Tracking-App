@@ -21,6 +21,7 @@ import { useHqData } from '@/contexts/hq-data';
 import { HQ_SETTINGS_GROUPS, type HqSettingValue, type HqSettingsGroup } from '@/data/hq/settings';
 import { useSession } from '@/contexts/session';
 import { LivePolicySettings } from './org-settings/LivePolicySettings';
+import { BillingModeSettings } from '@/components/billing/BillingModeSettings';
 
 function GroupCard({ group }: { group: HqSettingsGroup }) {
   const { settingsValues, saveSettings } = useHqData();
@@ -194,7 +195,10 @@ export default function OrgSettings() {
       />
       <div className="space-y-5">
         {isLive ? (
-          <LivePolicySettings />
+          <>
+            <BillingModeSettings />
+            <LivePolicySettings />
+          </>
         ) : (
           <>
             {HQ_SETTINGS_GROUPS.map((group) => (

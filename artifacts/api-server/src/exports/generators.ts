@@ -9,6 +9,8 @@
  */
 import type { CsvCell } from "./csv";
 import type { ExportKind, ExportScope } from "./kinds";
+import { scopedBillingQuery, type BillingTable } from "../billing/store";
+import { withExportBillingIdentity } from "./billing-identity";
 import { loadOfficeRollups, type DateRangeKeys } from "../routes/operational-rollups";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { offboardingStatusOf } from "../lib/office-status";
@@ -60,6 +62,8 @@ export const AUDIT_EXPORT_ACTIONS = [
 const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos", "includeTombstones", "patients"]);
 
 export async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
+  const billingPath = pathWithoutPaging.match(/^\/rest\/v1\/(billing_[a-z_]+)\?(.*)$/);
+  if (billingPath) pathWithoutPaging = `/rest/v1/${billingPath[1]}?${scopedBillingQuery(billingPath[1] as BillingTable, billingPath[2])}`;
   const rows: Record<string, unknown>[] = [];
   for (let offset = 0; rows.length < MAX_EXPORT_ROWS; offset += PAGE) {
     const res = await supabaseAdmin("GET", `${pathWithoutPaging}&limit=${PAGE}&offset=${offset}`);
@@ -402,9 +406,9 @@ export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<Expo
   audit_events: auditEvents,
   training_completion: trainingCompletion,
   provider_directory: providerDirectory,
-  billing_transactions: billingTransactions,
-  billing_subscriptions: billingSubscriptions,
-  billing_payouts: billingPayouts,
+  billing_transactions: scope => withExportBillingIdentity(scope, () => billingTransactions(scope)),
+  billing_subscriptions: scope => withExportBillingIdentity(scope, () => billingSubscriptions(scope)),
+  billing_payouts: scope => withExportBillingIdentity(scope, () => billingPayouts(scope)),
   // Patient records are multi-part ZIPs built by exports/patient-record.ts;
   // the worker branches before reaching this table.
   patient_record: async () => {

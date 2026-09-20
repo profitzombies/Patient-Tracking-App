@@ -65,7 +65,9 @@ export function quoteCart(input: CartQuoteRequest): Promise<CartQuote> {
  */
 const CHECKOUT_TIMEOUT_MS = 90_000;
 export function checkoutCart(input: CartCheckoutRequest, cartId: string, options?: { accessToken?: string }): Promise<CartCheckoutResponse> {
-  return authedRequest('POST', '/patient-data/billing/cart/checkout', { ...input, cart_id: cartId }, {
+  const { billing_scope, ...body } = input;
+  return authedRequest('POST', '/patient-data/billing/cart/checkout', { ...body, cart_id: cartId }, {
+    headers: { 'X-Billing-Scope': billing_scope ?? '' },
     // The bearer is the one the pay flow captured for the account that
     // started the attempt, never whatever session is current when the POST
     // finally leaves (an account switch during card entry must not charge the
@@ -88,15 +90,17 @@ export function listCards(): Promise<PatientCardList> {
   return authedRequest('GET', '/patient-data/billing/cards') as Promise<PatientCardList>;
 }
 
-export function startCardSetup(): Promise<PatientCardSetup> {
+export function startCardSetup(billingScope?: string): Promise<PatientCardSetup> {
   return authedRequest('POST', '/patient-data/billing/cards/setup', {}, {
     idempotencyKey: mutationKey('card-setup'),
+    headers: { 'X-Billing-Scope': billingScope ?? '' },
   }) as Promise<PatientCardSetup>;
 }
 
-export function addCard(input: PatientCardAddRequest): Promise<PatientCardList> {
+export function addCard(input: PatientCardAddRequest, billingScope?: string): Promise<PatientCardList> {
   return authedRequest('POST', '/patient-data/billing/cards', input, {
     idempotencyKey: mutationKey('card-add', input.payment_method_id),
+    headers: { 'X-Billing-Scope': billingScope ?? '' },
   }) as Promise<PatientCardList>;
 }
 

@@ -1,5 +1,6 @@
 import Stripe from "stripe";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 import { ensureCustomer } from "./customers";
 import { __setStripeForTests } from "./stripe-client";
 
@@ -50,7 +51,7 @@ describe("ensureCustomer", () => {
     const [params, opts] = stripe.customers.create.mock.calls[0];
     expect(params).toMatchObject({ name: "Pat", metadata: { thinnr_payer_id: "payer-1" } });
     expect(opts).toMatchObject({ stripeAccount: "acct_new", idempotencyKey: "customer:payer-1:acct_new" });
-    expect(patches).toEqual([{ stripe_customer_id: "cus_new" }]);
+    expect(patches).toEqual([{ stripe_customer_id: "cus_new", stripe_mode: "test", stripe_platform_account_id: "acct_platform" }]);
   });
 
   it("does not replace the customer on transient Stripe failures", async () => {

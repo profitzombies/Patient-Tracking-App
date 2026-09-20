@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { officeOffering } from "./catalog";
 import type { PublicLinkProduct } from "./types";
+import { getBillingModeStatus } from "./mode-state";
+import { currentBillingIdentity, runWithBillingIdentity } from "./stripe-environment";
+
+async function selectedOfficeOffering(providerId: string): Promise<PublicLinkProduct[]> {
+  const identity = currentBillingIdentity() ?? await getBillingModeStatus();
+  return runWithBillingIdentity(identity, () => officeOffering(providerId));
+}
 
 export const productSuggestionInputSchema = z.object({
   mode: z.enum(["individual", "bundle"]),
@@ -38,7 +45,7 @@ export class ProductSuggestionError extends Error {
 export async function buildProductSuggestion(
   providerId: string,
   input: ProductSuggestionInput,
-  loadOffering: (providerId: string) => Promise<PublicLinkProduct[]> = officeOffering,
+  loadOffering: (providerId: string) => Promise<PublicLinkProduct[]> = selectedOfficeOffering,
 ): Promise<ProductSuggestion> {
   const offering = await loadOffering(providerId);
   const products = new Map(offering.map(product => [product.product_id, product]));

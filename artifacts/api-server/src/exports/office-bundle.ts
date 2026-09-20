@@ -667,6 +667,7 @@ class BundleBuilder {
     const generatedAt = this.deps.now().toISOString();
     const today = generatedAt.slice(0, 10);
     const scope: ExportScope = {
+      billingIdentity: this.row.params?.billingIdentity as ExportScope["billingIdentity"],
       providerId: this.officeId,
       officeName: this.officeName,
       requesterKind: "hq",

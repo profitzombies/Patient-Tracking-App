@@ -173,6 +173,8 @@ export async function authedRequest(
       { kind: 'http', status: response.status, field: typeof failure?.field === 'string' ? failure.field : null },
     );
   }
+  const billingScope = response.headers.get('X-Billing-Scope');
+  if (billingScope && json && typeof json === 'object') Object.assign(json, { billing_scope: billingScope });
   return json;
 }
 

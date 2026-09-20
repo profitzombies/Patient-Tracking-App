@@ -3,6 +3,7 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
 
 const SUPABASE = "http://patient-billing.supabase.test";
@@ -76,6 +77,9 @@ class Backend {
     const table = match[1];
     const rows = this.tables[table];
     if (!rows) return json(404, { message: `Unknown fake table ${table}` });
+    if (table.startsWith("billing_")) rows.forEach((row) => {
+      row.stripe_mode ??= "test"; row.stripe_platform_account_id ??= "acct_platform";
+    });
     const matching = () => rows.filter((row) => this.filters(url).every((filter) => this.matches(row, filter)));
     if (method === "GET") {
       let selected = matching();
@@ -202,6 +206,7 @@ beforeAll(async () => {
   const { default: patientBilling } = await import("./patient-billing");
   const app = express();
   app.use(express.json());
+  app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, next));
   app.use((req, _res, next) => {
     (req as any).log = { error: vi.fn(), info: vi.fn() };
     next();
@@ -248,7 +253,7 @@ describe("patient billing authentication and overview", () => {
     const response = await api("GET", "/api/patient-data/billing/overview", { token: "patient-token" });
     expect(response.status).toBe(200);
     const { officeOffering } = await import("../billing/catalog");
-    expect(response.json.products).toEqual(await officeOffering(patient.providerId));
+    expect(response.json.products).toEqual(await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => officeOffering(patient.providerId)));
     expect(response.json.office).toEqual({
       provider_id: patient.providerId, office_name: "Beacon Health", payments_available: true,
     });

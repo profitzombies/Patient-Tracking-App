@@ -122,7 +122,7 @@
 - [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.
 - [FatSecret permission gates](fatsecret-evaluation-permissions.md) — Basic caching and advice rights cannot be inferred from keys or the 24-hour rule; verify actual standard-method access without extra scopes.
 - [Coach readiness caches](coach-readiness-caches.md) — paintable ≠ saved; stale reads must reject consumers, not merely skip cache writes; navigation must not renew freshness.
-- [Stripe Connect billing](stripe-connect-billing.md) — connector key vs Connect-enabled sandbox; first-invoice fee % + refund; webhook rows are claims; CAS on every money transition; ledger only on success + reversal rows; test-office recipe.
+- [Stripe Connect billing](stripe-connect-billing.md) — environment account identity, first-invoice fee workaround, webhook claims, price idempotency, and Connect sandbox prerequisites.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
 - [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
@@ -173,10 +173,7 @@
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Overview finance live smoke](overview-finance-live-smoke.md) — REST mocks must honor select= (an id-only query hid an always-0 failed-payments count); staff fixtures need the provision_staff_login rail; api dev runs a built bundle.
 - [Patient edit history](patient-edit-history.md) — values live in an append-only patient-owned table paired with the PII-free audit id; every shared-family edit route must go through the audit+history helper.
-- [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset numeric knobs silently zero limits; blank-check before Number; import-time knobs need vi.hoisted in tests.
-- [Staff inbox live stream](staff-inbox-stream.md) — inbox never polls: one SSE per tab over an in-process updated_at feed; every ready = one catch-up; pushed events must not re-key queries; pollers go polite.
 - [Patient account closure](account-closure.md) — closure deletes personal families + nulls identity and reuses archived_at as the seal; classify every patient_id table; courtesy lookups fall through, never 502; teach route fakes new operators.
-- [Merge-stripped closing braces](merge-splice-repair.md) — a merge commit can strip every method's closing `}` from a hot lib file (objectStorage); typecheck main before trusting a green subagent report.
 - [Whole-office bundle export](office-bundle-export.md) — entity-page request + panel lists jobs; resumable step keeps in-run cursor ahead of committed one; estimate from size snapshot or null; stash under stale index.lock silently no-ops.
 - [Office offboarding flow](office-offboarding.md) — status flips first, access_disabled only at completion; SQL rollups need the id-set exclusion; batch enqueue must skip already-due requests or the job loop spins.
 - [Office reactivation live proof](office-reactivation-live-proof.md) — retired identity = recreate GoTrue user under original id; purge is tombstone-then-row (poll row gone); re-seal keeps reopened_at.

@@ -6,6 +6,7 @@ import { connectedOpts, getConnectClientId, getPublishableKey, getStripe, isSand
 import { insert, nowIso, selectOne, update, upsert, type BillingConnectedAccountRow } from "./store";
 import type { AccountRequirements, ConnectedAccount, DashboardType } from "./types";
 import { onStripeEvent } from "./webhooks";
+import { currentBillingIdentity, runWithBillingIdentity, type BillingIdentity } from "./stripe-environment";
 
 export class BillingAccountError extends Error {
   constructor(message: string, readonly status = 400, readonly unsupported?: string[]) { super(message); }
@@ -160,7 +161,7 @@ function signState(payload: object): string {
   const signature = crypto.createHmac("sha256", stateSecret()).update(encoded).digest("base64url");
   return `${encoded}.${signature}`;
 }
-function verifyState(state: string): { provider_id: string; actor: string; exp: number } {
+function verifyState(state: string): { provider_id: string; actor: string; exp: number; identity: BillingIdentity } {
   const [encoded, signature] = state.split(".");
   if (!encoded || !signature) throw new BillingAccountError("The connection link is invalid or expired.", 400);
   const expected = crypto.createHmac("sha256", stateSecret()).update(encoded).digest();
@@ -168,20 +169,23 @@ function verifyState(state: string): { provider_id: string; actor: string; exp: 
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
     throw new BillingAccountError("The connection link is invalid or expired.", 400);
   }
-  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString()) as { provider_id?: string; actor?: string; exp?: number };
-  if (!payload.provider_id || !payload.actor || !payload.exp || payload.exp < Date.now()) {
+  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString()) as { provider_id?: string; actor?: string; exp?: number; identity?: BillingIdentity };
+  if (!payload.provider_id || !payload.actor || !payload.exp || payload.exp < Date.now() ||
+      !payload.identity || !["test", "live"].includes(payload.identity.mode) || !/^acct_[A-Za-z0-9]+$/.test(payload.identity.platformAccountId)) {
     throw new BillingAccountError("The connection link is invalid or expired.", 400);
   }
-  return payload as { provider_id: string; actor: string; exp: number };
+  return payload as { provider_id: string; actor: string; exp: number; identity: BillingIdentity };
 }
 
 export async function buildOauthStartUrl(providerId: string, actorUserId: string): Promise<string> {
+  const identity = currentBillingIdentity();
+  if (!identity) throw new BillingAccountError("Payment mode must be selected before connecting Stripe.", 503);
   const clientId = getConnectClientId();
   if (!clientId) throw new BillingAccountError("Stripe OAuth is not configured.", 503);
   const office = await provider(providerId);
   const query = new URLSearchParams({
     response_type: "code", client_id: clientId, scope: "read_write",
-    state: signState({ provider_id: providerId, actor: actorUserId, exp: Date.now() + 15 * 60_000 }),
+    state: signState({ provider_id: providerId, actor: actorUserId, identity, exp: Date.now() + 15 * 60_000 }),
     redirect_uri: `${publicOrigin()}/api/billing/oauth/callback`,
   });
   if (office.email) query.set("stripe_user[email]", office.email);
@@ -190,8 +194,10 @@ export async function buildOauthStartUrl(providerId: string, actorUserId: string
 
 export async function completeOauth(code: string, state: string): Promise<ConnectedAccount> {
   const payload = verifyState(state);
+  return runWithBillingIdentity(payload.identity, async () => {
   const stripe = await getStripe();
   const token = await stripe.oauth.token({ grant_type: "authorization_code", code });
+  if (token.livemode !== (payload.identity.mode === "live")) throw new BillingAccountError("Stripe returned an account in the wrong payment mode.", 409);
   if (!token.stripe_user_id) throw new BillingAccountError("Stripe did not return an account.", 502);
   const account = await stripe.accounts.retrieve(token.stripe_user_id);
   if (account.deleted) throw new BillingAccountError("That Stripe account is unavailable.", 409);
@@ -205,6 +211,7 @@ export async function completeOauth(code: string, state: string): Promise<Connec
     provider_id: payload.provider_id, kind: "oauth_connected", detail: { actor_user_id: payload.actor },
   });
   return syncAccount(payload.provider_id);
+  });
 }
 
 export const ACCOUNT_COMPONENTS = [
@@ -231,7 +238,7 @@ export async function createAccountSession(providerId: string, components: Accou
       { account: row.stripe_account_id, components: enabled } as Stripe.AccountSessionCreateParams,
     );
     await insert("billing_account_events", { provider_id: providerId, kind: "onboarding_started", detail: { components: requested } });
-    return { client_secret: session.client_secret, publishable_key: await getPublishableKey(), sandbox: await isSandbox() };
+    return { client_secret: session.client_secret, publishable_key: await getPublishableKey(), sandbox: await isSandbox(), stripe_account_id: row.stripe_account_id };
   } catch (error) {
     if (row.dashboard_type === "full") {
       throw new BillingAccountError("These tools are not available for this Stripe account.", 409, requested);

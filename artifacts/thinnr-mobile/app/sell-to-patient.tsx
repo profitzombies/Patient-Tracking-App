@@ -199,7 +199,14 @@ function SaleFlow({
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const context = useOfficeSaleContext(userId, patientId);
+  const contextQuery = useOfficeSaleContext(userId, patientId);
+  // Freeze the identity AND the displayed keys for this sale screen. Background
+  // refetches must not silently turn a Test card form into a Live sale.
+  const displayedContext = useRef<{ key: string; data: NonNullable<typeof contextQuery.data> } | null>(null);
+  const contextKey = `${userId}:${patientId}`;
+  if (displayedContext.current?.key !== contextKey) displayedContext.current = null;
+  if (!displayedContext.current && contextQuery.data) displayedContext.current = { key: contextKey, data: contextQuery.data };
+  const context = { ...contextQuery, data: displayedContext.current?.data };
   const [lines, setLines] = useState<CartLineInput[]>([]);
   const [quote, setQuote] = useState<CartQuote | null>(null);
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("standard");
@@ -252,7 +259,7 @@ function SaleFlow({
         key: string;
       },
       scope,
-    ) => officeBilling.saleCheckout(vars.body, scope, vars.key),
+    ) => officeBilling.saleCheckout(vars.body, { ...scope, billingScope: context.data?.billing_scope }, vars.key),
   );
   const cartMutation = useOfficeBillingMutation(
     userId,
@@ -267,7 +274,7 @@ function SaleFlow({
     (
       vars: { body: Parameters<typeof officeBilling.tapSale>[0]; key: string },
       scope,
-    ) => officeBilling.tapSale(vars.body, scope, vars.key),
+    ) => officeBilling.tapSale(vars.body, { ...scope, billingScope: context.data?.billing_scope }, vars.key),
   );
   const tapCaptureMutation = useOfficeBillingMutation(
     userId,
@@ -844,6 +851,11 @@ function SaleFlow({
             retry={() => void context.refetch()}
             testID="sale-context-error"
           />
+        ) : null}
+        {context.data ? (
+          <InlineNotice tone="info" testID="sale-payment-mode">
+            {context.data.sandbox ? "Test mode — no real charge will be made." : "Live mode — payments charge real money."}
+          </InlineNotice>
         ) : null}
         {notice ? (
           <InlineNotice tone={notice.tone} testID="sale-notice">

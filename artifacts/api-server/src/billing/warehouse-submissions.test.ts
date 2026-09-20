@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+beforeEach(() => vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live"));
+afterEach(() => vi.unstubAllEnvs());
 import type { JobContext } from "../jobs/types";
 import { WarehouseCraftError } from "../shipping/warehousecraft";
 import type { WarehouseOrder, WarehouseOrderClient } from "../shipping/warehousecraft-orders";
@@ -104,6 +106,7 @@ const NOW = new Date("2026-09-18T12:00:00.000Z");
 
 function order(overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    livemode: true,
     id: "ord-1", order_number: "TH-000123", provider_id: "office-1", patient_id: "pat-1", payer_id: "payer-1", subscription_id: null,
     kind: "one_time", status: "paid", fulfillment_status: "to_ship", shipping_address: ADDRESS, shipping_method: "standard",
     paid_at: "2026-09-18T11:58:00.000Z", created_at: "2026-09-18T11:57:00.000Z", carrier: null, tracking_number: null, shipped_at: null, canceled_reason: null, shipped_by: null,
@@ -232,7 +235,7 @@ describe("submitOne", () => {
 describe("tenant guard", () => {
   it("routes real orders to the live tenant only and sandbox orders to the test tenant only", () => {
     expect(tenantVerdict({ livemode: true }, "live")).toBe("send");
-    expect(tenantVerdict({ livemode: false }, "test")).toBe("send");
+    expect(tenantVerdict({ livemode: false }, "test")).toBe("skip");
     expect(tenantVerdict({ livemode: true }, "test")).toBe("hold");
     expect(tenantVerdict({ livemode: false }, "live")).toBe("skip");
     // Legacy rows without the flag are treated as sandbox (never sent to a live tenant by accident).
@@ -272,9 +275,11 @@ describe("tenant guard", () => {
     expect(sub()).toMatchObject({ state: "skipped", skipped_reason: SKIPPED_SANDBOX_REASON });
     expect(shipment()).toMatchObject({ warehouse_state: "skipped" });
   });
-  it("sends a sandbox order to the test tenant and a real order to the live tenant", async () => {
+  it("never sends a sandbox order even to a test tenant; sends a real order to live", async () => {
     seed({ orders: [order({ livemode: false })] });
-    await expect(submitOne(sub(), { client: fakeClient(), now: () => NOW, tenantMode: "test" })).resolves.toBe("sent");
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "test" })).resolves.toBe("skipped");
+    expect(client.calls).toEqual([]);
     seed({ orders: [order({ livemode: true })] });
     await expect(submitOne(sub(), { client: fakeClient(), now: () => NOW, tenantMode: "live" })).resolves.toBe("sent");
   });
@@ -329,18 +334,18 @@ describe("cancelAtWarehouse", () => {
     // Same tenant, but the ClientOrderId is unknown there: no fallback to the cached status or id.
     seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119", warehouse_status: "Imported" })] });
     client = fakeClient({ lookup: async () => null });
-    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toMatchObject({ kind: "unavailable", message: expect.stringMatching(/not found at the warehouse/) });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "live" })).resolves.toMatchObject({ kind: "unavailable", message: expect.stringMatching(/not found at the warehouse/) });
     expect(client.calls).toEqual(["lookup"]);
     // The lookup answers a different ClientOrderId: refuse as well.
     seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1436119" })] });
     client = fakeClient({ lookup: async () => liveOrder("On Hold", 999, "TH-OTHER") });
-    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toMatchObject({ kind: "unavailable" });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "live" })).resolves.toMatchObject({ kind: "unavailable" });
     expect(client.calls).toEqual(["lookup"]);
   });
   it("cancels the order the lookup verified and re-points the cached id at it", async () => {
     seed({ submissions: [submission({ state: "sent", warehouse_order_id: "1", payload: { ClientOrderId: "TH-000123" } })] });
     const client = fakeClient({ lookup: async () => liveOrder("Imported", 777), cancel: async (id) => liveOrder("Cancelled", id) });
-    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "test" })).resolves.toEqual({ kind: "applied", warehouse_order_id: "777" });
+    await expect(cancelAtWarehouse("ord-1", { client, tenantMode: "live" })).resolves.toEqual({ kind: "applied", warehouse_order_id: "777" });
     expect(sub()).toMatchObject({ warehouse_order_id: "777", warehouse_status: "Cancelled" });
   });
 });
@@ -373,10 +378,10 @@ describe("syncSubscriptionAddress", () => {
       submissions: [submission({ id: "s-a", order_id: "ord-a", state: "sent", warehouse_order_id: "1" }), submission({ id: "s-b", order_id: "ord-b", state: "sent", warehouse_order_id: "2" })],
     });
     const client = fakeClient({ lookup: async () => null });
-    // Test tenant: the real order is refused without a call, the sandbox order is looked up and missed.
+    // Test tenant: real and sandbox orders are both refused without any call.
     await expect(syncSubscriptionAddress("sub-9", ADDRESS, { client, tenantMode: "test" })).resolves.toEqual({ applied: [], locked: [], unavailable: ["TH-A", "TH-B"] });
-    expect(client.calls).toEqual(["lookup"]);
-    expect(state.tables.billing_warehouse_submissions.map((row) => row.last_error)).toEqual([expect.stringMatching(/TEST mode but this is a live order/), expect.stringMatching(/not found at the warehouse/)]);
+    expect(client.calls).toEqual([]);
+    expect(state.tables.billing_warehouse_submissions.map((row) => row.last_error)).toEqual([expect.stringMatching(/TEST mode but this is a live order/), expect.stringMatching(/TEST mode but this is a sandbox order/)]);
   });
 });
 
@@ -387,6 +392,7 @@ describe("warehouseDto / warehouseHealth", () => {
     expect(warehouseDto(null)).toBeNull();
   });
   it("counts the last 24 h and lists Needs attention orders with their numbers", async () => {
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
     seed({
       orders: [order(), order({ id: "ord-2", order_number: "TH-000124" })],
       submissions: [
@@ -480,7 +486,7 @@ describe("warehouse-submit job", () => {
     const client = fakeClient();
     const first = ctx();
     await runWarehouseSubmit(first, { client, tenantMode: "test" });
-    expect(first.tallies).toMatchObject({ due: 2, held: 1, sent: 1 });
+    expect(first.tallies).toMatchObject({ due: 2, held: 1, skipped: 1 });
     expect(first.tallies.retriesResolved).toBeUndefined();
     // ... and on a later pass (still test mode, hold re-check time elapsed) it is not even selected.
     sub().next_attempt_at = "2026-09-18T11:00:00.000Z";

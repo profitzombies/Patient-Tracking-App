@@ -35,7 +35,7 @@ export function StatusPill({ tone, children, testId }: { tone: PillTone; childre
  * nobody mistakes a test charge for a real one.
  */
 export function SandboxBadge({ sandbox, className }: { sandbox: boolean | undefined; className?: string }) {
-  if (!sandbox) return null;
+  if (sandbox === undefined) return null;
   return (
     <span
       role="status"
@@ -43,7 +43,7 @@ export function SandboxBadge({ sandbox, className }: { sandbox: boolean | undefi
       className={`inline-flex items-center gap-1.5 rounded-sm border border-[#e8b47c] bg-[#fff4e6] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[.14em] text-[#b65c22] ${className ?? ''}`}
     >
       <FlaskConical size={11} aria-hidden="true" />
-      Sandbox — test payments only
+      {sandbox ? 'Test mode — no real charges' : 'Live mode — real money'}
     </span>
   );
 }

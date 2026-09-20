@@ -76,7 +76,12 @@ export function ConnectEmbed({
               return session.client_secret;
             }
             try {
-              return (await officeBilling.accountSession(components, office)).client_secret;
+              const refreshed = await officeBilling.accountSession(components, office);
+              if (refreshed.publishable_key !== session.publishable_key || refreshed.sandbox !== session.sandbox ||
+                  refreshed.stripe_account_id !== session.stripe_account_id) {
+                throw new Error('Payment configuration changed. Reload this page before continuing.');
+              }
+              return refreshed.client_secret;
             } catch (error) {
               if (error instanceof BillingApiError && error.status === 409) setUnsupported(true);
               else setFailure(error instanceof Error ? error : new Error('Stripe tools could not be loaded.'));

@@ -56,6 +56,7 @@ export type ListFilters = Record<string, string | number | null | undefined>;
 /** Identity scope for every call: the signed-in staff user (React Query keys are identity-scoped too). */
 export interface BillingScope {
   userId: string;
+  billingScope?: string;
   signal?: AbortSignal;
 }
 
@@ -76,7 +77,8 @@ function request<T>(
   body?: unknown,
   headers?: Record<string, string>,
 ): Promise<T> {
-  const requestScope: OfficeRequestScope = { userId: scope.userId, signal: scope.signal, headers, failedMessage: FAILED };
+  const requestScope: OfficeRequestScope = { userId: scope.userId, signal: scope.signal,
+    headers: { ...headers, ...(scope.billingScope ? { 'X-Billing-Scope': scope.billingScope } : {}) }, failedMessage: FAILED };
   return officeBearerRequest<T>(method, path, body, requestScope);
 }
 

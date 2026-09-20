@@ -645,6 +645,7 @@ export interface AccountSessionResponse {
   client_secret: string;
   publishable_key: string;
   sandbox: boolean;
+  stripe_account_id?: string;
 }
 
 export interface OfficeDashboard {
@@ -902,6 +903,14 @@ export interface PublicSubscription {
   status: SubscriptionStatus;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
+}
+
+export interface BillingModeStatus {
+  mode: 'test' | 'live';
+  version: number | null;
+  selection_loaded?: boolean;
+  setup?: { ready: boolean; missing: string[]; message: string | null };
+  configuration: Record<'test' | 'live', { configured: boolean; missing: string[]; errors?: string[] }>;
 }
 
 export interface PaymentsHealth {
@@ -1341,6 +1350,7 @@ export interface PatientPurchasesTotals {
 }
 
 export interface PublicCartDetails {
+  billing_scope?: string;
   office: { name: string; city: string | null; state: string | null };
   patient: { name: string; email: string | null; phone: string | null } | null;
   lines: CartQuoteLine[];
@@ -1364,6 +1374,7 @@ export interface PublicCartPeek {
 }
 
 export interface StaffSaleContext {
+  billing_scope?: string;
   patient: { id: string; name: string; email: string | null; phone: string | null };
   default_address: ShippingAddress | null;
   products: PublicLinkProduct[];

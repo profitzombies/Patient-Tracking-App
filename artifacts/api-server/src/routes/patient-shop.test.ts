@@ -5,6 +5,7 @@ import express from "express";
 import Stripe from "stripe";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 
 /**
  * Patient shop routes against a PostgREST-shaped fake and a scripted Stripe.
@@ -141,6 +142,9 @@ class Backend {
     const table = match[1];
     const rows = this.tables[table];
     if (!rows) return json(404, { message: `Unknown fake table ${table}` });
+    if (table.startsWith("billing_")) rows.forEach((row) => {
+      row.stripe_mode ??= "test"; row.stripe_platform_account_id ??= "acct_platform";
+    });
     if (method === "GET") {
       let selected = this.select(url, rows);
       const order = url.searchParams.get("order");
@@ -173,7 +177,7 @@ class Backend {
         return json(409, { code: "23505", message: `duplicate key value violates unique constraint "${constraint}"` });
       }
       this.seq += 1;
-      const stamp = new Date(Date.UTC(2026, 8, 20, 0, 0, this.seq)).toISOString();
+      const stamp = table === "billing_carts" ? new Date().toISOString() : new Date(Date.UTC(2026, 8, 20, 0, 0, this.seq)).toISOString();
       const row = { id: incoming.id ?? crypto.randomUUID(), created_at: stamp, updated_at: stamp, ...incoming };
       rows.push(row);
       this.inserts.push(table);
@@ -408,6 +412,7 @@ beforeAll(async () => {
   const { default: billing } = await import("./patient-billing");
   const app = express();
   app.use(express.json());
+  app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, next));
   app.use((req, _res, next) => { (req as any).log = { error: vi.fn(), info: vi.fn(), warn: vi.fn() }; next(); });
   app.use("/api", billing);
   app.use("/api", shop);
@@ -558,14 +563,14 @@ describe("cart quote", () => {
     // total nobody confirmed. Only a fresh checkout is priced today.
     const { checkoutCart, assertQuoteCurrent } = await import("../billing/cart");
     const quoted = 16997 + 6299 + 2000;
-    await expect(assertQuoteCurrent("office-1", CART.lines as never, quoted)).resolves.toMatchObject({ quote: { total_cents: quoted } });
-    await expect(assertQuoteCurrent("office-1", CART.lines as never, quoted + 1)).rejects.toMatchObject({ status: 409, field: "expected_total_cents" });
+    await expect(runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => assertQuoteCurrent("office-1", CART.lines as never, quoted))).resolves.toMatchObject({ quote: { total_cents: quoted } });
+    await expect(runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => assertQuoteCurrent("office-1", CART.lines as never, quoted + 1))).rejects.toMatchObject({ status: 409, field: "expected_total_cents" });
     const { patientId } = backend.signedIn("pat", "office-1");
     const before = backend.tables.billing_orders.length;
-    await expect(checkoutCart({
+    await expect(runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => checkoutCart({
       patientId, providerId: "office-1", cartId: crypto.randomUUID(), lines: CART.lines as never,
       shipping_address: ADDRESS, payment_method_id: "pm_visa", expected_total_cents: quoted - 500,
-    })).rejects.toMatchObject({ status: 409 });
+    }))).rejects.toMatchObject({ status: 409 });
     expect(backend.tables.billing_orders.length).toBe(before);
     expect(stripe.invoices.create).not.toHaveBeenCalled();
   });
@@ -669,10 +674,12 @@ describe("checkout", () => {
     const key = crypto.randomUUID();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
+    let started!: () => void;
+    const paying = new Promise<void>((resolve) => { started = resolve; });
     const original = stripe.invoices.pay.getMockImplementation()!;
-    stripe.invoices.pay.mockImplementationOnce(async (id: string) => { await gate; return original(id); });
+    stripe.invoices.pay.mockImplementationOnce(async (id: string) => { started(); await gate; return original(id); });
     const first = checkout("pat", key);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await paying;
     let second: { status: number; json: Row };
     try { second = await checkout("pat", key); } finally { release(); }
     expect(second.status).toBe(409);
@@ -1465,7 +1472,7 @@ describe("orders and shipments", () => {
     // Staff record a carrier + tracking number through the shared shipment writer.
     const { recordShipment } = await import("../billing/shipments");
     const order = backend.tables.billing_orders.find((row) => row.id === orderId)!;
-    await recordShipment(order as any, { status: "shipped", carrier: "usps", tracking_number: "9400111899223", updated_by: "staff-1" });
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => recordShipment(order as any, { status: "shipped", carrier: "usps", tracking_number: "9400111899223", updated_by: "staff-1" }));
     const shipped = await api("GET", `/api/patient-data/billing/orders/${orderId}`, { token: "pat" });
     expect(shipped.json.shipment).toMatchObject({ status: "shipped", carrier: "usps", tracking_number: "9400111899223" });
     expect(shipped.json.shipment.tracking_url).toContain("9400111899223");
@@ -1474,7 +1481,7 @@ describe("orders and shipments", () => {
     expect(order).toMatchObject({ fulfillment_status: "shipped", carrier: "usps", tracking_number: "9400111899223", shipped_by: "staff-1" });
 
     // A provider callback can later mark it delivered without changing the contract.
-    await recordShipment(order as any, { status: "delivered", source: "provider", external_id: "shp_1", event: { code: "DELIVERED" } });
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, () => recordShipment(order as any, { status: "delivered", source: "provider", external_id: "shp_1", event: { code: "DELIVERED" } }));
     const delivered = await api("GET", `/api/patient-data/billing/orders/${orderId}`, { token: "pat" });
     expect(delivered.json.shipment.status).toBe("delivered");
     expect(delivered.json.shipment.delivered_at).toBeTruthy();

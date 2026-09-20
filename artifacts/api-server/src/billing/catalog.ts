@@ -49,8 +49,8 @@ export function shippingRules(row: BillingSettingsRow): ShippingRuleSettings {
 /** Paid one-time / first-shipment orders in the trailing 7 days: the volume hint beside the tier picker. */
 export async function weeklyPaidOrders(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - 7 * 86400_000).toISOString();
-  const result = await supabaseAdmin("GET", `/rest/v1/billing_orders?select=id&status=eq.paid&paid_at=gte.${enc(since)}&limit=5000`);
-  return Array.isArray(result.json) ? result.json.length : 0;
+  const rows = await selectMany("billing_orders", `select=id&status=eq.paid&paid_at=gte.${enc(since)}&limit=5000`);
+  return rows.length;
 }
 export function settingsDto(row: BillingSettingsRow, weeklyOrders = 0): BillingSettings {
   const { shipping_charge_cents: _c, shipping_cost_cents: _k, ...rules } = shippingRules(row);

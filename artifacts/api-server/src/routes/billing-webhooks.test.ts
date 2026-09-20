@@ -16,7 +16,7 @@ vi.hoisted(() => {
 });
 
 import router from "./billing-webhooks";
-import { __setStripeForTests } from "../billing/stripe-client";
+import { __setStripeForTests, __setCredentialsForTests } from "../billing/stripe-client";
 
 const secret = "whsec_test_secret";
 const stripe = new Stripe("sk_test_fake");
@@ -33,7 +33,7 @@ function response(body: unknown, status = 200): Response {
   return new Response(body == null ? "" : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 async function post(payload: string, signature?: string) {
-  const res = await originalFetch(`${base}/connect`, {
+  const res = await originalFetch(`${base}/test/connect`, {
     method: "POST", body: payload,
     headers: { "Content-Type": "application/json", ...(signature ? { "stripe-signature": signature } : {}) },
   });
@@ -49,12 +49,15 @@ beforeAll(async () => {
 afterAll(async () => {
   global.fetch = originalFetch;
   __setStripeForTests(null);
+  __setCredentialsForTests(null);
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 beforeEach(() => {
   events = new Map();
   dispatch.mockReset().mockResolvedValue(undefined);
   __setStripeForTests(stripe);
+  __setCredentialsForTests({ secret: "sk_test_fake", publishable: "pk_test_fake", account_id: "acct_platform" });
+  process.env.STRIPE_TEST_CONNECT_WEBHOOK_SECRET = secret;
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     const method = init?.method ?? "GET";
@@ -97,6 +100,24 @@ function fixture(id = "evt_once") {
   return { payload, signature: stripe.webhooks.generateTestHeaderString({ payload, secret }) };
 }
 describe("billing webhooks", () => {
+  it("refuses legacy URLs instead of guessing the active mode", async () => {
+    const result = await originalFetch(`${base}/connect`, { method: "POST" });
+    expect(result.status).toBe(410);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+  it("rejects a correctly signed event from the wrong mode before claiming", async () => {
+    const payload = JSON.stringify({ id: "evt_wrong_mode", type: "account.updated", livemode: true, account: "acct_1" });
+    const signature = stripe.webhooks.generateTestHeaderString({ payload, secret });
+    expect((await post(payload, signature)).status).toBe(400);
+    expect(events.size).toBe(0);
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+  it("requires a connected account on connect deliveries", async () => {
+    const payload = JSON.stringify({ id: "evt_no_account", type: "account.updated", livemode: false });
+    const signature = stripe.webhooks.generateTestHeaderString({ payload, secret });
+    expect((await post(payload, signature)).status).toBe(400);
+    expect(events.size).toBe(0);
+  });
   it("rejects missing and bad signatures without dispatching", async () => {
     expect((await post("{}")).status).toBe(400);
     expect((await post("{}", "bad")).status).toBe(400);

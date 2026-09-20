@@ -32,12 +32,13 @@ vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
   process.env.SESSION_SECRET = "test-session-secret";
-  process.env.STRIPE_CONNECT_CLIENT_ID = "ca_test";
+  process.env.STRIPE_TEST_CONNECT_CLIENT_ID = "ca_test";
   process.env.BILLING_PUBLIC_ORIGIN = "https://billing.example";
 });
 import router from "./billing-office";
 import { __setCredentialsForTests } from "../billing/stripe-client";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 
 const originalFetch = global.fetch;
 let server: http.Server;
@@ -62,7 +63,9 @@ async function call(method: string, path: string, token?: string, body?: unknown
   return { status: res.status, json: await res.json().catch(() => null), location: res.headers.get("location") };
 }
 beforeAll(async () => {
-  const app = express(); app.use(express.json()); app.use(router);
+  const app = express(); app.use(express.json());
+  app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, next));
+  app.use(router);
   server = app.listen(0); await new Promise<void>((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });

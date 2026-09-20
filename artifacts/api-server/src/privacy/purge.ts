@@ -41,7 +41,8 @@ import { revokeUserSessions } from "../auth/session-revocations";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { PATIENT_MEDIA_PREFIX } from "../routes/patient-media";
 import { selectMany, selectOne, update } from "../billing/store";
-import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-client";
+import { connectedOpts, getStripe, getStripeCredentials, isStripeMissing } from "../billing/stripe-client";
+import { runWithBillingIdentity, type BillingIdentity } from "../billing/stripe-environment";
 
 const enc = encodeURIComponent;
 
@@ -130,6 +131,48 @@ export interface PurgeDeps {
   now?: () => Date;
 }
 
+/**
+ * Discover this patient's financial identities before any destructive steps.
+ * Discovery is unscoped, operations are not: every Stripe call and DB write
+ * subsequently runs inside the persisted identity, never the current selector.
+ * Unknown/legacy identities block closure instead of disappearing in filters.
+ */
+async function acrossPatientBillingScopes(
+  patientId: string, table: "billing_subscriptions" | "billing_payers", work: () => Promise<number>,
+): Promise<number> {
+  const scopes = new Map<string, BillingIdentity>();
+  const filter = table === "billing_subscriptions"
+    ? "status=neq.canceled&stripe_subscription_id=not.is.null" : "stripe_customer_id=not.is.null";
+  for (let offset = 0; ; offset += 500) {
+    const result = await supabaseAdmin("GET",
+      `/rest/v1/${table}?patient_id=eq.${enc(patientId)}&${filter}&select=stripe_mode,stripe_platform_account_id&order=id&limit=500&offset=${offset}`);
+    if (result.status >= 300 || !Array.isArray(result.json)) throw new Error("Billing purge blocked: financial identities could not be loaded.");
+    for (const row of result.json) {
+      if ((row.stripe_mode !== "test" && row.stripe_mode !== "live") ||
+          typeof row.stripe_platform_account_id !== "string" || !/^acct_[A-Za-z0-9]+$/.test(row.stripe_platform_account_id)) {
+        throw new Error("Billing purge blocked: a financial record has an unknown Stripe identity.");
+      }
+      const identity: BillingIdentity = { mode: row.stripe_mode, platformAccountId: row.stripe_platform_account_id };
+      scopes.set(`${identity.mode}:${identity.platformAccountId}`, identity);
+    }
+    if (result.json.length < 500) break;
+  }
+  let count = 0;
+  const failures: unknown[] = [];
+  for (const identity of scopes.values()) {
+    try {
+      count += await runWithBillingIdentity(identity, async () => {
+        const credentials = await getStripeCredentials(identity.mode);
+        if (credentials.account_id !== identity.platformAccountId) throw new Error("Billing purge blocked: original Stripe platform credentials are unavailable.");
+        return work();
+      });
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, "Billing purge blocked: multiple Stripe scopes could not be processed.");
+  return count;
+}
+
 export const defaultPurgeDeps: PurgeDeps = {
   async prepareTombstone(requestId) {
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_purge_prepare_tombstone", { p_request_id: requestId });
@@ -139,6 +182,7 @@ export const defaultPurgeDeps: PurgeDeps = {
     return true;
   },
   async cancelBillingSubscriptions(patientId) {
+    return acrossPatientBillingScopes(patientId, "billing_subscriptions", async () => {
     const subscriptions = await selectMany(
       "billing_subscriptions",
       `patient_id=eq.${enc(patientId)}&status=neq.canceled&stripe_subscription_id=not.is.null&select=id,provider_id,stripe_subscription_id`,
@@ -184,8 +228,10 @@ export const defaultPurgeDeps: PurgeDeps = {
       }
     }
     return canceled;
+    });
   },
   async scrubBillingCustomers(patientId) {
+    return acrossPatientBillingScopes(patientId, "billing_payers", async () => {
     const payers = await selectMany(
       "billing_payers",
       `patient_id=eq.${enc(patientId)}&stripe_customer_id=not.is.null&select=id,provider_id,stripe_customer_id`,
@@ -232,6 +278,7 @@ export const defaultPurgeDeps: PurgeDeps = {
       }
     }
     return scrubbed;
+    });
   },
   deleteStoragePrefix: (prefix) => objectStorage.deletePrefixStrict(prefix),
   async deleteStorageObjects(paths) {

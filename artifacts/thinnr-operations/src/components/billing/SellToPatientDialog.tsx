@@ -176,6 +176,7 @@ export function SellToPatientDialog({
         },
         office,
         idempotencyKey.current,
+        context?.billing_scope,
       );
       setResult(response);
       definitiveFailure.current = response.status === 'failed';

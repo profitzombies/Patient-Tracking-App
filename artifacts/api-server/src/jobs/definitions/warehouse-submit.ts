@@ -1,3 +1,4 @@
+import { forEachBillingScope } from "../../billing/lifecycle-scopes";
 /**
  * warehouse-submit: every 2 minutes, drain pending WarehouseCraft submission
  * intents (paid orders not yet at the warehouse) in small batches under the
@@ -80,5 +81,5 @@ export const warehouseSubmitJob: JobDefinition = {
   description: "Sends paid orders to WarehouseCraft (one intent per order, retried with bounded backoff), reconciles duplicate acknowledgements by lookup, and parks definite rejections as Needs attention with a staff alert.",
   intervalMs: 2 * MINUTE_MS,
   leaseSeconds: 4 * 60,
-  run: runWarehouseSubmit,
+  run: (ctx) => forEachBillingScope(() => runWarehouseSubmit(ctx), ["live"]),
 };

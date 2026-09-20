@@ -140,6 +140,7 @@ export function scopeFromJob(job: ExportJobRow): ExportScope {
   const end = typeof params.end === "string" ? params.end : null;
   return {
     providerId: job.provider_id,
+    billingIdentity: params.billingIdentity as ExportScope["billingIdentity"],
     officeName: typeof params.officeName === "string" ? params.officeName : null,
     requesterKind: job.requester_kind === "hq" ? "hq" : job.requester_kind === "provider" ? "provider" : "team_member",
     requesterRole: (job.requester_role as ExportScope["requesterRole"]) ?? null,

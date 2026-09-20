@@ -3,6 +3,8 @@ import { list, orderDto, paidStatuses, subscriptionDto } from "./patient-dtos";
 import { shipmentsForOrders } from "./shipments";
 import { selectMany, selectOne, type BillingOrderItemRow, type BillingOrderRow, type BillingRefundRow } from "./store";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { currentBillingIdentity, runWithBillingIdentity } from "./stripe-environment";
+import { getBillingModeStatus } from "./mode-state";
 import type { PatientPaymentProblem, PatientPurchasesCard, PatientPurchasesSummary } from "./types";
 
 const enc = encodeURIComponent;
@@ -23,6 +25,9 @@ export function isActiveSubscriptionStatus(status: string): boolean {
 
 /** Patient ids in the office with at least one active subscription (roster signal). */
 export async function activeSubscriptionPatientIds(providerId: string): Promise<Set<string>> {
+  if (!currentBillingIdentity()) {
+    return runWithBillingIdentity(await getBillingModeStatus(), () => activeSubscriptionPatientIds(providerId));
+  }
   const rows = await selectMany("billing_subscriptions",
     `provider_id=eq.${enc(providerId)}&status=in.(${[...ACTIVE_STATUSES].join(",")})&select=patient_id,status`);
   return new Set(rows.map((row) => row.patient_id).filter((id): id is string => typeof id === "string" && id.length > 0));
@@ -51,7 +56,10 @@ interface SpendRpcRow {
  * "unknown" signal, so the roster can degrade every row to null together.
  */
 export async function officePatientSpend(providerId: string): Promise<Map<string, PatientSpendDto>> {
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_office_patient_spend", { p_provider_id: providerId });
+  const identity = currentBillingIdentity() ?? await getBillingModeStatus();
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/billing_office_patient_spend", {
+    p_provider_id: providerId, p_stripe_mode: identity.mode, p_platform_account_id: identity.platformAccountId,
+  });
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`office spend aggregate failed (${result.status})`);
   }

@@ -72,7 +72,7 @@ function savePlan(plan: Plan): void {
 }
 
 async function context() {
-  const credentials = await getStripeCredentials();
+  const credentials = await getStripeCredentials("test");
   if (!credentials.publishable.startsWith("pk_test_")) throw new Error("Refusing: the Stripe connection is not a sandbox key.");
   const account = await selectOne("billing_connected_accounts", "charges_enabled=eq.true&disconnected_at=is.null&livemode=eq.false");
   if (!account) throw new Error("No sandbox connected account with charges enabled.");
@@ -84,7 +84,7 @@ async function context() {
   if (!linkResponse.ok) throw new Error(`Link lookup failed (${linkResponse.status}) at ${origin}`);
   const offering = await linkResponse.json() as PublicLink;
   if (!offering.sandbox) throw new Error("Refusing: checkout reports live mode.");
-  return { origin, token: link.token, account, offering, stripe: await getStripe() };
+  return { origin, token: link.token, account, offering, stripe: await getStripe("test") };
 }
 type Ctx = Awaited<ReturnType<typeof context>>;
 

@@ -132,6 +132,8 @@ export async function resolveExportRequester(authorization: string | undefined):
 }
 
 export interface ExportScope {
+  /** Immutable mode/account captured when a financial export was requested. */
+  billingIdentity?: import("../billing/stripe-environment").BillingIdentity;
   /** Office the export is pinned to; null = every enabled office (HQ only). */
   providerId: string | null;
   officeName: string | null;
@@ -294,6 +296,7 @@ export function exportFileName(kind: ExportKind, scope: ExportScope, now = new D
       .replace(/^-+|-+$/g, "")
       .slice(0, 40);
   const parts = ["thinnr", kind.replace(/_/g, "-")];
+  if (scope.billingIdentity) parts.push(scope.billingIdentity.mode, slug(scope.billingIdentity.platformAccountId));
   if (scope.patient) {
     // Patient records are ZIP parts named from this stem (see patient-record.ts).
     parts.push(slug(scope.patient.name) || "patient", now.toISOString().slice(0, 10));

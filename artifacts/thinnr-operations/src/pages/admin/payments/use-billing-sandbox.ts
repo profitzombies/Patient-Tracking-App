@@ -8,6 +8,7 @@ export function useBillingSandbox() {
     queryKey: [...scope.base, 'sandbox'],
     queryFn: () => publicBilling.config(),
     enabled: scope.liveEnabled,
-    staleTime: 5 * 60_000,
+    staleTime: 0,
+    refetchInterval: 30_000,
   });
 }

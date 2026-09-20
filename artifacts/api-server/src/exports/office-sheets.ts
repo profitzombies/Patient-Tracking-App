@@ -6,6 +6,7 @@
 import type { CsvCell } from "./csv";
 import { dollars, GENERATORS, pageAll, type ExportSheet } from "./generators";
 import type { ExportScope } from "./kinds";
+import { withExportBillingIdentity } from "./billing-identity";
 
 const enc = encodeURIComponent;
 
@@ -83,6 +84,9 @@ async function staffTeam(providerId: string): Promise<ExportSheet> {
 
 /** Every office sheet, in bundle order. `scope.range` spans all time. */
 export async function officeBusinessSheets(scope: ExportScope, _today: string): Promise<Array<{ file: string; sheet: ExportSheet }>> {
+  return withExportBillingIdentity(scope, () => scopedOfficeBusinessSheets(scope));
+}
+async function scopedOfficeBusinessSheets(scope: ExportScope): Promise<Array<{ file: string; sheet: ExportSheet }>> {
   if (!scope.providerId) throw new Error("office sheets need an office scope");
   const providerId = scope.providerId;
   return [

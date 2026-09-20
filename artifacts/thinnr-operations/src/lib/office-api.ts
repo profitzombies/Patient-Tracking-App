@@ -79,6 +79,8 @@ export async function officeRequest<T>(path: string, messages: OfficeRequestMess
       typeof body.field === 'string' ? body.field : null,
     );
   }
+  const billingScope = response.headers.get('X-Billing-Scope');
+  if (billingScope && body && typeof body === 'object') Object.assign(body, { billing_scope: billingScope });
   return body as T;
 }
 

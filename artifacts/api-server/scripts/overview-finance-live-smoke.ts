@@ -258,7 +258,7 @@ async function prepare(): Promise<void> {
   if (!credentials().management) throw new Error("SUPABASE_ACCESS_TOKEN is required (order seeding and atomic cleanup).");
   try { await access(FIXTURE_PATH); throw new Error(`Fixture already exists at ${FIXTURE_PATH}; run cleanup first.`); }
   catch (error) { if (error instanceof Error && !("code" in error && error.code === "ENOENT")) throw error; }
-  if (!(await isSandbox())) throw new Error("Refusing: the Stripe connection is not a sandbox key.");
+  if (!(await isSandbox("test"))) throw new Error("Refusing: Stripe is not configured for test mode.");
   const products = await serviceRest("GET", "billing_products?status=eq.active&active=eq.true&order=sort_order.asc&select=id&limit=2");
   if (!Array.isArray(products.body) || products.body.length < 2) throw new Error("Need two active catalog products.");
   const state = initialState();
@@ -297,7 +297,7 @@ async function prepare(): Promise<void> {
     // A real Stripe TEST connected account (platform-controlled, no dashboard)
     // so the office is honestly "connected": the dashboard route reads the
     // balance and payouts from it (both tolerate an unonboarded account).
-    const stripe = await getStripe();
+    const stripe = await getStripe("test");
     const account = await stripe.accounts.create({
       country: "US", email: identity(state, "owner").email,
       business_profile: { name: "Synthetic Finance Office" },
@@ -522,7 +522,7 @@ begin
 end $cleanup$;
 commit;`);
   if (state.stripeAccountId) {
-    const stripe = await getStripe();
+    const stripe = await getStripe("test");
     try { await stripe.accounts.del(state.stripeAccountId); }
     catch (error: any) { if (error?.code !== "resource_missing") throw error; }
   }

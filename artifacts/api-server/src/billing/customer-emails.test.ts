@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it as test, vi } from "vitest";
+import { runWithBillingIdentity } from "./stripe-environment";
+const scope = { stripe_mode: "live" as const, stripe_platform_account_id: "acct_live" };
+const it = (name: string, fn: () => unknown) => test(name, () =>
+  runWithBillingIdentity({ mode: "live", platformAccountId: "acct_live" }, fn));
 
 /**
  * In-memory PostgREST stand-in that enforces the one constraint these emails
@@ -63,7 +67,7 @@ const subscription = (over: Partial<BillingSubscriptionRow> = {}): BillingSubscr
   shipping_charge_cents: 0, shipping_cost_cents: 0, application_fee_cents: 1000,
   shipping_address: { name: "Riley Example", line1: "12 Harbor Lane", city: "Austin", state: "TX", postal_code: "78701", country: "US" },
   current_period_end: "2026-10-12T16:00:00.000Z", cancel_at_period_end: false, canceled_at: null, cancel_token: "tok",
-  livemode: false, last_payment_failed_at: null, payment_failure_count: 0, last_failed_invoice_id: null,
+  ...scope, livemode: true, last_payment_failed_at: null, payment_failure_count: 0, last_failed_invoice_id: null,
   last_hosted_invoice_url: null, last_failure_message: null, payment_failure_email_sent_invoice_id: null,
   last_paid_invoice_id: null, paused_at: null, pending_product_id: null, pending_unit_price_cents: null,
   pending_application_fee_cents: null, pending_effective_at: null, pending_shipping_charge_cents: null,
@@ -71,6 +75,7 @@ const subscription = (over: Partial<BillingSubscriptionRow> = {}): BillingSubscr
   created_at: "2026-09-14T00:00:00.000Z", updated_at: "2026-09-14T00:00:00.000Z", ...over,
 });
 const order = (over: Partial<BillingOrderRow> = {}): BillingOrderRow => ({
+  ...scope, livemode: true,
   id: "order-1", order_number: "TH-1", provider_id: "office-1", payer_id: "payer-1", patient_id: "patient-1",
   status: "paid", subtotal_cents: 5999, shipping_charge_cents: 0, tax_cents: 0, total_cents: 5999,
   shipping_address: { name: "Riley Example", line1: "12 Harbor Lane", city: "Austin", state: "TX", postal_code: "78701", country: "US" },
@@ -95,20 +100,36 @@ beforeEach(() => {
   });
   tables = {
     billing_customer_emails: [],
-    billing_payers: [{ id: "payer-1", name: "Riley Example", email: "riley@example.test" }],
+    billing_payers: [{ ...scope, id: "payer-1", name: "Riley Example", email: "riley@example.test" }],
     billing_products: [{ id: "product-1", name: "Control" }, { id: "product-2", name: "Balance" }],
     providers: [{ provider_id: "office-1", office_name: "Harbor Health", provider_name: "Dr. Harbor", email: "care@harbor.test" }],
-    billing_orders: [], billing_order_items: [], billing_subscriptions: [],
+    billing_orders: [], billing_order_items: [], billing_subscriptions: [subscription()],
   };
 });
 
 afterAll(() => __setEmailClientForTests(null));
 
 describe("notifyOnce", () => {
+  it("suppresses Test effects before claiming, composing, or sending", async () => {
+    const compose = vi.fn(async () => ({ to: "riley@example.test", variables: {} }));
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, async () => {
+      expect(await notifyOnce("test", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("skipped");
+    });
+    expect(compose).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+    expect(tables.billing_customer_emails).toEqual([]);
+  });
+  it("does not send for test source rows even inside Live context", async () => {
+    tables.billing_subscriptions[0].livemode = false;
+    const compose = vi.fn(async () => ({ to: "riley@example.test", variables: {} }));
+    expect(await notifyOnce("test-row", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("skipped");
+    expect(compose).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
   it("sends exactly once per dedupe key and records the claim", async () => {
     const compose = vi.fn(async () => ({ to: "riley@example.test", variables: { name: "Riley", productName: "Control", officeName: "Harbor Health", manageLink: "" } }));
-    expect(await notifyOnce("paused:x:1", "subscription-paused", { provider_id: "office-1" }, compose)).toBe("sent");
-    expect(await notifyOnce("paused:x:1", "subscription-paused", { provider_id: "office-1" }, compose)).toBe("duplicate");
+    expect(await notifyOnce("paused:x:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("sent");
+    expect(await notifyOnce("paused:x:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("duplicate");
     expect(compose).toHaveBeenCalledOnce();
     expect(sent).toHaveLength(1);
     expect(tables.billing_customer_emails).toEqual([expect.objectContaining({ dedupe_key: "paused:x:1", template_id: "subscription-paused", status: "sent" })]);
@@ -116,15 +137,15 @@ describe("notifyOnce", () => {
   it("never throws: a failed send is recorded on the claim and not retried", async () => {
     transportFailure = new Error("Resend send failed (500)");
     const compose = async () => ({ to: "riley@example.test", variables: { productName: "Control", officeName: "Harbor Health" } });
-    expect(await notifyOnce("paused:y:1", "subscription-paused", {}, compose)).toBe("failed");
+    expect(await notifyOnce("paused:y:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("failed");
     expect(tables.billing_customer_emails[0]).toMatchObject({ status: "failed", error: "Resend send failed (500)" });
     transportFailure = null;
-    expect(await notifyOnce("paused:y:1", "subscription-paused", {}, compose)).toBe("duplicate");
+    expect(await notifyOnce("paused:y:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("duplicate");
     expect(sent).toHaveLength(0);
   });
   it("records a skip when the payer has no email address or a template variable is missing", async () => {
-    expect(await notifyOnce("k1", "subscription-paused", {}, async () => ({ to: null, variables: {} }))).toBe("skipped");
-    expect(await notifyOnce("k2", "subscription-paused", {}, async () => ({ to: "a@b.c", variables: {} }))).toBe("failed");
+    expect(await notifyOnce("k1", "subscription-paused", { subscription_id: SUB_ID }, async () => ({ to: null, variables: {} }))).toBe("skipped");
+    expect(await notifyOnce("k2", "subscription-paused", { subscription_id: SUB_ID }, async () => ({ to: "a@b.c", variables: {} }))).toBe("failed");
     expect(tables.billing_customer_emails.map((row) => row.status)).toEqual(["skipped", "failed"]);
   });
 });
@@ -204,8 +225,8 @@ describe("order confirmation", () => {
       order({ id: "order-2", order_number: "TH-2", total_cents: 6999, subscription_id: SUB_ID, status: "pending" }),
     ];
     tables.billing_order_items = [
-      { id: "i1", order_id: "order-1", product_id: "product-2", product_name_snapshot: "Balance", quantity: 1, unit_price_cents: 5999 },
-      { id: "i2", order_id: "order-2", product_id: "product-1", product_name_snapshot: "Control", quantity: 1, unit_price_cents: 6999 },
+      { ...scope, id: "i1", order_id: "order-1", product_id: "product-2", product_name_snapshot: "Balance", quantity: 1, unit_price_cents: 5999 },
+      { ...scope, id: "i2", order_id: "order-2", product_id: "product-1", product_name_snapshot: "Control", quantity: 1, unit_price_cents: 6999 },
     ];
     tables.billing_subscriptions = [subscription()];
     expect(await notifyOrderConfirmationIfCartComplete(tables.billing_orders[0] as BillingOrderRow)).toBe("skipped");

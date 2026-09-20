@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { currentBillingIdentity, type StripeMode } from "./stripe-environment";
 
 const TTL_MS = 5 * 60_000;
 
@@ -36,61 +37,85 @@ export interface StripeCredentials {
   account_id: string;
 }
 
-let credentialsCache: { value: StripeCredentials; expires: number } | null = null;
-let stripeCache: { secret: string; value: Stripe } | null = null;
+let testCredentials: StripeCredentials | null = null;
+const stripeCache = new Map<StripeMode, { secret: string; accountId: string; value: Stripe; verifiedUntil: number; verifying?: Promise<void> }>();
 let testStripe: Stripe | null = null;
 
-function connectionToken(): string {
-  if (process.env.REPL_IDENTITY) return `repl ${process.env.REPL_IDENTITY}`;
-  if (process.env.WEB_REPL_RENEWAL) return `depl ${process.env.WEB_REPL_RENEWAL}`;
-  throw new BillingConfigError("Stripe connection is unavailable.");
+function selectedMode(mode?: StripeMode): StripeMode {
+  const selected = mode ?? currentBillingIdentity()?.mode ?? "test";
+  if (selected !== "test" && selected !== "live") throw new BillingConfigError("Invalid Stripe mode.");
+  return selected;
 }
 
-export async function getStripeCredentials(): Promise<StripeCredentials> {
-  if (credentialsCache && credentialsCache.expires > Date.now()) return credentialsCache.value;
-  const host = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  if (!host) throw new BillingConfigError("Stripe connection is unavailable.");
-  try {
-    const response = await fetch(
-      `https://${host}/api/v2/connection?include_secrets=true&connector_names=stripe`,
-      { headers: { X_REPLIT_TOKEN: connectionToken() }, signal: AbortSignal.timeout(10_000) },
-    );
-    if (!response.ok) throw new Error(`connection response ${response.status}`);
-    const payload = await response.json() as { items?: Array<{ settings?: Partial<StripeCredentials> }> };
-    const settings = payload.items?.[0]?.settings;
-    if (!settings?.secret || !settings.publishable || !settings.account_id) throw new Error("missing settings");
-    const value = settings as StripeCredentials;
-    credentialsCache = { value, expires: Date.now() + TTL_MS };
+export async function getStripeCredentials(mode?: StripeMode): Promise<StripeCredentials> {
+  if (testCredentials && process.env.NODE_ENV === "test") return testCredentials;
+  const selected = selectedMode(mode);
+  const prefix = `STRIPE_${selected.toUpperCase()}_`;
+  const read = (suffix: string) => {
+    const value = process.env[prefix + suffix]?.trim();
+    if (!value) throw new BillingConfigError(`Payments are not configured: ${prefix + suffix} is missing.`);
     return value;
-  } catch (error) {
-    if (error instanceof BillingConfigError) throw error;
-    throw new BillingConfigError("Stripe connection is unavailable.");
+  };
+  const value = { secret: read("SECRET_KEY"), publishable: read("PUBLISHABLE_KEY"), account_id: read("PLATFORM_ACCOUNT_ID") };
+  if (!new RegExp(`^sk_${selected}_[A-Za-z0-9]+$`).test(value.secret) ||
+      !new RegExp(`^pk_${selected}_[A-Za-z0-9]+$`).test(value.publishable)) {
+    throw new BillingConfigError(`Stripe ${selected} key types do not match the selected mode.`);
   }
+  if (!/^acct_[A-Za-z0-9]+$/.test(value.account_id)) throw new BillingConfigError(`${prefix}PLATFORM_ACCOUNT_ID is invalid.`);
+  const pinned = currentBillingIdentity();
+  if (pinned && (pinned.mode !== selected || pinned.platformAccountId !== value.account_id)) {
+    throw new BillingConfigError("Stripe configuration changed. Reload before continuing.");
+  }
+  return value;
 }
 
-export async function getStripe(): Promise<Stripe> {
-  if (testStripe) return testStripe;
-  const credentials = await getStripeCredentials();
-  if (!stripeCache || stripeCache.secret !== credentials.secret) {
-    stripeCache = {
-      secret: credentials.secret,
-      value: new Stripe(credentials.secret, { appInfo: { name: "THINNR Operations" } }),
+export async function getStripe(mode?: StripeMode): Promise<Stripe> {
+  if (testStripe && process.env.NODE_ENV === "test") return testStripe;
+  const selected = selectedMode(mode);
+  const credentials = await getStripeCredentials(selected);
+  let cached = stripeCache.get(selected);
+  if (!cached || cached.secret !== credentials.secret || cached.accountId !== credentials.account_id) {
+    cached = {
+      secret: credentials.secret, accountId: credentials.account_id, verifiedUntil: 0,
+      value: new Stripe(credentials.secret, { appInfo: { name: "THINNR Operations" }, timeout: 10_000 }),
     };
+    stripeCache.set(selected, cached);
   }
-  return stripeCache.value;
+  const entry = cached;
+  if (entry.verifiedUntil <= Date.now()) {
+    entry.verifying ??= (async () => {
+      try {
+        // SDK runtime supports GET /v1/account without an ID, but v22's
+        // generated declaration only describes GET /v1/accounts/:id.
+        // Never retrieve the configured ID here: a Connect platform could
+        // retrieve another account without proving its own identity.
+        const retrieveSelf = entry.value.accounts.retrieve as unknown as () => Promise<Stripe.Account>;
+        const account = await retrieveSelf.call(entry.value.accounts);
+        if (account.id !== entry.accountId) throw new BillingConfigError("Stripe platform account does not match the configured account.");
+        entry.verifiedUntil = Date.now() + TTL_MS;
+      } catch (error) {
+        if (error instanceof BillingConfigError) throw error;
+        throw new BillingConfigError("Stripe platform identity could not be verified. Payments are unavailable.");
+      }
+    })().finally(() => { entry.verifying = undefined; });
+    await entry.verifying;
+  }
+  return entry.value;
 }
 
-export async function getPublishableKey(): Promise<string> {
-  return (await getStripeCredentials()).publishable;
+export async function getPublishableKey(mode?: StripeMode): Promise<string> {
+  return (await getStripeCredentials(mode)).publishable;
 }
-export async function isSandbox(): Promise<boolean> {
-  return (await getPublishableKey()).startsWith("pk_test_");
+export async function isSandbox(mode?: StripeMode): Promise<boolean> {
+  return (await getPublishableKey(mode)).startsWith("pk_test_");
 }
-export async function getPlatformAccountId(): Promise<string> {
-  return (await getStripeCredentials()).account_id;
+export async function getPlatformAccountId(mode?: StripeMode): Promise<string> {
+  return (await getStripeCredentials(mode)).account_id;
 }
 export function getConnectClientId(): string | null {
-  return process.env.STRIPE_CONNECT_CLIENT_ID?.trim() || null;
+  const value = process.env[`STRIPE_${selectedMode().toUpperCase()}_CONNECT_CLIENT_ID`]?.trim();
+  if (value && !/^ca_[A-Za-z0-9]+$/.test(value)) throw new BillingConfigError("Stripe Connect client ID is invalid.");
+  return value || null;
 }
 export function connectedOpts(accountId: string, idempotencyKey?: string) {
   return { stripeAccount: accountId, ...(idempotencyKey ? { idempotencyKey } : {}) };
@@ -99,6 +124,6 @@ export function __setStripeForTests(stripe: Stripe | null): void {
   testStripe = stripe;
 }
 export function __setCredentialsForTests(value: StripeCredentials | null): void {
-  credentialsCache = value ? { value, expires: Number.POSITIVE_INFINITY } : null;
-  stripeCache = null;
+  testCredentials = value;
+  stripeCache.clear();
 }

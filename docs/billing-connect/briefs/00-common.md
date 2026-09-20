@@ -18,10 +18,9 @@ stop short of editing it (the integrator will apply it).
 3. Money is integer cents everywhere. Never a float dollar in code paths.
 
 ## Environment facts
-- Stripe keys come ONLY from the Replit Stripe connection at runtime:
-  `GET https://$REPLIT_CONNECTORS_HOSTNAME/api/v2/connection?include_secrets=true&connector_names=stripe`
-  with header `X_REPLIT_TOKEN: repl <REPL_IDENTITY>` (or `depl <WEB_REPL_RENEWAL>` in
-  deployments). `items[0].settings.secret` (sk_), `.publishable` (pk_), `.account_id`.
+- Stripe keys come ONLY from mode-specific server environment variables:
+  `STRIPE_TEST_*` / `STRIPE_LIVE_*` (full contract in LAUNCH.md).
+  The expected platform account is verified before Stripe operations.
   Never log, print, or echo key values. `sandbox = publishable.startsWith('pk_test_')`.
 - The connected sandbox does NOT yet have Connect enabled (owner is fixing it).
   So live Stripe calls that touch Connect will fail right now — build against

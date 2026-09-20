@@ -19,6 +19,7 @@ import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { objectStorage } from "../lib/objectStorage";
 import { requireFreshCode } from "../auth/fresh-code";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { getBillingModeStatus } from "../billing/mode-state";
 import { parseRange } from "./operational-rollups";
 import {
   authorizeExport,
@@ -217,6 +218,9 @@ router.post("/exports", async (req, res) => {
     // Every export moves patient data out of the system: fresh code first.
     if (!(await requireFreshCode(req, res, who.userId))) return;
     const scope = authorized.scope;
+    if (body.kind.startsWith("billing_") || HQ_OFFICE_KINDS.has(body.kind)) {
+      scope.billingIdentity = await getBillingModeStatus();
+    }
 
     const pending = await supabaseAdmin(
       "GET",
@@ -246,6 +250,7 @@ router.post("/exports", async (req, res) => {
         requester_role: scope.requesterRole,
         provider_id: scope.providerId,
         params: {
+          ...(scope.billingIdentity ? { billingIdentity: scope.billingIdentity } : {}),
           ...(scope.range ? { start: scope.range.start, end: scope.range.end } : {}),
           ...(scope.officeName ? { officeName: scope.officeName } : {}),
           ...(scope.patient ? { patientId: scope.patient.id, patientName: scope.patient.name } : {}),

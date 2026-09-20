@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import Stripe from "stripe";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 import { FakePostgrest, type Row } from "./testing/fake-postgrest";
 
 /**
@@ -222,6 +223,9 @@ function seed(options: { address?: boolean; location?: string | null; charges?: 
     { provider_id: OFFICE, product_id: ADDON, sell_price_cents: 3499, subscription_enabled: false, stripe_product_id: "prod_2", stripe_price_id: "price_addon", stripe_shipping_price_id: "price_ship_addon", stripe_cadence_prices: {} },
   );
   backend.tables.patients.push({ id: PATIENT, provider_id: OFFICE, first_name: "Pat", last_name: "Patient", name: null, email: "pat@example.com", phone: null });
+  for (const table of ["billing_connected_accounts", "billing_office_prices"]) {
+    for (const row of backend.tables[table]) Object.assign(row, { stripe_mode: "test", stripe_platform_account_id: "acct_platform" });
+  }
 }
 function orders(): Row[] { return backend.tables.billing_orders; }
 function order(id: string): Row { return orders().find((row) => row.id === id)!; }

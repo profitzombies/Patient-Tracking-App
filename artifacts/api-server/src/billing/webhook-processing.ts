@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { registerBillingWebhookHandlers } from "./webhook-handlers";
 import { dispatchStripeEvent, type WebhookEndpointKind } from "./webhooks";
 import { insert, nowIso, selectOne, update, BillingStoreError } from "./store";
+import { currentBillingIdentity } from "./stripe-environment";
 
 const CLAIM_LEASE_MS = 5 * 60_000;
 function claimFilter(eventId: string, claimedAt: string | null): string {
@@ -38,6 +39,10 @@ export async function claimStripeEvent(event: {
 }
 
 export async function processStripeEvent(event: Stripe.Event, kind: WebhookEndpointKind): Promise<"processed" | "duplicate" | "busy"> {
+  const identity = currentBillingIdentity();
+  if (!identity || event.livemode !== (identity.mode === "live")) {
+    throw new Error("Webhook processing requires a matching pinned billing identity.");
+  }
   const claim = await claimStripeEvent(event, kind, event as unknown as Record<string, unknown>);
   if (claim.kind !== "claimed") return claim.kind === "processed" ? "duplicate" : "busy";
   try {

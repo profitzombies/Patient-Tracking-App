@@ -113,7 +113,7 @@ async function signIn(email: string, password: string): Promise<Record<string, u
 }
 
 async function connectedOffice(): Promise<{ providerId: string; officeName: string }> {
-  const stripe = await getStripeCredentials();
+  const stripe = await getStripeCredentials("test");
   if (!stripe.publishable.startsWith("pk_test_")) throw new Error("Refusing: the Stripe connection is not a sandbox key.");
   const accounts = await serviceRest("GET", "billing_connected_accounts?charges_enabled=eq.true&disconnected_at=is.null&livemode=eq.false&select=provider_id&limit=1");
   const providerId = accounts.body?.[0]?.provider_id;
@@ -230,7 +230,7 @@ async function cleanup() {
   const accounts = await serviceRest("GET", `billing_connected_accounts?provider_id=eq.${encodeURIComponent(state.providerId)}&select=stripe_account_id&limit=1`);
   const accountId = accounts.body?.[0]?.stripe_account_id;
   if (Array.isArray(subs.body) && subs.body.length && typeof accountId === "string") {
-    const stripe: any = await getStripe();
+    const stripe: any = await getStripe("test");
     for (const row of subs.body) {
       if (["canceled", "ended"].includes(row.status)) continue;
       try { await stripe.subscriptions.cancel(row.stripe_subscription_id, { invoice_now: false, prorate: false }, connectedOpts(accountId)); }

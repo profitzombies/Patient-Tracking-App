@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, vi } from "vitest";
+import { it } from "./testing/context";
 
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";

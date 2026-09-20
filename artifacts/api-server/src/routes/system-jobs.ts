@@ -22,6 +22,7 @@
  */
 import { warehouseHealth } from "../billing/warehouse-submissions";
 import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
+import { withLiveBillingScope } from "../billing/lifecycle-scopes";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createLimiter } from "../coach/limits";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
@@ -189,11 +190,11 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
           },
         ),
         // Same posture as the outbox: a failed read shows as unavailable, never as a quiet queue.
-        warehouseHealth(now).then(
+        withLiveBillingScope(() => warehouseHealth(now)).then(
           async (submissions) => ({
             ...submissions,
             // The status feed read is separate: a broken poll ledger shows as sync: null, never as a quiet feed.
-            sync: await warehouseSyncHealth(now).catch((error: unknown) => {
+            sync: await withLiveBillingScope(() => warehouseSyncHealth(now)).catch((error: unknown) => {
               req.log?.error({ err: error }, "warehouse status sync health read failed");
               return null;
             }),

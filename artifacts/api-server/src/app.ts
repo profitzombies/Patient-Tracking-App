@@ -11,6 +11,7 @@ import { createRequestTiming } from "./lib/request-timing";
 import { markRequestDependency } from "./lib/request-context";
 import * as openaiServer from "@workspace/integrations-openai-ai-server";
 import { modelUsageContextMiddleware } from "./ai-usage/context";
+import { billingRequestIdentity } from "./billing/request-identity";
 
 const app: Express = express();
 
@@ -70,6 +71,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 app.use(
   cors({
+    exposedHeaders: ["X-Billing-Scope"],
     origin: (origin, callback) => {
       callback(null, !origin || isAllowedOrigin(origin));
     },
@@ -97,6 +99,7 @@ app.use(express.urlencoded({ extended: true }));
 // and account once a route names them) so each model call it makes lands
 // in the usage ledger attributed, not as an anonymous line item.
 app.use(modelUsageContextMiddleware);
+app.use((req, res, next) => { void billingRequestIdentity(req, res, next); });
 
 app.use("/api", router);
 

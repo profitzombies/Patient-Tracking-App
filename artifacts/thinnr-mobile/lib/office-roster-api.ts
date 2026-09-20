@@ -139,6 +139,8 @@ export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: 
       typeof json.reason === 'string' ? json.reason : null,
     );
   }
+  const billingScope = response.headers.get('X-Billing-Scope');
+  if (billingScope && json && typeof json === 'object') Object.assign(json, { billing_scope: billingScope });
   return json as T;
 }
 

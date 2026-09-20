@@ -12,7 +12,18 @@ const calls = vi.hoisted(() => ({
   factsFail: false,
   flagsRow: null as null | { coach_product_opt_out?: boolean; coach_product_suggestions?: Record<string, string> },
   providerLookupFail: false,
+  billingFail: false,
 }));
+vi.mock("../billing/mode-state", () => {
+  class BillingModeError extends Error {}
+  return {
+    BillingModeError,
+    getBillingModeStatus: vi.fn(async () => {
+      if (calls.billingFail) throw new BillingModeError("Billing is unconfigured");
+      return { mode: "test", platformAccountId: "acct_synthetic", version: 0 };
+    }),
+  };
+});
 
 vi.mock("../lib/supabase-admin", () => ({
   supabaseAdmin: vi.fn(async (method: string, path: string, body?: unknown) => {
@@ -73,6 +84,8 @@ vi.mock("./product-signals", async (importOriginal) => {
 
 import { loadLiveSuggestionContext } from "./product-suggestions";
 import type { PatientContext } from "./prompt";
+import { currentBillingIdentity } from "../billing/stripe-environment";
+import { officeOffering } from "../billing/catalog";
 
 const patient = { programDay: 12, today: null } as unknown as PatientContext;
 
@@ -81,6 +94,7 @@ beforeEach(() => {
   calls.factsFail = false;
   calls.flagsRow = null;
   calls.providerLookupFail = false;
+  calls.billingFail = false;
 });
 
 afterEach(() => {
@@ -88,6 +102,21 @@ afterEach(() => {
 });
 
 describe("loadLiveSuggestionContext preference persistence", () => {
+  it("suppresses optional offers when billing is unconfigured and still saves opt-out", async () => {
+    calls.billingFail = true;
+    const result = await loadLiveSuggestionContext({ patientId: "patient-1", providerId: "office-1", patient, latestMessage: "Stop suggesting products" });
+    expect(result.offers).toEqual([]);
+    expect(result.storefront.available).toBe(false);
+    expect(calls.log).toEqual(["save-preference:true"]);
+  });
+  it("pins office offering reads and restores the outer nonbilling context", async () => {
+    vi.mocked(officeOffering).mockImplementationOnce(async () => {
+      expect(currentBillingIdentity()).toEqual({ mode: "test", platformAccountId: "acct_synthetic", version: 0 });
+      return [];
+    });
+    await loadLiveSuggestionContext({ patientId: "patient-1", providerId: "office-1", patient, latestMessage: "hello" });
+    expect(currentBillingIdentity()).toBeUndefined();
+  });
   it("persists a stop request before any optional read, so a failing read cannot lose it", async () => {
     calls.factsFail = true;
     await expect(loadLiveSuggestionContext({

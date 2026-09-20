@@ -3,8 +3,9 @@ name: Stripe Connect billing (office-collects, THINNR fee)
 description: Durable lessons from building direct-charge Connect billing — sandbox key mismatch, first-invoice fee workaround, webhook claim semantics, price replacement idempotency.
 ---
 
-**Two-sandbox key mismatch.** The Replit Stripe connection can hold keys for a sandbox where Connect is NOT enabled while the Connect client id (`ca_…`) lives in a different sandbox. Symptom: `accounts.create` / OAuth fail with "Connect not enabled" even though a client id exists.
-**How to apply:** before any Connect e2e, hit `GET /v1/account` with the connector key and compare the account id with the sandbox that owns the client id; ask the user to re-key the integration or enable Connect + supply the matching client id. Do not mix keys and client ids across sandboxes.
+**Two-sandbox key mismatch.** A valid API key can belong to a sandbox without Connect while the client ID belongs to another sandbox.
+**Why:** A syntactically valid client ID did not prove Connect capability on the authenticated account.
+**How to apply:** verify the authenticated platform identity and matching Connect client ID before credentialed validation. Environment-only configuration supersedes connector-based setup; never restore connector fallback.
 
 **First-invoice fee cannot be exact.** Subscriptions created `default_incomplete` only accept `application_fee_percent` on the first invoice; the exact per-unit fee is applied by setting `application_fee_amount` on renewal drafts in `invoice.created`. First-invoice over-collection is refunded via an application-fee refund on the PLATFORM (no `stripeAccount` header) and the order snapshot must be corrected in the same step, or office-net reporting stays wrong.
 
@@ -18,7 +19,9 @@ description: Durable lessons from building direct-charge Connect billing — san
 
 **Parallel builders skip demo data and tests unless briefed as hard requirements.** The signed-out demo persona and the vitest suites both had to be requested in follow-ups; put "demo dataset renders every screen" and "suite list" in the brief's acceptance criteria and verify with a browser pass before review.
 
-**Re-keying the Stripe connection strands webhook registration.** Saved `billing_webhook_endpoints` rows only prove an endpoint existed on the account connected when they were written; a new account has zero endpoints while startup short-circuits on the saved row and the stored secret is one the new account never issued. Startup must `retrieve` the saved endpoint id and re-register on `resource_missing`. Verify by listing `/v1/webhook_endpoints` with the current key — endpoint ids carry the account suffix.
+**Webhook configuration is not registration evidence.** A saved endpoint or locally configured signing secret does not prove that Stripe delivers events to this deployment.
+**Why:** Changing platform credentials previously stranded saved registration state under a different account.
+**How to apply:** keep local readiness distinct from credentialed delivery verification. Do not recreate or delete remote endpoints automatically during server startup.
 **Probing a fresh sandbox:** `accounts.create` with the controller combo answers "You can only create new accounts if you've signed up for Connect" until Connect is enabled; the OAuth authorize URL returns 200 for registered redirect URIs and 400 for unregistered ones (a cheap client-id + redirect check that needs no user click).
 
 **Invoice items take inline amounts, not `price_data.product_data`.** `invoiceItems.create` rejects the Checkout-style `price_data.product_data` shape ("Received unknown parameter"); use `currency` + `unit_amount_decimal` + `quantity` + `description` (+ top-level `tax_code`). Probe unfamiliar param shapes against the sandbox before wiring them.

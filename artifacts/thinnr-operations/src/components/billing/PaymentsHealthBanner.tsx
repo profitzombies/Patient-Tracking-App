@@ -34,7 +34,8 @@ export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth })
       <div className="flex items-start gap-3">
         {red ? <XCircle className="mt-0.5 size-5 shrink-0" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0" />}
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">{red ? 'Stripe credentials are missing.' : 'Payments need attention.'}</p>
+          <p className="font-semibold">{red ? 'Payments are not configured for this mode.' : 'Payments need attention.'}</p>
+          {red && <p className="mt-1 text-sm">An HQ administrator must configure the selected mode’s environment keys. Payments stay unavailable until configuration is complete; the app will not fall back to another mode.</p>}
           {!red && <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">{problems.map((problem) => <li key={problem}>{problem}</li>)}</ul>}
           <button
             type="button"
@@ -46,7 +47,7 @@ export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth })
           </button>
           {open && (
             <dl className="mt-2 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
-              <div><dt className="font-semibold">Mode</dt><dd>{health.sandbox ? 'Sandbox' : 'Live'}</dd></div>
+              <div><dt className="font-semibold">Mode</dt><dd>{health.sandbox ? 'Test' : health.livemode ? 'Live' : 'Unavailable'}</dd></div>
               <div><dt className="font-semibold">Public origin</dt><dd>{health.public_origin ?? 'Not configured'}</dd></div>
               <div><dt className="font-semibold">Last webhook</dt><dd>{health.last_webhook_received_at ?? 'None received'}</dd></div>
               <div><dt className="font-semibold">Failed events, 24 hours</dt><dd>{health.failed_events_24h}</dd></div>

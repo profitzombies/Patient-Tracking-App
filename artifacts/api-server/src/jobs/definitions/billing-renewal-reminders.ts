@@ -4,6 +4,7 @@ import { connectedOpts, getStripe } from "../../billing/stripe-client";
 import { selectMany, type BillingSubscriptionRow } from "../../billing/store";
 import { loadInactiveOfficeIds } from "../../lib/office-status";
 import type { JobContext, JobDefinition } from "../types";
+import { forEachBillingScope } from "../../billing/lifecycle-scopes";
 
 /**
  * Emails patients a fixed number of days before a subscription's next shipment
@@ -52,6 +53,7 @@ export async function sendRenewalReminders(ctx: JobContext): Promise<void> {
   const inactiveOffices = due.length ? await loadInactiveOfficeIds() : new Set<string>();
   for (const row of due) {
     ctx.checkpoint();
+    if (row.livemode !== true) { ctx.tally("skipped_test"); continue; }
     if (inactiveOffices.has(row.provider_id)) { ctx.tally("skipped_offboarded"); continue; }
     if (ctx.dryRun) { ctx.tally("would_send"); continue; }
     try {
@@ -69,5 +71,5 @@ export const billingRenewalRemindersJob: JobDefinition = {
   description: "Emails patients a few days before each subscription shipment is charged, with skip and manage links.",
   intervalMs: 60 * MINUTE_MS,
   leaseSeconds: 10 * 60,
-  run: sendRenewalReminders,
+  run: (ctx) => forEachBillingScope(() => sendRenewalReminders(ctx), ["live"]),
 };

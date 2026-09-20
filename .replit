@@ -472,6 +472,14 @@ args = "office-bundle-live"
 task = "workflow.run"
 args = "patient-edit-history-live"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "stripe-environment-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "stripe-environment-clients"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2921,6 +2929,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history-live && pnpm --filter @workspace/thinnr-operations run test:patient-edit-history"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "stripe-environment-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing src/routes/billing- src/routes/patient-shop.test.ts src/routes/patient-billing.test.ts src/exports/billing-identity.test.ts src/exports/generators.test.ts src/exports/worker.test.ts src/exports/office-bundle.test.ts src/privacy/purge.test.ts src/coach/product-suggestions-identity.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "stripe-environment-clients"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-mode.tsx && pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.patient-billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

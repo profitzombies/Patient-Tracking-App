@@ -21,13 +21,40 @@ automated check that already exists. Nothing here changes code.
       product's exact fee; renewals set `application_fee_amount` on
       `invoice.created` (see DECISIONS.md, 03-server-orders).
 
-## 2. Replit configuration
+## 2. Environment configuration
 
-- [ ] **Stripe connection** in the workspace is switched to the **live** keys
-      (the API only ever reads keys from the Replit Stripe connection; nothing
-      is stored in env or code). The HQ Payments overview shows a "Sandbox"
-      chip while `pk_test_` keys are in use; it must disappear in production.
-- [ ] `STRIPE_CONNECT_CLIENT_ID` production secret set to the **live** `ca_…`
+- [ ] Set `BILLING_DEPLOYMENT_ID` to a stable identifier unique to this deployment
+      (development and production must differ). This namespaces the persisted HQ
+      mode selection; an absent selection defaults to Test. Changing the identifier
+      is not a migration or a way to reuse another deployment's financial records.
+
+- [ ] Configure the separate test/live environment credentials; connector credentials
+      are no longer read. Verify the selected mode in HQ before taking payments.
+      Complete variable names for Test: `STRIPE_TEST_SECRET_KEY`,
+      `STRIPE_TEST_PUBLISHABLE_KEY`, `STRIPE_TEST_PLATFORM_ACCOUNT_ID`,
+      `STRIPE_TEST_CONNECT_CLIENT_ID`, `STRIPE_TEST_PLATFORM_WEBHOOK_SECRET`,
+      `STRIPE_TEST_CONNECT_WEBHOOK_SECRET`. Live equivalents:
+      `STRIPE_LIVE_SECRET_KEY`, `STRIPE_LIVE_PUBLISHABLE_KEY`,
+      `STRIPE_LIVE_PLATFORM_ACCOUNT_ID`, `STRIPE_LIVE_CONNECT_CLIENT_ID`,
+      `STRIPE_LIVE_PLATFORM_WEBHOOK_SECRET`, `STRIPE_LIVE_CONNECT_WEBHOOK_SECRET`.
+      Use matching `sk_test_…`/`pk_test_…` or `sk_live_…`/`pk_live_…` pairs and
+      the expected platform `acct_…`. Never put secrets in source, logs, client
+      build variables, or `.replit`. Missing keys disable payment actions only.
+- [ ] The API verifies platform identity before returning a Stripe client.
+      Verification is cached for five minutes and invalidates on key/account
+      changes. Restart deployed processes after secret rotation. Unscoped code
+      defaults to Test; maintained sales/smoke scripts explicitly request Test.
+      Do not relabel sandbox records to make them usable in Live.
+- [ ] Synthetic tests verify code, not real Stripe configuration. Real validation
+      remains pending credentials and an authorized test plan. No real charge,
+      publishing, activation or credential request is part of this conversion.
+      Removing the installed integration and checking Publish gating remain
+      separate manual platform actions: code independence does not prove the
+      Publish prompt is removed.
+      Owner-only disconnect path: **Integrations → Stripe → Manage → disconnect**.
+      Do not remove it automatically; review platform publishing requirements after
+      any manual disconnect rather than assuming the Publish gate is fixed.
+- [ ] The mode-specific Connect client id is set to the matching `ca_…`
       client id (test and live ids differ). Without it the OAuth path is
       hidden and only in-app account creation is offered.
 - [ ] `BILLING_PUBLIC_ORIGIN` production env set to the published origin
@@ -37,19 +64,46 @@ automated check that already exists. Nothing here changes code.
       correct for the published app but wrong for a custom domain.
 - [ ] `CLAIM_EMAIL_FROM` is a verified Resend sender; billing mail is sent as
       "THINNR Weight Loss <that address>". `RESEND_API_KEY` present.
-- [ ] `BILLING_WEBHOOKS_DISABLED` is **not** set in production.
+- [ ] Register four webhook destinations manually in the matching Stripe account/mode:
+      `/api/billing/webhooks/test/platform`, `/api/billing/webhooks/test/connect`,
+      `/api/billing/webhooks/live/platform`, `/api/billing/webhooks/live/connect`.
+      Platform destinations receive events on your account; Connect destinations
+      receive events on connected accounts. Store each signing secret in
+      `STRIPE_TEST_PLATFORM_WEBHOOK_SECRET`, `STRIPE_TEST_CONNECT_WEBHOOK_SECRET`,
+      `STRIPE_LIVE_PLATFORM_WEBHOOK_SECRET`, `STRIPE_LIVE_CONNECT_WEBHOOK_SECRET`.
+      The server never creates, deletes, or prunes Stripe webhook destinations.
+      Old mode-less URLs fail closed with HTTP 410: migrate Dashboard destinations
+      explicitly. Both mode-specific routes remain available for delayed deliveries.
+- [ ] Platform subscription: `account.application.deauthorized`.
+      Connect subscriptions: `account.updated`, `capability.updated`,
+      `invoice.created`, `invoice.paid`, `invoice.payment_failed`, `invoice.finalized`,
+      `customer.subscription.created`, `customer.subscription.updated`,
+      `customer.subscription.deleted`, `charge.refunded`, `refund.updated`,
+      `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`,
+      `charge.dispute.funds_withdrawn`, `charge.dispute.funds_reinstated`,
+      `payout.paid`, `payout.failed`, `payment_intent.payment_failed`.
+      Source of truth: `BILLING_WEBHOOK_EVENTS` in `webhook-endpoints.ts`.
+      A configured signing secret alone does not prove Dashboard registration;
+      health reports `configured_unverified`, not enabled. Verify deliveries in
+      Stripe before launch without making live charges.
 - [ ] Optional knobs reviewed: `BILLING_RECONCILE_PENDING_MINUTES` (default 60),
       `BILLING_WEBHOOK_PAYLOAD_RETENTION_DAYS` (default 90).
 
 ## 3. Database
 
+- [ ] Legacy rows with nullable billing identity remain quarantined until an
+      authorized operator verifies their actual Stripe platform account and mode,
+      then explicitly classifies the related records consistently. Null does not
+      mean Test. Existing sandbox records are not usable merely because Test is
+      selected, and must never be silently relabeled Live or financially migrated.
+
 - [ ] Every `supabase/migrations/2026101*_billing_*.sql` file and the privacy
       purge replacement migration have been applied to the live Supabase
       project through the management API, in file order, and the security
       advisors were re-checked afterwards.
-- [ ] `select count(*) from billing_webhook_endpoints` returns the two
-      self-registered endpoints (`platform`, `connect`) with live URLs after
-      the first production boot.
+- [ ] Historical `billing_webhook_endpoints` rows are not used as signing-secret
+      configuration. Confirm the Dashboard destinations and environment secrets
+      instead; startup never provisions live endpoints.
 
 ## 4. First production boot
 

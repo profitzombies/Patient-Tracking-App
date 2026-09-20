@@ -162,7 +162,7 @@ export default function CartPayPage() {
         shipping_address: address,
         payment_method_id: paymentMethodId,
         ...(!details.patient ? { payer } : {}),
-      });
+      }, details.billing_scope);
       const responseOutcomes = response.items.map((item) => ({
         order_number: item.order_number,
         status: item.status,

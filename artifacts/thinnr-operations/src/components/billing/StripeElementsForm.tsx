@@ -86,7 +86,7 @@ export function StripeElementsForm({
   );
 
   return (
-    <Elements stripe={stripe} options={options}>
+    <Elements key={`${publishableKey}:${stripeAccount}:${clientSecret}`} stripe={stripe} options={options}>
       <PaymentForm returnUrl={returnUrl} onProcessing={onProcessing} />
     </Elements>
   );

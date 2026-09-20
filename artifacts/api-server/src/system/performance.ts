@@ -10,6 +10,7 @@
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { estimateQuantile, latencyBudget, STREAMING_FAMILIES } from "../lib/request-metrics";
 import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
+import { withLiveBillingScope } from "../billing/lifecycle-scopes";
 import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ColdArchiveInput, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
 import { readColdArchiveHealth } from "../lib/cold-archive";
 import { supabaseJobStore } from "../jobs/store";
@@ -324,7 +325,7 @@ export interface PerformanceReaders {
 }
 
 async function readWarehousePoll(now: Date): Promise<WarehousePollInput | null> {
-  const health = await warehouseSyncHealth(now);
+  const health = await withLiveBillingScope(() => warehouseSyncHealth(now));
   return { lastSuccessAt: health.last_success_at, lastPollAt: health.last_poll_at, stalledAfterMinutes: health.stalled_after_minutes, lastError: health.last_error };
 }
 

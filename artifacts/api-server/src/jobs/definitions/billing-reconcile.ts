@@ -8,6 +8,7 @@ import { dispatchStripeEvent } from "../../billing/webhooks";
 import { registerBillingWebhookHandlers } from "../../billing/webhook-handlers";
 import { ensureBillingWebhookEndpoints } from "../../billing/webhook-endpoints";
 import type { JobContext, JobDefinition } from "../types";
+import { forEachBillingScope } from "../../billing/lifecycle-scopes";
 
 const MINUTE_MS = 60_000;
 const DAY_SECONDS = 86_400;
@@ -167,5 +168,5 @@ export const billingReconcileJob: JobDefinition = {
   description: "Repairs stale orders, subscriptions, webhooks, and connected-account payouts from Stripe.",
   intervalMs: 30 * MINUTE_MS,
   leaseSeconds: 20 * 60,
-  run: reconcileBilling,
+  run: (ctx) => forEachBillingScope(() => reconcileBilling(ctx)),
 };

@@ -46,6 +46,7 @@ import officeRouter from "./billing-office-orders";
 import publicRouter from "./billing-public";
 import { __setEmailClientForTests } from "../email/transport";
 import { __setCredentialsForTests, __setStripeForTests } from "../billing/stripe-client";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 
 type Row = Record<string, any>;
@@ -83,6 +84,7 @@ async function call(method: string, path: string, body?: unknown) {
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_platform" }, next));
   app.use(hqRouter);
   app.use(officeRouter);
   app.use(publicRouter);
@@ -136,6 +138,9 @@ beforeEach(() => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     const table = url.pathname.split("/").at(-1)!;
     const rows = tables[table] ?? (tables[table] = []);
+    if (table.startsWith("billing_")) rows.forEach((row) => {
+      row.stripe_mode ??= "test"; row.stripe_platform_account_id ??= "acct_platform";
+    });
     const method = init?.method ?? "GET";
     if (method === "GET") return response(rows.filter((row) => matches(row, url.searchParams)));
     if (method === "PATCH") {
@@ -465,10 +470,9 @@ describe("billing order routes", () => {
       status: "shipped", carrier: "UPS", tracking_number: "1Z999",
     });
     expect(shipped.status).toBe(200);
-    // The shipped email fires from the shipment transition itself, once.
-    expect(customerEmails).toHaveBeenCalledOnce();
-    expect(customerEmails.mock.calls[0][0].subject).toContain("has shipped");
-    expect(tables.billing_customer_emails.map((row) => [row.template_id, row.status])).toEqual([["order-shipped", "sent"]]);
+    // Test-mode fulfillment must never deliver customer emails.
+    expect(customerEmails).not.toHaveBeenCalled();
+    expect(tables.billing_customer_emails ?? []).toEqual([]);
     expect(tables.billing_orders[0].fulfillment_status).toBe("shipped");
     // The shipment record is written first and the legacy columns mirror it.
     expect(tables.billing_shipments).toHaveLength(1);
@@ -510,7 +514,7 @@ describe("billing order routes", () => {
     expect(delivered.json.order.shipment).toMatchObject({ status: "delivered", delivered_at: expect.any(String), warehouse_status: null, back_ordered: false });
     const reship = await call("PUT", "/billing/hq/fulfillment/0a1b2c3d-0000-4000-8000-000000000001", { status: "shipped", carrier: "UPS", tracking_number: "1Z999" });
     expect(reship.status).toBe(409);
-    expect(customerEmails).toHaveBeenCalledTimes(2);
+    expect(customerEmails).not.toHaveBeenCalled();
     expect(tables.billing_shipments[0].status).toBe("delivered");
   });
 

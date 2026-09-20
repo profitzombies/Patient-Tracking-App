@@ -93,7 +93,7 @@ async function findSubmission(row: WarehouseOrderStatus): Promise<{ submission: 
   } else {
     return "unmatched";
   }
-  if (submission.state !== "sent") return "not_submitted";
+  if (order.livemode !== true || submission.state !== "sent") return "not_submitted";
   return { submission, order };
 }
 

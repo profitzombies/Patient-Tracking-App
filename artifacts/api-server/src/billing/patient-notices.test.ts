@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it as test } from "vitest";
+import { runWithBillingIdentity } from "./stripe-environment";
+const it = (name: string, fn: () => unknown) => test(name, () =>
+  runWithBillingIdentity({ mode: "live", platformAccountId: "acct_live" }, fn));
 import { MemoryNotificationStore } from "../notifications/memory-store";
 import { guardPushMessage } from "../notifications/push-guard";
 import {
@@ -30,6 +33,7 @@ const SUB = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function order(overrides: Partial<BillingOrderRow> = {}): BillingOrderRow {
   return {
+    livemode: true,
     id: ORDER, order_number: "TH-1001", provider_id: "office-1", payer_id: "payer", patient_id: PATIENT,
     kind: "one_time", status: "paid", total_cents: 7999, created_at: "2026-09-10T00:00:00.000Z", ...overrides,
   } as BillingOrderRow;
@@ -42,6 +46,7 @@ function shipment(overrides: Partial<BillingShipmentRow> = {}): BillingShipmentR
 }
 function subscription(overrides: Partial<BillingSubscriptionRow> = {}): BillingSubscriptionRow {
   return {
+    livemode: true,
     id: SUB, provider_id: "office-1", payer_id: "payer", patient_id: PATIENT, product_id: "prod", status: "active",
     unit_price_cents: 6299, shipping_charge_cents: 1000, quantity: 1, cadence_weeks: 4,
     next_shipment_at: "2026-09-20T12:00:00.000Z", paused_at: null, cancel_at_period_end: false, ...overrides,
@@ -49,6 +54,16 @@ function subscription(overrides: Partial<BillingSubscriptionRow> = {}): BillingS
 }
 
 describe("order shipped notice", () => {
+  it("never queues a test transaction or a notification inside Test scope", async () => {
+    const store = new MemoryNotificationStore();
+    expect(await notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store)).toBe(false);
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, async () => {
+      expect(await notifyOrderShipped({ order: order(), shipment: shipment() }, store)).toBe(false);
+      expect(await notifySubscriptionPaymentFailed({
+        subscription: subscription(), invoiceId: "in_test", productName: "Control", message: "declined",
+      }, store)).toBe(false);
+    });
+  });
   it("queues one account-level notice per order with an allow-listable order deep link", async () => {
     const store = new MemoryNotificationStore();
     expect(await notifyOrderShipped({ order: order(), shipment: shipment() }, store)).toBe(true);

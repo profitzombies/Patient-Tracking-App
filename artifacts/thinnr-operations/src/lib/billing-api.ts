@@ -11,6 +11,7 @@ import type {
   AccountSessionResponse,
   AiCostSummary,
   BillingSettings,
+  BillingModeStatus,
   CatalogChange,
   CatalogProduct,
   CatalogProductDetail,
@@ -199,10 +200,11 @@ export const officeBilling = {
     body: { patient_id: string; lines: CartLineInput[]; shipping_address: ShippingAddress; payment_method_id: string; cart_id: string },
     office?: string | null,
     idempotencyKey?: string,
+    billingScope?: string,
   ) =>
     officeRequest<CartCheckoutResponse>(`${OFFICE}/sales${qs({}, office)}`, MESSAGES, {
       method: 'POST',
-      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      headers: { ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}), 'X-Billing-Scope': billingScope ?? '' },
       body: JSON.stringify(body),
     }),
   createCart: (body: { patient_id?: string; lines: CartLineInput[]; label?: string; expires_in_minutes?: number }, office?: string | null) =>
@@ -218,6 +220,9 @@ export const officeBilling = {
 // ---------------- HQ ----------------
 
 export const hqBilling = {
+  mode: () => officeRequest<BillingModeStatus>(`${HQ}/mode`, MESSAGES),
+  switchMode: (body: { mode: 'test' | 'live'; expected_version: number; confirm_live: boolean }) =>
+    officeRequest<BillingModeStatus>(`${HQ}/mode`, MESSAGES, { method: 'PUT', body: JSON.stringify(body) }),
   health: () => officeRequest<PaymentsHealth>(`${HQ}/health`, MESSAGES),
   overview: (range: { from?: string; to?: string }) => officeRequest<HqOverview>(`${HQ}/overview${qs(range)}`, MESSAGES),
   aiCosts: (range: { from?: string; to?: string }) => officeRequest<AiCostSummary>(`${HQ}/ai-costs${qs(range)}`, MESSAGES),
@@ -353,6 +358,8 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
       typeof body.attempts_left === 'number' ? body.attempts_left : null,
     );
   }
+  const billingScope = response.headers.get('X-Billing-Scope');
+  if (billingScope && body && typeof body === 'object') Object.assign(body, { billing_scope: billingScope });
   return body as T;
 }
 
@@ -389,9 +396,10 @@ export const publicBilling = {
     token: string,
     session: string,
     body: { shipping_address: ShippingAddress; payment_method_id: string; payer?: { name: string; email: string; phone: string } },
+    billingScope?: string,
   ) =>
     publicRequest<CartCheckoutResponse>(`${PUBLIC}/carts/${encodeURIComponent(token)}/checkout`, {
-      method: 'POST', headers: { 'X-Cart-Session': session }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'X-Cart-Session': session, 'X-Billing-Scope': billingScope ?? '' }, body: JSON.stringify(body),
     }),
   cartStatus: (token: string, session: string) =>
     publicRequest<PublicCartStatus>(`${PUBLIC}/carts/${encodeURIComponent(token)}/status`, {

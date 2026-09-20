@@ -53,8 +53,10 @@ export const SKIPPED_SANDBOX_REASON = "test-mode (Stripe sandbox) order; never s
 
 export function tenantVerdict(order: Pick<BillingOrderRow, "livemode">, mode: WarehouseTenantMode): "send" | "hold" | "skip" {
   const real = order.livemode === true;
+  // Stripe Test is a payment simulation, not permission to place a real
+  // fulfillment request (even a warehouse test tenant may send notifications).
+  if (!real) return "skip";
   if (real && mode !== "live") return "hold";
-  if (!real && mode === "live") return "skip";
   return "send";
 }
 

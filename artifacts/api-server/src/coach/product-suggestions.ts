@@ -29,6 +29,9 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { loadProductCatalog, matchProducts, type OfferProduct } from "./products";
 import { deriveSuggestionSignals, loadSuggestionFacts, type SuggestionSignal } from "./product-signals";
 import type { PatientContext } from "./prompt";
+import { BillingModeError, getBillingModeStatus } from "../billing/mode-state";
+import { BillingConfigError } from "../billing/stripe-client";
+import { currentBillingIdentity, runWithBillingIdentity } from "../billing/stripe-environment";
 
 export const SUGGESTION_REPEAT_WINDOW_DAYS = 14;
 export const RECENT_PURCHASE_WINDOW_DAYS = 30;
@@ -300,6 +303,16 @@ export async function loadLiveSuggestionContext(input: {
   // lose it.
   if (preferenceChange) await saveSuggestionPreference(patientId, preferenceChange === "stop");
   const providerId = input.providerId !== undefined ? input.providerId : await patientProviderId(patientId);
+  let identity = currentBillingIdentity();
+  try {
+    identity ??= await getBillingModeStatus();
+  } catch (error) {
+    if (!(error instanceof BillingModeError || error instanceof BillingConfigError)) throw error;
+    // Billing is optional to coaching. Never invent prices or offer a product
+    // when this deployment cannot determine its payment identity.
+    return { offers: [], suppressed: [], signals: [], optOut: preferenceChange === "stop", preferenceChange, storefront: { offering: [], available: false } };
+  }
+  return runWithBillingIdentity(identity, async () => {
   const [facts, suppression, rows, offering, account] = await Promise.all([
     loadSuggestionFacts(patientId, patient.today?.dateKey ?? now.toISOString().slice(0, 10), patient.programDay, {
       protein: patient.today?.targets.protein ?? 120,
@@ -327,4 +340,5 @@ export async function loadLiveSuggestionContext(input: {
     now,
   });
   return { ...selected, signals, optOut, preferenceChange, storefront: { offering, available } };
+  });
 }

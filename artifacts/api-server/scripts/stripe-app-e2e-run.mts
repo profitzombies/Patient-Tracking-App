@@ -24,7 +24,7 @@ function safeError(error: unknown): string {
     .replace(/\bwhsec_\S+/g, "[redacted secret]");
 }
 
-async function guard(): Promise<void> {
+export async function guard(): Promise<void> {
   if (process.env.RUN_STRIPE_APP_E2E !== "authorized") throw new Error("Explicit run authorization is absent.");
   const credentials = await getStripeCredentials("test");
   if (!credentials.secret.startsWith("sk_test_") || !credentials.publishable.startsWith("pk_test_")
@@ -52,7 +52,7 @@ async function guard(): Promise<void> {
   }
 }
 
-async function create(purchase: "one_time" | "subscription") {
+export async function create(purchase: "one_time" | "subscription") {
   const response = await fetch(`${origin}/api/billing/public/links/${state.link_token}/orders`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -89,7 +89,7 @@ async function create(purchase: "one_time" | "subscription") {
   return { body, order };
 }
 
-async function waitOrder(id: string, statuses: string[], timeoutMs = 120_000) {
+export async function waitOrder(id: string, statuses: string[], timeoutMs = 120_000) {
   const end = Date.now() + timeoutMs;
   do {
     const row = await runWithBillingIdentity(state.identity, () =>
@@ -100,7 +100,7 @@ async function waitOrder(id: string, statuses: string[], timeoutMs = 120_000) {
   throw new Error(`Timed out waiting for order ${statuses.join("/")}.`);
 }
 
-async function confirm(clientSecret: string, paymentMethod: string) {
+export async function confirm(clientSecret: string, paymentMethod: string) {
   const id = clientSecret.split("_secret_")[0];
   if (!id.startsWith("pi_")) throw new Error("Checkout did not return a PaymentIntent secret.");
   return (await getStripe("test")).paymentIntents.confirm(
@@ -108,6 +108,7 @@ async function confirm(clientSecret: string, paymentMethod: string) {
   );
 }
 
+if (process.env.STRIPE_APP_E2E_IMPORT_ONLY !== "1") {
 await guard();
 const stripe = await getStripe("test");
 try {
@@ -174,4 +175,5 @@ try {
   writeFileSync(RESULT_PATH, JSON.stringify(result, null, 2), { mode: 0o600 });
   console.error(safeError(error));
   process.exitCode = 1;
+}
 }

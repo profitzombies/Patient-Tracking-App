@@ -12,7 +12,7 @@ import type Stripe from "stripe";
 import { supabaseAdmin } from "../src/lib/supabase-admin";
 import { getStripe, getStripeCredentials } from "../src/billing/stripe-client";
 import { runWithBillingIdentity, type BillingIdentity } from "../src/billing/stripe-environment";
-import { insert, remove, selectOne } from "../src/billing/store";
+import { insert, remove, selectMany, selectOne } from "../src/billing/store";
 
 const STATE_PATH = resolve(process.cwd(), "../../.local/state/stripe-app-e2e.json");
 const FIXTURE_PREFIX = "stripe-app-e2e-";
@@ -236,6 +236,90 @@ async function cleanup(): Promise<void> {
   console.log(JSON.stringify({ cleaned: true, stripe_writes: 0, charges: 0 }, null, 2));
 }
 
+/** Removes only this synthetic scope after independently verifying all money is unwound. */
+async function cleanupFinancial(): Promise<void> {
+  if (process.env.RUN_STRIPE_APP_E2E !== "authorized") throw new Error("Explicit cleanup authorization is absent.");
+  const state = load();
+  const configured = await identity();
+  if (!state.provider_id.startsWith(FIXTURE_PREFIX) || state.identity.mode !== "test"
+      || configured.platformAccountId !== state.identity.platformAccountId) throw new Error("Cleanup identity mismatch.");
+  await enabledAccount(state.account_id);
+  const stripe = await getStripe("test");
+  const opts = { stripeAccount: state.account_id };
+  const q = `provider_id=eq.${encodeURIComponent(state.provider_id)}`;
+  await runWithBillingIdentity(state.identity, async () => {
+    const orders = await selectMany("billing_orders", q);
+    for (const sub of await selectMany("billing_subscriptions", q)) {
+      const remote = await stripe.subscriptions.retrieve(sub.stripe_subscription_id, {}, opts);
+      if (remote.livemode || remote.status !== "canceled") throw new Error("Subscription is not safely canceled.");
+    }
+    for (const order of orders) {
+      if (order.livemode) throw new Error("Live order found in fixture.");
+      if (order.stripe_charge_id) {
+        const charge = await stripe.charges.retrieve(order.stripe_charge_id, {}, opts);
+        if (charge.livemode || !charge.refunded) throw new Error("Charge is not fully refunded.");
+        const feeId = typeof charge.application_fee === "string" ? charge.application_fee : charge.application_fee?.id;
+        if (feeId) {
+          const fee = await stripe.applicationFees.retrieve(feeId);
+          if (fee.livemode || fee.account !== state.account_id) throw new Error("Application fee scope mismatch.");
+          if (fee.amount_refunded < fee.amount) await stripe.applicationFees.createRefund(fee.id, {
+            amount: fee.amount - fee.amount_refunded,
+          }, { idempotencyKey: `e2e-cleanup-fee:${fee.id}` });
+        }
+      } else if (order.stripe_payment_intent_id) {
+        const pi = await stripe.paymentIntents.retrieve(order.stripe_payment_intent_id, {}, opts);
+        if (pi.livemode || pi.status !== "canceled") throw new Error("Unpaid payment intent not canceled.");
+      }
+    }
+    for (const payer of await selectMany("billing_payers", q)) {
+      if (!payer.stripe_customer_id) continue;
+      const customer = await stripe.customers.retrieve(payer.stripe_customer_id, {}, opts);
+      if (!customer.deleted) {
+        if (customer.livemode) throw new Error("Live customer in fixture.");
+        await stripe.customers.del(customer.id, {}, opts);
+      }
+    }
+    for (const price of await selectMany("billing_office_prices", q)) {
+      const productIds = new Set<string>();
+      if (price.stripe_product_id) productIds.add(price.stripe_product_id);
+      if (price.stripe_shipping_price_id) {
+        const shipping = await stripe.prices.retrieve(price.stripe_shipping_price_id, {}, opts);
+        if (shipping.livemode) throw new Error("Live shipping price in fixture.");
+        productIds.add(typeof shipping.product === "string" ? shipping.product : shipping.product.id);
+      }
+      for (const productId of productIds) {
+        for await (const remote of stripe.prices.list({ product: productId, limit: 100 }, opts)) {
+          if (remote.livemode) throw new Error("Live price in fixture.");
+          if (remote.active) await stripe.prices.update(remote.id, { active: false }, opts);
+        }
+        await stripe.products.update(productId, { active: false }, opts);
+      }
+    }
+    for (const order of orders) {
+      const oq = `order_id=eq.${encodeURIComponent(order.id)}`;
+      await remove("billing_refunds", oq);
+      await remove("billing_disputes", oq);
+      await remove("billing_ledger", oq);
+      await remove("billing_warehouse_submissions", oq);
+      await remove("billing_shipments", oq);
+      await remove("billing_order_items", oq);
+    }
+    await remove("billing_ledger", q);
+    await remove("billing_customer_emails", q);
+    await remove("billing_orders", q);
+    await remove("billing_subscriptions", q);
+    await remove("billing_payers", q);
+    await remove("billing_payment_links", q);
+    await remove("billing_office_prices", q);
+    await remove("billing_account_events", q);
+    await remove("billing_connected_accounts", q);
+  });
+  const provider = await supabaseAdmin("DELETE", `/rest/v1/providers?provider_id=eq.${encodeURIComponent(state.provider_id)}`);
+  if (provider.status >= 300) throw new Error("Synthetic provider cleanup failed.");
+  unlinkSync(STATE_PATH);
+  console.log(JSON.stringify({ cleaned: true, remote_money_verified_unwound: true, retained: "immutable Stripe test history and webhook audit" }));
+}
+
 /**
  * Locally signs an account.updated payload with the configured TEST Connect
  * secret. This proves the local signature/dispatch/store path, not delivery by
@@ -293,6 +377,7 @@ const command = process.argv[2] ?? "preflight";
 const work = command === "prepare" ? prepare()
   : command === "preflight" ? preflight()
     : command === "cleanup" ? cleanup()
+      : command === "cleanup-financial" ? cleanupFinancial()
       : command === "local-webhook-probe" ? localWebhookProbe()
         : Promise.reject(new Error("usage: stripe-app-e2e-fixture.mts prepare|preflight|local-webhook-probe|cleanup"));
 work.catch((error) => {

@@ -28,9 +28,9 @@ import { PatientProvider } from '../../context/PatientContext';
 import { localQuote, type CartLine } from '../../lib/cart-math';
 import { buildDemoShop } from '../../lib/shop-catalog';
 import type { CartCheckoutResponse, PatientShop, PublicLinkProduct } from '../../lib/patient-billing-types';
-import { setStubSession, type StubSession } from '../live-diary-stubs/supabase';
+import { setStubSession, setStubSessionLoadingTicks, type StubSession } from '../live-diary-stubs/supabase';
 
-export { act, setStubSession };
+export { act, setStubSession, setStubSessionLoadingTicks };
 export const storageMap = storage;
 
 let checks = 0;
@@ -128,7 +128,16 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   else if (path === 'patient-data/profile') body = { profile };
   else if (path === 'patient-data/billing/shop') {
     if (script.shopFailure) { status = script.shopFailure.status; body = { error: script.shopFailure.error }; }
-    else body = script.shop;
+    else if (call.auth === `Bearer ${otherSession.access_token}`) {
+      body = {
+        ...script.shop,
+        office: { provider_id: 'office-2', office_name: 'Live Health', payments_available: true },
+        default_address: { name: 'Other Patient', line1: '2 Live Ave', line2: null, city: 'Boston', state: 'MA', postal_code: '02111', country: 'US', phone: '+15550002020' },
+        stripe_account_id: 'acct_office2',
+        publishable_key: 'pk_live_scripted_office2',
+        sandbox: false,
+      };
+    } else body = script.shop;
   } else if (path === 'patient-data/billing/cart/quote') {
     if (script.quoteFailure) { status = script.quoteFailure.status; body = { error: script.quoteFailure.error, field: script.quoteFailure.field }; }
     else {
@@ -173,7 +182,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     ok: status < 300,
     status,
     headers: new Headers(path.startsWith('patient-data/billing/')
-      ? { 'X-Billing-Scope': 'test:acct_office1' }
+      ? { 'X-Billing-Scope': call.auth === `Bearer ${otherSession.access_token}` ? 'live:acct_office2' : 'test:acct_office1' }
       : undefined),
     json: async () => body,
   } as Response;

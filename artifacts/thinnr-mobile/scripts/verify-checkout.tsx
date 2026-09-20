@@ -16,7 +16,7 @@
  * explains, no network.
  */
 import {
-  act, alerts, assert, calls, finish, has, hosts, mount, otherSession, paidResponse, press, pressable, productBySlug, script, section, shopCalls,
+  act, alerts, allText, assert, calls, finish, has, hosts, mount, otherSession, paidResponse, press, pressable, productBySlug, script, section, setStubSessionLoadingTicks, shopCalls,
   session, signIn, signOut, storageMap, text, type, unmount,
 } from './shop-stubs/harness';
 import React from 'react';
@@ -54,7 +54,8 @@ async function main() {
   assert('demo tap fires the demo nudge, no checkout request', alerts.length === 1 && checkoutCalls().length === 0 && routerLog.length === 0);
   await unmount(tree);
 
-  section('real account: prefill, quote, cards');
+  section('real-account cold start: no demo storefront leaks while the session resolves');
+  setStubSessionLoadingTicks(1);
   await signIn();
   storageMap.set('thinnr_cart_v1:patient-1', JSON.stringify({ lines }));
   script.cards = { cards: [{ id: 'pm_saved', brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030, is_default: true }], default_payment_method_id: 'pm_saved' };
@@ -62,7 +63,7 @@ async function main() {
   tree = await mount(<CheckoutScreen />);
   await wait(50);
   const name = hosts(tree, 'checkout-name')[0]?.props.value;
-  assert('address pre-fills from the saved storefront address; email from the profile', name === 'Pat Example' && hosts(tree, 'checkout-line1')[0]?.props.value === '9 Harbor Rd' && hosts(tree, 'checkout-postal')[0]?.props.value === '02110' && text(tree, 'checkout-email') === 'pat@example.com' && hosts(tree, 'checkout-email')[0]?.props.value === undefined && hosts(tree, 'checkout-phone')[0]?.props.value === '+15550001010');
+  assert('cold start waits for the real storefront: live address and profile render, never the demo address', name === 'Pat Example' && hosts(tree, 'checkout-line1')[0]?.props.value === '9 Harbor Rd' && hosts(tree, 'checkout-postal')[0]?.props.value === '02110' && text(tree, 'checkout-email') === 'pat@example.com' && hosts(tree, 'checkout-email')[0]?.props.value === undefined && hosts(tree, 'checkout-phone')[0]?.props.value === '+15550001010' && !allText(tree).includes('100 Wellness Way'));
   assert('live quote fetched and shown with sandbox note', shopCalls().some(call => call.path.endsWith('/cart/quote')) && text(tree, 'checkout-total').includes(money(expectedTotal)) && has(tree, 'checkout-sandbox') && !has(tree, 'checkout-demo-note'));
   assert('saved default card preselected; new-card option offered; card entry mounted but hidden for 3DS', hosts(tree, 'checkout-card-pm_saved')[0]?.props.accessibilityState?.checked === true && has(tree, 'checkout-card-new') && cardScript.mounts === 1 && hosts(tree, 'checkout-card-entry')[0]?.props.hidden === true && !has(tree, 'checkout-save-card'));
 
@@ -105,14 +106,15 @@ async function main() {
   script.checkout = (body, cartId) => {
     // Observed on the server's side of the wire: the attempt is already on disk, byte for byte, when the request arrives.
     const pending = storedPending('patient-1');
-    persistedBeforePost = pending?.cartId === cartId && JSON.stringify(pending?.request) === JSON.stringify((({ cart_id: _omit, ...rest }) => rest)(body));
+    const { billing_scope: persistedScope, ...persistedBody } = pending?.request ?? {};
+    persistedBeforePost = pending?.cartId === cartId && persistedScope === 'test:acct_office1' && JSON.stringify(persistedBody) === JSON.stringify((({ cart_id: _omit, ...rest }) => rest)(body));
     return { status: 200, body: paidResponse(cartId, lines) };
   };
   await press(tree, 'checkout-pay');
   const paidCall = checkoutCalls()[0];
   assert('the attempt is committed to the device store BEFORE the request leaves', persistedBeforePost === true);
   assert('the body binds the total the button showed (expected_total_due_cents = quote total due)', paidCall?.body?.expected_total_due_cents === expectedTotal);
-  assert('one POST with bearer and Idempotency-Key bound to the cart id', paidCall?.method === 'POST' && paidCall.auth === 'Bearer patient-token' && paidCall.headers['Idempotency-Key'] === `patient-billing-checkout-${String(paidCall.body?.cart_id)}` && checkoutCalls().length === 1);
+  assert('one POST keeps the captured Test scope, bearer and Idempotency-Key bound to the cart id', paidCall?.method === 'POST' && paidCall.auth === 'Bearer patient-token' && paidCall.headers['X-Billing-Scope'] === 'test:acct_office1' && paidCall.headers['Idempotency-Key'] === `patient-billing-checkout-${String(paidCall.body?.cart_id)}` && checkoutCalls().length === 1);
   assert('body carries lines, normalized address, saved card, set_default false', JSON.stringify(paidCall?.body?.lines) === JSON.stringify([
     { product_id: control.product_id, quantity: 2, purchase: 'one_time' },
     { product_id: fiber.product_id, quantity: 1, purchase: 'subscription', cadence_weeks: 8 },
@@ -166,7 +168,8 @@ async function main() {
 
   await press(tree, 'checkout-pay');
   assert('after a decline the next attempt uses a NEW cart id; a 5xx is announced and leaves the attempt PENDING', seen.length === 3 && seen[2].cartId !== seen[1].cartId && text(tree, 'checkout-error').length > 0 && routerLog.length === 0 && storedLines('patient-1').length === 2 && storedPending('patient-1')?.cartId === seen[2].cartId && has(tree, 'checkout-pending-note'));
-  assert('the pending attempt persists the exact request that was sent', JSON.stringify(storedPending('patient-1')?.request) === JSON.stringify(checkoutCalls().at(-1)?.body && (({ cart_id: _omit, ...rest }) => rest)(checkoutCalls().at(-1)!.body as Record<string, unknown>)));
+  const { billing_scope: pendingScope, ...pendingWireBody } = storedPending('patient-1')?.request ?? {};
+  assert('the pending attempt persists the exact wire body plus its captured Test scope', pendingScope === 'test:acct_office1' && JSON.stringify(pendingWireBody) === JSON.stringify(checkoutCalls().at(-1)?.body && (({ cart_id: _omit, ...rest }) => rest)(checkoutCalls().at(-1)!.body as Record<string, unknown>)));
   assert('pending mode replaces the form with the frozen attempt: its total, ship-to, and card, no address inputs, Pay reads Confirm', has(tree, 'checkout-pending') && text(tree, 'checkout-pending-total').includes(money(expectedTotal)) && text(tree, 'checkout-pending-ship-to').includes('9 Harbor Rd') && text(tree, 'checkout-pending-card').length > 0 && !has(tree, 'checkout-name') && !has(tree, 'checkout-card-new') && text(tree, 'checkout-pay').includes('Confirm payment') && text(tree, 'checkout-pay').includes(money(expectedTotal)) && storedPending('patient-1')?.quote.total_due_cents === expectedTotal);
 
   await press(tree, 'checkout-pay');
@@ -395,7 +398,7 @@ async function main() {
   assert('Pay is waiting on the card sheet', cardScript.billing.at(-1)?.name === 'Pat Example' && releaseCard !== null && checkoutCalls().length === sentBefore);
   await signIn(otherSession);
   await wait(30);
-  assert('the second patient\'s own cart is on screen once the account switches', hosts(tree, 'checkout-summary').length === 1 && text(tree, 'checkout-summary').includes('3 ×'));
+  assert('account switch replaces Test storefront with the second patient\'s Live storefront and cart', hosts(tree, 'checkout-summary').length === 1 && text(tree, 'checkout-summary').includes('3 ×') && hosts(tree, 'checkout-name')[0]?.props.value === 'Other Patient' && allText(tree).includes('Live Health') && !has(tree, 'checkout-sandbox') && cardScript.configs.at(-1)?.stripeAccountId === 'acct_office2');
   await act(async () => { releaseCard!(); await new Promise(resolve => setTimeout(resolve, 20)); });
   await wait(30);
   assert('the tokenized card is abandoned: no checkout request under either identity', checkoutCalls().length === sentBefore && seen.length === 0 && routerLog.length === 0);

@@ -2,6 +2,7 @@ import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates
 import { BRANDED_EMAIL_FROM_NAME, brandedFromAddress, EmailNotConfiguredError, sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
 import { publicOrigin } from "./app-origin";
+import { liveBillingEffectsAllowed } from "./lifecycle-scopes";
 import type { BillingOrderItemRow, BillingOrderRow, BillingPayerRow, BillingSubscriptionRow } from "./store";
 import type { ProviderSummary } from "./store-orders";
 
@@ -54,6 +55,7 @@ export async function sendReceipt(input: {
   order: BillingOrderRow; items: BillingOrderItemRow[]; payer: BillingPayerRow;
   office: ProviderSummary; subscription?: BillingSubscriptionRow | null;
 }): Promise<void> {
+  if (!liveBillingEffectsAllowed()) return;
   const { order, items, payer, office, subscription } = input;
   let cancel = "";
   if (subscription) {
@@ -114,6 +116,7 @@ export async function sendPaymentFailed(input: {
   subscription: BillingSubscriptionRow; payer: BillingPayerRow; productName: string;
   office: ProviderSummary; amountCents: number; hostedInvoiceUrl: string;
 }): Promise<void> {
+  if (!liveBillingEffectsAllowed()) return;
   try {
     let cancel = "";
     try { cancel = `${publicOrigin()}/pay/cancel/${input.subscription.cancel_token}`; }

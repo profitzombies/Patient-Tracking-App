@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { billingFromAddress, formatReceiptTimestamp, sendPaymentFailed, sendReceipt, sendShippedNotice } from "./receipts";
+import { runWithBillingIdentity } from "./stripe-environment";
 
 const originalFetch = global.fetch;
 const originalKey = process.env.RESEND_API_KEY;
@@ -12,6 +13,43 @@ afterEach(() => {
 });
 
 describe("billing receipts", () => {
+  const live = <T>(work: () => T): T =>
+    runWithBillingIdentity({ mode: "live", platformAccountId: "acct_live" }, work);
+
+  const receiptInput = () => ({
+    order: {
+      order_number: "TH-7K2Q9M", paid_at: "2026-09-14T19:24:00Z", created_at: "2026-09-14T19:23:00Z",
+      subtotal_cents: 5999, shipping_charge_cents: 0, tax_cents: 0, total_cents: 5999, shipping_address: {},
+    } as never,
+    items: [{ product_name_snapshot: "Control", quantity: 1, unit_price_cents: 5999 }] as never,
+    payer: { name: "Riley Example", email: "patient@example.com" } as never,
+    office: { office_name: "Harbor Health", email: "care@harbor.test" } as never,
+  });
+  const paymentFailedInput = () => ({
+    subscription: { id: "sub-1", cancel_token: "cancel-1" } as never,
+    payer: { name: "Riley Example", email: "patient@example.com" } as never,
+    productName: "Control",
+    office: { office_name: "Harbor Health" } as never,
+    amountCents: 6999,
+    hostedInvoiceUrl: "https://invoice.stripe.com/i/test",
+  });
+
+  it("suppresses receipts and payment-failed emails in Test and unbound scopes", async () => {
+    process.env.RESEND_API_KEY = "test";
+    process.env.CLAIM_EMAIL_FROM = "bare@example.com";
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await sendReceipt(receiptInput());
+    await sendPaymentFailed(paymentFailedInput());
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, async () => {
+      await sendReceipt(receiptInput());
+      await sendPaymentFailed(paymentFailedInput());
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not fail fulfillment when email is not configured", async () => {
     delete process.env.RESEND_API_KEY;
     delete process.env.CLAIM_EMAIL_FROM;
@@ -41,12 +79,12 @@ describe("billing receipts", () => {
     expect(body.html).toContain("Track your package");
   });
 
-  it("sends receipts from THINNR Weight Loss with the RECEIPT subject and an itemized styled body", async () => {
+  it("sends receipts in Live scope from THINNR Weight Loss with the RECEIPT subject and an itemized styled body", async () => {
     process.env.RESEND_API_KEY = "test";
     process.env.CLAIM_EMAIL_FROM = "bare@example.com";
     const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response("{}", { status: 200 }));
     global.fetch = fetchMock as typeof fetch;
-    await sendReceipt({
+    await live(() => sendReceipt({
       order: {
         order_number: "TH-7K2Q9M", paid_at: "2026-09-14T19:24:00Z", created_at: "2026-09-14T19:23:00Z",
         subtotal_cents: 17997, shipping_charge_cents: 900, tax_cents: 0, total_cents: 18897,
@@ -59,7 +97,7 @@ describe("billing receipts", () => {
       payer: { name: "Riley Example", email: "patient@example.com" } as never,
       office: { office_name: "Harbor Health", email: "care@harbor.test" } as never,
       subscription: { cancel_token: "tok123" } as never,
-    });
+    }));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.from).toBe("THINNR Weight Loss <bare@example.com>");
     expect(body.subject).toBe("RECEIPT THINNR Order (TH-7K2Q9M) - Sep 14, 2026, 3:24 PM EDT");
@@ -82,7 +120,7 @@ describe("billing receipts", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     global.fetch = fetchMock as unknown as typeof fetch;
     try {
-      await expect(sendReceipt({
+      await expect(live(() => sendReceipt({
         order: {
           order_number: "TH-7K2Q9M", paid_at: "2026-09-14T19:24:00Z", created_at: "2026-09-14T19:23:00Z",
           subtotal_cents: 5999, shipping_charge_cents: 0, tax_cents: 0, total_cents: 5999, shipping_address: {},
@@ -91,7 +129,7 @@ describe("billing receipts", () => {
         payer: { name: "Riley Example", email: "patient@example.com" } as never,
         office: { office_name: "Harbor Health", email: "care@harbor.test" } as never,
         subscription: { cancel_token: "tok123" } as never,
-      })).resolves.toBeUndefined();
+      }))).resolves.toBeUndefined();
       const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]?.body));
       expect(body.html).not.toContain("/pay/cancel/");
     } finally {
@@ -99,19 +137,19 @@ describe("billing receipts", () => {
       if (domains !== undefined) process.env.REPLIT_DOMAINS = domains;
     }
   });
-  it("sends a failed renewal link and automatic retry note", async () => {
+  it("sends a failed renewal link and automatic retry note in Live scope", async () => {
     process.env.RESEND_API_KEY = "test";
     process.env.CLAIM_EMAIL_FROM = "bare@example.com";
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     global.fetch = fetchMock as unknown as typeof fetch;
-    await sendPaymentFailed({
+    await live(() => sendPaymentFailed({
       subscription: { id: "sub-1", cancel_token: "cancel-1" } as never,
       payer: { name: "Riley Example", email: "patient@example.com" } as never,
       productName: "Control",
       office: { office_name: "Harbor Health" } as never,
       amountCents: 6999,
       hostedInvoiceUrl: "https://invoice.stripe.com/i/test",
-    });
+    }));
     const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]?.body));
     expect(body.subject).toBe("Your THINNR order payment did not go through");
     expect(body.html).toContain("Update card and pay");

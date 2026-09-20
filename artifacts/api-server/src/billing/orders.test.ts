@@ -11,6 +11,7 @@ import {
 import { dispatchStripeEvent, resetStripeEventHandlers } from "./webhooks";
 import { mirrorPayout } from "./payouts";
 import { BillingStoreError, insertIgnore } from "./store";
+import { runWithBillingIdentity } from "./stripe-environment";
 
 vi.hoisted(() => {
   process.env.SUPABASE_URL = "http://supabase.test";
@@ -404,7 +405,7 @@ describe("billing orders", () => {
     expect(tables.billing_ledger.filter((row) => row.kind === "application_fee_adjustment")).toHaveLength(1);
   });
 
-  it("records a failed renewal order and sends only one email per invoice", async () => {
+  it("records a failed Test renewal order without sending customer email transport", async () => {
     process.env.RESEND_API_KEY = "test";
     process.env.CLAIM_EMAIL_FROM = "billing@example.com";
     tables.billing_payers.push({ id: "payer-1", provider_id: "office-1", name: "Pat Patient", email: "pat@example.com" });
@@ -429,6 +430,48 @@ describe("billing orders", () => {
     });
     expect(tables.billing_orders).toHaveLength(1);
     expect(tables.billing_orders[0]).toMatchObject({ kind: "subscription_renewal", status: "failed", paid_at: null });
+    expect(sequence.filter((entry) => entry === "db:emails")).toHaveLength(0);
+    delete process.env.RESEND_API_KEY;
+    delete process.env.CLAIM_EMAIL_FROM;
+  });
+
+  it("sends only one customer email per failed Live renewal invoice", async () => {
+    process.env.RESEND_API_KEY = "test";
+    process.env.CLAIM_EMAIL_FROM = "billing@example.com";
+    const liveScope = { stripe_mode: "live", stripe_platform_account_id: "acct_platform" };
+    Object.assign(tables.billing_products[0], liveScope);
+    Object.assign(tables.billing_connected_accounts[0], liveScope);
+    tables.billing_payers.push({
+      ...liveScope, id: "payer-1", provider_id: "office-1", name: "Pat Patient", email: "pat@example.com",
+    });
+    tables.billing_subscriptions.push({
+      ...liveScope,
+      id: "sub-1", provider_id: "office-1", payer_id: "payer-1", patient_id: null,
+      product_id: tables.billing_products[0].id, stripe_subscription_id: "sub_stripe", status: "active",
+      unit_price_cents: 6999, shipping_charge_cents: 1000, shipping_cost_cents: 1000,
+      application_fee_cents: 4599, shipping_address: {}, livemode: true, cancel_token: "cancel",
+      payment_failure_count: 0, last_failed_invoice_id: null, last_payment_failed_at: null,
+      last_hosted_invoice_url: null, last_failure_message: null, payment_failure_email_sent_invoice_id: null,
+    });
+    const invoice = {
+      object: "invoice", id: "in_failed_live", billing_reason: "subscription_cycle", subscription: "sub_stripe",
+      total: 7999, hosted_invoice_url: "https://invoice.stripe.test/pay",
+      payments: { data: [{ payment: { payment_intent: { id: "pi_failed_live", last_payment_error: { message: "Card declined." } } } }] },
+    };
+
+    await runWithBillingIdentity({ mode: "live", platformAccountId: "acct_platform" }, async () => {
+      await markSubscriptionInvoiceFailed(invoice, { kind: "connect", account: "acct_1", livemode: true });
+      await markSubscriptionInvoiceFailed(invoice, { kind: "connect", account: "acct_1", livemode: true });
+    });
+
+    expect(tables.billing_subscriptions[0]).toMatchObject({
+      status: "past_due", payment_failure_count: 1, last_failed_invoice_id: "in_failed_live",
+      payment_failure_email_sent_invoice_id: "in_failed_live", last_failure_message: "Card declined.",
+    });
+    expect(tables.billing_orders).toHaveLength(1);
+    expect(tables.billing_orders[0]).toMatchObject({
+      kind: "subscription_renewal", status: "failed", paid_at: null, livemode: true, ...liveScope,
+    });
     expect(sequence.filter((entry) => entry === "db:emails")).toHaveLength(1);
     delete process.env.RESEND_API_KEY;
     delete process.env.CLAIM_EMAIL_FROM;

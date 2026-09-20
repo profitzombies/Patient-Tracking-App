@@ -88,3 +88,13 @@ description: Durable lessons from building direct-charge Connect billing — san
 **Refund dialog amounts:** the client remainder must mirror the server's status filter (failed/canceled refunds never left the order) and the confirm always sends the exact acknowledged `amount_cents` — never omit it to mean "everything". **Why:** an omitted amount lets the server refund its own remainder, which can exceed the figure staff just acknowledged when the two sides count refunds differently. **How to apply:** any new refund entry point reuses `RefundDialog`; a parent that shares a mutation across opens must `reset()` it on open or stale errors greet the next attempt.
 
 **Grid tables with `auto` columns:** header and rows are separate grids, so `auto`-sized columns drift the header labels off the values; use fixed rem widths (Prices table).
+
+## Readiness verification lessons
+
+**The physical shared database schema is authoritative when migration history is incomplete.**
+**Why:** An external database can contain applied DDL whose repository migration history does not fully describe it.
+**How to apply:** Inspect and verify the physical schema before treating migration-history records as proof of what is deployed; make any corrective migration safe against the schema that is actually present.
+
+**Sandbox connected-charge tests must be guarded by the deployed webhook behavior.**
+**Why:** A real connected charge can reach older published webhook code even when local source guards appear to prevent the outbound action.
+**How to apply:** Prevent outbound activity using the code and configuration actually deployed to the sandbox, not only local source-level guards; verify the deployed webhook path before running real connected-charge tests.

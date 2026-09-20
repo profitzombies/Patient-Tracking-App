@@ -195,10 +195,14 @@ function errorMessage(caught: unknown): string {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { account } = usePatientAccount();
-  const scope = account.kind === 'real' ? account.patientId : account.kind === 'demo' ? 'demo' : null;
+  const { account, resolving } = usePatientAccount();
+  // PatientAccountProvider temporarily carries a demo-shaped account while a
+  // signed-in session is resolving. That is a loading sentinel, not the demo
+  // persona: opening a shop during this window could pin demo products and
+  // Stripe configuration onto the real patient's checkout.
+  const scope = resolving ? null : account.kind === 'real' ? account.patientId : account.kind === 'demo' ? 'demo' : null;
   const storageKey = scope ? `${STORAGE_PREFIX}${scope}` : null;
-  const demo = account.kind === 'demo';
+  const demo = !resolving && account.kind === 'demo';
 
   const [lines, setLines] = useState<CartLine[]>([]);
   const [pending, setPendingState] = useState<PendingAttempt | null>(null);
@@ -253,6 +257,17 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [scope]);
 
   const loadShop = useCallback(async (force = false): Promise<PatientShop | null> => {
+    // A child screen's effect can run before this provider's scope-reset
+    // effect. Claim the new scope synchronously so that later parent effects
+    // cannot clear an in-flight request and trigger a duplicate fetch.
+    if (shopFor.current !== scope) {
+      shopFor.current = scope;
+      setShop(null);
+      setShopStatus('idle');
+      setShopError(null);
+      inFlight.current = null;
+    }
+    if (resolving) return null;
     if (account.kind === 'unresolved') {
       setShop(null);
       setShopStatus('error');
@@ -297,7 +312,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     })();
     inFlight.current = request;
     return request;
-  }, [account.kind, scope]);
+  }, [account.kind, resolving, scope]);
 
   // Mirror of `lines` so add() can answer synchronously (merged? full?)
   // without relying on when React runs a state updater.
@@ -396,6 +411,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setPendingState(null);
   }, [isCurrentScope]);
 
+  // Effects clear state after a scope change, but children render once before
+  // those effects run. Never expose the previous scope's storefront during
+  // that render: checkout intentionally pins the first shop it receives.
+  const shopMatchesScope = shopFor.current === scope;
+  const scopedShop = shopMatchesScope ? shop : null;
+  const scopedShopStatus = shopMatchesScope ? shopStatus : 'idle';
+  const scopedShopError = shopMatchesScope ? shopError : null;
+
   const value = useMemo<CartContextValue>(() => ({
     hydrated,
     demo,
@@ -414,11 +437,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     commitPending,
     abandonPending,
     settlePending,
-    shop,
-    shopStatus,
-    shopError,
+    shop: scopedShop,
+    shopStatus: scopedShopStatus,
+    shopError: scopedShopError,
     loadShop,
-  }), [hydrated, demo, lines, locked, add, replaceLines, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, shop, shopStatus, shopError, loadShop]);
+  }), [hydrated, demo, lines, locked, add, replaceLines, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, scopedShop, scopedShopStatus, scopedShopError, loadShop]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

@@ -5,17 +5,9 @@
 - [THINNR verbatim sources](thinnr-verbatim-sources.md) — quote program wording from the docs archive, never paraphrase; structured copies need an automated verbatim check against the source.
 - [RN web deprecated/unmapped props](rn-web-shadow-props.md) — shadow*/textShadow*/pointerEvents props and accessibilityState objects do nothing on Expo web; use boxShadow/textShadow strings, style.pointerEvents, flat aria-*.
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
-- [Coach chat grounding](coach-grounding.md) — coach answers come from runtime-sliced verbatim doc compartments (1-3 per turn); structured sources contribute only verbatim fields; extend via card slot, not inlined text.
-- [Coach context routing](coach-context-routing.md) — verify recall before specialized dispatch and personalization in recommendation prompts; preferences must not bias visual facts extraction.
+- [Coach topic directory](coach-topic-directory.md) — grouped coach grounding, routing, card, reply, voice, stream, failure-staging, and account-grounding lessons; see original topic pages for details.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
 - [Validation gate](validation-gate.md) — register suites via setValidationCommand (not workflows); completion runs ALL commands in parallel — EAGAIN/134/502 load flakes; re-run failures serially; repeated poll-budget stalls → skip_validation_reason with green evidence.
-- [Coach card attachments](coach-card-attachments.md) — cards and one-tap reply labels ride separate SSE events: model emits only marker ids, server allow-lists them and builds payloads from curated data.
-- [Coach reply shape](coach-reply-shape.md) — replies are blank-line-separated thought blocks + follow-up closer; phrase optional reply behaviors default-on and verify with real model calls.
-- [Coach voice contract](coach-voice.md) — shared persona/voice constants across pipelines; ban stock openers by name; canned coach strings never end "?"; seeded greeting rides request history.
-- [Coach stopped replies](coach-stopped-replies.md) — stopped replies carry a `stopped` flag end-to-end; the server appends a model-only interruption note so the next answer never continues cut-off text.
-- [Coach paced reveal](coach-paced-reveal.md) — typed-out reveal lives in the chat context so message.text is always exactly what's on screen; stop/cards/chips contracts follow for free.
-- [Staging coach failures](coach-failure-staging.md) — env-override restarts stage failures: break the model upstream, or zero the limiter knobs to stage denials; the tester heals it in-session.
-- [Coach upstream reliability](coach-upstream-reliability.md) — SSE keepalives + idle deadlines; client end-without-done = error, never silent success; abort-guard every stream callback (drain + screen controller check).
 - [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running commands](long-running-builds.md) — use managed background/workflows, not detached shells; fingerprint and checkpoint model benchmarks per case.
 - [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
@@ -32,7 +24,6 @@
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.
 - [Menu & meal photo scans](menu-photo-scan.md) — image rides only the request tail; server triage announces photoKind; meal reads need mid-tier (detail:"high" ignored); typed corrections re-attach the held photo.
 - [Coach client-held flows](coach-client-flows.md) — sub-conversations that bind a reply to held data (label naming) resolve client-side; finished bubbles ride the bounded request history window.
-- [Coach no-dash voice](coach-no-dash.md) — dashes stripped structurally: whole strings + a chunk-bridging stream smoother that must flush on every writable end, error paths included; catalog names de-dash at display only.
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
 - [Tailwind v4 var syntax](tailwind-v4-var-syntax.md) — `h-[--x]` (v3 form) is silently dropped by v4; use `h-(--x)`; grep the ui/ folder when a shadcn part renders unsized.
 - [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.
@@ -82,7 +73,6 @@
 - [Password-proven SMS MFA](password-proven-sms-mfa.md) — after valid password + ledger registration, open MFA before Twilio settles; invalid credentials keep neutral timing and bindings re-check.
 - [Live patient-data rail](live-patient-data-rail.md) — account seam defaults to demo; server truth gates real writes; one-RPC compound mutations; media rail mints path-owned objects, reads token-gated.
 - [Per-account chat persistence](patient-chat-persistence.md) — finalized-only signature outbox + hydrate-then-persist; ref-sync effect must precede the persistence effect; photos re-attach on `!https?:` not `data:` only.
-- [Coach real-account grounding](coach-real-grounding.md) — auth ladder resolves before SSE; real patients get live-data context or a retryable error, never a silent demo fallback; greeting is client-composed from server facts.
 - [Env knob parsing](env-knob-parsing.md) — Number("") is 0: unset knobs zero limits; blank-check first; dev-env knobs leak into vitest (pin per suite); import-time knobs need vi.hoisted.
 - [Onboarding route admission](onboarding-route-admission.md) — protected patient routes unlock only after server-confirmed completion; optimistic flags create bypasses and reload reversals.
 - [Patient identity write barrier](patient-identity-write-barrier.md) — every new patient-owned table must join the reconciliation advisory-lock trigger protocol or late writes can strand data.
@@ -121,8 +111,7 @@
 - [Private document platforms](private-document-platforms.md) — native image requests need absolute URLs; Expo legacy filesystem types do not imply web support; test each platform's real boundary.
 - [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.
 - [FatSecret permission gates](fatsecret-evaluation-permissions.md) — Basic caching and advice rights cannot be inferred from keys or the 24-hour rule; verify actual standard-method access without extra scopes.
-- [Coach readiness caches](coach-readiness-caches.md) — paintable ≠ saved; stale reads must reject consumers, not merely skip cache writes; navigation must not renew freshness.
-- [Stripe Connect billing](stripe-connect-billing.md) — environment account identity, first-invoice fee workaround, webhook claims, price idempotency, and Connect sandbox prerequisites.
+- [Billing topic directory](billing-topic-directory.md) — grouped Stripe, payments, checkout, sales, email, and billing-state lessons; see original topic pages for details.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
 - [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
@@ -132,13 +121,6 @@
 - [Inbox notes side panel](inbox-notes-side-panel.md) — white thread + separate docked/overlay notes panel; HQ never composes notes on any thread; back-button breakpoint must equal list-pane breakpoint.
 - [Staff attention alerts](staff-attention-alerts.md) — one evaluator feeds roster/bell/digest/email; staff outbox is separate from patient outbox; opt-outs applied at send; ALL mail via the templates library shell.
 - [Coach conversation titles](coach-conversation-titles.md) — model titles + patient rename decided by title_source in SQL; sensitive-text screen → fallback; mobile reconciles late reads against committed rows.
-- [Billing product pages & plans](billing-product-pages.md) — discount = discounted per-cadence Stripe prices (no coupons), legacy 4-week price untouched; no office price row = floor-price fallback, not opt-out.
-- [Patient shop checkout](patient-shop-checkout.md) — claim key, rows, then money; fingerprint the request not prices; ambiguous results replay the same id+request; never show pre-tax as due.
-- [Branded shop emails](shop-customer-emails.md) — claim keyed on the changed value inside the transition owner; end-state actions need an already-there guard; email links must hit a real app route; Stripe emails off is structural, warn on unverified.
-- [Provider mobile Payments area](mobile-payments-area.md) — one shell decides demo/live from auth; byte-identical demo copy + parity suite; relative `/billing/office` paths; sweep subagent output for golfed code.
-- [In-office sales](in-office-sales.md) — Elements need paymentMethodCreation manual; CAS-only prebuilt cart transitions; paid = all groups; attempt bumps only on definite card failure; guest payer by verified phone.
-- [Patient purchase routes](patient-purchase-routes.md) — /subscriptions is the staff tab; patient billing uses /my-subscriptions; demo writes are aria-disabled + nudge by design.
-- [Tap to Pay on the provider phone](tap-to-pay.md) — one tap per order group; never retry a declined intent; only an explicit not_charged unlocks; settle fails closed (cancel-first); persist the unsettled key.
 - [Recreating RPCs drops later ALTERs](recreated-rpc-security-definer.md) — signature-extending drop+recreate loses a later `security definer`; live sends 403 while SQL-text tests stay green; prove with one real RPC call.
 - [Coach product suggestions](coach-product-suggestions.md) — real accounts: offers AND product prose only from the live office storefront (branch on auth, not data); persist opt-out first; export new cols.
 - [App presence & HQ active users](app-usage-presence.md) — presence rides identity resolution + a bare heartbeat; now-tiles end today, rows end on range end; demo self-seeds (no account list); failed polls show Error.
@@ -155,7 +137,6 @@
 - [App usage Insights](app-usage-insights.md) — one event helper at write seams, patient-local hour (−1 = day-only), rollups ∪ raw tail, one shared rule engine for demo + live; office view = optional selector + scope-pinned route.
 - [System performance metrics](system-performance-metrics.md) — latency flush needs a request after the minute rolls; pg_stat_statements is since-reset; unlistable storage prefix withholds the total; HQ alerts have provider_id null.
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
-- [As-of-date billing state](as-of-date-billing-state.md) — judge past-date subscribed/buying by lifetime columns, never today's status; test before/on/after boundaries; RPC shape holes → 502, not zeros.
 - [AI usage ledger & prompt cache](ai-usage-ledger-and-prompt-cache.md) — meter at the client seam; one system message in canonical source order caches ~99%; tier switches only via recorded harnesses.
 - [JSX type args vs dev metadata plugin](jsx-type-args-metadata-plugin.md) — `<Comp<'a'|'b'>…>` typechecks but the dev-only metadata transform makes Vite fail on every route; instantiate the generic at module level.
 - [WarehouseCraft shipping rates](warehousecraft-shipping-rates.md) — NOVEX_* secrets are the WarehouseCraft creds; fallback = flat charge exactly, recovery always carrier+pick-pack; one rater via planCart, renewals re-quote.
@@ -167,16 +148,6 @@
 - [Staff patient-record export](staff-patient-record-export.md) — one shared archive builder; staff path splits ZIP parts under a byte budget (no omission); server `available` list gates the button; ?part=N downloads.
 - [Cold archive to object storage](cold-archive.md) — UTC closed days only, mark after every file+manifest lands, manifest bytes deterministic; off = no-op, on+unconfigured = loud; alert only while enabled.
 - [Legal holds](legal-holds.md) — hold predicate inside every delete statement (office resolves via provider); deletion requests park as `held`; HQ UI reads holds endpoint, office badge rides a computed column.
-- [Shared dev DB drift in live checks](shared-db-live-verification.md) — concurrent tasks seed fixtures mid-run; testers must compare tiles to the app's own response, not a stale baseline; disposable HQ admin recipe.
+- [Live-proof topic directory](live-proof-topic-directory.md) — grouped live database, export, office lifecycle, and proof recipes; see original topic pages for details.
 - [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.
-- [Export job cancellation](export-cancellation.md) — cooperative stop at part boundaries, ready-flip CAS on cancel_requested_at null, cancelled never keeps files; live test:exports fails on main (fresh-code gate).
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
-- [Overview finance live smoke](overview-finance-live-smoke.md) — REST mocks must honor select= (an id-only query hid an always-0 failed-payments count); staff fixtures need the provision_staff_login rail; api dev runs a built bundle.
-- [Patient edit history](patient-edit-history.md) — values live in an append-only patient-owned table paired with the PII-free audit id; every shared-family edit route must go through the audit+history helper.
-- [Patient account closure](account-closure.md) — closure deletes personal families + nulls identity and reuses archived_at as the seal; classify every patient_id table; courtesy lookups fall through, never 502; teach route fakes new operators.
-- [Whole-office bundle export](office-bundle-export.md) — entity-page request + panel lists jobs; resumable step keeps in-run cursor ahead of committed one; estimate from size snapshot or null; stash under stale index.lock silently no-ops.
-- [Office offboarding flow](office-offboarding.md) — status flips first, access_disabled only at completion; SQL rollups need the id-set exclusion; batch enqueue must skip already-due requests or the job loop spins.
-- [Office reactivation live proof](office-reactivation-live-proof.md) — retired identity = recreate GoTrue user under original id; purge is tombstone-then-row (poll row gone); re-seal keeps reopened_at.
-- [Office offboarding live proof](office-offboarding-live-proof.md) — data_exports parts check rejects `[]` (first checkpoint must be null); fresh-code stamp = auth_sign_ins row keyed by JWT session_id; live 403 shapes.
-- [Office bundle live proof](office-bundle-live-proof.md) — stage the crash with the real builder; same-owner lease re-entrancy → runJob refuses in-process overlap (run-now 409); shared trigger fns read fields via to_jsonb(new).
-- [Patient edit history live proof](patient-edit-history-live-proof.md) — one live harness (--keep/--cleanup) + browser recipe: dual dev delivery modes, fake-phone second-factor enrolment, medication ids come from the response.

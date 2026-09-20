@@ -34,7 +34,9 @@ async function main() {
   routerLog.length = 0;
   tree = await mount(<ShopScreen />);
   const shopCall = shopCalls().find(call => call.path.endsWith('/shop'));
-  assert('storefront fetched once with bearer, demo note absent', shopCall?.auth === 'Bearer patient-token' && shopCalls().filter(call => call.path.endsWith('/shop')).length === 1 && !has(tree, 'shop-demo-note'));
+  assert('real storefront uses the patient bearer', shopCall?.auth === 'Bearer patient-token');
+  assert('real storefront is fetched once', shopCalls().filter(call => call.path.endsWith('/shop')).length === 1);
+  assert('real storefront never renders the demo note', !has(tree, 'shop-demo-note'));
   assert('every live product has a tile', script.shop.products.every(product => has(tree, `shop-product-${product.slug}`)));
   assert('header cart badge hidden while empty', !has(tree, 'shop-cart-count'));
   await unmount(tree);

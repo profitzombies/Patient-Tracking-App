@@ -8,7 +8,9 @@ router = "expo-domain"
 
 [[services]]
 name = "expo"
-ensurePreviewReachable = "/status"
+# Metro's status endpoint is ready before the web bundle exists. Probe the
+# browser entry bundle so cold-start consumers do not race its first compile.
+ensurePreviewReachable = "/artifacts/thinnr-mobile/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&lazy=true&transform.engine=hermes&transform.routerRoot=app&transform.reactCompiler=true&unstable_transformProfile=hermes-stable"
 paths = [ "/thinnr-mobile/" ]
 localPort = 19713
 

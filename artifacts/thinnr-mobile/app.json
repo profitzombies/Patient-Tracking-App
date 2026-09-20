@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "THINNR Mobile Operations",
-    "slug": "thinnr-mobile",
+    "name": "Thinnr",
+    "slug": "thinnr",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon_2.png",
-    "scheme": "thinnr-mobile",
+    "scheme": "thinnr",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
@@ -18,7 +18,8 @@
       "entitlements": {
         "com.apple.developer.healthkit": true,
         "com.apple.developer.proximity-reader.payment.acceptance": true
-      }
+      },
+      "bundleIdentifier": "com.thinnr.app"
     },
     "android": {
       "permissions": [
@@ -28,7 +29,8 @@
         "android.permission.NFC",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
-      ]
+      ],
+      "package": "com.thinnr.app"
     },
     "web": {
       "favicon": "./assets/images/icon_2.png"

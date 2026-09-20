@@ -169,7 +169,14 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     status = answer.status; body = answer.body;
   } else if (path === 'patient-data/billing/cards') body = script.cards;
   else throw new Error(`Unscripted request: ${call.method} ${path}`);
-  return { ok: status < 300, status, json: async () => body } as Response;
+  return {
+    ok: status < 300,
+    status,
+    headers: new Headers(path.startsWith('patient-data/billing/')
+      ? { 'X-Billing-Scope': 'test:acct_office1' }
+      : undefined),
+    json: async () => body,
+  } as Response;
 }) as typeof fetch;
 
 export async function settle(rounds = 12) {

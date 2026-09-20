@@ -73,7 +73,15 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     status = answer.status ?? 200;
     body = answer.body;
   }
-  return { ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) } as Response;
+  return {
+    ok: status < 300,
+    status,
+    headers: new Headers(path.startsWith('patient-data/billing/')
+      ? { 'X-Billing-Scope': 'test:acct_office1' }
+      : undefined),
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as Response;
 }) as typeof fetch;
 
 export async function settle(rounds = 12) {

@@ -77,7 +77,14 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   else if (path === 'patient-data/billing/orders/order-1/receipt') body = { order_number: 'TH-1001', receipt_url: 'https://stripe.test/receipt', invoice_url: null, invoice_pdf_url: null };
   else if (path === 'patient-data/billing/subscriptions/sub-1/cancel') { canceled = true; body = subscription(); }
   else throw new Error(`Unscripted request: ${call.method} ${path}`);
-  return { ok: status < 300, status, json: async () => body } as Response;
+  return {
+    ok: status < 300,
+    status,
+    headers: new Headers(path.startsWith('patient-data/billing/')
+      ? { 'X-Billing-Scope': 'test:acct_office1' }
+      : undefined),
+    json: async () => body,
+  } as Response;
 }) as typeof fetch;
 
 async function settle() {

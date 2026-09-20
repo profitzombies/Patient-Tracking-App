@@ -22,6 +22,10 @@ description: Durable lessons from building direct-charge Connect billing — san
 **Webhook configuration is not registration evidence.** A saved endpoint or locally configured signing secret does not prove that Stripe delivers events to this deployment.
 **Why:** Changing platform credentials previously stranded saved registration state under a different account.
 **How to apply:** keep local readiness distinct from credentialed delivery verification. Do not recreate or delete remote endpoints automatically during server startup.
+
+**Webhook endpoint responses do not expose the `connect` creation flag.**
+**Why:** Coercing an absent `endpoint.connect` to false incorrectly diagnoses a connected-event destination as misconfigured.
+**How to apply:** report source scope as unverified from endpoint list/retrieve alone; use Dashboard source settings or actual destination-specific delivery evidence.
 **Probing a fresh sandbox:** `accounts.create` with the controller combo answers "You can only create new accounts if you've signed up for Connect" until Connect is enabled; the OAuth authorize URL returns 200 for registered redirect URIs and 400 for unregistered ones (a cheap client-id + redirect check that needs no user click).
 
 **Invoice items take inline amounts, not `price_data.product_data`.** `invoiceItems.create` rejects the Checkout-style `price_data.product_data` shape ("Received unknown parameter"); use `currency` + `unit_amount_decimal` + `quantity` + `description` (+ top-level `tax_code`). Probe unfamiliar param shapes against the sandbox before wiring them.

@@ -49,6 +49,14 @@ beforeEach(() => {
 });
 
 describe("payer-facing offering", () => {
+  it("excludes disabled products from storefront and rejects direct checkout", async () => {
+    prices[0].enabled = false;
+    expect((await officeOffering("office-1")).map(item => item.product_id)).toEqual(["fiber"]);
+    await expect(quoteOrder({ provider_id: "office-1" } as BillingPaymentLinkRow,
+      [{ product_id: "control", quantity: 1 }], "one_time")).rejects.toThrow("not available");
+    await expect(quoteOrder({ provider_id: "office-1" } as BillingPaymentLinkRow,
+      [{ product_id: "control", quantity: 1 }], "subscription")).rejects.toThrow("not available");
+  });
   it("lists priced products first, then unpriced active products at the floor price, with page content and no discount while off", async () => {
     const offering = await officeOffering("office-1");
     expect(offering.map((item) => [item.product_id, item.unit_price_cents, item.office_priced])).toEqual([

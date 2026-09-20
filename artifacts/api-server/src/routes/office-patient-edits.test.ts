@@ -143,6 +143,7 @@ beforeEach(() => {
       const userId = authUsers[bearerOf(init)];
       return userId ? response({ id: userId }) : response({ message: "bad token" }, 401);
     }
+    if (url.pathname === "/rest/v1/practice_launch") return response([{required:false,version:0,completed_at:null}]);
     if (url.pathname === "/rest/v1/providers") return response(matching(providers, url.searchParams, ["auth_user_id", "provider_id"]));
     if (url.pathname === "/rest/v1/team_members") return response(matching(teamMembers, url.searchParams, ["auth_user_id"]));
     if (url.pathname === "/rest/v1/provider_account_locks") {

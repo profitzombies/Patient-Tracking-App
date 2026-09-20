@@ -194,6 +194,7 @@ function officeRow(id: string, authUserId: string | null = null) {
 
 function serviceRows(url: URL): unknown[] {
   const table = url.pathname.split("/").at(-1);
+  if (table === "practice_launch") return [{required:false,version:0,completed_at:null}];
   if (table === "provider_account_locks" || table === "profiles") return [];
   if (table === "hq_memberships") {
     const user = url.searchParams.get("auth_user_id")?.replace("eq.", "");

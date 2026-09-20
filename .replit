@@ -480,6 +480,14 @@ args = "stripe-environment-api"
 task = "workflow.run"
 args = "stripe-environment-clients"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "practice-launch-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "practice-launch-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2951,6 +2959,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-mode.tsx && pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.patient-billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "practice-launch-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/practice-launch src/routes/practice-launch.test.ts src/routes/office-roster.test.ts src/routes/billing-permissions.test.ts src/billing/offering.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "practice-launch-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

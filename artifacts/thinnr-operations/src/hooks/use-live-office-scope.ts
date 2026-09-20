@@ -20,11 +20,12 @@ export interface LiveOfficeScope {
 }
 
 export function useLiveOfficeScope(): LiveOfficeScope {
-  const { authUser, authStatus, authRole } = useSession();
+  const { authUser, authStatus, authRole, claimedWorkspace } = useSession();
   const scope = useProviderScope();
+  const isClaimedOffice = claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member';
   const liveEnabled =
     authStatus === 'signed-in' &&
-    (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+    (authRole === 'provider_staff' || isClaimedOffice || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
   return {
     liveEnabled,
     liveOffice: authRole === 'hq_admin' ? (scope?.providerId ?? null) : null,

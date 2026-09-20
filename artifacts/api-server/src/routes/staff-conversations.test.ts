@@ -12,6 +12,9 @@ import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryNotificationStore } from "../notifications/memory-store";
+vi.mock("../billing/mode-state", () => ({
+  getBillingModeStatus: async () => ({mode:"test",platformAccountId:"acct_fixture",version:0}),
+}));
 
 const mocks = vi.hoisted(() => ({
   scope: vi.fn(),

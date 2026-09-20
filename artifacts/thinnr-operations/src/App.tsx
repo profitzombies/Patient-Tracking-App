@@ -213,7 +213,6 @@ function PersonaRouter() {
     if (roleStatus === 'idle' || roleStatus === 'loading') return <BootScreen />;
     if (roleStatus === 'error') return <ProfileErrorScreen />;
     if (authRole === 'patient') return <PatientOnWebNotice />;
-    if (claimedWorkspace) return <ClaimedWorkspaceScreen />;
   }
 
   if (persona === null) {

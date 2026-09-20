@@ -155,6 +155,7 @@ beforeEach(() => {
       return response(logoutStatus === 204 ? 1 : null, logoutStatus === 204 ? 200 : logoutStatus);
     }
     if (url.pathname === "/auth/v1/admin/users") return response({ users: [] });
+    if (url.pathname === "/rest/v1/practice_launch") return response([{required:false,version:0,completed_at:null}]);
     if (url.pathname === "/rest/v1/providers") return response(matching(providers, url.searchParams, ["auth_user_id", "provider_id", "email"]));
     if (url.pathname === "/rest/v1/team_members") {
       if (method === "GET") return response(matching(teamMembers, url.searchParams, ["auth_user_id", "provider_id", "id", "email"]));

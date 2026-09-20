@@ -460,7 +460,7 @@ async function changeQuoteData(row: BillingSubscriptionRow, productId: string) {
   ]);
   if (!current) throw new BillingSubscriptionError("Current product not found.", 409);
   if (!next || !next.active || next.status !== "active") throw new BillingSubscriptionError("Product not found.", 404, "product_id");
-  if (!price || !price.subscription_enabled || price.sell_price_cents < next.floor_price_cents) {
+  if (!price || price.enabled === false || !price.subscription_enabled || price.sell_price_cents < next.floor_price_cents) {
     throw new BillingSubscriptionError("This product is not available for subscriptions at this office.", 409, "product_id");
   }
   const fees = computeOrderFees([{ floor_price_cents: next.floor_price_cents, quantity: 1 }], settings);

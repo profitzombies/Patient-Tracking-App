@@ -105,6 +105,8 @@ export interface BillingAccountEventRow extends TimestampedRow {
   id: string; provider_id: string; kind: string; detail: Record<string, unknown>;
 }
 export interface BillingOfficePriceRow extends TimestampedRow {
+  /** False excludes this product from new purchases; existing subscriptions remain intact. */
+  enabled?: boolean;
   provider_id: string; product_id: string; sell_price_cents: number; subscription_enabled: boolean;
   stripe_product_id: string | null; stripe_price_id: string | null;
   stripe_shipping_price_id: string | null; updated_by: string | null;

@@ -242,6 +242,9 @@ export async function setOfficePrice(
   const priceSnapshot = (row: { sell_price_cents: number; subscription_enabled: boolean } | null) =>
     row ? { sell_price_cents: row.sell_price_cents, subscription_enabled: row.subscription_enabled } : null;
   if (input.sell_price_cents === null) {
+    if (previous?.enabled === false) {
+      throw new BillingPriceError("This product is disabled. Enable it in practice setup before removing its own price.", 409);
+    }
     await remove("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}&product_id=eq.${encodeURIComponent(productId)}`);
   } else {
     const minimum = breakEvenMinimum(product.floor_price_cents, settings);

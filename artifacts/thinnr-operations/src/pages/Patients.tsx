@@ -559,6 +559,12 @@ export default function Patients() {
         <div>
           <h1 className="font-serif text-[32px] font-bold leading-none tracking-tight text-navy">Patient Roster</h1>
           <p className="mt-2 text-sm text-muted-foreground">Manage and monitor all THINNR protocol participants.</p>
+          {liveEnabled && !liveRosterIsError && liveRosterData?.office.providerCode && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Patient signup code: <strong className="font-mono tracking-wider text-navy">{liveRosterData.office.providerCode}</strong>
+              <span className="ml-2">Patients enter this during mobile onboarding to join your practice.</span>
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
           <OfficeGetTheAppPanel liveEnabled={liveEnabled} liveOffice={liveOffice} />

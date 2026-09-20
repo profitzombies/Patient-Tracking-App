@@ -151,3 +151,4 @@
 - [Live-proof topic directory](live-proof-topic-directory.md) — grouped live database, export, office lifecycle, and proof recipes; see original topic pages for details.
 - [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
+- [Practice launch pricing](practice-launch-pricing.md) — user-approved 2× means THINNR product fee paid by the office, excluding shipping/card fees, not supplier cost or patient retail.

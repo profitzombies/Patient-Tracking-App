@@ -196,8 +196,9 @@ export async function officeOffering(providerId: string): Promise<PublicLinkProd
  * longer covers processing costs).
  */
 export function resolveOffering(
-  product: Pick<BillingProductRow, "floor_price_cents">, price: { sell_price_cents: number } | null, settings: FeeSettings,
+  product: Pick<BillingProductRow, "floor_price_cents">, price: { sell_price_cents: number; enabled?: boolean } | null, settings: FeeSettings,
 ): { unit_price_cents: number; office_priced: boolean } | null {
+  if (price?.enabled === false) return null;
   if (price) return { unit_price_cents: price.sell_price_cents, office_priced: true };
   if (product.floor_price_cents < breakEvenMinimum(product.floor_price_cents, settings)) return null;
   return { unit_price_cents: product.floor_price_cents, office_priced: false };

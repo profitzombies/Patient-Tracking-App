@@ -11,6 +11,10 @@ import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// These legacy-office fixtures have a fixed, synthetic billing environment.
+vi.mock("../billing/mode-state", () => ({
+  getBillingModeStatus: async () => ({mode:"test",platformAccountId:"acct_fixture",version:0}),
+}));
 
 vi.mock("../lib/objectStorage", () => ({
   objectStorage: {
@@ -46,6 +50,7 @@ let baseUrl = "";
 
 let authUsers: Record<string, string> = {};
 let providers: Row[] = [];
+let launchRequired = false;
 let teamMembers: Row[] = [];
 let patients: Row[] = [];
 let patientTables: Record<string, Row[]> = {};
@@ -120,6 +125,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  launchRequired = false;
   readAudits = [];
   resetRecordAccessCache();
   authUsers = {
@@ -198,6 +204,10 @@ beforeEach(() => {
     if (url.pathname === "/auth/v1/user") {
       const userId = authUsers[bearerOf(init)];
       return userId ? response({ id: userId }) : response({ message: "bad token" }, 401);
+    }
+    if (url.pathname === "/rest/v1/practice_launch") {
+      const id=url.searchParams.get("provider_id")?.replace("eq.","");
+      return response(providers.some(row=>row.provider_id===id) ? [{provider_id:id,required:launchRequired,version:0,details_confirmed:false,products_confirmed:false,completed_at:null}] : []);
     }
     if (url.pathname === "/rest/v1/providers") {
       const byAuth = url.searchParams.get("auth_user_id");
@@ -359,6 +369,17 @@ const INVITE = {
 };
 
 describe("office scope", () => {
+  it("blocks owner and teammate operational deep links for a new unfinished practice",async()=>{
+    launchRequired=true;
+    for(const token of ["provider-token","member-token"]) {
+      const res=await api("/office/roster",token);
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({error:expect.stringContaining("complete setup")});
+    }
+    // Grandfathering, not a client-side bypass, restores the same legacy fixture.
+    launchRequired=false;
+    expect((await api("/office/roster","provider-token")).status).toBe(200);
+  });
   it("merges safe operational facts and derives deterministic roster summary", async () => {
     const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
     patients[0].created_at = `${day(10)}T00:00:00Z`;

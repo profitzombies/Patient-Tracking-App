@@ -30,7 +30,61 @@ const migrationNames = [
   "20261106010000_staff_second_factor.sql",
   "20261107000000_cold_archive.sql",
   "20261107000000_legal_holds.sql",
+  "20261113000000_practice_launch.sql",
+  "20261113010000_practice_launch_products.sql",
+  "20261113020000_practice_launch_mode_completion.sql",
+  "20261113030000_practice_launch_trigger_permissions.sql",
 ];
+
+// Also used to verify manually applied launch DDL before recording receipts.
+// These assertions inspect schema/privileges only; they never replay CREATE.
+const launchPostconditions = `
+  do $launch_proof$
+  declare routine regprocedure; relation regclass; role_name text;
+  begin
+    foreach relation in array array[
+      to_regclass('public.practice_launch'),
+      to_regclass('public.practice_launch_tours'),
+      to_regclass('public.practice_launch_product_receipts'),
+      to_regclass('public.practice_launch_completions')
+    ] loop
+      if relation is null or not exists(select 1 from pg_class where oid=relation and relrowsecurity) then
+        raise exception 'Practice launch table or RLS missing';
+      end if;
+      foreach role_name in array array['anon','authenticated'] loop
+        if has_table_privilege(role_name,relation,'INSERT,UPDATE,DELETE') then
+          raise exception 'Practice launch table writable by browser role';
+        end if;
+      end loop;
+    end loop;
+    if to_regprocedure('public.complete_practice_launch(text,integer)') is not null
+      or not exists(select 1 from information_schema.columns where table_schema='public'
+        and table_name='billing_office_prices' and column_name='enabled' and data_type='boolean' and is_nullable='NO')
+      or not exists(select 1 from pg_trigger where tgrelid='public.providers'::regclass
+        and tgname='initialize_practice_launch' and tgenabled='O' and not tgisinternal
+        and tgfoid=to_regprocedure('public.initialize_practice_launch()'))
+    then raise exception 'Practice launch rollout/product/mode schema missing'; end if;
+    foreach routine in array array[
+      to_regprocedure('public.initialize_practice_launch()'),
+      to_regprocedure('public.save_practice_launch_details(text,integer,jsonb)'),
+      to_regprocedure('public.save_practice_launch_products(text,uuid,integer,jsonb,text,text)'),
+      to_regprocedure('public.complete_practice_launch(text,integer,text,text)')
+    ] loop
+      if routine is null then raise exception 'Practice launch routine missing'; end if;
+      foreach role_name in array array['anon','authenticated'] loop
+        if has_function_privilege(role_name,routine,'EXECUTE') then
+          raise exception 'Practice launch routine executable by browser role';
+        end if;
+      end loop;
+    end loop;
+    if (select count(*) from information_schema.columns where table_schema='public'
+      and table_name='practice_launch' and column_name in
+      ('provider_id','required','version','details_confirmed','products_confirmed','completed_at'))<>6
+      or not exists(select 1 from pg_constraint where conrelid='public.practice_launch_completions'::regclass
+        and contype='p' and pg_get_constraintdef(oid)='PRIMARY KEY (provider_id, stripe_mode, platform_account_id)')
+    then raise exception 'Practice launch state/identity contract missing'; end if;
+  end $launch_proof$;
+`;
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
 if (!url || !token) throw new Error("Supabase migration configuration is missing.");
@@ -177,4 +231,5 @@ await query(`
     end $proof$;
   notify pgrst, 'reload schema';
 `);
-console.log("Coach and bloodwork schema postconditions verified.");
+await query(launchPostconditions);
+console.log("Coach, bloodwork and practice launch schema postconditions verified.");

@@ -23,6 +23,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
 import { OFFICE_OFFBOARDED_STAFF_MESSAGE, offboardingStatusOf } from "../lib/office-status";
 import { identifyBearer } from "./identify";
+import { isLaunchAllowedPath, readLaunch, operationalLaunchComplete } from "../practice-launch/state";
 import { verificationModeFor, type VerificationRequest } from "./verification-policy";
 import {
   hasHqPermission,
@@ -193,6 +194,8 @@ export async function resolveOfficeScope(input: {
     if (await providerLocked(row.provider_id)) {
       return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", user.id, row.provider_id);
     }
+    const gate = await launchGate(row.provider_id, user.id, input.request);
+    if (gate) return gate;
     return { kind: "ok", scope: officeScopeFrom(row, user.id, "provider") };
   }
 
@@ -226,6 +229,8 @@ export async function resolveOfficeScope(input: {
     if (await providerLocked(office.provider_id)) {
       return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", user.id, providerId);
     }
+    const gate = await launchGate(office.provider_id, user.id, input.request);
+    if (gate) return gate;
     return {
       kind: "ok",
       scope: officeScopeFrom(office, user.id, "team_member", {
@@ -259,6 +264,14 @@ export async function resolveOfficeScope(input: {
     return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", identity.userId, office.provider_id);
   }
   return { kind: "ok", scope: officeScopeFrom(office, identity.userId, "hq") };
+}
+
+async function launchGate(providerId:string,userId:string,request?:VerificationRequest):Promise<OfficeScopeDenied|null> {
+  const url=request?.originalUrl??request?.url;
+  if (!url || isLaunchAllowedPath(url)) return null;
+  const launch=await readLaunch(providerId);
+  if (launch.required&&(!launch.completed_at||!await operationalLaunchComplete(providerId))) return denied(403,"The practice owner must complete setup in the current payment mode before using the workspace.","permission",userId,providerId);
+  return null;
 }
 
 /**

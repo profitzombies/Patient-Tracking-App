@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import practiceLaunchRouter from "./practice-launch";
 import coachRouter from "./coach";
 import recipeImageRouter from "./recipe-image";
 import menuScanRouter from "./menu-scan";
@@ -64,6 +65,7 @@ import officePatientHistoryRouter from "./office-patient-history";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(practiceLaunchRouter);
 router.use(coachRouter);
 router.use(coachMemoryRouter);
 router.use(coachConversationsRouter);

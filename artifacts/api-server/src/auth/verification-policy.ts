@@ -41,7 +41,7 @@ export const REMOTE_VERIFICATION_FAMILIES: readonly RemoteFamily[] = [
     family: "billing writes",
     why: "money moves; a revoked device must not be able to charge, refund, or change a subscription",
     matches: (method, path) =>
-      WRITE_METHODS.has(method) && (under(path, "/billing") || under(path, "/patient-data/billing")),
+      WRITE_METHODS.has(method) && (under(path, "/billing") || under(path, "/patient-data/billing") || under(path, "/office/launch")),
   },
   {
     family: "privacy and deletion",

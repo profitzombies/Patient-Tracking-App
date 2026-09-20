@@ -818,12 +818,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const persona = useMemo<Persona | null>(() => {
     if (authStatus === 'signed-in') {
       if (authRole === 'hq_admin') return 'hq-admin';
-      if (authRole === 'provider_staff') return 'office';
+      if (authRole === 'provider_staff' || claimedWorkspace) return 'office';
       return null; // patient / unresolved — the router shows the right screen
     }
     if (authStatus === 'loading') return null;
     return demoPersona;
-  }, [authStatus, authRole, demoPersona]);
+  }, [authStatus, authRole, claimedWorkspace, demoPersona]);
 
   const value = useMemo<SessionValue>(
     () => ({

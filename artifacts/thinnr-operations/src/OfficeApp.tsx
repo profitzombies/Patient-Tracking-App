@@ -35,44 +35,47 @@ import OfficeAudit from '@/pages/OfficeAudit';
 import OfficeFiles from '@/pages/OfficeFiles';
 import Security from '@/pages/Security';
 import OfficeAlerts from '@/pages/OfficeAlerts';
+import { PracticeLaunchGuard } from '@/pages/PracticeLaunch';
 
 export function OfficeApp() {
   return (
     <RoutedErrorBoundary>
-      <Switch>
-        {/* Side-menu design lab: renders without the app chrome so the
-            candidate menus are the only chrome on screen. */}
-        <Route path="/menu" component={MenuLab} />
-        <Route>
-          <Shell>
-            <PatientRouteScrollBehavior />
-            <Switch>
-              <Route path="/" component={Overview} />
-              <Route path="/patients" component={Patients} />
-              <Route path="/patients/:id" component={PatientDetail} />
-              <Route path="/alerts" component={OfficeAlerts} />
-              <Route path="/conversations" component={OfficeConversations} />
-              <Route path="/analytics" component={Analytics} />
-              <Route path="/leaderboard" component={Leaderboard} />
-              <Route path="/subscriptions" component={Subscriptions} />
-              {/* Payments (Stripe Connect) owns its sub-routes. */}
-              <Route path="/payments" nest component={OfficePaymentsArea} />
-              <Route path="/training" component={OfficeTraining} />
-              <Route path="/files" component={OfficeFiles} />
-              {/* Literal /training/team must outrank the :courseId catch-all. */}
-              <Route path="/training/team/:viewerId" component={OfficeTeammate} />
-              <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
-              <Route path="/training/:courseId" component={OfficeTrainingCourse} />
-              <Route path="/ai-support" component={OfficeAiSupport} />
-              <Route path="/settings" component={OfficeSettings} />
-              <Route path="/team" component={OfficeTeam} />
-              <Route path="/audit" component={OfficeAudit} />
-              <Route path="/security" component={Security} />
-              <Route component={NotFound} />
-            </Switch>
-          </Shell>
-        </Route>
-      </Switch>
+      <PracticeLaunchGuard>
+        <Switch>
+          {/* Side-menu design lab: renders without the app chrome so the
+              candidate menus are the only chrome on screen. */}
+          <Route path="/menu" component={MenuLab} />
+          <Route>
+            <Shell>
+              <PatientRouteScrollBehavior />
+              <Switch>
+                <Route path="/" component={Overview} />
+                <Route path="/patients" component={Patients} />
+                <Route path="/patients/:id" component={PatientDetail} />
+                <Route path="/alerts" component={OfficeAlerts} />
+                <Route path="/conversations" component={OfficeConversations} />
+                <Route path="/analytics" component={Analytics} />
+                <Route path="/leaderboard" component={Leaderboard} />
+                <Route path="/subscriptions" component={Subscriptions} />
+                {/* Payments (Stripe Connect) owns its sub-routes. */}
+                <Route path="/payments" nest component={OfficePaymentsArea} />
+                <Route path="/training" component={OfficeTraining} />
+                <Route path="/files" component={OfficeFiles} />
+                {/* Literal /training/team must outrank the :courseId catch-all. */}
+                <Route path="/training/team/:viewerId" component={OfficeTeammate} />
+                <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
+                <Route path="/training/:courseId" component={OfficeTrainingCourse} />
+                <Route path="/ai-support" component={OfficeAiSupport} />
+                <Route path="/settings" component={OfficeSettings} />
+                <Route path="/team" component={OfficeTeam} />
+                <Route path="/audit" component={OfficeAudit} />
+                <Route path="/security" component={Security} />
+                <Route component={NotFound} />
+              </Switch>
+            </Shell>
+          </Route>
+        </Switch>
+      </PracticeLaunchGuard>
     </RoutedErrorBoundary>
   );
 }

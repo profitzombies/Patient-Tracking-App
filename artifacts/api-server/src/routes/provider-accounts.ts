@@ -94,7 +94,7 @@ const PostalCodeInput = z.string().trim().min(1, "ZIP code is required.").max(10
   return postalCode;
 });
 
-const AccountInput = z.object({
+export const AccountInput = z.object({
   officeName: z.string().trim().min(1).max(200),
   providerName: z.string().trim().min(1).max(160),
   providerRole: z.string().trim().max(120).optional().default("Practitioner"),

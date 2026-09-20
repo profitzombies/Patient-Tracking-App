@@ -1,0 +1,11 @@
+---
+name: Office bundle live proof
+description: Traps met while proving the whole-office record bundle (build, resume, download) against the live Supabase project + object storage through the running api-server.
+---
+- Restart-resume is proven by STAGING the post-crash state with the real builder (harness takes the job lease, runs the step in-process with a clock that expires after part 1, releases the lease, then the server run-now resumes). A wall-clock process kill is not timeable: four tiny patients pack in well under a second.
+  **How to apply:** any future "resume live" proof for a budgeted job should stage the state the same way rather than racing a kill.
+- The job lease is re-entrant for the same owner and every run in one api process shares one owner. Before the runner refused in-process overlap, a run-now issued while the request-signalled run was in flight ran a SECOND builder on the same export row (orphan part + sidecar in storage, `office_bundle_row_gone` at the ready commit). runJob now answers `lease_held` (HTTP 409 from run-now) while the same job body is active in-process; a live harness that nudges with run-now must treat 409 as normal.
+- A trigger function shared by several tables must not reference table-specific `new.<column>` fields in expressions that run for every table: PL/pgSQL resolves record fields at plan time and rejects the whole row (`record "new" has no field`). Read per-table fields via `to_jsonb(new)->>'col'`. This silently broke every live patient check-in/diary/photo/imported-weight insert for weeks with 0 analytics rows as the only signal.
+  **How to apply:** whenever a migration adds a multi-table trigger, run it through a local-PG suite that inserts into EVERY attached table.
+- PostgREST bulk inserts need identical keys on every row (PGRST102) — put explicit nulls on optional fields.
+- Live query traps: `admin_audit_events` orders by `occurred_at` (no created_at — a wrong order column is a 400 that reads as "no rows" if the harness coerces to []); the export DTO carries `progress` only while queued/running (null when ready); run-now returns the raw run record with `counts`, not `tallies`; `analytics_events.provider_id` is an FK with `on delete restrict`, so provider cleanup must delete those rows first (management API, replica mode, since the table is append-only).

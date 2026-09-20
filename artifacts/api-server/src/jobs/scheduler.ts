@@ -290,8 +290,14 @@ async function runJobOwned(name: string, options: RunJobOptions): Promise<JobOut
 
 export function runJob(name: string, options: RunJobOptions): Promise<JobOutcome> {
   const active = activeRunCount(name);
+  // The database lease is re-entrant for the same owner (this process), so it
+  // cannot keep a manual or scheduled run off a job body that is already in
+  // flight here. Two concurrent bodies would claim the same queued work (a
+  // second office-bundle builder orphans its parts in storage). Report the
+  // lease as held instead.
+  if (active > 0) return Promise.resolve({ kind: "lease_held" });
   activeRuns.set(name, active + 1);
-  if (active === 0) activeRunStores.set(name, options.store ?? supabaseJobStore);
+  activeRunStores.set(name, options.store ?? supabaseJobStore);
   return runJobOwned(name, options).finally(() => {
     const remaining = activeRunCount(name) - 1;
     if (remaining <= 0) {

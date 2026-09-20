@@ -49,6 +49,22 @@ describe("job scheduler", () => {
     expect(outcome.kind).toBe("ran");
   });
 
+  it("refuses a second in-process run of a job whose body is still in flight, even though the lease is re-entrant for this owner", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let bodies = 0;
+    registerJob(job({ run: async () => { bodies += 1; await gate; } }));
+    const first = runJob("demo", { trigger: "internal", store, now: clock });
+    await new Promise((r) => setImmediate(r));
+    // Same owner: the store itself would re-grant the lease.
+    expect(await runJob("demo", { trigger: "manual", store, now: clock, force: true })).toEqual({ kind: "lease_held" });
+    expect(bodies).toBe(1);
+    release();
+    expect((await first).kind).toBe("ran");
+    expect(store.runs).toHaveLength(1);
+    expect((await runJob("demo", { trigger: "manual", store, now: clock, force: true })).kind).toBe("ran");
+  });
+
   it("marks a thrown run failed, backs off exponentially, and lets force/manual runs bypass the backoff", async () => {
     registerJob(job({ run: async () => { throw new Error("storage down"); } }));
     const first = await runJob("demo", { trigger: "schedule", store, now: clock });

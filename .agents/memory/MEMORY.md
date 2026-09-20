@@ -181,3 +181,4 @@
 - [Office offboarding flow](office-offboarding.md) — status flips first, access_disabled only at completion; SQL rollups need the id-set exclusion; batch enqueue must skip already-due requests or the job loop spins.
 - [Office reactivation live proof](office-reactivation-live-proof.md) — retired identity = recreate GoTrue user under original id; purge is tombstone-then-row (poll row gone); re-seal keeps reopened_at.
 - [Office offboarding live proof](office-offboarding-live-proof.md) — data_exports parts check rejects `[]` (first checkpoint must be null); fresh-code stamp = auth_sign_ins row keyed by JWT session_id; live 403 shapes.
+- [Office bundle live proof](office-bundle-live-proof.md) — stage the crash with the real builder; same-owner lease re-entrancy → runJob refuses in-process overlap (run-now 409); shared trigger fns read fields via to_jsonb(new).

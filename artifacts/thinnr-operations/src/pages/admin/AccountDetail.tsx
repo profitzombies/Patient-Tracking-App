@@ -28,6 +28,7 @@ import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
 import { OfficeOffboarding } from '@/components/admin/OfficeOffboarding';
+import { AccountDangerZone } from '@/components/admin/AccountDangerZone';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
@@ -109,6 +110,11 @@ function OfficeRangeMetricsCard({ accountId }: { accountId: string }) {
 
 export default function AccountDetail() {
   const { id } = useParams<{ id: string }>();
+  // A provider visit owns all drawer, dialog, draft, and mutation UI state.
+  return <ProviderAccountDetail key={id} id={id} />;
+}
+
+function ProviderAccountDetail({ id }: { id: string }) {
   const { findAccount, accountsStatus, updateAccount, canManageProviderAccounts } = useHqData();
   const { locks, isLocked, setAccountLock } = useAccountLocks();
   const { toast } = useToast();
@@ -195,7 +201,6 @@ export default function AccountDetail() {
   const hasPatients = (account.activePatientCount ?? 0) > 0;
   const rosterPreview = detailQuery.data?.roster ?? [];
 
-  const lockable = true;
   const locked = isLocked(account.id);
   const lock = locks.get(account.id);
   const lockedSince = lock?.lockedAt
@@ -344,17 +349,6 @@ export default function AccountDetail() {
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations
         </Link>
-        {/* Renders only when the server offers HQ the office-bundle export. */}
-        <OfficeBundleExport officeId={account.id} officeName={account.officeName} />
-      </div>
-
-      {/* Legal hold: HQ-only, outranks every retention timer for this office's patients. */}
-      <div className="mb-5">
-        <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
-      </div>
-
-      <div className="mb-5">
-        <OfficeOffboarding officeId={account.id} />
       </div>
 
       <div className="mb-5">
@@ -487,17 +481,13 @@ export default function AccountDetail() {
          <StaffAccessCard account={account} staff={detailQuery.data?.staff ?? []} onCreated={() => detailQuery.refetch()} />
       </div>
 
-      {/* Danger zone — the page's very last section, clearly separated.
-          Styled to match the training video editor's danger zone. */}
-      {lockable && (
-        <section
-          className="mt-6 rounded-lg border border-destructive/30 bg-[#fff0f0]/30 p-5 shadow-sm"
-          data-testid="section-danger-zone"
-        >
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
-            {locked && <AccountLockedChip testId="chip-danger-locked" />}
-          </div>
+      {/* Each action retains its own permission and server-availability rules. */}
+      <AccountDangerZone status={locked && <AccountLockedChip testId="chip-danger-locked" />}>
+        <OfficeOffboarding officeId={account.id} />
+        <OfficeBundleExport officeId={account.id} officeName={account.officeName} />
+        <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
+        <div className="border-t border-border pt-4">
+          <h4 className="mb-2 text-xs font-semibold text-destructive">Account access</h4>
           {locked ? (
             <>
               <p className="mb-4 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
@@ -533,8 +523,8 @@ export default function AccountDetail() {
               </button>
             </>
           )}
-        </section>
-      )}
+        </div>
+      </AccountDangerZone>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="sm:max-w-md" data-testid="dialog-lock-confirm">

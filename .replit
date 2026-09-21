@@ -488,6 +488,10 @@ args = "practice-launch-api"
 task = "workflow.run"
 args = "practice-launch-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "account-danger-zone"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -2981,6 +2985,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "account-danger-zone"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-operations run test:account-danger-zone && pnpm --filter @workspace/thinnr-operations run test:office-offboarding && pnpm --filter @workspace/thinnr-operations run test:office-bundle && pnpm --filter @workspace/thinnr-operations run test:legal-holds && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

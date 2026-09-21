@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/account-danger-stubs.tsx"],
+      "@/contexts/hq-data": ["./scripts/account-danger-stubs.tsx"],
+      "@/contexts/account-locks": ["./scripts/account-danger-stubs.tsx"],
+      "@/contexts/date-range": ["./scripts/account-danger-stubs.tsx"],
+      "@/lib/provider-accounts": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/layout/DateRangeControl": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/office/OfficeRangeMetricsGrid": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/AccountPaymentsCard": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/StaffAccessCard": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/OfficeOffboarding": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/OfficeBundleExport": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/LegalHold": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@workspace/api-client-react": ["./scripts/account-danger-stubs.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

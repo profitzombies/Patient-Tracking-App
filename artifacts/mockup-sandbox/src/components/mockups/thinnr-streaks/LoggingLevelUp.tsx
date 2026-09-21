@@ -15,6 +15,11 @@ function SproutSticker({ opened }: { opened: boolean }) {
   );
 }
 
+function TabBar() {
+  const items = [["Today", "M4 18l5-5 3 3 7-8M15 8h4v4"], ["Diary", "M5 4.5c2.3-1 4.6-.6 7 1.1v14c-2.4-1.7-4.7-2.1-7-1.1zM19 4.5c-2.3-1-4.6-.6-7 1.1v14c2.4-1.7 4.7-2.1 7-1.1z"], ["Progress", "M4 18l5-5 3 3 7-8M15 8h4v4"], ["Coach", "M5 5.5h14v10H9l-4 3z"]];
+  return <nav className="heritage-tabbar" aria-label="Patient navigation">{items.map(([label, d]) => <button className={label === "Diary" ? "active" : ""} key={label} aria-label={label} aria-current={label === "Diary" ? "page" : undefined}><svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} /></svg>{label}</button>)}</nav>;
+}
+
 export function LoggingLevelUp() {
   const [opened, setOpened] = useState(false);
   const [added, setAdded] = useState(false);
@@ -24,13 +29,13 @@ export function LoggingLevelUp() {
       <span className="brand">Thinnr</span>
       <div className="log-top-blob" aria-hidden="true" />
       <section className="log-copy">
-        <div className="log-chip">3-day logging rhythm</div>
-        <h1>Noticing is<br />a superpower.</h1>
-        <p>You recorded meals for three days. No score, no “perfect” plate — just useful notes for you and your care team.</p>
+        <div className="log-chip">Logging rhythm · 3 days</div>
+        <h1>A useful little<br />pattern.</h1>
+        <p>You recorded meals for three days. No score, no “perfect” plate — simply useful context for you and your care team.</p>
       </section>
       <section className="log-unlock" aria-live="polite">
         <div className="unlock-header">
-          <span className="unlock-eyebrow">New in your garden</span>
+          <span className="unlock-eyebrow">New collectible</span>
           <span className="unlock-count">01 / 12</span>
         </div>
         <div className="unlock-art"><SproutSticker opened={opened} /></div>
@@ -38,7 +43,7 @@ export function LoggingLevelUp() {
         <p>Grows when you make room to notice.</p>
         {!opened ? (
           <button className="log-reveal" onClick={() => setOpened(true)} aria-label="Reveal your Curious Sprout collectible">
-            Tap to welcome it <span aria-hidden="true">↗</span>
+            View collectible <span aria-hidden="true">→</span>
           </button>
         ) : (
           <div className="log-revealed" role="status">It’s rooting for your next note.</div>
@@ -51,6 +56,7 @@ export function LoggingLevelUp() {
       <button className={`log-primary ${added ? "is-added" : ""}`} onClick={() => setAdded(true)} aria-label="Add Curious Sprout to your collection">
         {added ? "Added to your collection" : "Add to my collection"} <span aria-hidden="true">→</span>
       </button>
+      <TabBar />
     </main>
   );
 }

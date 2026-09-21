@@ -3,14 +3,14 @@ import "./_group.css";
 
 function SproutPal() {
   return <svg viewBox="0 0 160 154" aria-label="A friendly blue trail guide carrying a tiny flag" role="img" className="da-pal">
-    <path d="M44 105C20 91 22 61 42 48c7-5 14-7 22-7C69 20 92 14 107 30c11 12 9 28 4 36 21 7 28 32 11 49-18 18-61 19-78-10Z" fill="#1554c0"/>
-    <path d="M58 38c-5-15 7-26 20-22 8 3 11 11 9 18-12-4-20 3-29 4Z" fill="#93e4d2"/>
-    <path d="M93 39c6-15 23-15 29-3 4 9-1 16-8 20-4-11-13-15-21-17Z" fill="#ffd768"/>
-    <circle cx="57" cy="71" r="6" fill="#fff6e7"/><circle cx="103" cy="71" r="6" fill="#fff6e7"/>
-    <circle cx="59" cy="72" r="2" fill="#18315e"/><circle cx="101" cy="72" r="2" fill="#18315e"/>
-    <path d="M69 89c8 8 18 8 26 0" fill="none" stroke="#fff6e7" strokeWidth="4" strokeLinecap="round"/>
-    <path d="M43 106c-14 9-21 21-21 31M115 109c13 8 20 18 20 30" stroke="#1554c0" strokeWidth="12" strokeLinecap="round"/>
-    <path d="M132 35v72" stroke="#18315e" strokeWidth="5" strokeLinecap="round"/><path d="M134 37l20 7-20 9Z" fill="#fb765f"/>
+    <path d="M44 105C20 91 22 61 42 48c7-5 14-7 22-7C69 20 92 14 107 30c11 12 9 28 4 36 21 7 28 32 11 49-18 18-61 19-78-10Z" fill="#315eae"/>
+    <path d="M58 38c-5-15 7-26 20-22 8 3 11 11 9 18-12-4-20 3-29 4Z" fill="#e3ecf7"/>
+    <path d="M93 39c6-15 23-15 29-3 4 9-1 16-8 20-4-11-13-15-21-17Z" fill="#fff4e6"/>
+    <circle cx="57" cy="71" r="6" fill="#fdfcf9"/><circle cx="103" cy="71" r="6" fill="#fdfcf9"/>
+    <circle cx="59" cy="72" r="2" fill="#26364b"/><circle cx="101" cy="72" r="2" fill="#26364b"/>
+    <path d="M69 89c8 8 18 8 26 0" fill="none" stroke="#fdfcf9" strokeWidth="4" strokeLinecap="round"/>
+    <path d="M43 106c-14 9-21 21-21 31M115 109c13 8 20 18 20 30" stroke="#315eae" strokeWidth="12" strokeLinecap="round"/>
+    <path d="M132 35v72" stroke="#203b64" strokeWidth="5" strokeLinecap="round"/><path d="M134 37l20 7-20 9Z" fill="#df772c"/>
   </svg>;
 }
 
@@ -32,6 +32,6 @@ export function DailyAdventure() {
       <section className="da-focus ta-card"><div><p className="da-kicker">A gentle check-in</p><h2>How are you arriving today?</h2><p>There’s no right answer. Your care team reads the pattern, not a single day.</p></div><button className="da-check" onClick={() => { setCheckIn(true); setCelebrate(true); }} aria-label="Complete today's check-in">{checkIn ? "Checked in" : "Check in"}<span>→</span></button></section>
       <section className="da-actions"><button onClick={() => setWater(Math.min(3, water + 1))} aria-label="Log a glass of water"><span className="da-icon water"></span><div><b>Water, your way</b><small>{water} glasses logged today</small></div><i>+</i></button><button onClick={() => setCelebrate(true)} aria-label="Log a meal"><span className="da-icon bowl"></span><div><b>Log something nourishing</b><small>A note, a photo, or just the name</small></div><i>+</i></button></section>
     </>}
-    <nav className="ta-nav" aria-label="Main navigation"><button className="active"><i className="home-icon"></i>Today</button><button><i className="spark-icon"></i>Trail</button><button><i className="book-icon"></i>Notes</button><button><i className="person-icon"></i>Me</button></nav>
+    <nav className="ta-nav" aria-label="Patient navigation"><button className="active" aria-current="page"><i className="home-icon"></i>Today</button><button><i className="book-icon"></i>Diary</button><button><i className="spark-icon"></i>Progress</button><button><i className="person-icon"></i>Coach</button></nav>
   </main>;
 }

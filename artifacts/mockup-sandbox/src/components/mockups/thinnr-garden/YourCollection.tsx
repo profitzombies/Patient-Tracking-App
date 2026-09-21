@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BookOpen, MessageCircle, Sun, TrendingDown } from "lucide-react";
 import "./_group.css";
 
 type Filter = "Earned" | "Next up";
@@ -22,5 +23,6 @@ export function YourCollection() {
       <div className="next-card"><div className="next-orb"/><div><strong>Next: your gentle lantern</strong><p>One more check-in adds a new glow.</p></div><button className="details" onClick={() => setDetail("Your lantern is waiting for one more check-in. There is no race — it will be here whenever you are.")}>Details</button></div>
       {detail && <div className="detail-sheet" role="dialog" aria-label="Collectible details"><h3>A little marker of care</h3><p>{detail}</p><button onClick={() => setDetail(null)}>Back to shelf</button></div>}
     </section>
+    <nav className="tg-nav" aria-label="Primary"><button><Sun/><span>Today</span></button><button><BookOpen/><span>Diary</span></button><button className="active"><TrendingDown/><span>Progress</span></button><button><MessageCircle/><span>Coach</span></button></nav>
   </main>;
 }

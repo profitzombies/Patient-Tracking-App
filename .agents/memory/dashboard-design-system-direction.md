@@ -9,6 +9,12 @@ Use the Heritage evolution of Cobalt Ledger as the visual foundation across THIN
 
 **How to apply:** Consume shared theme tokens (radius/radiusSm, palette, fonts map) instead of literals; never pair fontWeight with weighted font-family names (Android faux-bold); use boxShadow strings, not shadow* props, on Expo web. Avoid generic EHR styling, organic wellness palettes, and alarm-heavy command-center treatment.
 
+Patient gamification concepts must retain this same mobile brand, including full-screen celebrations. Playfulness belongs in collectible artwork and interaction, not a replacement cartoon design system. Use the full “Thinnr” name on these concepts rather than the TH monogram.
+
+**Why:** The user explicitly rejected off-brand milestone explorations with bubble fonts and bright cartoon palettes even while requesting Duolingo-like reward mechanics.
+
+**How to apply:** Ground future reward concepts in the current mobile tokens and screen conventions; interpret Duolingo references as interaction inspiration, not permission to replace the app’s visual identity.
+
 The Heritage “Framed Plate” was the original authentication direction, not an enduring requirement for every entry screen. Later user requests deliberately differentiated the image-led mobile welcome from quieter patient authentication forms; see [Auth entry screen layout](auth-hero-crop.md).
 
 **Why:** The user initially approved the framed-food pairing, but subsequently rejected the photo/badge/greeting on patient forms while explicitly wanting a larger welcome image. Applying the older direction globally would undo those choices.

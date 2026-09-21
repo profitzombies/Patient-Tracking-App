@@ -1,21 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=DM+Sans:opsz,wght@9..40,500;600;700&display=swap');
-
 .thinnr-play {
-  --cream: #fff6e9;
-  --ink: #173f73;
-  --blue: #2169ce;
-  --sky: #b9e9f4;
-  --coral: #ff826f;
-  --sun: #ffd65d;
-  --mint: #74d9b5;
   box-sizing: border-box;
   width: 100%;
   min-height: 100dvh;
   overflow: hidden;
   position: relative;
-  background: var(--cream);
-  color: var(--ink);
-  font-family: "DM Sans", sans-serif;
+  background: #f2f3f4;
+  color: #26364b;
+  font-family: "Inter", sans-serif;
 }
 
 .thinnr-play *, .thinnr-play *::before, .thinnr-play *::after { box-sizing: border-box; }
@@ -23,18 +14,22 @@
 .thinnr-play h1, .thinnr-play h2, .thinnr-play p { margin: 0; }
 .thinnr-play .tiny-label {
   position: absolute; z-index: 10; top: 16px; left: 18px;
-  color: rgba(23, 63, 115, .62); font-size: 9px; font-weight: 800;
+  color: #7e8994; font-size: 9px; font-weight: 700;
   letter-spacing: .11em; text-transform: uppercase;
 }
 .thinnr-play .brand {
   position: absolute; z-index: 10; top: 15px; right: 19px;
-  font-family: "Baloo 2", cursive; font-size: 18px; line-height: 1; font-weight: 800;
-  letter-spacing: -.04em;
+  font-family: "Playfair Display", serif; font-size: 19px; line-height: 1; font-weight: 700;
+  letter-spacing: .05em; color:#203b64;
 }
 .thinnr-play .sr-only {
   position:absolute; width:1px; height:1px; padding:0; margin:-1px;
   overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
 }
+.heritage-tabbar{position:absolute;z-index:20;left:18px;right:18px;bottom:17px;height:60px;display:flex;align-items:center;padding:4px;border:1px solid #d8e0e9;border-radius:30px;background:#fdfcf9;box-shadow:0 10px 26px rgba(23,32,46,.18)}
+.heritage-tabbar button{flex:1;height:50px;border:0;border-radius:25px;background:transparent;color:#7e8994;font-size:9px;font-weight:600;cursor:pointer}
+.heritage-tabbar button.active{color:#315eae;background:#e3ecf7;font-weight:700}
+.heritage-tabbar svg{display:block;width:17px;height:17px;margin:0 auto 3px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 @media (prefers-reduced-motion: reduce) {
   .thinnr-play *, .thinnr-play *::before, .thinnr-play *::after {
     animation-duration: .01ms !important; animation-iteration-count: 1 !important;

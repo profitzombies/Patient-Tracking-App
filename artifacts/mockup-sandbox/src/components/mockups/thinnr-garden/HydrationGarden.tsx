@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BookOpen, MessageCircle, Sun, TrendingDown } from "lucide-react";
 import "./_group.css";
 
 export function HydrationGarden() {
@@ -17,5 +18,6 @@ export function HydrationGarden() {
       {grown && <div className="garden-done">Your bloom is now part of your collection.</div>}
       <button className="tg-btn" onClick={() => setGrown(true)} aria-label="Reveal your hydration garden growth">{grown ? "Keep growing at your pace" : "Reveal my garden growth"}</button>
     </section>
+    <nav className="tg-nav" aria-label="Primary"><button><Sun/><span>Today</span></button><button><BookOpen/><span>Diary</span></button><button className="active"><TrendingDown/><span>Progress</span></button><button><MessageCircle/><span>Coach</span></button></nav>
   </main>;
 }

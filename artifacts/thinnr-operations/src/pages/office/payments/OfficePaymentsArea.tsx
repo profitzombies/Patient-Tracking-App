@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, useSearch } from 'wouter';
 import { ArrowRight, Copy, ExternalLink, MoreHorizontal, Package } from 'lucide-react';
+import { useLaunchData } from '@/hooks/use-launch';
 import { MoneyInput, normalizeDollarsInput } from '@/components/billing/MoneyInput';
 import { MetricTile } from '@/components/admin/primitives';
 import {
@@ -91,8 +92,10 @@ function SetupCards({ status, demo = false }: { status: OfficeBillingStatus | nu
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
   const { toast } = useToast();
+  const launchQuery = useLaunchData();
+  const scope = launchQuery.data?.billingScope ?? '';
   const create = useMutation({
-    mutationFn: () => officeBilling.createAccount(office),
+    mutationFn: () => officeBilling.createAccount(scope, office),
     onSuccess: () => void invalidate(),
     onError: (error) =>
       toast({
@@ -103,7 +106,7 @@ function SetupCards({ status, demo = false }: { status: OfficeBillingStatus | nu
   });
   const oauth = async () => {
     try {
-      window.location.assign((await officeBilling.oauthStart(office)).url);
+      window.location.assign((await officeBilling.oauthStart(scope, office)).url);
     } catch (error) {
       toast({
         variant: 'destructive',

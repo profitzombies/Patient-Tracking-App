@@ -31,7 +31,7 @@ import officeOrders from "./billing-office-orders";
 import publicBilling from "./billing-public";
 import { runWithBillingIdentity } from "../billing/stripe-environment";
 
-type Access = "public" | "office-read" | "office-write" | "hq-read" | "hq-provider-write" | "hq-settings-write";
+type Access = "public" | "office-read" | "office-write" | "owner-restart" | "hq-read" | "hq-provider-write" | "hq-settings-write";
 type Identity = "anonymous" | "patient" | "staff" | "admin" | "owner" | "other-office" | "hq-none" | "hq-read" | "hq-provider";
 type Outcome = "allowed" | 401 | 403 | "403-or-404";
 
@@ -66,6 +66,7 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/office/connect/create": "office-write",
   "POST /billing/office/connect/account-session": "office-write",
   "POST /billing/office/connect/sync": "office-write",
+  "POST /billing/office/connect/restart": "owner-restart",
   "PUT /billing/office/prices/:product_id": "office-write",
   "PUT /billing/office/settings": "office-write",
   "POST /billing/office/links": "office-write",
@@ -158,6 +159,7 @@ const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manag
 };
 
 const MATRIX: Record<Access, Record<Identity, Outcome>> = {
+  "owner-restart": {anonymous:401,patient:403,staff:403,admin:403,owner:"allowed","other-office":"allowed","hq-none":403,"hq-read":403,"hq-provider":403},
   public: { anonymous: "allowed", patient: "allowed", staff: "allowed", admin: "allowed", owner: "allowed", "other-office": "allowed", "hq-none": "allowed", "hq-read": "allowed", "hq-provider": "allowed" },
   // The current shared office resolver intentionally limits the whole Payments area to owners/admins.
   // Office identities cannot widen scope with ?office=. An owner of B is allowed through, but still resolves to B.
@@ -182,6 +184,8 @@ const ROW_ID = "11111111-1111-4111-8111-111111111111";
 const originalFetch = global.fetch;
 let server: http.Server;
 let base = "";
+let launchConfirmed=true;
+let stripeReady=true;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -195,6 +199,8 @@ function officeRow(id: string, authUserId: string | null = null) {
 function serviceRows(url: URL): unknown[] {
   const table = url.pathname.split("/").at(-1);
   if (table === "practice_launch") return [{required:false,version:0,completed_at:null}];
+  if (table === "practice_launch_completions") return launchConfirmed?[{completed_at:"2026-01-01"}]:[];
+  if (table === "billing_connected_accounts") return [{charges_enabled:stripeReady,payouts_enabled:stripeReady,details_submitted:true,requirements:{}}];
   if (table === "provider_account_locks" || table === "profiles") return [];
   if (table === "hq_memberships") {
     const user = url.searchParams.get("auth_user_id")?.replace("eq.", "");
@@ -246,7 +252,7 @@ function bodyFor(route: string): unknown {
 function concretePath(pattern: string, access: Access): string {
   let path = pattern.replace(/:cancel_token|:token/g, "test-token").replace(/:provider_id/g, OFFICE_A)
     .replace(/:product_id|:order_id|:patientId|:imageId|:id/g, ROW_ID);
-  if ((access === "office-read" || access === "office-write") && !path.includes("?")) path += `?office=${OFFICE_A}`;
+  if ((access === "office-read" || access === "office-write" || access==="owner-restart") && !path.includes("?")) path += `?office=${OFFICE_A}`;
   if (pattern.endsWith("/change-quote")) path += `${path.includes("?") ? "&" : "?"}product_id=${ROW_ID}`;
   return path;
 }
@@ -318,6 +324,14 @@ afterAll(async () => {
 });
 
 describe("billing route permission matrix", () => {
+  it("gates grandfathered owners without current confirmation and gates pending verification",async()=>{
+    try {
+      launchConfirmed=false;
+      expect(await request("GET /billing/office/orders","office-read","owner")).toBe(403);
+      launchConfirmed=true;stripeReady=false;
+      expect(await request("GET /billing/office/orders","office-read","owner")).toBe(403);
+    }finally{launchConfirmed=true;stripeReady=true;}
+  });
   it("classifies every real route and rejects stale table entries", () => {
     expect(inventory()).toEqual(Object.keys(ROUTES).sort());
   });

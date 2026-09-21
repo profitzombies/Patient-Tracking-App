@@ -3,6 +3,10 @@ import { Link } from 'wouter';
 import { useLaunchWrite, type LaunchState } from '@/hooks/use-launch';
 import { SectionCard, BTN_PRIMARY, BTN_SECONDARY, PANEL_LABEL, INPUT_CLASS } from '@/components/patient/heritage';
 import { parseDollarsToCents, formatCents } from '@/lib/billing-format';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { officeRequest } from '@/lib/office-api';
+import { useSession } from '@/contexts/session';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const labels: Record<keyof LaunchState['details'], string> = {
   officeName: 'Practice name', providerName: 'Provider name', email: 'Contact email', phone: 'Office phone',
@@ -10,47 +14,110 @@ const labels: Record<keyof LaunchState['details'], string> = {
 };
 export const paymentLabels = { not_started: 'Not started', action_required: 'Action required', pending: 'Submitted — Stripe verification pending', ready: 'Ready' };
 
-export function LaunchScreen({ launchData, onTour, allowTour = true }: { launchData: LaunchState; onTour: () => void; allowTour?: boolean }) {
+export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   const complete = useLaunchWrite('complete');
+  const { staffSession } = useSession();
   const [error, setError] = useState('');
-  const ready = launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready &&
-    (launchData.payments.state === 'ready' || launchData.payments.state === 'pending');
+  const [restartOpen, setRestartOpen] = useState(false);
+  const client = useQueryClient();
+  const { fullSetupRequired } = launchData;
+  const ready = fullSetupRequired
+    ? launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready && launchData.payments.state === 'ready'
+    : launchData.security.ready && launchData.payments.state === 'ready';
+
   const finish = async () => {
     setError('');
     try {
-      const result = await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
-      if (result) onTour();
+      await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not finish setup.'); }
   };
-  const count = [launchData.detailsConfirmed, launchData.security.ready, ['pending', 'ready'].includes(launchData.payments.state), launchData.productsConfirmed].filter(Boolean).length;
+
+  const restart = useMutation({
+    mutationFn: () => officeRequest('/api/billing/office/connect/restart', { unconfigured: '', signedOut: '', unreachable: 'Could not reach server.', failed: 'Could not restart Stripe setup.' }, {
+      method: 'POST', body: '{}', headers: { 'X-Billing-Scope': launchData.billingScope }
+    }),
+    onSuccess: () => {
+      setRestartOpen(false);
+      void client.invalidateQueries({ predicate: (query) =>
+        query.queryKey[0] === 'office' ||
+        (query.queryKey[0] === 'billing' && query.queryKey[1] === 'office') });
+    },
+    onError: (err) => {
+      setError(err instanceof Error ? err.message : 'Could not restart Stripe setup.');
+      setRestartOpen(false);
+    }
+  });
+
+  const count = fullSetupRequired
+    ? [launchData.detailsConfirmed, launchData.security.ready, launchData.payments.state === 'ready', launchData.productsConfirmed].filter(Boolean).length
+    : [launchData.security.ready, launchData.payments.state === 'ready'].filter(Boolean).length;
+  const total = fullSetupRequired ? 4 : 2;
+
+  const isOwner = staffSession?.staffKind === 'provider';
+  const canRestart = isOwner && launchData.payments.state !== 'not_started' && launchData.payments.state !== 'ready';
+
   return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6" data-testid="practice-launch">
     <header><p className={PANEL_LABEL}>Practice launch · {launchData.payments.sandbox ? 'Test payments' : 'Live payments'}</p>
       <h1 className="mt-2 font-serif text-2xl font-bold text-navy">Welcome to {launchData.office.officeName}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">A few essentials, then a hands-on tour. Confirmed steps are saved to your practice so you can return on any device.</p></header>
-    <div className="rounded-lg border border-border bg-card p-5"><p className="text-sm font-semibold">{count} of 4 essentials confirmed</p><progress className="mt-3 h-2 w-full accent-primary" value={count} max={4} aria-label="Practice setup progress" /></div>
-    {!launchData.canEdit && <SectionCard title="Your practice owner completes setup"><div className="space-y-3 p-5 text-sm"><p>These settings affect the whole practice. Ask your owner to confirm the remaining essentials. {allowTour ? 'You can explore the sample tour without changing office settings.' : 'HQ inspection is read-only; you cannot accept terms or confirm owner setup.'}</p>{allowTour && <button className={`${BTN_SECONDARY} h-10 px-4`} onClick={onTour}>Explore sample tour</button>}</div></SectionCard>}
-    <SectionCard title={`1. Practice details${launchData.detailsConfirmed ? ' · Confirmed' : ''}`} sub="Review your existing contact information. No new signup is needed.">
+      <p className="mt-2 text-sm text-muted-foreground">A few essentials to get started. Confirmed steps are saved to your practice so you can return on any device.</p></header>
+    <div className="rounded-lg border border-border bg-card p-5"><p className="text-sm font-semibold">{count} of {total} essentials confirmed</p><progress className="mt-3 h-2 w-full accent-primary" value={count} max={total} aria-label="Practice setup progress" /></div>
+    {!launchData.canEdit && <SectionCard title="Your practice owner completes setup"><div className="space-y-3 p-5 text-sm"><p>These settings affect the whole practice. Ask your owner to confirm the remaining essentials. HQ inspection is read-only; you cannot accept terms or confirm owner setup.</p></div></SectionCard>}
+    {fullSetupRequired && <SectionCard title={`1. Practice details${launchData.detailsConfirmed ? ' · Confirmed' : ''}`} sub="Review your existing contact information. No new signup is needed.">
       <DetailsForm launchData={launchData} />
-    </SectionCard>
-    <SectionCard title={`2. Account security · ${launchData.security.ready ? 'Ready' : 'Action required'}`} sub="Your existing email verification and required second-factor policy apply.">
+    </SectionCard>}
+    <SectionCard title={`${fullSetupRequired ? '2' : '1'}. Account security · ${launchData.security.ready ? 'Ready' : 'Action required'}`} sub="Your existing email verification and required second-factor policy apply.">
       <div className="p-5"><Link href="/security" className={`${BTN_SECONDARY} h-10 px-4`}>Review account security</Link></div>
     </SectionCard>
-    <SectionCard title={`3. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
+    <SectionCard title={`${fullSetupRequired ? '3' : '2'}. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
       <div className="space-y-3 p-5 text-sm">
         <p>{launchData.payments.sandbox ? 'This is Test mode. Test readiness does not confirm Live readiness.' : 'This is Live mode. Review your real business information carefully.'}</p>
-        {launchData.payments.state === 'pending' && <p>Currently actionable steps are submitted. You can take the tour while Stripe verifies your account, but you cannot charge patients until payments are ready.</p>}
-        {launchData.canEdit && <Link href="/payments/get-paid" className={`${BTN_PRIMARY} h-10 px-4`}>{launchData.payments.state === 'not_started' ? 'Connect payments' : 'Review Stripe setup'}</Link>}
+        {launchData.payments.state === 'pending' && <p>Currently actionable steps are submitted, but Stripe is still verifying your account. <strong className="font-semibold text-navy">Your account remains gated</strong> — you cannot charge patients or use operational features until payments are ready.</p>}
+        {launchData.canEdit && <div className="flex flex-wrap items-center gap-3">
+          <Link href="/payments/get-paid" className={`${BTN_PRIMARY} h-10 px-4`}>{launchData.payments.state === 'not_started' ? 'Connect payments' : 'Review Stripe setup'}</Link>
+          {canRestart && <button type="button" className={`${BTN_SECONDARY} h-10 px-4`} onClick={() => setRestartOpen(true)}>Restart Stripe setup</button>}
+        </div>}
         <p className="text-muted-foreground">Return to Practice setup after completing Stripe’s steps. Use Refresh status there to check the latest requirements.</p>
       </div>
     </SectionCard>
-    <SectionCard title={`4. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
+    {fullSetupRequired && <SectionCard title={`4. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
       <ProductsForm launchData={launchData} />
-    </SectionCard>
-    {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it.</p>}
+    </SectionCard>}
+    {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
     <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-      {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : launchData.completedAt ? 'Continue to sample tour' : 'Finish setup and explore'}</button>}
-      <p className="text-sm text-muted-foreground">Invitations, training and the tour are optional.</p>
+      {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : launchData.completedAt ? 'Setup complete' : 'Finish setup'}</button>}
+      <p className="text-sm text-muted-foreground">Invitations and training are optional.</p>
     </footer>
+
+    {canRestart && (
+      <Dialog open={restartOpen} onOpenChange={setRestartOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Restart Stripe setup?</DialogTitle>
+            <DialogDescription>
+              This will detach the current unfinished connection and allow you to link a different existing Stripe account or start fresh. The local archive and remote Stripe account remain untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} h-9 px-3.5`}
+              onClick={() => setRestartOpen(false)}
+              disabled={restart.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-4`}
+              onClick={() => restart.mutate()}
+              disabled={restart.isPending}
+            >
+              {restart.isPending ? 'Restarting…' : 'Restart setup'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )}
   </div>;
 }
 

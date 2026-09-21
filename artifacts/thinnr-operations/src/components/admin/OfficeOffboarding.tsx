@@ -110,7 +110,7 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
     query: {
       queryKey: getGetOfficeOffboardingQueryKey(officeId),
       refetchInterval: (current) => {
-        const seal = current.state.data?.offboarding.seal;
+        const seal = current.state.data?.offboarding?.seal;
         return seal?.startedAt && !seal.completedAt ? 5_000 : false;
       },
     },

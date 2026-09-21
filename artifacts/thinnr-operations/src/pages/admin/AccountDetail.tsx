@@ -10,7 +10,7 @@
  * accounts list — because the lock only shuts out the provider side.
  */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
 import { ArrowLeft, ArrowRight, Check, ChevronsUpDown, Copy, Edit2, Lock, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -45,7 +45,80 @@ import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPo
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { type AccountPlan } from '@/data/hq/accounts';
+import { type AccountPlan, type ProviderAccount } from '@/data/hq/accounts';
+import { useMutation } from '@tanstack/react-query';
+import { officeRequest } from '@/lib/office-api';
+
+function RegateAccount({ account }: { account: ProviderAccount }) {
+  const { toast } = useToast();
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const launchQuery = useQuery({
+    queryKey: ['office', 'launch', null, account.id],
+    queryFn: () => officeRequest<{ version: number }>(`/api/office/launch?office=${account.id}`, { unconfigured: '', signedOut: '', unreachable: 'Could not load setup version.', failed: '' }),
+    enabled: open
+  });
+
+  const regate = useMutation({
+    mutationFn: (version: number) => officeRequest(`/api/office/launch/regate?office=${account.id}`, { unconfigured: '', signedOut: '', unreachable: 'Could not reach server.', failed: 'Could not require setup.' }, {
+      method: 'POST', body: JSON.stringify({ expectedVersion: version })
+    }),
+    onSuccess: () => {
+      setOpen(false);
+      void client.invalidateQueries({ queryKey: ['office', 'launch'] });
+      toast({ variant: 'success', title: 'Setup required', description: 'The account must reconfirm setup and connect Stripe.' });
+    },
+    onError: (error) => {
+      toast({ variant: 'destructive', title: 'Could not require setup', description: error instanceof Error ? error.message : 'Please try again.' });
+    }
+  });
+
+  return (
+    <div className="border-t border-border pt-4">
+      <h4 className="mb-2 text-xs font-semibold text-navy">Require setup again</h4>
+      <p className="mb-4 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
+        Invalidates current setup confirmations and forces the office to complete the setup process again. This preserves their account and financial history.
+      </p>
+      <button
+        type="button"
+        className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+        onClick={() => setOpen(true)}
+      >
+        Require setup again
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Require setup again for {account.officeName}?</DialogTitle>
+            <DialogDescription>
+              The office will lose access to operational features until they re-complete the setup and ensure Stripe is connected. Their account and financial history are preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              type="button"
+              className={`${BTN_SECONDARY} h-9 px-3.5`}
+              onClick={() => setOpen(false)}
+              disabled={regate.isPending || launchQuery.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-4`}
+              onClick={() => launchQuery.data && regate.mutate(launchQuery.data.version)}
+              disabled={regate.isPending || launchQuery.isPending || launchQuery.isError}
+            >
+              {regate.isPending ? 'Saving…' : 'Require setup'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
 
@@ -486,6 +559,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
         <OfficeOffboarding officeId={account.id} />
         <OfficeBundleExport officeId={account.id} officeName={account.officeName} />
         <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
+        {canManageProviderAccounts && <RegateAccount account={account} />}
         <div className="border-t border-border pt-4">
           <h4 className="mb-2 text-xs font-semibold text-destructive">Account access</h4>
           {locked ? (

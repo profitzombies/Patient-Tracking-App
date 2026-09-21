@@ -3,10 +3,11 @@ import type Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { publicOrigin } from "./app-origin";
 import { connectedOpts, getConnectClientId, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
-import { insert, nowIso, selectOne, update, upsert, type BillingConnectedAccountRow } from "./store";
+import { insert, nowIso, selectOne, update, type BillingConnectedAccountRow } from "./store";
 import type { AccountRequirements, ConnectedAccount, DashboardType } from "./types";
 import { onStripeEvent } from "./webhooks";
 import { currentBillingIdentity, runWithBillingIdentity, type BillingIdentity } from "./stripe-environment";
+import { claimConnect, connectGuard } from "./connect-guard";
 
 export class BillingAccountError extends Error {
   constructor(message: string, readonly status = 400, readonly unsupported?: string[]) { super(message); }
@@ -112,7 +113,8 @@ export function toConnectedAccount(row: BillingConnectedAccountRow): ConnectedAc
 
 export async function createInAppAccount(providerId: string, actorUserId: string): Promise<ConnectedAccount> {
   const existing = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`);
-  if (existing && !existing.disconnected_at) throw new BillingAccountError("This office already has a Stripe account.", 409);
+  if (existing) throw new BillingAccountError("This office already has a Stripe account. Use the safe restart workflow or contact HQ.", 409);
+  const claim=await claimConnect(providerId);
   const office = await provider(providerId);
   const stripe = await getStripe();
   // Only business_profile is prefilled. A `company`/`individual` block would
@@ -138,13 +140,15 @@ export async function createInAppAccount(providerId: string, actorUserId: string
     },
     capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
     metadata: { thinnr_provider_id: providerId },
-  }, { idempotencyKey: `account:v2:${providerId}` });
-  const row = await upsert("billing_connected_accounts", {
+  }, { idempotencyKey: `account:v3:${providerId}:${currentBillingIdentity()!.mode}:${currentBillingIdentity()!.platformAccountId}:${claim.generation}` });
+  await connectGuard("attach",providerId,{p_token:claim.token,p_generation:claim.generation,p_version:claim.modeVersion,p_account:{
     provider_id: providerId, origin: "created", oauth_refresh_token: null, disconnected_at: null,
     tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(), livemode: !(await isSandbox()),
     terminal_location_id: null, terminal_location_checked_at: null,
     ...accountPatch(account),
-  }, "provider_id");
+  }});
+  const row=await selectOne("billing_connected_accounts",`provider_id=eq.${encodeURIComponent(providerId)}`);
+  if (!row) throw new BillingAccountError("Connection was not saved. Contact HQ.",503);
   await insert("billing_account_events", {
     provider_id: providerId, kind: "account_created", detail: { actor_user_id: actorUserId },
   });
@@ -161,7 +165,7 @@ function signState(payload: object): string {
   const signature = crypto.createHmac("sha256", stateSecret()).update(encoded).digest("base64url");
   return `${encoded}.${signature}`;
 }
-function verifyState(state: string): { provider_id: string; actor: string; exp: number; identity: BillingIdentity } {
+function verifyState(state: string): { provider_id: string; actor: string; exp: number; identity: BillingIdentity; generation:number; modeVersion:number } {
   const [encoded, signature] = state.split(".");
   if (!encoded || !signature) throw new BillingAccountError("The connection link is invalid or expired.", 400);
   const expected = crypto.createHmac("sha256", stateSecret()).update(encoded).digest();
@@ -169,12 +173,13 @@ function verifyState(state: string): { provider_id: string; actor: string; exp: 
   if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
     throw new BillingAccountError("The connection link is invalid or expired.", 400);
   }
-  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString()) as { provider_id?: string; actor?: string; exp?: number; identity?: BillingIdentity };
+  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString()) as { provider_id?: string; actor?: string; exp?: number; identity?: BillingIdentity; generation?:number; modeVersion?:number };
   if (!payload.provider_id || !payload.actor || !payload.exp || payload.exp < Date.now() ||
       !payload.identity || !["test", "live"].includes(payload.identity.mode) || !/^acct_[A-Za-z0-9]+$/.test(payload.identity.platformAccountId)) {
     throw new BillingAccountError("The connection link is invalid or expired.", 400);
   }
-  return payload as { provider_id: string; actor: string; exp: number; identity: BillingIdentity };
+  if (!Number.isSafeInteger(payload.generation) || !Number.isSafeInteger(payload.modeVersion)) throw new BillingAccountError("Restart this expired connection link.",409);
+  return payload as { provider_id: string; actor: string; exp: number; identity: BillingIdentity; generation:number; modeVersion:number };
 }
 
 export async function buildOauthStartUrl(providerId: string, actorUserId: string): Promise<string> {
@@ -183,9 +188,10 @@ export async function buildOauthStartUrl(providerId: string, actorUserId: string
   const clientId = getConnectClientId();
   if (!clientId) throw new BillingAccountError("Stripe OAuth is not configured.", 503);
   const office = await provider(providerId);
+  const attempt=await connectGuard("start",providerId);
   const query = new URLSearchParams({
     response_type: "code", client_id: clientId, scope: "read_write",
-    state: signState({ provider_id: providerId, actor: actorUserId, identity, exp: Date.now() + 15 * 60_000 }),
+    state: signState({ provider_id: providerId, actor: actorUserId, identity, generation:attempt.generation, modeVersion:attempt.modeVersion, exp: Date.now() + 15 * 60_000 }),
     redirect_uri: `${publicOrigin()}/api/billing/oauth/callback`,
   });
   if (office.email) query.set("stripe_user[email]", office.email);
@@ -195,18 +201,19 @@ export async function buildOauthStartUrl(providerId: string, actorUserId: string
 export async function completeOauth(code: string, state: string): Promise<ConnectedAccount> {
   const payload = verifyState(state);
   return runWithBillingIdentity(payload.identity, async () => {
+  const claim=await claimConnect(payload.provider_id,payload.generation,payload.modeVersion);
   const stripe = await getStripe();
   const token = await stripe.oauth.token({ grant_type: "authorization_code", code });
   if (token.livemode !== (payload.identity.mode === "live")) throw new BillingAccountError("Stripe returned an account in the wrong payment mode.", 409);
   if (!token.stripe_user_id) throw new BillingAccountError("Stripe did not return an account.", 502);
   const account = await stripe.accounts.retrieve(token.stripe_user_id);
   if (account.deleted) throw new BillingAccountError("That Stripe account is unavailable.", 409);
-  await upsert("billing_connected_accounts", {
+  await connectGuard("attach",payload.provider_id,{p_token:claim.token,p_generation:claim.generation,p_version:claim.modeVersion,p_account:{
     provider_id: payload.provider_id, origin: "oauth", oauth_refresh_token: token.refresh_token ?? null,
     disconnected_at: null, tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(),
     livemode: !(await isSandbox()), terminal_location_id: null, terminal_location_checked_at: null,
     ...accountPatch(account),
-  }, "provider_id");
+  }});
   await insert("billing_account_events", {
     provider_id: payload.provider_id, kind: "oauth_connected", detail: { actor_user_id: payload.actor },
   });

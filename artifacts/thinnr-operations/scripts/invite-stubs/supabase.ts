@@ -38,4 +38,13 @@ export const supabase = {
       return { data: { session } };
     },
   },
+  channel: () => ({
+    on: () => ({
+      subscribe: () => ({
+        unsubscribe: () => {},
+      }),
+    }),
+    unsubscribe: () => {},
+  }),
+  removeChannel: () => {},
 };

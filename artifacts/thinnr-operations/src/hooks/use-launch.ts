@@ -10,13 +10,12 @@ export interface LaunchProduct {
 }
 export interface LaunchState {
   billingScope: string;
-  office: { providerId: string; officeName: string }; canEdit: boolean; required: boolean;
+  office: { providerId: string; officeName: string }; canEdit: boolean; required: boolean; fullSetupRequired: boolean;
   version: number; detailsConfirmed: boolean; productsConfirmed: boolean; completedAt: string | null;
   details: { officeName: string; providerName: string; email: string; phone: string; address1: string; address2: string; city: string; state: string; postalCode: string };
   security: { ready: boolean };
   payments: { state: 'not_started' | 'action_required' | 'pending' | 'ready'; sandbox: boolean };
   products: LaunchProduct[];
-  tour: { step: number; status: 'not_started' | 'active' | 'skipped' | 'completed' };
 }
 const messages = { unconfigured: 'Practice setup is not configured.', signedOut: 'Sign in to continue practice setup.', unreachable: 'Practice setup could not be reached. Try again.', failed: 'Practice setup could not be saved' };
 export function launchKey(user: string | null, office: string | null) { return ['office', 'launch', user, office] as const; }
@@ -28,7 +27,7 @@ export function useLaunchData() {
     enabled: scope.liveEnabled, staleTime: 0, refetchInterval: 30_000,
   });
 }
-export function useLaunchWrite(path: 'details' | 'products' | 'complete' | 'tour') {
+export function useLaunchWrite(path: 'details' | 'products' | 'complete') {
   const scope = useLiveOfficeScope();
   const client = useQueryClient();
   const lock = useRef(false);
@@ -36,7 +35,7 @@ export function useLaunchWrite(path: 'details' | 'products' | 'complete' | 'tour
   const mutation = useMutation({
     mutationFn: (input: { body: unknown; billingScope?: string }) => officeRequest<LaunchState>(
       `/api/office/launch/${path}${officeQuery(scope.liveOffice)}`, messages,
-      { method: path === 'details' || path === 'tour' ? 'PUT' : 'POST',
+      { method: path === 'details' ? 'PUT' : 'POST',
         headers: input.billingScope ? { 'X-Billing-Scope': input.billingScope } : {},
         body: JSON.stringify(input.body) }),
     onSuccess: (data) => {

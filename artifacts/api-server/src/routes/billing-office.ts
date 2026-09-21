@@ -13,6 +13,9 @@ import { getConnectClientId, isSandbox, stripeRejection } from "../billing/strip
 import { selectMany, selectOne } from "../billing/store";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 import type { BillingOfficeScope } from "../billing/auth";
+import { ConnectGuardError, restartConnect } from "../billing/connect-guard";
+import { currentBillingIdentity } from "../billing/stripe-environment";
+import { resolveOfficeScope } from "../auth/office-scope";
 
 const router: IRouter = Router();
 function audit(req: Request, scope: BillingOfficeScope, action: string, targetKind: string, targetId: string | null, metadata: AuditMetadata) {
@@ -23,7 +26,7 @@ function audit(req: Request, scope: BillingOfficeScope, action: string, targetKi
 }
 function answerError(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing office request failed");
-  if (error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError || error instanceof BillingCatalogError) {
+  if (error instanceof ConnectGuardError || error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError || error instanceof BillingCatalogError) {
     const field = "field" in error ? error.field : undefined;
     res.status(error.status).json({ error: error.message, ...(field ? { field } : {}),
       ...(error instanceof BillingAccountError && error.unsupported ? { unsupported: error.unsupported } : {}) });
@@ -36,6 +39,23 @@ function answerError(req: Request, res: Response, error: unknown): void {
 async function scoped(req: Request, res: Response, write: boolean) {
   return requireOfficeBillingScope(req, res, { write });
 }
+function checkConnectScope(req:Request,required=false) {
+  const identity=currentBillingIdentity();
+  const supplied=req.get("X-Billing-Scope");
+  if ((required || supplied) && supplied!==`${identity?.mode}:${identity?.platformAccountId}`)
+    throw new ConnectGuardError("Payment mode changed. Reload before connecting.");
+}
+router.post("/billing/office/connect/restart",async(req,res)=>{
+  try {
+    const resolved=await resolveOfficeScope({authorization:req.headers.authorization,request:req,requireUnlocked:true,hqPermission:"provider_manage",explicitOfficeId:typeof req.query.office==="string"?req.query.office:null});
+    if(resolved.kind!=="ok") {res.status(resolved.status).json({error:resolved.message});return;}
+    if(resolved.scope.actorKind!=="provider") {res.status(403).json({error:"Only the office owner can restart unfinished Stripe setup. HQ support cannot force replacement."});return;}
+    if(!req.body || Object.keys(req.body).length) {res.status(400).json({error:"Restart accepts an empty object only; force replacement is not supported."});return;}
+    checkConnectScope(req,true);
+    await restartConnect(resolved.scope.providerId);
+    res.json({restarted:true});
+  }catch(error){answerError(req,res,error);}
+});
 router.get("/billing/office/status", async (req, res) => {
   try {
     const scope = await scoped(req, res, false); if (!scope) return;
@@ -58,6 +78,7 @@ router.get("/billing/office/status", async (req, res) => {
 });
 router.post("/billing/office/connect/create", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
+    checkConnectScope(req);
     const account = await createInAppAccount(scope.providerId, scope.actorUserId);
     await audit(req, scope, "billing_connect_started", "billing_connected_account", account.stripe_account_id, { method: "express" });
     res.status(201).json({ account });
@@ -65,6 +86,7 @@ router.post("/billing/office/connect/create", async (req, res) => {
 });
 router.get("/billing/office/connect/oauth/start", async (req, res) => {
   try { const scope = await scoped(req, res, true); if (!scope) return;
+    checkConnectScope(req);
     const url = await buildOauthStartUrl(scope.providerId, scope.actorUserId);
     await audit(req, scope, "billing_connect_started", "billing_connected_account", null, { method: "oauth" });
     res.json({ url });

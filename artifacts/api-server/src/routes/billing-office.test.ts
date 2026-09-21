@@ -34,6 +34,7 @@ vi.hoisted(() => {
   process.env.SESSION_SECRET = "test-session-secret";
   process.env.STRIPE_TEST_CONNECT_CLIENT_ID = "ca_test";
   process.env.BILLING_PUBLIC_ORIGIN = "https://billing.example";
+   process.env.BILLING_DEPLOYMENT_ID = "deploy";
 });
 import router from "./billing-office";
 import { __setCredentialsForTests } from "../billing/stripe-client";
@@ -79,6 +80,8 @@ beforeEach(() => {
   global.fetch = vi.fn(async (input: string | URL | Request) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.pathname === "/rest/v1/billing_connected_accounts") return response(connected ? [account] : []);
+     if (url.pathname === "/rest/v1/billing_mode_state") return response([{mode:"test",version:1,platform_account_id:"acct_platform"}]);
+     if (url.pathname === "/rest/v1/rpc/guard_office_connect") return response({generation:0,modeVersion:1});
     if (url.pathname === "/rest/v1/billing_office_prices") return response([]);
     if (url.pathname === "/rest/v1/billing_payment_links") return response([]);
     if (url.pathname === "/rest/v1/providers") return response([{

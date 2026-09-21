@@ -59,15 +59,15 @@ describe("practice launch HTTP boundary",()=>{
    }
    expect(m.save).not.toHaveBeenCalled();expect(m.admin).not.toHaveBeenCalled();
  });
- it("allows teammate tour while owner action is pending without launch mutation",async()=>{
+ it("removes the tour route for teammates",async()=>{
    m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"team_member",actorUserId:"staff-a",teamMemberId:"member-a"}});
-   expect((await call("PUT","/tour",{step:3,status:"skipped"})).status).toBe(200);
-   expect(m.admin).toHaveBeenCalledWith("POST",expect.stringContaining("practice_launch_tours"),expect.objectContaining({actor_user_id:"staff-a",provider_id:"office-a",status:"skipped"}),expect.any(String));
+   expect((await call("PUT","/tour",{step:3,status:"skipped"})).status).toBe(404);
+   expect(m.admin).not.toHaveBeenCalled();
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/"))).toBe(false);
  });
  it("rejects HQ tour writes",async()=>{
    m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"hq"}});
-   expect((await call("PUT","/tour",{step:0,status:"active"})).status).toBe(403);
+   expect((await call("PUT","/tour",{step:0,status:"active"})).status).toBe(404);
  });
  it.each([null,"live:acct_live"])("refuses absent or changed billing identity %s",async header=>{
    expect((await call("POST","/products",{expectedVersion:2,products:[product]},header)).status).toBe(409);
@@ -89,10 +89,36 @@ describe("practice launch HTTP boundary",()=>{
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
  });
- it("allows pending external verification to submit in the pinned mode",async()=>{
+ it("blocks pending external verification",async()=>{
+   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
+   expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
+ });
+ it("allows ready accounts to submit in the pinned mode",async()=>{
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
    expect(m.sync).toHaveBeenCalledWith("office-a");
    expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/complete_practice_launch",{p_provider_id:"office-a",p_expected_version:2,p_stripe_mode:"test",p_platform_account_id:"acct_test"});
+ });
+ it("requires legacy offices to confirm Stripe but not details or products",async()=>{
+   m.launch.mockResolvedValue({required:false,version:0,details_confirmed:false,products_confirmed:false});
+   const pending=await(await call("GET")).json();
+   expect(pending).toMatchObject({required:true,fullSetupRequired:false,completedAt:null});
+   expect(pending).not.toHaveProperty("tour");
+   expect((await call("POST","/complete",{expectedVersion:0})).status).toBe(400);
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}});
+   expect((await call("POST","/complete",{expectedVersion:0})).status).toBe(200);
+ });
+ it.each(["provider","team_member"])("does not let %s re-gate an office",async actorKind=>{
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind}});
+   expect((await call("POST","/regate",{expectedVersion:2})).status).toBe(403);
+   expect(m.admin).not.toHaveBeenCalled();
+ });
+ it("HQ re-gates with provider_manage without modifying Stripe",async()=>{
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"hq"}});
+   expect((await call("POST","/regate?office=office-a",{expectedVersion:2})).status).toBe(200);
+   expect(m.scope).toHaveBeenCalledWith(expect.objectContaining({hqPermission:"provider_manage"}));
+   expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/regate_practice_launch",expect.objectContaining({p_expected_version:2,p_provider_id:"office-a"}));
+   expect(m.sync).not.toHaveBeenCalled();
  });
  it("does not accept another mode's product confirmation or conceal storage failures",async()=>{
    const original=m.admin.getMockImplementation()!;

@@ -90,10 +90,10 @@ export type ListFilters = Record<string, string | number | null | undefined>;
 export const officeBilling = {
   status: (office?: string | null) =>
     officeRequest<OfficeBillingStatus>(`${OFFICE}/status${qs({}, office)}`, MESSAGES),
-  createAccount: (office?: string | null) =>
-    officeRequest<{ account: ConnectedAccount }>(`${OFFICE}/connect/create${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
-  oauthStart: (office?: string | null) =>
-    officeRequest<{ url: string }>(`${OFFICE}/connect/oauth/start${qs({}, office)}`, MESSAGES),
+  createAccount: (billingScope: string, office?: string | null) =>
+    officeRequest<{ account: ConnectedAccount }>(`${OFFICE}/connect/create${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}', headers: { 'X-Billing-Scope': billingScope } }),
+  oauthStart: (billingScope: string, office?: string | null) =>
+    officeRequest<{ url: string }>(`${OFFICE}/connect/oauth/start${qs({}, office)}`, MESSAGES, { headers: { 'X-Billing-Scope': billingScope } }),
   accountSession: (components: string[], office?: string | null) =>
     officeRequest<AccountSessionResponse>(`${OFFICE}/connect/account-session${qs({}, office)}`, MESSAGES, {
       method: 'POST',

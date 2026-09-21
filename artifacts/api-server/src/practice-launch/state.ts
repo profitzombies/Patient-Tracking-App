@@ -14,7 +14,7 @@ export async function operationalLaunchComplete(providerId:string) {
   const completed=await readModeCompletion(providerId,identity);
   if(!completed) return false;
   const account=await runWithBillingIdentity(identity,()=>selectOne("billing_connected_accounts",`provider_id=eq.${encodeURIComponent(providerId)}`));
-  return ["pending","ready"].includes(paymentLaunchState(account));
+  return paymentLaunchState(account) === "ready";
 }
 
 export async function readLaunch(providerId: string) {
@@ -33,8 +33,9 @@ export function isLaunchAllowedPath(url: string) {
     || /^\/billing\/office\/(?:status|connect)(?:\/|$)/.test(path);
 }
 
-export function paymentLaunchState(account: {details_submitted:boolean;charges_enabled:boolean;payouts_enabled:boolean;requirements:Record<string,unknown>} | null) {
+export function paymentLaunchState(account: {details_submitted:boolean;charges_enabled:boolean;payouts_enabled:boolean;requirements:Record<string,unknown>;disconnected_at?:string|null} | null) {
   if (!account) return "not_started" as const;
+  if (account.disconnected_at) return "action_required" as const;
   const due = ["currently_due","past_due"].some(key => Array.isArray(account.requirements[key]) && (account.requirements[key] as unknown[]).length > 0);
   if (!account.details_submitted || due) return "action_required" as const;
   if (account.charges_enabled && account.payouts_enabled) return "ready" as const;

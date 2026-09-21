@@ -2,41 +2,52 @@ import * as React from 'react';
 import assert from 'node:assert/strict';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Router } from 'wouter';
+import { Router, Route } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as setToken } from './invite-stubs/supabase';
+import { __setHqData } from './a11y-stubs/hq-data';
 import { PracticeLaunchGuard, launchRecoveryPath } from '../src/pages/PracticeLaunch';
-import { SampleTour } from '../src/pages/LaunchTourBoundary';
 import { launchKey, useLaunchWrite, type LaunchState } from '../src/hooks/use-launch';
+import { AccountLocksProvider } from '../src/contexts/account-locks';
+import { DateRangeProvider } from '../src/contexts/date-range';
+import { TrainingDataProvider } from '../src/contexts/training-data';
+import AccountDetail from '../src/pages/admin/AccountDetail';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as any).window = { matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }), getSelection: () => '' };
 const state: LaunchState = {
   billingScope: 'test:acct_fixture', office: { providerId: 'fixture', officeName: 'Sample Practice' },
-  canEdit: true, required: true, version: 3, detailsConfirmed: true, productsConfirmed: false, completedAt: null,
+  canEdit: true, required: true, fullSetupRequired: true, version: 3, detailsConfirmed: true, productsConfirmed: false, completedAt: null,
   details: { officeName: 'Sample Practice', providerName: 'Sample Owner', email: 'owner@example.invalid', phone: '6175550123', address1: '1 Sample Street', address2: '', city: 'Boston', state: 'MA', postalCode: '02108' },
   security: { ready: true }, payments: { state: 'pending', sandbox: true },
   products: [{ productId: 'sample', name: 'Sample Product', enabled: true, sellPriceCents: 9000, suggestedPriceCents: 7198, minimumPriceCents: 4000, subscriptionEnabled: false, subscriptionEligible: true, existingPrice: true, available: true }],
-  tour: { step: 0, status: 'not_started' },
 };
 let snapshot = structuredClone(state);
 let failed = false;
+let restartFailed = false;
 const calls: { url: string; method: string; body: any; headers: any }[] = [];
 globalThis.fetch = async (input, init) => {
   const call = { url: String(input), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null, headers: init?.headers };
   calls.push(call);
-  assert.ok(call.url.startsWith('/api/office/launch'), `Unexpected business request: ${call.url}`);
   if (failed) return new Response(JSON.stringify({ error: 'Locked or unavailable' }), { status: 403 });
+  if (restartFailed && call.url.includes('/restart')) return new Response(JSON.stringify({ error: 'Restart blocked' }), { status: 409 });
+  if (call.url.includes('/offboarding')) return new Response(JSON.stringify({ offboarding: { seal: { startedAt: null, completedAt: null } } }), { status: 200 });
+  if (call.url.startsWith('/api/provider-accounts/fixture')) return new Response(JSON.stringify({ account: { id: 'fixture', officeName: 'Sample Practice' } }), { status: 200 });
+  if (call.url.startsWith('/api/office/hq/accounts')) return new Response(JSON.stringify({ account: { id: 'fixture', officeName: 'Sample Practice', offboarding: { seal: null } } }), { status: 200 });
+  if (call.url.startsWith('/api/billing/hq/providers/')) return new Response(JSON.stringify({ status: { is_connected: true, charges_enabled: true, payouts_enabled: true, details_submitted: true }, activity_30d: { collected_cents: 0, orders: 0 }, subscriptions: { active: 0 }, pending_requirements: [], recent_orders: [] }), { status: 200 });
+  if (call.url.startsWith('/api/office/hq/analytics')) return new Response(JSON.stringify({ available: false }), { status: 200 });
+
   if (call.method !== 'GET') {
-    if (call.url.includes('/tour')) snapshot.tour = call.body;
-    else snapshot.version++;
+    snapshot.version++;
   }
   return new Response(JSON.stringify(snapshot), { status: 200 });
 };
 setToken('fixture-token');
 __setScope(null);
-__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'owner-fixture' }, signOut() {} });
+__setHqData({ accounts: [{ id: 'fixture', officeName: 'Sample Practice', providerName: 'Sample Owner', providerRole: 'Owner', city: 'Boston', state: 'MA', status: 'active', joinedKey: '2023-01-01', email: 'owner@example.invalid' }], canManageProviderAccounts: true });
+__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', staffSession: { role: 'owner', staffKind: 'provider', providerId: 'fixture', idleTimeoutMinutes: 15, idleTimeoutSource: 'hq', freshCode: { needed: false } }, authUser: { id: 'owner-fixture' }, signOut() {} });
 const text = (node: any): string => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join(' ') : node?.children ? text(node.children) : '';
 const button = (root: ReactTestRenderer, label: string) => root.root.findAllByType('button').find((b) => text(b.props.children) === label)!;
 let mounted = 0;
@@ -60,8 +71,27 @@ assert.notDeepEqual(launchKey('a', 'office1'), launchKey('a', 'office2'));
 let result = await render();
 assert.equal(mounted, 0, 'incomplete setup must not mount operational children');
 assert.match(text(result.root.toJSON()), /1\. Practice details · Confirmed/);
-assert.match(text(result.root.toJSON()), /Stripe verification pending/);
+assert.match(text(result.root.toJSON()), /Stripe is still verifying your account/);
 assert.equal(result.root.root.findAllByType('input')[0].props.value, 'Sample Practice');
+
+// Restart Stripe setup
+await act(async () => { button(result.root, 'Restart Stripe setup').props.onClick(); });
+await act(async () => { button(result.root, 'Restart setup').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+const restartCall = calls.find(c => c.url.includes('/restart'))!;
+assert.equal(restartCall.method, 'POST');
+assert.deepEqual(restartCall.body, {});
+assert.equal(restartCall.headers['X-Billing-Scope'], state.billingScope);
+
+// Restart error handling
+restartFailed = true;
+await act(async () => { button(result.root, 'Restart Stripe setup').props.onClick(); });
+await act(async () => { button(result.root, 'Restart setup').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+assert.match(text(result.root.toJSON()), /Restart blocked/);
+assert.match(text(result.root.toJSON()), /contact THINNR support/);
+restartFailed = false;
+
 await act(async () => { button(result.root, 'Use suggested setup').props.onClick(); });
 await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 const productCall = calls.find(c => c.url.includes('/products'))!;
@@ -77,46 +107,19 @@ assert.equal(mounted, 0);
 assert.match(text(result.root.toJSON()), /could not be loaded/);
 await dispose(result.root, result.client);
 failed = false;
+
+// Legacy office does not require details/products
+snapshot = { ...structuredClone(state), fullSetupRequired: false, payments: { state: 'ready', sandbox: true }, security: { ready: true }, detailsConfirmed: false, productsConfirmed: false };
+result = await render();
+assert.equal(button(result.root, 'Finish setup').props.disabled, false, 'Legacy office can finish setup without details or products');
+assert.match(text(result.root.toJSON()), /2\s+of\s+2\s+essentials confirmed/);
+await dispose(result.root, result.client);
+
 snapshot = { ...structuredClone(state), canEdit: false };
 result = await render();
 assert.match(text(result.root.toJSON()), /Your practice owner completes setup/);
 assert.equal(button(result.root, 'Use suggested setup'), undefined);
 await dispose(result.root, result.client);
-
-snapshot = { ...structuredClone(state), tour: { step: 0, status: 'active' } };
-result = await render();
-assert.match(text(result.root.toJSON()), /Guided tour — sample data/);
-assert.equal(mounted, 0);
-await dispose(result.root, result.client);
-
-// Exercise every sample action without mounting the launch hooks or making a fetch.
-const before = calls.length;
-let step = 0; let exits = 0;
-let tour!: ReactTestRenderer;
-const progress: unknown[] = [];
-const props = () => ({ step, busy: false, onExit: () => { exits++; }, onProgress: async (next: number, status: any) => { progress.push({ next, status }); step = next; tour.update(<SampleTour {...props()} />); } });
-await act(async () => { tour = create(<SampleTour {...props()} />); });
-await act(async () => { button(tour, 'Open sample profile').props.onClick(); });
-assert.match(text(tour.toJSON()), /176 lb/);
-await act(async () => { button(tour, 'Next').props.onClick(); });
-assert.match(text(tour.toJSON()), /AI coach/);
-await act(async () => { button(tour, 'Next').props.onClick(); });
-await act(async () => { tour.root.findByType('textarea').props.onChange({ target: { value: 'Practice reply' } }); });
-await act(async () => { tour.root.findByType('form').props.onSubmit({ preventDefault() {} }); });
-assert.match(text(tour.toJSON()), /Sample reply — not sent/);
-await act(async () => { button(tour, 'Next').props.onClick(); });
-await act(async () => { button(tour, 'Simulate full refund').props.onClick(); });
-assert.match(text(tour.toJSON()), /No money moved/);
-await act(async () => { button(tour, 'Next').props.onClick(); });
-await act(async () => { button(tour, 'Preview sample lesson').props.onClick(); });
-assert.match(text(tour.toJSON()), /no training completion recorded/);
-await act(async () => { button(tour, 'Next').props.onClick(); });
-await act(async () => { button(tour, 'Find invitations and signup code').props.onClick(); });
-assert.match(text(tour.toJSON()), /SAMPLE — NOT VALID/);
-await act(async () => { button(tour, 'Finish tour').props.onClick(); });
-assert.equal(exits, 1);
-assert.equal(calls.length, before, 'sample actions must not perform network requests');
-await dispose(tour);
 
 // Same-tick duplicate submits are serialized, not merely visually disabled.
 let write: ReturnType<typeof useLaunchWrite>;
@@ -134,4 +137,22 @@ snapshot = { ...structuredClone(state), required: false };
 result = await render('/');
 assert.equal(mounted, 1, 'legacy offices are not forced through setup');
 await dispose(result.root, result.client);
-console.log('Practice launch: scopes, fail-closed guard, roles, resume, contract, price preservation, duplicate submission and six-step no-business-write tour passed.');
+
+// Test HQ control (regate)
+__setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Super Admin', authUser: { id: 'hq-fixture' }, signOut() {} });
+const hqClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+const hqLocation = memoryLocation({ path: '/admin/accounts/fixture' });
+let hqRoot!: ReactTestRenderer;
+await act(async () => { hqRoot = create(<QueryClientProvider client={hqClient}><Router hook={hqLocation.hook}><AccountLocksProvider><DateRangeProvider><TrainingDataProvider><Route path="/admin/accounts/:id"><AccountDetail /></Route></TrainingDataProvider></DateRangeProvider></AccountLocksProvider></Router></QueryClientProvider>); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+await act(async () => { button(hqRoot, 'Require setup again').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+await act(async () => { button(hqRoot, 'Require setup').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+const regateCall = calls.find(c => c.url.includes('/regate'))!;
+assert.equal(regateCall.method, 'POST');
+assert.equal(regateCall.body.expectedVersion, snapshot.version - 1);
+await dispose(hqRoot, hqClient);
+
+
+console.log('Practice launch: scopes, fail-closed guard, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');

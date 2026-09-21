@@ -269,8 +269,8 @@ export async function resolveOfficeScope(input: {
 async function launchGate(providerId:string,userId:string,request?:VerificationRequest):Promise<OfficeScopeDenied|null> {
   const url=request?.originalUrl??request?.url;
   if (!url || isLaunchAllowedPath(url)) return null;
-  const launch=await readLaunch(providerId);
-  if (launch.required&&(!launch.completed_at||!await operationalLaunchComplete(providerId))) return denied(403,"The practice owner must complete setup in the current payment mode before using the workspace.","permission",userId,providerId);
+  await readLaunch(providerId);
+  if (!await operationalLaunchComplete(providerId)) return denied(403,"The practice owner must complete setup in the current payment mode before using the workspace.","permission",userId,providerId);
   return null;
 }
 

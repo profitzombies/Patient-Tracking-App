@@ -21,10 +21,9 @@ async function rpc(name:string, body:Record<string,unknown>) {
 }
 async function snapshot(scope:OfficeScope) {
   const identity=currentBillingIdentity()!;
-  const [launch,provider,tour,account,products,receipts,policy,factor,modeCompletion] = await Promise.all([
+  const [launch,provider,account,products,receipts,policy,factor,modeCompletion] = await Promise.all([
     readLaunch(scope.providerId),
     supabaseAdmin("GET", `/rest/v1/providers?provider_id=eq.${enc(scope.providerId)}&select=office_name,provider_name,email,phone,address_line_1,address_line_2,city,state,postal_code&limit=1`),
-    supabaseAdmin("GET", `/rest/v1/practice_launch_tours?provider_id=eq.${enc(scope.providerId)}&actor_user_id=eq.${enc(scope.actorUserId)}&limit=1`),
     selectOne("billing_connected_accounts", `provider_id=eq.${enc(scope.providerId)}`),
     getLaunchProducts(scope.providerId),
     supabaseAdmin("GET",`/rest/v1/practice_launch_product_receipts?provider_id=eq.${enc(scope.providerId)}&stripe_mode=eq.${identity.mode}&platform_account_id=eq.${enc(identity.platformAccountId)}&select=expected_version&limit=1`),
@@ -32,18 +31,18 @@ async function snapshot(scope:OfficeScope) {
     scope.actorKind==="hq" ? Promise.resolve(null) : loadStaffSecondFactor(scope.actorKind,scope.teamMemberId??scope.providerId),
     readModeCompletion(scope.providerId,identity),
   ]);
-  if (provider.status >= 300 || tour.status >= 300 || receipts.status>=300 || !provider.json?.[0]) throw new Error("Practice details unavailable.");
+  if (provider.status >= 300 || receipts.status>=300 || !provider.json?.[0]) throw new Error("Practice details unavailable.");
   const securityReady=scope.actorKind==="hq" || !secondFactorRequiredByPolicy(policy,{class:scope.actorKind,officeRole:scope.officeRole}) || Boolean(factor?.verifiedAt);
   const row = provider.json[0];
   return {
     office:{providerId:scope.providerId,officeName:scope.officeName},canEdit:scope.actorKind === "provider",
     billingScope:`${identity.mode}:${identity.platformAccountId}`,
-    required:launch.required,version:launch.version,detailsConfirmed:launch.details_confirmed,
+    required:true,fullSetupRequired:launch.required,version:launch.version,detailsConfirmed:launch.details_confirmed,
     productsConfirmed:launch.products_confirmed&&receipts.json.length>0,
-    completedAt:["pending","ready"].includes(paymentLaunchState(account)) ? modeCompletion??null : null,
+    completedAt:paymentLaunchState(account)==="ready" ? modeCompletion??null : null,
     details:{officeName:row.office_name??"",providerName:row.provider_name??"",email:row.email??"",phone:row.phone??"",address1:row.address_line_1??"",address2:row.address_line_2??"",city:row.city??"",state:row.state??"",postalCode:row.postal_code??""},
     security:{ready:securityReady},payments:{state:paymentLaunchState(account),sandbox:identity.mode !== "live"},
-    products,tour:tour.json?.[0] ? {step:tour.json[0].step,status:tour.json[0].status} : {step:0,status:"not_started"},
+    products,
   };
 }
 router.use("/office/launch", async (req,res,next) => {
@@ -53,12 +52,12 @@ router.use("/office/launch", async (req,res,next) => {
     runWithBillingIdentity(mode,next);
   } catch { res.status(503).json({error:"Payment configuration is unavailable. Setup was not changed."}); }
 });
-async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|"complete"|"tour") {
+async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|"complete"|"regate") {
   try {
-    const resolved = await resolveOfficeScope({authorization:req.headers.authorization,request:req,explicitOfficeId:typeof req.query.office === "string" ? req.query.office : null,hqPermission:"provider_read",requireUnlocked:kind!=="read"});
+    const resolved = await resolveOfficeScope({authorization:req.headers.authorization,request:req,explicitOfficeId:typeof req.query.office === "string" ? req.query.office : null,hqPermission:kind==="regate"?"provider_manage":"provider_read",requireUnlocked:kind!=="read"});
     if (resolved.kind!=="ok") { res.status(resolved.status).json({error:resolved.message});return; }
     const scope = resolved.scope;
-    if (kind!=="read" && (scope.actorKind==="hq" || (kind!=="tour" && scope.actorKind!=="provider"))) {
+    if (kind==="regate" ? scope.actorKind!=="hq" : kind!=="read" && scope.actorKind!=="provider") {
       res.status(403).json({error:"Only the practice owner can confirm setup. HQ inspection is read-only."});return;
     }
     if (kind==="products" || kind==="complete") {
@@ -81,18 +80,14 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       if (account) await syncAccount(scope.providerId);
       const state=await snapshot(scope);
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
-      if (!state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
-      if (!["pending","ready"].includes(state.payments.state)) throw new LaunchProductsError("Complete the required Stripe steps before submitting setup.");
+       if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
+       if (state.payments.state!=="ready") throw new LaunchProductsError("Stripe must enable both charges and payouts before setup can be confirmed.");
       const identity=currentBillingIdentity()!;
       await rpc("complete_practice_launch",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_stripe_mode:identity.mode,p_platform_account_id:identity.platformAccountId});
     }
-    if (kind==="tour") {
-      const input=z.object({step:z.number().int().min(0).max(5),status:z.enum(["active","skipped","completed"])}).parse(req.body);
-      // Tour progress is personal and educational, never launch consent.
-      // Teammates may learn while waiting on their owner; skip cannot open
-      // operational routes because those consult launch state, not tour state.
-      const result=await supabaseAdmin("POST","/rest/v1/practice_launch_tours?on_conflict=provider_id,actor_user_id",{provider_id:scope.providerId,actor_user_id:scope.actorUserId,...input},"resolution=merge-duplicates,return=minimal");
-      if(result.status>=300) throw new Error("Tour progress could not be saved.");
+    if (kind==="regate") {
+      const input=z.object({expectedVersion:Version}).strict().parse(req.body);
+      await rpc("regate_practice_launch",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_actor:scope.actorUserId});
     }
     res.json(await snapshot(scope));
   } catch(error) {
@@ -106,5 +101,5 @@ router.get("/office/launch",(req,res)=>handle(req,res,"read"));
 router.put("/office/launch/details",(req,res)=>handle(req,res,"details"));
 router.post("/office/launch/products",(req,res)=>handle(req,res,"products"));
 router.post("/office/launch/complete",(req,res)=>handle(req,res,"complete"));
-router.put("/office/launch/tour",(req,res)=>handle(req,res,"tour"));
+router.post("/office/launch/regate",(req,res)=>handle(req,res,"regate"));
 export default router;

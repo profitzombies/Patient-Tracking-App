@@ -5,6 +5,10 @@ description: Principle for getting the browser tester past code-login screens wi
 
 **Rule:** never hand the tester a long-lived token or JWT through chat text; never leave any sign-in helper in the served app tree.
 
+**For controlled UI-only loading captures, prefer browser-only module interception.**
+**Why:** a made-up persisted Supabase session may be rejected before the page mounts, and an unconfigured client never reads it. Demo mode cannot exercise live loading branches.
+**How to apply:** intercept the Vite session and Supabase modules in the test browser with synthetic signed-in stubs, then hold and fulfill API requests with synthetic fixtures. Never commit an auth bypass. This proves layout/loading behavior only, not real authentication or API authorization; use genuine throwaway sessions for those.
+
 **Why:** a pasted JWT arrived with one mangled character and every API call 401'd — indistinguishable from an app bug until the token was diffed. Email code login also needs an env-override restart and burns the small per-hour send cap.
 
 **How to apply:** mint sessions for THROWAWAY identities server-side, deliver them through a temporary, gitignored/deleted-after helper that seeds the app's own storage keys (the app requires both the auth-library session AND its device-memory login stamp; a session without the stamp is signed out on load), and tear down the helper plus the identities before completing. Real user accounts are never used for tester sessions.

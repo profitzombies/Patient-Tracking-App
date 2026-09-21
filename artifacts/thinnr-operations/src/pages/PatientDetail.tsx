@@ -75,6 +75,7 @@ import {
 } from "@/components/office/LivePatientEdits";
 
 import { CoachReviewPanel } from "@/components/office/CoachReviewPanel";
+import { PatientDetailLoading } from "@/components/office/ProviderLoading";
 
 /**
  * Demo actions (logging a weight, adding a note) are stamped with the fixed
@@ -463,7 +464,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
     });
   };
 
-  if (detail.isLoading) return <div className="mx-auto max-w-[1320px] px-5 py-12 text-center text-sm text-muted-foreground">Loading patient record…</div>;
+  if (detail.isLoading) return <PatientDetailLoading />;
   if (detail.isError && detail.error instanceof OfficeRosterError && detail.error.isDeleted) {
     return <div className="mx-auto max-w-[720px] px-5 py-12"><DeletedRecordNotice message={detail.error.message} deleted={detail.error.deleted} /></div>;
   }

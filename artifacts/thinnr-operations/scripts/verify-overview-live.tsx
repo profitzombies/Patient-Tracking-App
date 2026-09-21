@@ -150,9 +150,9 @@ function persona(kind: 'demo' | 'owner' | 'hq') {
 
 // ─── Rendering helpers ───────────────────────────────────────────────────────
 
-interface Rendered { renderer: ReactTestRenderer; root: ReactTestInstance }
+interface Rendered { renderer: ReactTestRenderer; root: ReactTestInstance; client: QueryClient }
 async function settle(rounds = 12) { for (let i = 0; i < rounds; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); }); }
-async function render(element: React.ReactElement, path = '/'): Promise<Rendered> {
+async function render(element: React.ReactElement, path = '/', settleRounds = 12): Promise<Rendered> {
   const loc = memoryLocation({ path, record: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let renderer!: ReactTestRenderer;
@@ -167,8 +167,8 @@ async function render(element: React.ReactElement, path = '/'): Promise<Rendered
       </QueryClientProvider>,
     );
   });
-  await settle();
-  return { renderer, root: renderer.root };
+  await settle(settleRounds);
+  return { renderer, root: renderer.root, client };
 }
 function textOf(instance: ReactTestInstance | string): string {
   if (typeof instance === 'string') return instance;
@@ -191,6 +191,20 @@ function priorityCards(root: ReactTestInstance): Map<string, string> {
   return new Map(cards.map((card) => [textOf(card.findAll((node) => node.type === 'b')[0]), card.props.href ?? '']));
 }
 const patientRows = (root: ReactTestInstance) => root.findAll((node) => node.type === 'tr' && typeof node.props['aria-label'] === 'string' && node.props['aria-label'].startsWith('Open '));
+function deferredReply() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((next) => { resolve = next; });
+  return {
+    reply: () => promise,
+    json(status: number, body: unknown) {
+      resolve(new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }));
+    },
+  };
+}
+function sequence(...replies: Reply[]): Reply {
+  let index = 0;
+  return () => (replies[Math.min(index++, replies.length - 1)]());
+}
 
 // ─── Pure: live revenue view ─────────────────────────────────────────────────
 
@@ -269,14 +283,13 @@ console.log('\nowner · billing states');
 {
   persona('owner'); script({ dashboard: never });
   let { renderer, root } = await render(<Overview />);
-  let mrr = metric(root, 'MRR');
-  check('loading: dash placeholder, no seeded number', mrr.value === '—' && mrr.detail === 'Loading…' && mrr.change === 'Live billing' && hasTestId(root, 'revenue-loading') && textOf(byTestId(root, 'text-revenue-total')) === '—', JSON.stringify(mrr));
+  check('loading: shaped metric and chart placeholders, no seeded number', hasTestId(root, 'loading-metric-mrr') && hasTestId(root, 'revenue-loading') && !textOf(root).includes('$1.7k'));
   check('loading: Active Patients still live from the roster', metric(root, 'Active Patients').value === '4');
   renderer.unmount();
 
   script({ dashboard: json(500, { error: 'Payments temporarily unavailable.' }) });
   ({ renderer, root } = await render(<Overview />));
-  mrr = metric(root, 'MRR');
+  let mrr = metric(root, 'MRR');
   check('error: "Error" like the other live tiles', mrr.value === 'Error' && mrr.detail === 'Failed to load' && hasTestId(root, 'revenue-error') && textOf(byTestId(root, 'text-revenue-total')) === 'Error', JSON.stringify(mrr));
   check('error: retry control present and no failed-payments card is invented', textOf(byTestId(root, 'revenue-error')).includes('Try again') && !priorityCards(root).has('Failed Subscription Payments'));
   check('error: reason cards still render from the roster', priorityCards(root).has('Missed Check-ins'));
@@ -317,12 +330,115 @@ console.log('\nowner · roster states');
 {
   persona('owner'); script({ roster: never });
   let { renderer, root } = await render(<Overview />);
-  check('roster loading: dash tiles, MRR independent', metric(root, 'Active Patients').value === '—' && metric(root, 'Check-ins Overdue').value === '—' && metric(root, 'MRR').value === '$1.7k' && textOf(root).includes('Loading priority items'));
+  check('roster loading: shaped tiles and rows, MRR independent', hasTestId(root, 'loading-metric-active-patients') && hasTestId(root, 'loading-metric-check-ins-overdue') && hasTestId(root, 'loading-priority-items') && hasTestId(root, 'loading-watchlist') && metric(root, 'MRR').value === '$1.7k');
   renderer.unmount();
   script({ roster: json(500, { error: 'Roster unavailable.' }) });
   ({ renderer, root } = await render(<Overview />));
   check('roster error: "Error" on the count tiles, no banner', metric(root, 'Active Patients').value === 'Error' && metric(root, 'Check-ins Overdue').value === 'Error' && !hasTestId(root, 'banner-overdue') && textOf(root).includes('Failed to load priority items.'));
   renderer.unmount();
+}
+
+console.log('\nowner · independently delayed resources');
+{
+  persona('owner');
+  const roster = deferredReply();
+  const overview = deferredReply();
+  const trends = deferredReply();
+  const billing = deferredReply();
+  script({ roster: roster.reply, overview: overview.reply, trends: trends.reply, dashboard: billing.reply });
+  const { renderer, root } = await render(<Overview />, '/', 1);
+  check('each unresolved resource owns its placeholder', hasTestId(root, 'loading-inbox') && hasTestId(root, 'loading-engagement') && hasTestId(root, 'loading-metric-mrr') && hasTestId(root, 'loading-metric-active-patients') && hasTestId(root, 'loading-watchlist'));
+  const skeletonRows = (id: string) => byTestId(root, id).findAll((node) =>
+    node.type === 'div'
+    && typeof node.props.className === 'string'
+    && node.props.className.includes('flex items-center gap-3')
+    && (node.props.className.includes('p-4') || node.props.className.includes('p-2.5')),
+  ).length;
+  const chartHeight = (id: string) => byTestId(root, id).findAll((node) =>
+    node.type === 'div' && typeof node.props.style?.height === 'number',
+  )[0]?.props.style.height;
+  check(
+    'loading shapes reserve section-sized space without clipped overflow',
+    chartHeight('revenue-loading') === 220
+      && chartHeight('loading-engagement') === 190
+      && skeletonRows('loading-protocol-stages') === 3
+      && skeletonRows('loading-priority-items') === 1
+      && skeletonRows('loading-logging-compliance') === 1
+      && skeletonRows('loading-watchlist') === 3,
+  );
+
+  overview.json(200, ROLLUP);
+  await settle();
+  check('overview success replaces only inbox loading', !hasTestId(root, 'loading-inbox') && textOf(root).includes('42 min') && hasTestId(root, 'loading-engagement') && hasTestId(root, 'loading-metric-mrr') && hasTestId(root, 'loading-watchlist'));
+
+  trends.json(200, TRENDS);
+  await settle();
+  check('empty engagement is explicit and leaves other requests pending', textOf(root).includes('No engagement data available for this range.') && !hasTestId(root, 'loading-engagement') && hasTestId(root, 'loading-metric-mrr') && hasTestId(root, 'loading-watchlist'));
+
+  billing.json(500, { error: 'Payments temporarily unavailable.' });
+  await settle();
+  check('finance error is genuine and isolated from roster loading', metric(root, 'MRR').value === 'Error' && hasTestId(root, 'revenue-error') && hasTestId(root, 'loading-watchlist'));
+
+  roster.json(200, { ...ROSTER, patients: [], summary: { ...ROSTER.summary, totalPatients: 0, activePatients: 0, newEnrollments30d: 0 } });
+  await settle();
+  check('empty roster shows genuine zeroes, not demo rows', metric(root, 'Active Patients').value === '0' && metric(root, 'Check-ins Overdue').value === '0' && textOf(root).includes('No patients in this provider view.') && !textOf(root).includes('Ann Active'));
+  renderer.unmount();
+}
+
+console.log('\nowner · background refresh');
+{
+  persona('owner');
+  const rosterRefresh = deferredReply();
+  const overviewRefresh = deferredReply();
+  const trendsRefresh = deferredReply();
+  const billingRefresh = deferredReply();
+  script({
+    roster: sequence(json(200, ROSTER), rosterRefresh.reply),
+    overview: sequence(json(200, ROLLUP), overviewRefresh.reply),
+    trends: sequence(json(200, TRENDS), trendsRefresh.reply),
+    dashboard: sequence(json(200, dashboard()), billingRefresh.reply),
+  });
+  const { renderer, root, client } = await render(<Overview />);
+  await act(async () => { void client.invalidateQueries(); });
+  await settle(1);
+  check('same-scope refresh keeps resolved content instead of skeletons', metric(root, 'MRR').value === '$1.7k' && metric(root, 'Active Patients').value === '4' && textOf(root).includes('Ann Active') && !hasTestId(root, 'loading-inbox') && !hasTestId(root, 'revenue-loading') && !hasTestId(root, 'loading-watchlist'));
+  rosterRefresh.json(200, ROSTER);
+  overviewRefresh.json(200, ROLLUP);
+  trendsRefresh.json(200, TRENDS);
+  billingRefresh.json(200, dashboard());
+  await settle();
+  renderer.unmount();
+}
+
+console.log('\nHQ drill-in · office switch isolation');
+{
+  persona('hq');
+  const nextRoster = deferredReply();
+  const nextOverview = deferredReply();
+  const nextTrends = deferredReply();
+  const nextBilling = deferredReply();
+  script({
+    roster: sequence(json(200, ROSTER), nextRoster.reply),
+    overview: sequence(json(200, ROLLUP), nextOverview.reply),
+    trends: sequence(json(200, TRENDS), nextTrends.reply),
+    dashboard: sequence(json(200, dashboard()), nextBilling.reply),
+  });
+  const rendered = await render(<Overview />);
+  __setScope({ providerId: 'office-2', officeName: 'Second Office', providerName: 'Dr. New Owner', providerRole: 'Owner' });
+  await act(async () => { rendered.renderer.update(
+    <QueryClientProvider client={rendered.client}>
+      <PatientSessionProvider><DateRangeProvider><Router hook={memoryLocation({ path: '/' }).hook}><Overview /></Router></DateRangeProvider></PatientSessionProvider>
+    </QueryClientProvider>,
+  ); });
+  await settle(1);
+  const switchedText = textOf(rendered.root);
+  check('office switch never paints the previous office while next scope loads', hasTestId(rendered.root, 'loading-inbox') && hasTestId(rendered.root, 'loading-metric-mrr') && hasTestId(rendered.root, 'loading-watchlist') && !switchedText.includes('$1.7k') && !switchedText.includes('Ann Active'));
+  nextRoster.json(200, { ...ROSTER, office: { ...ROSTER.office, providerId: 'office-2', officeName: 'Second Office' }, patients: [] });
+  nextOverview.json(200, { ...ROLLUP, scope: { kind: 'office', providerId: 'office-2', officeName: 'Second Office' } });
+  nextTrends.json(200, { ...TRENDS, office: { providerId: 'office-2', officeName: 'Second Office' } });
+  nextBilling.json(200, dashboard({ active_subscriptions: 0, mrr_cents: 0, series: series(0, 0) }));
+  await settle();
+  rendered.renderer.unmount();
 }
 
 console.log('\nHQ drill-in');

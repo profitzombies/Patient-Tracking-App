@@ -342,7 +342,7 @@ console.log('\nguided demo untouched');
   // Demo parity: the same quick sets over the seeded roster, statuses mapped
   // to the live vocabulary (overdue → needs attention, graduated → maintenance).
   const demoSets = root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('quick-set-') && node.type === 'button').map((node) => textOf(node));
-  check('demo: same built-in quick sets', demoSets.join(',') === 'All,Active,Needs attention,Inactive / lapsed,Invited,Paused,Maintenance phase,New this month,Active subscription,Top spenders', demoSets.join(','));
+  check('demo: same built-in quick sets', demoSets.join(',') === 'All,Active,Needs attention,Inactive / lapsed,Invited,Paused,Archived (1),Maintenance phase,New this month,Active subscription,Top spenders', demoSets.join(','));
   await click(byTestId(root, 'quick-set-needs-attention'));
   const attentionRows = tableRows(root);
   check('demo: Needs attention = seeded overdue rows', attentionRows.length > 0 && attentionRows.every((row) => textOf(row).includes('overdue')), `${attentionRows.length}`);

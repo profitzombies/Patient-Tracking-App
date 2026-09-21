@@ -45,6 +45,7 @@ import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivit
 import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
 import { OutreachChip } from "@/components/office/NotificationTimeline";
 import { DeletedAccountsSection, DeletionChip } from "@/components/office/AccountDeletion";
+import { PatientRosterLoading } from "@/components/office/ProviderLoading";
 import { LegalHoldBadge } from "@/components/admin/LegalHold";
 import {
   useUpdateOfficePatientFollowUp,
@@ -284,10 +285,15 @@ export default function Patients() {
   const [customQuickSets, setCustomQuickSets] = useState<QuickSet[]>(() => loadCustomQuickSets(typeof window === 'undefined' ? null : window.localStorage));
   const quickSets = useMemo(() => [
     ...builtInQuickSets(today).map((set) => set.id === 'archived'
-      ? { ...set, label: `Archived (${liveEnabled ? liveRosterData?.summary.archived ?? 0 : patients.filter((patient) => patient.closure != null).length})` }
+      ? {
+          ...set,
+          label: liveEnabled && !liveRosterData
+            ? 'Archived'
+            : `Archived (${liveEnabled ? liveRosterData?.summary.archived ?? 0 : patients.filter((patient) => patient.closure != null).length})`,
+        }
       : set),
     ...customQuickSets,
-  ], [today, customQuickSets, liveEnabled, liveRosterData?.summary.archived, patients]);
+  ], [today, customQuickSets, liveEnabled, liveRosterData?.summary?.archived, patients]);
   const currentQuickSet = activeQuickSet(quickSets, view);
   // Sets that carry a sort (Top spenders, Inactive / lapsed) apply it; the
   // rest keep the current sort, except All, which is the roster's home view
@@ -624,7 +630,9 @@ export default function Patients() {
           onClearAll={() => setConditions([])}
         />
 
-        <div className="divide-y divide-border md:hidden">
+        {liveEnabled && liveRosterIsLoading && <PatientRosterLoading />}
+
+        <div className={`${liveEnabled && liveRosterIsLoading ? 'hidden ' : ''}divide-y divide-border md:hidden`}>
           {filteredAndSortedPatients.map((patient) => {
             return (
               <Link
@@ -704,9 +712,6 @@ export default function Patients() {
               </Link>
             );
           })}
-          {liveEnabled && liveRosterIsLoading && (
-            <div className="p-10 text-center text-xs text-muted-foreground">Loading patients…</div>
-          )}
           {liveEnabled && liveRosterIsError && (
             <div className="p-10 text-center text-xs text-destructive" role="alert">
               {liveRosterError instanceof Error ? liveRosterError.message : 'The roster could not be loaded.'}
@@ -718,7 +723,7 @@ export default function Patients() {
         </div>
 
         {/* Table */}
-        <div className="hidden overflow-x-auto md:block">
+        <div className={liveEnabled && liveRosterIsLoading ? 'hidden' : 'hidden overflow-x-auto md:block'}>
           <table className={`w-full table-fixed text-left text-xs ${liveEnabled ? "min-w-[1040px]" : "min-w-[840px]"}`}>
             <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground">
               <tr>
@@ -847,13 +852,6 @@ export default function Patients() {
                 );
               })}
 
-              {liveEnabled && liveRosterIsLoading && (
-                <tr>
-                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-muted-foreground">
-                    Loading patients…
-                  </td>
-                </tr>
-              )}
               {liveEnabled && liveRosterIsError && (
                 <tr>
                   <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-destructive">
@@ -874,7 +872,9 @@ export default function Patients() {
 
         {/* Pagination mock — the roster is a lifetime view, untouched by the header date range */}
         <div className="border-t border-border px-4 py-3 flex items-center justify-between text-xs text-muted-foreground bg-paper-alt">
-          <span>Showing <b className="font-semibold text-foreground">{filteredAndSortedPatients.length}</b> lifetime records</span>
+          {liveEnabled && liveRosterIsLoading
+            ? <span aria-hidden="true" className="h-3 w-40 rounded bg-primary/10 motion-safe:animate-pulse motion-reduce:animate-none" />
+            : <span>Showing <b className="font-semibold text-foreground">{filteredAndSortedPatients.length}</b> lifetime records</span>}
           <div className="flex gap-2">
             <button className="rounded-md border border-border bg-card px-2.5 py-1 font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" disabled>Prev</button>
             <button className="rounded-md border border-border bg-card px-2.5 py-1 font-medium text-foreground shadow-xs transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" disabled>Next</button>

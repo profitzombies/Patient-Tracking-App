@@ -34,6 +34,8 @@ import { BillingApiError } from "@/lib/billing-api";
 import { buildLiveRevenueView, liveRevenueWindow, rangeDayCount, type LiveRevenueView } from "@/lib/overview-live-revenue";
 import { isActivatedRosterPatient, rosterActivityFor, rosterHasReason, rosterReasonHref } from "@/lib/roster-activity";
 import { AreaChart, CHART_COLORS } from "@/components/billing/hq/RevenueCharts";
+import { ChartSkeleton, LoadingRegion, RowsSkeleton } from "@/components/office/ProviderLoading";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
@@ -49,19 +51,30 @@ function ActionButton({ label, testId, children, onClick }: { label: string; tes
   );
 }
 
-function Metric({ icon, label, value, change, detail, warning = false }: { icon: ReactNode; label: string; value: string; change: string; detail: string; warning?: boolean }) {
+function Metric({ icon, label, value, change, detail, warning = false, loading = false }: { icon: ReactNode; label: string; value: string; change: string; detail: string; warning?: boolean; loading?: boolean }) {
   return (
     <div className="rounded-lg border border-card-border bg-card p-4 shadow-soft transition hover:-translate-y-0.5 hover:shadow-lifted">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
           <span className="text-primary">{icon}</span>{label}
         </span>
-        <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${warning ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
-          {change}
-        </span>
+        {loading ? <Skeleton className="h-6 w-20" aria-hidden="true" /> : (
+          <span className={`rounded-sm border px-2 py-1 text-[10px] font-bold ${warning ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
+            {change}
+          </span>
+        )}
       </div>
-      <p className="mt-4 font-mono text-[27px] font-semibold tracking-[-.07em] text-navy">{value}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      {loading ? (
+        <LoadingRegion label={`Loading ${label}`} className="mt-4 space-y-2" testId={`loading-metric-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+          <Skeleton className="h-8 w-24" />
+          <Skeleton className="h-3 w-36 max-w-full" />
+        </LoadingRegion>
+      ) : (
+        <>
+          <p className="mt-4 font-mono text-[27px] font-semibold tracking-[-.07em] text-navy">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -207,7 +220,7 @@ function LiveRevenueSection({ range, view, pending, forbidden, error, accountCon
       </div>
       <div className="mt-5">
         {pending ? (
-          <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground" data-testid="revenue-loading">Loading revenue…</div>
+          <ChartSkeleton label="Loading revenue trend" height={220} testId="revenue-loading" />
         ) : forbidden ? (
           <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed border-border px-6 text-center text-xs text-muted-foreground" data-testid="revenue-forbidden">
             Payments reports are available to office owners and admins.
@@ -369,7 +382,7 @@ export default function Overview() {
   // HQ drill-in scope: when present, every read below narrows to one office;
   // unscoped, the scoped hooks return the program-wide singletons unchanged.
   const scope = useProviderScope();
-  const { data: liveRosterData, dataUpdatedAt: liveRosterUpdatedAt, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster();
+  const { data: liveRosterData, dataUpdatedAt: liveRosterUpdatedAt, isLoading: liveRosterIsLoading, isError: liveRosterIsError, liveEnabled, liveOffice } = useLiveRoster();
   const { authUser } = useSession();
   const localGreeting = useTimeOfDayGreeting();
 
@@ -439,6 +452,9 @@ export default function Overview() {
   }, [rosterRows]);
   const liveCountText = (value: number | undefined) =>
     liveCounts ? String(value ?? 0) : liveRosterIsLoading ? '—' : 'Error';
+  const rosterInitialLoading = liveEnabled && !liveRosterData && liveRosterIsLoading;
+  const overviewInitialLoading = liveEnabled && !overviewData && overviewIsLoading;
+  const billingInitialLoading = liveEnabled && !billing.data && billing.isPending;
   const activePatientsValue = liveEnabled
     ? liveCountText(liveCounts?.active)
     : (selectedProvider?.activePatientCount ?? analytics.activePatients).toString();
@@ -460,6 +476,12 @@ export default function Overview() {
       ? filteredPatients.reduce((total, patient) => total + patient.startingWeight - getCurrentWeight(patient), 0) / filteredPatients.length
       : 0;
   }, [liveEnabled, overviewData, liveRosterData, filteredPatients, getCurrentWeight]);
+  const averagePoundsLostFailed = liveEnabled
+    && averagePoundsLostValue === null
+    && overviewIsError
+    && liveRosterIsError
+    && !overviewData
+    && !liveRosterData;
 
   const avgLostChange = liveEnabled ? 'Live roster' : badges.avgLost;
 
@@ -516,6 +538,7 @@ export default function Overview() {
       };
     }
     const change = 'Live billing';
+    if (billingForbidden) return { value: '—', change, detail: 'Owners and admins only' };
     if (billing.data) {
       const active = billing.data.active_subscriptions;
       return {
@@ -529,7 +552,6 @@ export default function Overview() {
       };
     }
     if (billing.isPending) return { value: '—', change, detail: 'Loading…' };
-    if (billingForbidden) return { value: '—', change, detail: 'Owners and admins only' };
     return { value: 'Error', change, detail: 'Failed to load' };
   }, [liveEnabled, providerFilter, analytics.recurringRevenue, filteredMrr, billing.data, billing.isPending, billingForbidden]);
 
@@ -583,7 +605,7 @@ export default function Overview() {
       const items: [string, string, string, string, string][] = [];
       // Failed recurring payments from the office's billing tables; the link
       // opens the subscriptions list filtered to past due + unpaid.
-      const failed = billing.data?.needs_attention_subscriptions ?? 0;
+      const failed = billingForbidden ? 0 : (billing.data?.needs_attention_subscriptions ?? 0);
       if (failed > 0) {
         items.push([
           "Failed Subscription Payments",
@@ -656,14 +678,14 @@ export default function Overview() {
         ["Missed Check-ins", "4 patients missed their scheduled protocol check-in", "Watch", "watch", ""],
         ["High Adherence Cohort", "24 patients reached goal weight this week", "Positive", "healthy", ""],
       ];
-  }, [liveEnabled, liveCounts, billing.data, scope, failedPayments, overduePatientsCount, graduatedCount]);
+  }, [liveEnabled, liveCounts, billing.data, billingForbidden, scope, failedPayments, overduePatientsCount, graduatedCount]);
 
   const scopedProviderLabel = scope ? scope.providerName.split(',')[0] : '';
   const scopedProviderInitials = scope
     ? scope.providerName
         .split(/[\s,]+/)
-        .filter((word) => word && !/^(dr|np|rn|md|pa|do)\.?$/i.test(word))
-        .map((word) => word[0]?.toUpperCase() ?? '')
+        .filter((word: string) => word && !/^(dr|np|rn|md|pa|do)\.?$/i.test(word))
+        .map((word: string) => word[0]?.toUpperCase() ?? '')
         .slice(0, 2)
         .join('') || 'TH'
     : '';
@@ -813,6 +835,7 @@ export default function Overview() {
           value={mrrTile.value}
           change={mrrTile.change}
           detail={mrrTile.detail}
+          loading={billingInitialLoading}
         />
         <Metric
           icon={<Users size={14} />}
@@ -820,13 +843,15 @@ export default function Overview() {
           value={activePatientsValue}
           change={activePatientsChange}
           detail={activePatientsDetail}
+          loading={rosterInitialLoading}
         />
         <Metric
           icon={<Activity size={14} />}
           label="Avg Pounds Lost"
-          value={averagePoundsLostValue === null ? '—' : `${averagePoundsLostValue.toFixed(1)} lbs`}
+          value={averagePoundsLostFailed ? 'Error' : averagePoundsLostValue === null ? '—' : `${averagePoundsLostValue.toFixed(1)} lbs`}
           change={avgLostChange}
-          detail={averagePoundsLostValue === null ? "No usable weights" : "Across all active cohorts"}
+          detail={averagePoundsLostFailed ? "Failed to load" : averagePoundsLostValue === null ? "No usable weights" : "Across all active cohorts"}
+          loading={liveEnabled && averagePoundsLostValue === null && (overviewInitialLoading || rosterInitialLoading)}
         />
         <Metric
           icon={<ShieldAlert size={14} />}
@@ -835,11 +860,23 @@ export default function Overview() {
           change={liveEnabled ? 'Live roster' : 'Needs review'}
           detail="Patients at risk of dropping"
           warning
+          loading={rosterInitialLoading}
         />
       </div>
       {liveEnabled && (
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Inbox overview">
-          {[
+          {overviewInitialLoading ? (
+            <LoadingRegion label="Loading inbox overview" className="sm:col-span-2 lg:col-span-4" testId="loading-inbox">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[0, 1, 2, 3].map((index) => (
+                  <div key={index} className="rounded-lg border border-card-border bg-card p-4 shadow-soft">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="mt-3 h-7 w-12" />
+                  </div>
+                ))}
+              </div>
+            </LoadingRegion>
+          ) : [
             ['Open threads', overviewData?.metrics.inbox.openThreads, '/admin/conversations'],
             ['Unanswered', overviewData?.metrics.inbox.unanswered, '/admin/conversations?sort=waiting_longest'],
             ['Avg response', overviewData?.metrics.inbox.avgResponseMinutes == null ? '—' : overviewData.metrics.inbox.avgResponseMinutes < 60 ? `${Math.round(overviewData.metrics.inbox.avgResponseMinutes)} min` : `${(overviewData.metrics.inbox.avgResponseMinutes / 60).toFixed(1)} h`, '/admin/conversations'],
@@ -847,7 +884,7 @@ export default function Overview() {
           ].map(([label, rawValue, href]) => (
             <Link key={label} href={href as string} className="block rounded-lg border border-card-border bg-card p-4 shadow-soft transition hover:border-primary/40">
               <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">{label}</p>
-              <p className="mt-2 font-serif text-2xl font-bold text-navy">{overviewIsLoading ? '—' : overviewIsError ? 'Error' : rawValue ?? '—'}</p>
+              <p className="mt-2 font-serif text-2xl font-bold text-navy">{overviewIsError && !overviewData ? 'Error' : rawValue ?? '—'}</p>
             </Link>
           ))}
         </div>
@@ -896,9 +933,9 @@ export default function Overview() {
                 </p>
               </div>
             </div>
-            {engagementIsLoading ? (
-              <div className="h-[190px] mt-5 flex items-center justify-center text-xs text-muted-foreground">Loading engagement data...</div>
-            ) : engagementIsError ? (
+            {!engagementData && engagementIsLoading ? (
+              <ChartSkeleton label="Loading patient engagement" className="mt-5" height={190} testId="loading-engagement" />
+            ) : !engagementData && engagementIsError ? (
               <div className="h-[190px] mt-5 flex items-center justify-center text-xs text-destructive">
                 {engagementError instanceof Error ? engagementError.message : "Failed to load engagement data."}
               </div>
@@ -916,9 +953,9 @@ export default function Overview() {
           <LiveRevenueSection
             range={range}
             view={liveRevenueView}
-            pending={billing.isPending}
+            pending={billingInitialLoading}
             forbidden={billingForbidden}
-            error={billing.isError && !billingForbidden ? billing.error : null}
+            error={billing.isError && !billingForbidden && !billing.data ? billing.error : null}
             accountConnected={billing.data?.account_connected ?? null}
             retry={() => void billing.refetch()}
           />
@@ -962,16 +999,20 @@ export default function Overview() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Protocol Stages</p>
-              <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{activePatientsValue} Active</h2>
+              {rosterInitialLoading
+                ? <Skeleton className="mt-2 h-5 w-24" />
+                : <h2 className="mt-1 font-serif text-lg font-semibold tracking-[-.01em] text-navy">{activePatientsValue} Active</h2>}
             </div>
             <Link href="/analytics" className="text-xs font-semibold text-primary transition-colors hover:text-navy">
               Details <ArrowUpRight size={13} className="inline" />
             </Link>
           </div>
           <div className="mt-6 space-y-4">
-            {liveEnabled && (liveRosterIsLoading || liveRosterIsError) ? (
-              <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
-                {liveRosterIsLoading ? 'Loading live patients...' : 'Failed to load live patients.'}
+            {rosterInitialLoading ? (
+              <RowsSkeleton label="Loading protocol stages" rows={3} compact testId="loading-protocol-stages" />
+            ) : liveEnabled && liveRosterIsError && !liveRosterData ? (
+              <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-border text-xs text-destructive" role="alert">
+                Failed to load live patients.
               </div>
             ) : stageRows.length === 0 ? (
               <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground">
@@ -1006,9 +1047,13 @@ export default function Overview() {
             </span>
           </div>
           {priorityItems === null ? (
-            <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
-              {liveRosterIsError && !liveRosterIsLoading ? 'Failed to load priority items.' : 'Loading priority items...'}
-            </div>
+            rosterInitialLoading ? (
+              <RowsSkeleton label="Loading priority items" rows={1} className="border-t border-border" testId="loading-priority-items" />
+            ) : (
+              <div className="flex h-20 items-center justify-center border-t border-border text-xs text-destructive" role="alert">
+                Failed to load priority items.
+              </div>
+            )
           ) : priorityItems.length === 0 ? (
             <div className="flex h-20 items-center justify-center border-t border-border text-xs text-muted-foreground">
               0 open items.
@@ -1063,7 +1108,9 @@ export default function Overview() {
               {(liveEnabled && liveRosterIsLoading) ? "Loading…" : (liveEnabled && liveRosterIsError && !liveRosterData) ? "Error" : lapsedLoggersCount === null ? "..." : lapsedLoggersCount > 0 ? `${lapsedLoggersCount} lapsed` : "All current"}
             </span>
           </div>
-          <div className="flex items-center gap-3 rounded-md border border-border bg-secondary p-3">
+          {rosterInitialLoading ? (
+            <RowsSkeleton label="Loading logging compliance" rows={1} className="mt-1" testId="loading-logging-compliance" />
+          ) : <div className="flex items-center gap-3 rounded-md border border-border bg-secondary p-3">
             <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md border ${lapsedLoggersCount !== null && lapsedLoggersCount > 0 ? "border-warn-border bg-warn-bg text-warn" : "border-accent-border bg-accent text-primary"}`}>
               <ClipboardList size={16} />
             </span>
@@ -1080,7 +1127,7 @@ export default function Overview() {
                 <>Compliance stats unavailable.</>
               )}
             </p>
-          </div>
+          </div>}
           {!(liveEnabled && (liveRosterIsLoading || (liveRosterIsError && !liveRosterData))) && lapsedLoggersList.length > 0 && (
             <div className="mt-1">
               {lapsedLoggersList.slice(0, 3).map(({ patient, stats }) => (
@@ -1119,7 +1166,9 @@ export default function Overview() {
               View all roster <ArrowUpRight size={13} className="inline" />
             </Link>
           </div>
-          {recentWatchlist.length === 0 ? (
+          {rosterInitialLoading ? (
+            <RowsSkeleton label="Loading patient watchlist" rows={3} testId="loading-watchlist" />
+          ) : recentWatchlist.length === 0 ? (
             <p className="rounded-md border border-border bg-secondary py-6 text-center text-xs text-muted-foreground">
               {liveRosterIsLoading ? "Loading watchlist…" : liveRosterIsError ? "Error loading watchlist." : "No patients in this provider view."}
             </p>

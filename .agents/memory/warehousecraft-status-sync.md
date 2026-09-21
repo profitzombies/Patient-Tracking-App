@@ -12,6 +12,7 @@ description: How shipped/tracking/delivered/back-order state is polled from Ware
 **Live API quirks (verified against the tenant, not the vendor docs):**
 - Documented `api/OrderStatus/ByDate` returns 404. The tenant answers `/api/OrderStatusDatas?startDate=&endDate=` (date-only, inclusive Central days; months-wide windows time out), `/api/OrderStatusDatas/{OrderId}` (answers for OTHER clients' orders too — always verify ClientOrderId == our order_number) and `?clientOrderId=` (404 on miss).
 - Timestamps are zone-less Chicago-local. The 3PL says the feed rarely reports delivered; DeliverDate/delivered tracking status is honoured when present but nothing depends on it arriving.
+- Vendor email dated 2026-09-17 explicitly confirms no webhooks, approves polling every 15 minutes, and says the order API does not report delivered (a separate optional shipping API does). Shipped and Closed both mean shipped.
 
 **Semantics chosen:** processing→processing raw-status changes are bookkeeping ("noted", no transition); shipped→shipped with a changed tracking number is "tracking_updated" (warehouse tracking overrides staff, no email); provider shipped_at = warehouse ShipDate; delivered still mirrors legacy `fulfillment_status: "shipped"`; back order = processing + flag + staff alert, patient copy stays "Preparing your order".
 

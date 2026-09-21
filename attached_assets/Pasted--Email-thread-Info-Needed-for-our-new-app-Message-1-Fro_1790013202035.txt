@@ -1,0 +1,2351 @@
+## Email thread: Info Needed for our new app.
+
+---
+
+### Message 1
+**From:** Jason Strotheide <jason@thinnrweightloss.com>
+**To:** Kelsey Hensley, LeAnn Gammill, Andrew Strotheide
+**Date:** September 14, 2026 at 11:17 AM
+
+Kelsey and Leann,
+
+We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+
+Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+
+![Screenshot 2026-09-14 at 11.10.00 AM.png](inline-image-placeholder)
+
+Dr. Jason Strotheide
+SlimCell LLC / Thinnr Weight Loss
+
+
+
+This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+
+If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+
+
+
+📎 **Attachments**
+- Screenshot 2026-09-14 at 11.10.00 AM.png (95 KB)
+
+---
+
+### Message 2
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** Jason Strotheide, Kelsey Hensley, LeAnn Gammill
+**Date:** September 14, 2026 at 11:41 AM
+
+Hi all,
+
+Would love to get access to your documentation so that I can start wiring stuff into your backend for new orders and then receiving updates on the status of orders as you process and ship.
+
+Any documentation you have would be great.
+
+Thanks!
+
+> **On September 14, 2026 at 11:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+>
+> Kelsey and Leann,
+>
+> We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+>
+> Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+>
+>
+> <Screenshot 2026-09-14 at 11.10.00 AM.png>
+>
+> Dr. Jason Strotheide
+> SlimCell LLC / Thinnr Weight Loss
+>
+>
+>
+> This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+>
+> If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+>
+>
+>
+> —
+> **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> **Date:** September 14, 2026 at 11:17 AM
+
+---
+
+
+---
+
+### Message 3
+**From:** LeAnn Gammill <leann.gammill@novexit.com>
+**To:** Jason Strotheide, Kelsey Hensley, Andrew Strotheide, George Coon
+**Date:** September 14, 2026 at 4:08 PM
+
+Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+
+> **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+>
+> External!
+>
+> Kelsey and Leann,
+>
+> We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+>
+> Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+>
+> ![Screenshot 2026-09-14 at 11.10.00 AM.png](inline-image-placeholder)
+>
+> Dr. Jason Strotheide
+> SlimCell LLC / Thinnr Weight Loss
+>
+>
+> This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+>
+>
+>
+> —
+> **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> **Date:** September 14, 2026 at 10:17 AM
+
+---
+
+
+
+📎 **Attachments**
+- Screenshot 2026-09-14 at 11.10.00 AM.png (95 KB)
+
+---
+
+### Message 4
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** LeAnn Gammill, Jason Strotheide, Kelsey Hensley, Andrew Strotheide
+**Date:** September 14, 2026 at 4:29 PM
+
+Hello LeAnn,
+
+I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+
+If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+
+[novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+
+From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+>
+> Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+>
+> > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> >
+> > External!
+> >
+> > Kelsey and Leann,
+> >
+> > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> >
+> > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> >
+> > ![Screenshot 2026-09-14 at 11.10.00 AM.png](inline-image-placeholder)
+> >
+> > Dr. Jason Strotheide
+> > SlimCell LLC / Thinnr Weight Loss
+> >
+> >
+> > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> >
+> >
+> >
+> > —
+> > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **Date:** September 14, 2026 at 10:17 AM
+>
+> ---
+>
+>
+>
+> —
+> **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> **Date:** September 14, 2026 at 2:08 PM
+
+---
+
+
+
+📎 **Attachments**
+- Screenshot 2026-09-14 at 11.10.00 AM.png (95 KB)
+- image.png (7 KB)
+
+---
+
+### Message 5
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** George Coon, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 14, 2026 at 5:35 PM
+
+Amazing, let’s definitely go the API route.
+
+I’ll review the documentation and let me know what else we need to move forward.
+
+I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+
+I will review the documentation here later on my end!
+
+> **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> Hello LeAnn,
+>
+> I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+>
+> If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+>
+> [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+>
+> From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> >
+> > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> >
+> > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > >
+> > > External!
+> > >
+> > > Kelsey and Leann,
+> > >
+> > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > >
+> > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > >
+> > >
+> > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > >
+> > > Dr. Jason Strotheide
+> > > SlimCell LLC / Thinnr Weight Loss
+> > >
+> > >
+> > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **Date:** September 14, 2026 at 10:17 AM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > **Date:** September 14, 2026 at 2:08 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **Date:** September 14, 2026 at 4:29 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+
+---
+
+### Message 6
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 14, 2026 at 6:23 PM
+
+Hello Andrew,
+
+Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> Amazing, let’s definitely go the API route.
+>
+> I’ll review the documentation and let me know what else we need to move forward.
+>
+> I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+>
+> I will review the documentation here later on my end!
+>
+> > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello LeAnn,
+> >
+> > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> >
+> > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> >
+> > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> >
+> > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > >
+> > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > >
+> > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > >
+> > > > External!
+> > > >
+> > > > Kelsey and Leann,
+> > > >
+> > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > >
+> > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > >
+> > > >
+> > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > >
+> > > > Dr. Jason Strotheide
+> > > > SlimCell LLC / Thinnr Weight Loss
+> > > >
+> > > >
+> > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > **Date:** September 14, 2026 at 10:17 AM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 14, 2026 at 2:08 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 14, 2026 at 4:29 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 14, 2026 at 3:35 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 7
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** George Coon, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 14, 2026 at 11:13 PM
+
+That's pefect.
+
+Looking forward to getting those credentials, thanks!
+
+> **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> Hello Andrew,
+>
+> Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> >
+> > Amazing, let’s definitely go the API route.
+> >
+> > I’ll review the documentation and let me know what else we need to move forward.
+> >
+> > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> >
+> > I will review the documentation here later on my end!
+> >
+> > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > >
+> > > Hello LeAnn,
+> > >
+> > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > >
+> > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > >
+> > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > >
+> > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > >
+> > > Cheers,
+> > >
+> > > George Coon
+> > >
+> > > ![image.png](inline-image-placeholder)
+> > >
+> > > Imagine Supply Chain
+> > > 543 N Neil Armstrong Rd
+> > > Salt Lake City, UT 84116
+> > > 801.598.2144
+> > >
+> > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > >
+> > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > >
+> > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > >
+> > > > > External!
+> > > > >
+> > > > > Kelsey and Leann,
+> > > > >
+> > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > >
+> > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > >
+> > > > >
+> > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > >
+> > > > > Dr. Jason Strotheide
+> > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > >
+> > > > >
+> > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 2:08 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 14, 2026 at 4:29 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > **Date:** September 14, 2026 at 3:35 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **Date:** September 14, 2026 at 6:23 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 8
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide
+**Date:** September 15, 2026 at 11:17 AM
+
+Hello Andrew,
+
+Here are the API credentials, currently pointing to the test environment.
+
+
+• Base URL: [novexapi.warehousecraft.com](https://novexapi.warehousecraft.com/Help)
+• Username: [andrew@thinnrweightloss.com](mailto:andrew@thinnrweightloss.com)
+• Password: HXakp_fj_D.Cv?Wq7swc
+
+
+To post an order, use the /api/OrderDatas endpoint.
+
+[novexapi.warehousecraft.com/Help/Api/POST-api-OrderDatas](https://novexapi.warehousecraft.com/Help/Api/POST-api-OrderDatas)
+
+To get the order status, use either of the /api/OrderStatusDatas endpoints.
+
+[novexapi.warehousecraft.com/Help/Api/GET-api-OrderStatusDatas_StartDate_EndDate](https://novexapi.warehousecraft.com/Help/Api/GET-api-OrderStatusDatas_StartDate_EndDate) [novexapi.warehousecraft.com/Help/Api/GET-api-OrderStatusDatas-id_ClientOrderId](https://novexapi.warehousecraft.com/Help/Api/GET-api-OrderStatusDatas-id_ClientOrderId)
+
+The current SKUS in the test environment are the following.
+
+
+• Test01
+• Test02
+• Test03
+• Test04
+• Test05
+
+
+If you'd like other SKUS added or as you have questions, please let me know.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> That's pefect.
+>
+> Looking forward to getting those credentials, thanks!
+>
+> > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello Andrew,
+> >
+> > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > >
+> > > Amazing, let’s definitely go the API route.
+> > >
+> > > I’ll review the documentation and let me know what else we need to move forward.
+> > >
+> > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > >
+> > > I will review the documentation here later on my end!
+> > >
+> > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > >
+> > > > Hello LeAnn,
+> > > >
+> > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > >
+> > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > >
+> > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > >
+> > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > >
+> > > > Cheers,
+> > > >
+> > > > George Coon
+> > > >
+> > > > ![image.png](inline-image-placeholder)
+> > > >
+> > > > Imagine Supply Chain
+> > > > 543 N Neil Armstrong Rd
+> > > > Salt Lake City, UT 84116
+> > > > 801.598.2144
+> > > >
+> > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > >
+> > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > >
+> > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > >
+> > > > > > External!
+> > > > > >
+> > > > > > Kelsey and Leann,
+> > > > > >
+> > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > >
+> > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > >
+> > > > > >
+> > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > >
+> > > > > > Dr. Jason Strotheide
+> > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > >
+> > > > > >
+> > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 4:29 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > **Date:** September 14, 2026 at 3:35 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 14, 2026 at 6:23 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 14, 2026 at 9:13 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 9
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 15, 2026 at 11:18 AM
+
+Hello Andrew,
+
+Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> That's pefect.
+>
+> Looking forward to getting those credentials, thanks!
+>
+> > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello Andrew,
+> >
+> > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > >
+> > > Amazing, let’s definitely go the API route.
+> > >
+> > > I’ll review the documentation and let me know what else we need to move forward.
+> > >
+> > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > >
+> > > I will review the documentation here later on my end!
+> > >
+> > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > >
+> > > > Hello LeAnn,
+> > > >
+> > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > >
+> > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > >
+> > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > >
+> > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > >
+> > > > Cheers,
+> > > >
+> > > > George Coon
+> > > >
+> > > > ![image.png](inline-image-placeholder)
+> > > >
+> > > > Imagine Supply Chain
+> > > > 543 N Neil Armstrong Rd
+> > > > Salt Lake City, UT 84116
+> > > > 801.598.2144
+> > > >
+> > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > >
+> > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > >
+> > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > >
+> > > > > > External!
+> > > > > >
+> > > > > > Kelsey and Leann,
+> > > > > >
+> > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > >
+> > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > >
+> > > > > >
+> > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > >
+> > > > > > Dr. Jason Strotheide
+> > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > >
+> > > > > >
+> > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 4:29 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > **Date:** September 14, 2026 at 3:35 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 14, 2026 at 6:23 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 14, 2026 at 9:13 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 10
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** George Coon, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 17, 2026 at 10:27 AM
+
+Great, thank you for this.
+
+Is there any sort of backend login that I can review to see that things are coming in to your end properly?
+
+Sorry, I realize I'm a little out of the loop but this should be pretty easy to configure from my end, your docs are pretty simple!
+
+> **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> Hello Andrew,
+>
+> Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> >
+> > That's pefect.
+> >
+> > Looking forward to getting those credentials, thanks!
+> >
+> > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > >
+> > > Hello Andrew,
+> > >
+> > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > >
+> > > Cheers,
+> > >
+> > > George Coon
+> > >
+> > > ![image.png](inline-image-placeholder)
+> > >
+> > > Imagine Supply Chain
+> > > 543 N Neil Armstrong Rd
+> > > Salt Lake City, UT 84116
+> > > 801.598.2144
+> > >
+> > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > >
+> > > > Amazing, let’s definitely go the API route.
+> > > >
+> > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > >
+> > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > >
+> > > > I will review the documentation here later on my end!
+> > > >
+> > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > >
+> > > > > Hello LeAnn,
+> > > > >
+> > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > >
+> > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > >
+> > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > >
+> > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > >
+> > > > > Cheers,
+> > > > >
+> > > > > George Coon
+> > > > >
+> > > > > ![image.png](inline-image-placeholder)
+> > > > >
+> > > > > Imagine Supply Chain
+> > > > > 543 N Neil Armstrong Rd
+> > > > > Salt Lake City, UT 84116
+> > > > > 801.598.2144
+> > > > >
+> > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > >
+> > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > >
+> > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > >
+> > > > > > > External!
+> > > > > > >
+> > > > > > > Kelsey and Leann,
+> > > > > > >
+> > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > >
+> > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > >
+> > > > > > >
+> > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > >
+> > > > > > > Dr. Jason Strotheide
+> > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > >
+> > > > > > >
+> > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > **Date:** September 14, 2026 at 3:35 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 14, 2026 at 6:23 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > **Date:** September 14, 2026 at 9:13 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **Date:** September 15, 2026 at 11:18 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 11
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** George Coon, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 17, 2026 at 10:30 AM
+
+Just gave this a quick read over and have a few simple questions.
+
+Your ShippingMethod field takes a specific carrier code (UPS_Ground, USPS_Priority, FEDEX_HomeDelivery, etc.). Which code should we send for our standard orders? Is there a second one you'd recommend for expedited?
+
+Should all THINNR orders go to Memphis (MEM), or will some ship from Salt Lake City (SLC)?
+
+What are the possible values of OrderStatus, and which one means the order has shipped? Do you ever report "delivered", or does the status stop at shipped with a tracking number?
+
+Will you set up our products as items on your side, or would you like us to create them through /api/ItemDatas? Either way, please send the SKU for each THINNR product so we can map them. For now we'll test with Test01–Test05.
+
+If a customer changes their address or cancels before the order ships, can we update or cancel it through PUT /api/OrderDatas? Up to what point (e.g. before it's picked, before the label prints)?
+
+If an order can't be fulfilled (bad address, item out of stock), how does that show up? A specific OrderStatus, or do we hear from your team?
+
+We plan to check /api/OrderStatusDatas about every 15 minutes for orders from the last few days. Is that fine, or do you have a rate limit or preferred frequency? Do you offer any kind of webhook or callback we should use instead?
+
+Are the username and password sent as HTTP Basic auth on every request, or is there a login call that returns a token?
+
+We'll send our order number (format TH-XXXXXX) as ClientOrderId. Are there any character or length restrictions beyond the 1–100 shown in the docs, and are ClientOrderIds required to be unique on your side?
+
+Thanks again, looking forward to your response!
+
+> **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> Hello Andrew,
+>
+> Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> >
+> > That's pefect.
+> >
+> > Looking forward to getting those credentials, thanks!
+> >
+> > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > >
+> > > Hello Andrew,
+> > >
+> > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > >
+> > > Cheers,
+> > >
+> > > George Coon
+> > >
+> > > ![image.png](inline-image-placeholder)
+> > >
+> > > Imagine Supply Chain
+> > > 543 N Neil Armstrong Rd
+> > > Salt Lake City, UT 84116
+> > > 801.598.2144
+> > >
+> > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > >
+> > > > Amazing, let’s definitely go the API route.
+> > > >
+> > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > >
+> > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > >
+> > > > I will review the documentation here later on my end!
+> > > >
+> > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > >
+> > > > > Hello LeAnn,
+> > > > >
+> > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > >
+> > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > >
+> > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > >
+> > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > >
+> > > > > Cheers,
+> > > > >
+> > > > > George Coon
+> > > > >
+> > > > > ![image.png](inline-image-placeholder)
+> > > > >
+> > > > > Imagine Supply Chain
+> > > > > 543 N Neil Armstrong Rd
+> > > > > Salt Lake City, UT 84116
+> > > > > 801.598.2144
+> > > > >
+> > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > >
+> > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > >
+> > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > >
+> > > > > > > External!
+> > > > > > >
+> > > > > > > Kelsey and Leann,
+> > > > > > >
+> > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > >
+> > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > >
+> > > > > > >
+> > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > >
+> > > > > > > Dr. Jason Strotheide
+> > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > >
+> > > > > > >
+> > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > **Date:** September 14, 2026 at 3:35 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 14, 2026 at 6:23 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > **Date:** September 14, 2026 at 9:13 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **Date:** September 15, 2026 at 11:18 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 12
+**From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+**To:** George Coon, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 17, 2026 at 11:28 AM
+
+Just to clarify as well, sorry again for the rapid fire questions...
+
+Is there an ability to pull shipping cost from your api for new orders or no?
+
+> **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> Hello Andrew,
+>
+> Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> >
+> > That's pefect.
+> >
+> > Looking forward to getting those credentials, thanks!
+> >
+> > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > >
+> > > Hello Andrew,
+> > >
+> > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > >
+> > > Cheers,
+> > >
+> > > George Coon
+> > >
+> > > ![image.png](inline-image-placeholder)
+> > >
+> > > Imagine Supply Chain
+> > > 543 N Neil Armstrong Rd
+> > > Salt Lake City, UT 84116
+> > > 801.598.2144
+> > >
+> > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > >
+> > > > Amazing, let’s definitely go the API route.
+> > > >
+> > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > >
+> > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > >
+> > > > I will review the documentation here later on my end!
+> > > >
+> > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > >
+> > > > > Hello LeAnn,
+> > > > >
+> > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > >
+> > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > >
+> > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > >
+> > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > >
+> > > > > Cheers,
+> > > > >
+> > > > > George Coon
+> > > > >
+> > > > > ![image.png](inline-image-placeholder)
+> > > > >
+> > > > > Imagine Supply Chain
+> > > > > 543 N Neil Armstrong Rd
+> > > > > Salt Lake City, UT 84116
+> > > > > 801.598.2144
+> > > > >
+> > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > >
+> > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > >
+> > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > >
+> > > > > > > External!
+> > > > > > >
+> > > > > > > Kelsey and Leann,
+> > > > > > >
+> > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > >
+> > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > >
+> > > > > > >
+> > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > >
+> > > > > > > Dr. Jason Strotheide
+> > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > >
+> > > > > > >
+> > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > **Date:** September 14, 2026 at 3:35 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 14, 2026 at 6:23 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > **Date:** September 14, 2026 at 9:13 PM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **Date:** September 15, 2026 at 11:18 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 13
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide
+**Date:** September 17, 2026 at 4:50 PM
+
+Hello Andrew,
+
+You bet, and for the reports site, below are your credentials.
+
+Username: [andrew1@thinnrweightloss.com](mailto:andrew1@thinnrweightloss.com) Password: W3lc0m3!
+
+Upon logging in, you can go under your name, manage, and then reset your password.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 17, 2026 at 8:27 AM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> Great, thank you for this.
+>
+> Is there any sort of backend login that I can review to see that things are coming in to your end properly?
+>
+> Sorry, I realize I'm a little out of the loop but this should be pretty easy to configure from my end, your docs are pretty simple!
+>
+> > **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello Andrew,
+> >
+> > Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > >
+> > > That's pefect.
+> > >
+> > > Looking forward to getting those credentials, thanks!
+> > >
+> > > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > >
+> > > > Hello Andrew,
+> > > >
+> > > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > > >
+> > > > Cheers,
+> > > >
+> > > > George Coon
+> > > >
+> > > > ![image.png](inline-image-placeholder)
+> > > >
+> > > > Imagine Supply Chain
+> > > > 543 N Neil Armstrong Rd
+> > > > Salt Lake City, UT 84116
+> > > > 801.598.2144
+> > > >
+> > > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > > >
+> > > > > Amazing, let’s definitely go the API route.
+> > > > >
+> > > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > > >
+> > > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > > >
+> > > > > I will review the documentation here later on my end!
+> > > > >
+> > > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > > >
+> > > > > > Hello LeAnn,
+> > > > > >
+> > > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > > >
+> > > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > > >
+> > > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > > >
+> > > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > > >
+> > > > > > Cheers,
+> > > > > >
+> > > > > > George Coon
+> > > > > >
+> > > > > > ![image.png](inline-image-placeholder)
+> > > > > >
+> > > > > > Imagine Supply Chain
+> > > > > > 543 N Neil Armstrong Rd
+> > > > > > Salt Lake City, UT 84116
+> > > > > > 801.598.2144
+> > > > > >
+> > > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > > >
+> > > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > > >
+> > > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > > >
+> > > > > > > > External!
+> > > > > > > >
+> > > > > > > > Kelsey and Leann,
+> > > > > > > >
+> > > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > > >
+> > > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > > >
+> > > > > > > > Dr. Jason Strotheide
+> > > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > —
+> > > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > > >
+> > > > > > > ---
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > > **Date:** September 14, 2026 at 3:35 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 6:23 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > **Date:** September 14, 2026 at 9:13 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 15, 2026 at 11:18 AM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 17, 2026 at 8:27 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 14
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 17, 2026 at 5:15 PM
+
+Hello Andrew,
+Good questions, and the answers are below in color .
+Your ShippingMethod field takes a specific carrier code (UPS_Ground, USPS_Priority, FEDEX_HomeDelivery, etc.). Which code should we send for our standard orders? Is there a second one you'd recommend for expedited? For standard orders I'd recommend USPS_GroundAdvantage, and then for expedited orders I'd recommend USPS_PriorityMail. Should all THINNR orders go to Memphis (MEM), or will some ship from Salt Lake City (SLC)? This is a good question for Kelsey. What are the possible values of OrderStatus, and which one means the order has shipped? Do you ever report "delivered", or does the status stop at shipped with a tracking number? See table below for order statuses. Shipped and Closed status both indicate an order has been shipped. We do not report delivered in this API (but there is a separate optional shipping API which does)
+
+Order Status Description
+Imported An order that has been imported.
+Created A manually created order.
+On Hold The order has been set aside and is not currently being fulfilled. The items are also not included in the reserved inventory amount.
+Editing A newly created or cloned order that has not yet been released for fulfillment.
+Modified An imported order that has been manually modified.
+Reset An order which has been reset back to a pre-printed status.
+Back Order Orders calling for an item quantity that would put the reserved inventory amount below zero.
+Released Back Order An order on back order that has been released so it can be committed.
+Committed An order which has inventory committed to it and is ready to be fulfilled.
+Being Fulfilled Packing slip has been printed and the order has been sent to the warehouse floor.
+Fulfilled Order has been picked and the inventory has been deducted.
+Shipped The tracking number has been uploaded to the order.
+Closed The tracking information for the order has been exported and sent to the client.
+Cancelled The order is no longer being fulfilled and the items have been returned to inventory.
+
+Will you set up our products as items on your side, or would you like us to create them through /api/ItemDatas? Either way, please send the SKU for each THINNR product so we can map them. For now we'll test with Test01–Test05. This is a good question for Kelsey, based on how she'd like these managed. If a customer changes their address or cancels before the order ships, can we update or cancel it through PUT /api/OrderDatas? Up to what point (e.g. before it's picked, before the label prints)? Yes, you can update the order through PUT /api/OrderDatas.
+
+* The following statuses can be updated: Imported,On Hold,Back Order,Cancelled,Created,Modified,Reset,Released Back Order,Editing
+* For editing an address: the Committed status is also added to the list above
+
+If an order can't be fulfilled (bad address, item out of stock), how does that show up? A specific OrderStatus, or do we hear from your team? If the item is out of stock, then the order will go onto Back Order status. If there is a bad address, you'll most likely hear from the team, but Kelsey will need to confirm that. We plan to check /api/OrderStatusDatas about every 15 minutes for orders from the last few days. Is that fine, or do you have a rate limit or preferred frequency? Do you offer any kind of webhook or callback we should use instead? Thank you for asking and there are not webhooks in this system and so checking every 15 minutes will be just fine. Are the username and password sent as HTTP Basic auth on every request, or is there a login call that returns a token? Yes, credentials are basic auth. We'll send our order number (format TH-XXXXXX) as ClientOrderId. Are there any character or length restrictions beyond the 1–100 shown in the docs, and are ClientOrderIds required to be unique on your side? No character restrictions beyond the limit. However, the USPS system has issues with #, so I'd avoid that symbol if you can. Also, you are correct, the ClientOrderIds need to be unique in our system. That way we can catch and reject duplicate submissions.
+As you have follow up questions, please let me know.
+
+Cheers,
+
+George Coon
+
+Imagine Supply Chain
+
+543 N Neil Armstrong Rd
+
+Salt Lake City, UT 84116
+
+801.598.2144
+
+> **On September 17, 2026 at 8:30 AM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> Just gave this a quick read over and have a few simple questions.
+>
+> Your ShippingMethod field takes a specific carrier code (UPS_Ground, USPS_Priority, FEDEX_HomeDelivery, etc.). Which code should we send for our standard orders? Is there a second one you'd recommend for expedited?
+>
+> Should all THINNR orders go to Memphis (MEM), or will some ship from Salt Lake City (SLC)?
+>
+> What are the possible values of OrderStatus, and which one means the order has shipped? Do you ever report "delivered", or does the status stop at shipped with a tracking number?
+>
+> Will you set up our products as items on your side, or would you like us to create them through /api/ItemDatas? Either way, please send the SKU for each THINNR product so we can map them. For now we'll test with Test01–Test05.
+>
+> If a customer changes their address or cancels before the order ships, can we update or cancel it through PUT /api/OrderDatas? Up to what point (e.g. before it's picked, before the label prints)?
+>
+> If an order can't be fulfilled (bad address, item out of stock), how does that show up? A specific OrderStatus, or do we hear from your team?
+>
+> We plan to check /api/OrderStatusDatas about every 15 minutes for orders from the last few days. Is that fine, or do you have a rate limit or preferred frequency? Do you offer any kind of webhook or callback we should use instead?
+>
+> Are the username and password sent as HTTP Basic auth on every request, or is there a login call that returns a token?
+>
+> We'll send our order number (format TH-XXXXXX) as ClientOrderId. Are there any character or length restrictions beyond the 1–100 shown in the docs, and are ClientOrderIds required to be unique on your side?
+>
+> Thanks again, looking forward to your response!
+>
+> > **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello Andrew,
+> >
+> > Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > >
+> > > That's pefect.
+> > >
+> > > Looking forward to getting those credentials, thanks!
+> > >
+> > > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > >
+> > > > Hello Andrew,
+> > > >
+> > > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > > >
+> > > > Cheers,
+> > > >
+> > > > George Coon
+> > > >
+> > > > ![image.png](inline-image-placeholder)
+> > > >
+> > > > Imagine Supply Chain
+> > > > 543 N Neil Armstrong Rd
+> > > > Salt Lake City, UT 84116
+> > > > 801.598.2144
+> > > >
+> > > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > > >
+> > > > > Amazing, let’s definitely go the API route.
+> > > > >
+> > > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > > >
+> > > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > > >
+> > > > > I will review the documentation here later on my end!
+> > > > >
+> > > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > > >
+> > > > > > Hello LeAnn,
+> > > > > >
+> > > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > > >
+> > > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > > >
+> > > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > > >
+> > > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > > >
+> > > > > > Cheers,
+> > > > > >
+> > > > > > George Coon
+> > > > > >
+> > > > > > ![image.png](inline-image-placeholder)
+> > > > > >
+> > > > > > Imagine Supply Chain
+> > > > > > 543 N Neil Armstrong Rd
+> > > > > > Salt Lake City, UT 84116
+> > > > > > 801.598.2144
+> > > > > >
+> > > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > > >
+> > > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > > >
+> > > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > > >
+> > > > > > > > External!
+> > > > > > > >
+> > > > > > > > Kelsey and Leann,
+> > > > > > > >
+> > > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > > >
+> > > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > > >
+> > > > > > > > Dr. Jason Strotheide
+> > > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > —
+> > > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > > >
+> > > > > > > ---
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > > **Date:** September 14, 2026 at 3:35 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 6:23 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > **Date:** September 14, 2026 at 9:13 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 15, 2026 at 11:18 AM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 17, 2026 at 8:30 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 15
+**From:** George Coon <george@imaginesupplychain.com>
+**To:** Andrew Strotheide, LeAnn Gammill, Jason Strotheide, Kelsey Hensley
+**Date:** September 17, 2026 at 6:28 PM
+
+Hello Andrew,
+
+No worries at all, and there is a separate shipping API which does have that capability.
+
+[api.warehousecraft.com/](https://api.warehousecraft.com/)
+
+
+• [POST api/general/ShippingRates](https://api.warehousecraft.com/Help/Api/POST-api-general-ShippingRates): Allows you to query shipping rates
+• [GET api/OrderStatus/ByDate?StartDate={StartDate}&EndDate={EndDate}](https://api.warehousecraft.com/Help/Api/GET-api-OrderStatus-ByDate_StartDate_EndDate): Allows you to see the delivery status of an order
+
+
+If you're interested in this shipping service API, let me know.
+
+Cheers,
+
+George Coon
+
+![image.png](inline-image-placeholder)
+
+Imagine Supply Chain
+543 N Neil Armstrong Rd
+Salt Lake City, UT 84116
+801.598.2144
+
+> **On September 17, 2026 at 9:28 AM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+>
+> Just to clarify as well, sorry again for the rapid fire questions...
+>
+> Is there an ability to pull shipping cost from your api for new orders or no?
+>
+> > **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+> >
+> > Hello Andrew,
+> >
+> > Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+> >
+> > Cheers,
+> >
+> > George Coon
+> >
+> > ![image.png](inline-image-placeholder)
+> >
+> > Imagine Supply Chain
+> > 543 N Neil Armstrong Rd
+> > Salt Lake City, UT 84116
+> > 801.598.2144
+> >
+> > > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > >
+> > > That's pefect.
+> > >
+> > > Looking forward to getting those credentials, thanks!
+> > >
+> > > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > >
+> > > > Hello Andrew,
+> > > >
+> > > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > > >
+> > > > Cheers,
+> > > >
+> > > > George Coon
+> > > >
+> > > > ![image.png](inline-image-placeholder)
+> > > >
+> > > > Imagine Supply Chain
+> > > > 543 N Neil Armstrong Rd
+> > > > Salt Lake City, UT 84116
+> > > > 801.598.2144
+> > > >
+> > > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > > >
+> > > > > Amazing, let’s definitely go the API route.
+> > > > >
+> > > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > > >
+> > > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > > >
+> > > > > I will review the documentation here later on my end!
+> > > > >
+> > > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > > >
+> > > > > > Hello LeAnn,
+> > > > > >
+> > > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > > >
+> > > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > > >
+> > > > > > [novexapi.warehousecraft.com/Help](https://novexapi.warehousecraft.com/Help)
+> > > > > >
+> > > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > > >
+> > > > > > Cheers,
+> > > > > >
+> > > > > > George Coon
+> > > > > >
+> > > > > > ![image.png](inline-image-placeholder)
+> > > > > >
+> > > > > > Imagine Supply Chain
+> > > > > > 543 N Neil Armstrong Rd
+> > > > > > Salt Lake City, UT 84116
+> > > > > > 801.598.2144
+> > > > > >
+> > > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > > >
+> > > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > > >
+> > > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > > >
+> > > > > > > > External!
+> > > > > > > >
+> > > > > > > > Kelsey and Leann,
+> > > > > > > >
+> > > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > > >
+> > > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > > >
+> > > > > > > > Dr. Jason Strotheide
+> > > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > > >
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > —
+> > > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > > >
+> > > > > > > ---
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > > **Date:** September 14, 2026 at 3:35 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > **Date:** September 14, 2026 at 6:23 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > **Date:** September 14, 2026 at 9:13 PM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** George Coon <george@imaginesupplychain.com>
+> > **Date:** September 15, 2026 at 11:18 AM
+>
+> ---
+>
+>
+>
+> —
+> **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 17, 2026 at 9:28 AM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+
+---
+
+### Message 16
+**From:** Angie Dominguez Chong <angie.dominguezchong@novexit.com>
+**To:** George Coon, Andrew Strotheide, LeAnn Gammill, Jason Strotheide
+**Date:** September 18, 2026 at 3:20 PM
+
+Hi Jason and Andrew, Attached is the pricing proposal, including the shipping rates we quoted for Slimcell. Please let us know if you have any questions or if there’s anything else we can provide.
+
+Angie Dominguez-Chong
+Executive Assistant
+
+****
+
+** [NovEx TN NovEx UT](https://novexit.com/)**
+
+** Memphis Metro Salt Lake City**
+
+1085 Stateline Rd E 6195 W 300 S
+
+Suite 100 Suite 300
+
+Southaven, MS 38671 Salt Lake City, UT 84104
+
+Office: 901-567-4077
+
+Direct: 901-567-4077 x207
+
+> **On September 17, 2026 at 4:28 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+>
+> External!
+>
+> Hello Andrew,
+>
+> No worries at all, and there is a separate shipping API which does have that capability.
+>
+> [https://api.warehousecraft.com/](https://clickprotect-us.emailsecurity.app/l/v1/CWl4EHToExhf)
+>
+>
+> • [POST api/general/ShippingRates](https://clickprotect-us.emailsecurity.app/l/v1/qovmPyfBbEE9): Allows you to query shipping rates
+> • [GET api/OrderStatus/ByDate?StartDate={StartDate}&EndDate={EndDate}](https://clickprotect-us.emailsecurity.app/l/v1/wZWLpPW6XdeF): Allows you to see the delivery status of an order
+>
+>
+> If you're interested in this shipping service API, let me know.
+>
+> Cheers,
+>
+> George Coon
+>
+> ![image.png](inline-image-placeholder)
+>
+> Imagine Supply Chain
+> 543 N Neil Armstrong Rd
+> Salt Lake City, UT 84116
+> 801.598.2144
+>
+> > **On September 17, 2026 at 9:28 AM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> >
+> > Just to clarify as well, sorry again for the rapid fire questions...
+> >
+> > Is there an ability to pull shipping cost from your api for new orders or no?
+> >
+> > ![Inline Image](inline-image-placeholder)
+> >
+> > > **On September 15, 2026 at 11:18 AM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > >
+> > > Hello Andrew,
+> > >
+> > > Those credentials have now been sent over to you, along with the endpoints to use. As you have questions, please reach out and ask.
+> > >
+> > > Cheers,
+> > >
+> > > George Coon
+> > >
+> > > ![image.png](inline-image-placeholder)
+> > >
+> > > Imagine Supply Chain
+> > > 543 N Neil Armstrong Rd
+> > > Salt Lake City, UT 84116
+> > > 801.598.2144
+> > >
+> > > > **On September 14, 2026 at 9:13 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > >
+> > > > That's pefect.
+> > > >
+> > > > Looking forward to getting those credentials, thanks!
+> > > >
+> > > > ![Inline Image](inline-image-placeholder)
+> > > >
+> > > > > **On September 14, 2026 at 6:23 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > >
+> > > > > Hello Andrew,
+> > > > >
+> > > > > Good question, and when we send over credentials, they will be to a test environment. Then when you're ready, we'll switch your credentials on our end to the production environment.
+> > > > >
+> > > > > Cheers,
+> > > > >
+> > > > > George Coon
+> > > > >
+> > > > > ![image.png](inline-image-placeholder)
+> > > > >
+> > > > > Imagine Supply Chain
+> > > > > 543 N Neil Armstrong Rd
+> > > > > Salt Lake City, UT 84116
+> > > > > 801.598.2144
+> > > > >
+> > > > > > **On September 14, 2026 at 3:35 PM, Andrew Strotheide <andrew@thinnrweightloss.com>, wrote:**
+> > > > > >
+> > > > > > Amazing, let’s definitely go the API route.
+> > > > > >
+> > > > > > I’ll review the documentation and let me know what else we need to move forward.
+> > > > > >
+> > > > > > I assume you also have in your documentation how to submit test orders and test difference, statuses and stuff like this as well?
+> > > > > >
+> > > > > > I will review the documentation here later on my end!
+> > > > > >
+> > > > > > ![Inline Image](inline-image-placeholder)
+> > > > > >
+> > > > > > > **On September 14, 2026 at 4:29 PM, George Coon <george@imaginesupplychain.com>, wrote:**
+> > > > > > >
+> > > > > > > Hello LeAnn,
+> > > > > > >
+> > > > > > > I appreciate you bringing me in. If Thinnr is an add-on app to another app such as Shopify or WooCommerce, then we could connect up to the core app to pull in the orders and pass back the tracking.
+> > > > > > >
+> > > > > > > If Thinnr is its own shopping cart which connects up to other apps, then you can send us orders and pull back tracking through our API. If you're looking to go this route, below are the API docs.
+> > > > > > >
+> > > > > > > [https://novexapi.warehousecraft.com/Help](https://clickprotect-us.emailsecurity.app/l/v1/7aP0bTn1iBjq)
+> > > > > > >
+> > > > > > > From Andrew's initial request, it sounds like coding to our API is the route you're looking to go. If that's the case, then we can get you setup with credentials.
+> > > > > > >
+> > > > > > > Cheers,
+> > > > > > >
+> > > > > > > George Coon
+> > > > > > >
+> > > > > > > ![image.png](inline-image-placeholder)
+> > > > > > >
+> > > > > > > Imagine Supply Chain
+> > > > > > > 543 N Neil Armstrong Rd
+> > > > > > > Salt Lake City, UT 84116
+> > > > > > > 801.598.2144
+> > > > > > >
+> > > > > > > > **On September 14, 2026 at 2:08 PM, LeAnn Gammill <leann.gammill@NovExIt.com>, wrote:**
+> > > > > > > >
+> > > > > > > > Im attaching our developer [@George Coon](mailto:george@imaginesupplychain.com) here. Im unsure about what all he would need to get this set up. Are these orders tied to a shopping cart ? I think thats what he would first need to know.
+> > > > > > > >
+> > > > > > > > > **On September 14, 2026 at 10:17 AM, Jason Strotheide <jason@thinnrweightloss.com>, wrote:**
+> > > > > > > > >
+> > > > > > > > > External!
+> > > > > > > > >
+> > > > > > > > > Kelsey and Leann,
+> > > > > > > > >
+> > > > > > > > > We're building a new Thinnr app that will let patients place orders through the app. That said, see below for the request for information needed to set things up on our end.
+> > > > > > > > >
+> > > > > > > > > Let’s get a time on the schedule to speak today or tomorrow, but today is preferred.
+> > > > > > > > >
+> > > > > > > > >
+> > > > > > > > > <Screenshot 2026-09-14 at 11.10.00 AM.png>
+> > > > > > > > >
+> > > > > > > > > Dr. Jason Strotheide
+> > > > > > > > > SlimCell LLC / Thinnr Weight Loss
+> > > > > > > > >
+> > > > > > > > >
+> > > > > > > > > This email and any attachments are intended solely for the individual or entity addressed and may contain confidential, proprietary, or privileged information. Any unauthorized review, use, disclosure, or distribution is prohibited. If you received this message in error, please notify the sender and delete it from all systems.
+> > > > > > > > > If this email contains information related to patient care, it is for educational purposes only and is not intended to replace independent clinical judgment or individualized patient care decisions by a licensed healthcare provider.
+> > > > > > > > >
+> > > > > > > > >
+> > > > > > > > >
+> > > > > > > > > —
+> > > > > > > > > **From:** Jason Strotheide <jason@thinnrweightloss.com>
+> > > > > > > > > **To:** Kelsey Hensley <kelsey@novexit.com>; LeAnn Gammill <leann.gammill@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > > > > **Date:** September 14, 2026 at 10:17 AM
+> > > > > > > >
+> > > > > > > > ---
+> > > > > > > >
+> > > > > > > >
+> > > > > > > >
+> > > > > > > > —
+> > > > > > > > **From:** LeAnn Gammill <leann.gammill@NovExIt.com>
+> > > > > > > > **To:** Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>; Andrew Strotheide <andrew@thinnrweightloss.com>; George Coon <george@imaginesupplychain.com>
+> > > > > > > > **Date:** September 14, 2026 at 2:08 PM
+> > > > > > >
+> > > > > > > ---
+> > > > > > >
+> > > > > > >
+> > > > > > >
+> > > > > > > —
+> > > > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > > > **Date:** September 14, 2026 at 4:29 PM
+> > > > > >
+> > > > > > ---
+> > > > > >
+> > > > > >
+> > > > > >
+> > > > > > —
+> > > > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > > > **Date:** September 14, 2026 at 3:35 PM
+> > > > >
+> > > > > ---
+> > > > >
+> > > > >
+> > > > >
+> > > > > —
+> > > > > **From:** George Coon <george@imaginesupplychain.com>
+> > > > > **Date:** September 14, 2026 at 6:23 PM
+> > > >
+> > > > ---
+> > > >
+> > > >
+> > > >
+> > > > —
+> > > > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > > > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > > > **Date:** September 14, 2026 at 9:13 PM
+> > >
+> > > ---
+> > >
+> > >
+> > >
+> > > —
+> > > **From:** George Coon <george@imaginesupplychain.com>
+> > > **Date:** September 15, 2026 at 11:18 AM
+> >
+> > ---
+> >
+> >
+> >
+> > —
+> > **From:** Andrew Strotheide <andrew@thinnrweightloss.com>
+> > **To:** George Coon <george@imaginesupplychain.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> > **Date:** September 17, 2026 at 9:28 AM
+>
+> ---
+>
+>
+>
+> —
+> **From:** George Coon <george@imaginesupplychain.com>
+> **To:** Andrew Strotheide <andrew@thinnrweightloss.com>; LeAnn Gammill <leann.gammill@novexit.com>; Jason Strotheide <jason@thinnrweightloss.com>; Kelsey Hensley <kelsey@novexit.com>
+> **Date:** September 17, 2026 at 4:28 PM
+
+---
+
+
+
+📎 **Attachments**
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- image.png (7 KB)
+- Pricing Proposal - SlimCell LLC, Thinnr Weight Loss.pdf (1.6 MB)
+
+---
+

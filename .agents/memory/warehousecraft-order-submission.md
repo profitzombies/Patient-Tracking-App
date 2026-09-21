@@ -7,6 +7,12 @@ description: Durable rules for sending paid orders to the 3PL (WarehouseCraft/No
 
 **Why:** First integration attempt against the documented paths returned 404s; the account's swagger exposes the older controller. The lookup-shape mismatch produced a false test failure that was fixed in the test, not the client.
 
+**Vendor test-environment evidence:** Email dated 2026-09-15 confirms the supplied API credentials initially point to a test environment with SKUs Test01–Test05. Email dated 2026-09-14 says the vendor switches those credentials to production on its end when requested.
+
+**Why:** The same credentials can change environment without a local URL/key change. The vendor's initial sandbox confirmation is real evidence, but not permanent proof after a production cutover.
+
+**How to apply:** Use the vendor's test SKUs for coordinated sandbox tests; check for a subsequent cutover before submitting. Do not assume a local test flag overrides the vendor-side environment, and never copy emailed credentials into code, logs, or memory.
+
 **How to apply:**
 - Submission intent is a DB trigger on the paid transition plus an app-side `ensureSubmission` fallback; the submissions table IS the queue, the shipment row only mirrors the outcome. New order-creating paths need neither hook (the trigger fires) but must set `warehouse_sku` on catalog rows or the intent lands in needs_attention as "incomplete" without calling the warehouse.
 - Classification: duplicate ClientOrderId → lookup → sent; explicit rejection / other 4xx → permanent (needs_attention + staff alert); network/5xx/401/429 → transient with 2min·2^(n−1) backoff (cap 6 h, 12 attempts then exhausted). Kill switch = `billing_settings.warehouse_auto_submit`; the drain skips without touching intents.

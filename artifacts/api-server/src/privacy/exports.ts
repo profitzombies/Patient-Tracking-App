@@ -176,6 +176,11 @@ export interface PatientArchiveSections {
     recents: unknown[];
   };
   checkIns: Array<Record<string, unknown>>;
+  rewards?: {
+    state: Record<string, unknown> | null;
+    events: Array<Record<string, unknown>>;
+    awards: Array<Record<string, unknown>>;
+  };
   measurements: {
     healthImports: Array<Record<string, unknown>>;
     bodyMeasurements: Array<Record<string, unknown>>;
@@ -223,7 +228,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess, editHistory] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, rewardState, rewardEvents, rewardAwards, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess, editHistory] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -235,6 +240,9 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       rows(`/rest/v1/patient_custom_foods?${scope}&select=food_id,name,brand,serving,calories,protein,carbs,fat,photo_path,created_at,updated_at&order=created_at.asc&limit=${MAX_ROWS}`, "custom foods"),
       rows(`/rest/v1/patient_saved_recipes?${scope}&select=recipe_id,name,meal,mode,tags,minutes,servings,calories,protein,carbs,fat,description,ingredients,steps,grocery_list,saved_at,photo_path,created_at,updated_at&order=created_at.asc&limit=${MAX_ROWS}`, "saved recipes"),
       rows(`/rest/v1/patient_check_ins?${scope}&select=check_in_id,date_key,weight,mood,side_effects,notes,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "check-ins"),
+      rows(`/rest/v1/patient_reward_state?${scope}&select=catalog_version,enrolled_at,enrollment_date,baseline_weight,baseline_goal_weight,created_at,updated_at&limit=1`, "reward state"),
+      rows(`/rest/v1/patient_reward_events?${scope}&select=event_key,category,label,xp,occurred_on,created_at&order=occurred_on.asc,created_at.asc&limit=${MAX_ROWS}`, "reward events"),
+      rows(`/rest/v1/patient_reward_awards?${scope}&select=award_id,category,title,description,requirement,target,unit,xp_award,earned_at&order=earned_at.asc&limit=${MAX_ROWS}`, "reward awards"),
       rows(`/rest/v1/patient_health_measurements?${scope}&select=source,source_id,kind,value,measured_at,imported_at&order=measured_at.asc&limit=${MAX_ROWS}`, "health measurements"),
       rows(`/rest/v1/patient_body_measurements?${scope}&select=visit_id,date_key,note,neck,chest,left_arm,right_arm,waist,hips,left_thigh,right_thigh,left_calf,right_calf,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "body measurements"),
       rows(`/rest/v1/patient_staff_weights?${scope}&select=weight_id,date_key,weight,note,recorded_by_name,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "clinic weights"),
@@ -424,6 +432,11 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       recents: Array.isArray(prefRow?.recents) ? (prefRow.recents as unknown[]) : [],
     },
     checkIns,
+    rewards: {
+      state: rewardState[0] ?? null,
+      events: rewardEvents,
+      awards: rewardAwards,
+    },
     measurements: { healthImports: health, bodyMeasurements: body, clinicWeights: staffWeights },
     medications: { list: medications, doseLogs },
     photos,
@@ -483,6 +496,7 @@ export function archiveJsonSections(sections: PatientArchiveSections): Array<{ n
     { name: "targets.json", body: json(sections.targets) },
     { name: "library.json", body: json(sections.library) },
     { name: "check-ins.json", body: json(sections.checkIns) },
+    { name: "rewards.json", body: json(sections.rewards ?? { state: null, events: [], awards: [] }) },
     { name: "measurements.json", body: json(sections.measurements) },
     { name: "medications.json", body: json(sections.medications) },
     { name: "photos.json", body: json(sections.photos) },

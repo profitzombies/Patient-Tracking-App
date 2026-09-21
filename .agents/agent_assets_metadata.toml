@@ -234,3 +234,17 @@ mtime_ms = 1789827691956
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/38ce97fd-ae9e-4ad3-888f-8b624496fca6/0e96ee15-b543-48ac-bb30-f090e381cfc5"
 storage_version_token = "1789827699896562"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "MlbZkxx2b4rE2JHzdDF9f"
+uri = "file://screenshots/patient-rewards-preview.jpg"
+type = "image"
+title = "THINNR patient rewards phone preview"
+description = "Phone-sized deterministic demo preview covering Rewards, My awards, Next awards, and the restrained celebration state. It is labeled demo data and performs no live writes."
+logical_id = "87c4f16f-fa35-46b8-b2d7-39fc61a0ee99"
+content_hash = "sha256:85ff6b2f4b5d292c516d33b983e8b75ae7ce0db20862e0bba3e58737362b8009"
+size = 30073
+mtime_ms = 1790000392947
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:4c78631c-d629-4f46-aa2e-dbe1e90c6e41/87c4f16f-fa35-46b8-b2d7-39fc61a0ee99/edd35a36-125b-477f-b3cb-f723ecb2f553"
+storage_version_token = "1790000666319020"
+content_type = "image/jpeg"

@@ -299,6 +299,9 @@ function RootLayoutNav() {
       <Stack.Screen name="restaurant-guide/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="menu-scan" options={{ headerShown: false }} />
       <Stack.Screen name="instructions" options={{ headerShown: false }} />
+      <Stack.Screen name="rewards" options={{ headerShown: false }} />
+      <Stack.Screen name="rewards/my-awards" options={{ headerShown: false }} />
+      <Stack.Screen name="rewards/next-awards" options={{ headerShown: false }} />
       <Stack.Screen name="phase/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="training-course/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="training-lesson/[courseId]/[videoId]" options={{ headerShown: false }} />

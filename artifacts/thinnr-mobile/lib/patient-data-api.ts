@@ -39,6 +39,7 @@ import type {
   PatientFlagsWrite,
   PatientProfile,
   PatientProfileWrite,
+  PatientRewardsState,
   PatientServerState,
   PatientSetupWrite,
   ProgressPhotoWire,
@@ -937,6 +938,91 @@ function parseServerState(json: unknown): PatientServerState {
   };
 }
 
+function parseRewards(raw: unknown): PatientRewardsState {
+  if (typeof raw !== 'object' || raw === null) throw new PatientDataError(MALFORMED_MESSAGE);
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.catalogVersion !== 'number' ||
+    typeof value.enrolledAt !== 'string' ||
+    typeof value.enrollmentDate !== 'string' ||
+    typeof value.totalXp !== 'number' ||
+    typeof value.level !== 'number' ||
+    typeof value.levelXp !== 'number' ||
+    (value.nextLevelXp !== null && typeof value.nextLevelXp !== 'number') ||
+    typeof value.xpToNextLevel !== 'number' ||
+    !Array.isArray(value.awards) ||
+    !Array.isArray(value.history)
+  ) throw new PatientDataError(MALFORMED_MESSAGE);
+  const awards = value.awards.map(rawAward => {
+    const award = rawAward as Record<string, unknown>;
+    if (
+      typeof award.id !== 'string' ||
+      !['level', 'activity', 'goal'].includes(String(award.category)) ||
+      typeof award.title !== 'string' ||
+      typeof award.description !== 'string' ||
+      typeof award.requirement !== 'string' ||
+      typeof award.threshold !== 'number' ||
+      typeof award.progress !== 'number' ||
+      typeof award.unit !== 'string' ||
+      typeof award.xpAward !== 'number' ||
+      typeof award.earned !== 'boolean' ||
+      (award.earnedAt !== null && typeof award.earnedAt !== 'string')
+    ) throw new PatientDataError(MALFORMED_MESSAGE);
+    return {
+      id: award.id,
+      category: award.category as PatientRewardsState['awards'][number]['category'],
+      title: award.title,
+      description: award.description,
+      requirement: award.requirement,
+      threshold: award.threshold,
+      progress: award.progress,
+      unit: award.unit,
+      xpAward: award.xpAward,
+      earned: award.earned,
+      earnedAt: award.earnedAt as string | null,
+      icon: (typeof award.icon === 'string' ? award.icon : 'award') as PatientRewardsState['awards'][number]['icon'],
+    };
+  });
+  const history = value.history.map(rawEntry => {
+    const entry = rawEntry as Record<string, unknown>;
+    if (
+      typeof entry.id !== 'string' ||
+      typeof entry.label !== 'string' ||
+      !['daily', 'streak', 'goal', 'level'].includes(String(entry.category)) ||
+      typeof entry.xp !== 'number' ||
+      typeof entry.occurredOn !== 'string'
+    ) throw new PatientDataError(MALFORMED_MESSAGE);
+    return {
+      id: entry.id,
+      label: entry.label,
+      category: entry.category as PatientRewardsState['history'][number]['category'],
+      xp: entry.xp,
+      occurredOn: entry.occurredOn,
+    };
+  });
+  const streak = (input: unknown): Record<string, number> =>
+    typeof input === 'object' && input !== null && !Array.isArray(input)
+      ? Object.fromEntries(Object.entries(input).filter(([, n]) => typeof n === 'number')) as Record<string, number>
+      : {};
+  return {
+    catalogVersion: value.catalogVersion,
+    enrolledAt: value.enrolledAt,
+    enrollmentDate: value.enrollmentDate,
+    totalXp: value.totalXp,
+    level: value.level,
+    levelXp: value.levelXp,
+    nextLevelXp: value.nextLevelXp as number | null,
+    xpToNextLevel: value.xpToNextLevel,
+    currentStreak: streak(value.currentStreak),
+    bestStreak: streak(value.bestStreak),
+    awards,
+    history,
+    newlyUnlocked: Array.isArray(value.newlyUnlocked)
+      ? value.newlyUnlocked.filter((id): id is string => typeof id === 'string')
+      : [],
+  };
+}
+
 /** Re-throws privacy parse failures in the sync snackbar's plain words. */
 function privacyParsed<T>(parse: () => T): T {
   try {
@@ -981,6 +1067,11 @@ export const patientDataApi: PatientDataApi = {
         : null,
     );
     return parseServerState(json);
+  },
+
+  async fetchRewards(todayKey?: string): Promise<PatientRewardsState> {
+    const query = todayKey ? `?today=${encodeURIComponent(todayKey)}` : '';
+    return parseRewards(await authedRequest('GET', `/patient-data/rewards${query}`));
   },
 
   async writeEntries(

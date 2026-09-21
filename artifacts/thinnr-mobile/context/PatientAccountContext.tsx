@@ -73,6 +73,45 @@ export interface PatientEntryFacts {
   programDay: number;
 }
 
+export interface PatientRewardAward {
+  id: string;
+  category: 'level' | 'activity' | 'goal';
+  title: string;
+  description: string;
+  requirement: string;
+  threshold: number;
+  progress: number;
+  unit: string;
+  xpAward: number;
+  earned: boolean;
+  earnedAt: string | null;
+  icon: 'award' | 'check-circle' | 'calendar' | 'droplet' | 'trending-down' | 'flag';
+}
+
+export interface PatientRewardHistoryEntry {
+  id: string;
+  label: string;
+  category: 'daily' | 'streak' | 'goal' | 'level';
+  xp: number;
+  occurredOn: string;
+}
+
+export interface PatientRewardsState {
+  catalogVersion: number;
+  enrolledAt: string;
+  enrollmentDate: string;
+  totalXp: number;
+  level: number;
+  levelXp: number;
+  nextLevelXp: number | null;
+  xpToNextLevel: number;
+  currentStreak: Record<string, number>;
+  bestStreak: Record<string, number>;
+  awards: PatientRewardAward[];
+  history: PatientRewardHistoryEntry[];
+  newlyUnlocked: string[];
+}
+
 /** Canonical, server-owned patient identity and care-plan profile. */
 export interface PatientProfile {
   firstName: string;
@@ -144,6 +183,7 @@ export interface PatientServerState {
    * servers; the route gate treats absence as "consent not yet recorded".
    */
   privacy?: PrivacyState;
+  rewards?: PatientRewardsState;
 }
 
 /** One dose decision as it rides the wire (null status = clear the decision). */
@@ -258,6 +298,7 @@ export interface CoachRequestOptions {
 /** The live diary rail (implemented by lib/patient-data-api.ts). */
 export interface PatientDataApi {
   fetchState(fromKey?: string, toKey?: string, todayKey?: string): Promise<PatientServerState>;
+  fetchRewards(todayKey?: string): Promise<PatientRewardsState>;
   fetchProfile(): Promise<PatientProfile>;
   writeProfile(input: PatientProfileWrite): Promise<{ profile: PatientProfile }>;
   saveSetup(input: {

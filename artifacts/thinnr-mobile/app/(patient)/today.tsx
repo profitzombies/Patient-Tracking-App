@@ -839,6 +839,27 @@ export default function TodayScreen() {
             </View>
           </LedgerCard>
 
+          {/* ── Compact rewards entry ── */}
+          <LedgerCard
+            testID="today-rewards-entry"
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/rewards' as Href);
+            }}
+            style={styles.rewardsEntry}
+          >
+            <View style={[styles.rewardsEntryIcon, { backgroundColor: colors.orangeBg }]}>
+              <Feather name="award" size={17} color={colors.orangeText} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.cardLabel, { color: colors.labelText }]}>REWARDS</Text>
+              <Text style={[styles.rewardsEntryTitle, { color: colors.navyLight }]}>
+                Keep your progress visible
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={17} color={colors.cobalt} />
+          </LedgerCard>
+
           <SyntheticDisclaimer />
         </View>
       </ScrollView>
@@ -1241,6 +1262,25 @@ const styles = StyleSheet.create({
   sectionCard: {
     marginTop: 20,
     padding: 16,
+  },
+  rewardsEntry: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+  },
+  rewardsEntryIcon: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rewardsEntryTitle: {
+    fontSize: 13,
+    fontFamily: fonts.sansSemiBold,
+    marginTop: 3,
   },
   checkinDoneRow: {
     flexDirection: 'row',

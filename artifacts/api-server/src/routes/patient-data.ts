@@ -88,6 +88,15 @@ import {
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 
+async function reconcilePatientRewards(patientId: string, todayKey?: string): Promise<unknown> {
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_rewards_reconcile", {
+    p_patient_id: patientId,
+    ...(todayKey ? { p_today_key: todayKey } : {}),
+  });
+  if (result.status >= 300) throw new Error(`patient rewards reconcile failed (${result.status})`);
+  return result.json;
+}
+
 // ── Per-IP limits (demo posture: open route, bounded abuse) ─────────────────
 
 const WAIT_MESSAGE = "Too many requests from this connection. Please wait a moment and try again.";
@@ -1523,6 +1532,33 @@ router.get("/patient-data/state", async (req, res) => {
   }
 });
 
+router.get("/patient-data/rewards", async (req, res) => {
+  const slot = acquireReadSlot(clientIp(req));
+  if (!slot.ok) {
+    res.status(slot.status).json({ error: slot.message });
+    return;
+  }
+  try {
+    const auth = await resolvePatient(req);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
+      return;
+    }
+    const today = typeof req.query.today === "string" ? req.query.today : undefined;
+    if (today !== undefined && !isPlausibleDayKey(today)) {
+      res.status(400).json({ error: "Invalid reward date." });
+      return;
+    }
+    const rewards = await reconcilePatientRewards(auth.patientId, today);
+    res.json(rewards);
+  } catch (error) {
+    req.log?.error({ err: error }, "patient rewards fetch failed");
+    res.status(502).json({ error: "Couldn't load your rewards right now. Please try again." });
+  } finally {
+    slot.ok && slot.release();
+  }
+});
+
 router.post("/patient-data/entries", async (req, res) => {
   const slot = acquireWriteSlot(clientIp(req));
   if (!slot.ok) {
@@ -1602,6 +1638,9 @@ router.post("/patient-data/entries", async (req, res) => {
       headers: req.headers,
       sourceKeys: created.map((entryId) => `${auth.patientId}:${entryId}`),
     });
+    void reconcilePatientRewards(auth.patientId).catch((error) =>
+      req.log?.error({ err: error }, "patient rewards reconciliation deferred"),
+    );
 
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
@@ -1651,6 +1690,9 @@ router.put("/patient-data/water", async (req, res) => {
     if (upsert.status >= 300) throw new Error(`water upsert failed (${upsert.status})`);
     // HQ Insights: each save with water on the day is one water_log event.
     if ((body.oz as number) > 0) recordPatientEvent(auth.patientId, "water_log", { headers: req.headers });
+    void reconcilePatientRewards(auth.patientId).catch((error) =>
+      req.log?.error({ err: error }, "patient rewards reconciliation deferred"),
+    );
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data water write failed");
@@ -1723,6 +1765,9 @@ router.put("/patient-data/targets", async (req, res) => {
       "resolution=merge-duplicates,return=minimal",
     );
     if (upsert.status >= 300) throw new Error(`target upsert failed (${upsert.status})`);
+    void reconcilePatientRewards(auth.patientId).catch((error) =>
+      req.log?.error({ err: error }, "patient rewards reconciliation deferred"),
+    );
     await idem.finish(res, 200, { ok: true });
   } catch (error) {
     req.log?.error({ err: error }, "patient-data targets write failed");

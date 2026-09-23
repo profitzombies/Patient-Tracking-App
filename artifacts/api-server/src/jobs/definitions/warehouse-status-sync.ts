@@ -20,6 +20,7 @@
 import { runWarehouseStatusPoll, type SyncDeps } from "../../billing/warehouse-status-sync";
 import type { JobContext, JobDefinition } from "../types";
 import { forEachBillingScope } from "../../billing/lifecycle-scopes";
+import { forEachSandboxVerificationScope } from "../../billing/sandbox-verification";
 
 const MINUTE_MS = 60_000;
 
@@ -33,5 +34,9 @@ export const warehouseStatusSyncJob: JobDefinition = {
   description: "Polls WarehouseCraft for order status, tracking numbers, delivery, back orders, and cancellations of submitted orders and applies them to shipments (forward-only, one email per transition).",
   intervalMs: 5 * MINUTE_MS,
   leaseSeconds: 10 * 60,
-  run: (ctx) => forEachBillingScope(() => runWarehouseStatusSync(ctx), ["live"]),
+  run: async (ctx) => {
+    await forEachBillingScope(() => runWarehouseStatusSync(ctx), ["live"]);
+    // Flagged sandbox orders only (sandbox tenant); findSubmission ignores every other test row.
+    await forEachSandboxVerificationScope(() => runWarehouseStatusSync(ctx), ctx.now);
+  },
 };

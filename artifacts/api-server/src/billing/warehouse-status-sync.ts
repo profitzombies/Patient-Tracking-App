@@ -25,6 +25,7 @@ import {
   addDays, warehouseDate, warehouseStatusClient, type WarehouseOrderStatus, type WarehouseStatusClient,
 } from "../shipping/warehousecraft-status";
 import { notifyOrderShipped } from "./patient-notices";
+import { sandboxVerificationFor } from "./sandbox-verification";
 import { ensureShipment, recordShipment } from "./shipments";
 import {
   insert, remove, selectMany, selectOne, update, type BillingOrderRow, type BillingShipmentRow, type BillingWarehouseSubmissionRow,
@@ -96,7 +97,9 @@ async function findSubmission(row: WarehouseOrderStatus): Promise<{ submission: 
   } else {
     return "unmatched";
   }
-  if (order.livemode !== true || submission.state !== "sent") return "not_submitted";
+  if (submission.state !== "sent") return "not_submitted";
+  // Sandbox orders are invisible to the feed unless explicitly flagged for verification.
+  if (order.livemode !== true && !(await sandboxVerificationFor(order))) return "not_submitted";
   return { submission, order };
 }
 

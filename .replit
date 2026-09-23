@@ -504,6 +504,10 @@ args = "customer-email-ledger-api"
 task = "workflow.run"
 args = "customer-email-ledger-clients"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "sandbox-verification-gate"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3042,6 +3046,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "sandbox-verification-gate"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/sandbox-verification.test.ts src/billing/warehouse-submissions.test.ts src/billing/warehouse-status-sync.test.ts src/billing/patient-notices.test.ts src/billing/customer-emails.test.ts src/practice-launch/connect-safety.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

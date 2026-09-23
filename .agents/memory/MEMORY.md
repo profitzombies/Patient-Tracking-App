@@ -154,3 +154,5 @@
 - [Practice launch pricing](practice-launch-pricing.md) — user-approved 2× means THINNR product fee paid by the office, excluding shipping/card fees, not supplier cost or patient retail.
 - [Stripe setup reset policy](stripe-setup-reset-policy.md) — re-gating preserves connections; unfinished setup may restart, but financial history requires HQ investigation, never forced replacement.
 - [Customer email delivery ledger](customer-email-ledger.md) — one row per address with its own 3-try budget; deterministic failures never retry; staff sends are linked rows, never re-flipped claims.
+- [Sandbox verification gate](sandbox-verification-gate.md) — sandbox orders reach warehouse/email only under test tenant + per-order allowance row; vendor sandbox never ships itself; checkout needs X-Billing-Scope.
+- [Connect guard mode row](connect-guard-mode-row.md) — missing billing_mode_state must read as implicit Test/v0; 40001 raises surface as PostgREST timeouts; fixture connections attach via the guard RPC.

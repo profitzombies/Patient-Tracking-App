@@ -34,6 +34,7 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
       insert into practice_launch(provider_id,required) select provider_id,provider_id='new' from providers;
       insert into billing_connected_accounts(provider_id,stripe_account_id,stripe_mode,stripe_platform_account_id) select provider_id,'acct_'||provider_id,'test','acct_platform' from providers where provider_id<>'mode';`);
     sql(readFileSync(new URL("../../../../supabase/migrations/20261114000000_mandatory_connect_safe_restart.sql",import.meta.url),"utf8"));
+    sql(readFileSync(new URL("../../../../supabase/migrations/20261116010000_connect_guard_implicit_mode_default.sql",import.meta.url),"utf8"));
   },60000);
   afterAll(()=>{if(dir){spawnSync("pg_ctl",["-D",`${dir}/data`,"-m","immediate","stop"],{stdio:"ignore"});rmSync(dir,{recursive:true,force:true});}});
   it("legacy cannot complete pending Stripe, but can complete ready without product review",()=>{
@@ -81,6 +82,17 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
     sql("insert into billing_payers values('race','test','acct_platform')");
     sql("delete from billing_payers where provider_id='race'");
     expect(()=>sql(guard("race","restart_claim",`,null,'${token}'`))).toThrow();
+  });
+  it("accepts only the implicit Test/version-0 default while no mode row exists",()=>{
+    const fresh=(office:string,action:string,extra="")=>`select guard_office_connect('${office}','test','acct_platform','fresh-deploy','${action}'${extra})`;
+    sql("insert into providers values('fresh');insert into practice_launch(provider_id) values('fresh')");
+    expect(sql(fresh("fresh","claim",`,0,'${token}'`))).toContain('"modeVersion": 0');
+    sql(fresh("fresh","attach",`,0,'${token}','{"stripe_account_id":"acct_fresh"}',0`));
+    expect(sql("select stripe_account_id from billing_connected_accounts where provider_id='fresh'")).toBe("acct_fresh");
+    expect(()=>sql(`select guard_office_connect('fresh','live','acct_platform','fresh-deploy','start')`)).toThrow();
+    expect(()=>sql(`select guard_office_connect('fresh','test','acct_platform','fresh-deploy','start',null,null,null,3)`)).toThrow();
+    sql("insert into billing_mode_state(deployment_id,mode,platform_account_id,version) values('fresh-deploy','live','acct_platform',1)");
+    expect(()=>sql(fresh("fresh","start"))).toThrow();
   });
   it("blocks mode races and anonymous/service direct mutation",()=>{
     sql(guard("mode","claim",`,0,'${token}'`));

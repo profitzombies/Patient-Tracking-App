@@ -59,7 +59,7 @@ vi.mock("./store", async (importOriginal) => {
       if (eq) filters.push((row) => String(row[key]) === eq[1]);
       else if (lte) filters.push((row) => row[key] != null && String(row[key]) <= lte[1]);
       else if (gte) filters.push((row) => row[key] != null && String(row[key]) >= gte[1]);
-      else if (inList) { const set = new Set(inList[1].split(",")); filters.push((row) => set.has(String(row[key]))); }
+      else if (inList) { const set = new Set(inList[1].split(",").map((v) => v.replace(/^"|"$/g, ""))); filters.push((row) => set.has(String(row[key]))); }
       else throw new Error(`fake store: unsupported filter ${key}=${value}`);
     }
     return { filters, order, limit };
@@ -100,6 +100,7 @@ vi.mock("./store", async (importOriginal) => {
 
 import { BACKOFF_CAP_MS, HELD_LIVE_ORDER_MESSAGE, HOLD_RECHECK_MS, MAX_ATTEMPTS, SKIPPED_SANDBOX_REASON, backoffMs, cancelAtWarehouse, ensureSubmission, payloadForOrder, retrySubmission, submitOne, syncSubscriptionAddress, tenantVerdict, warehouseDto, warehouseHealth } from "./warehouse-submissions";
 import { BATCH_SIZE, runWarehouseSubmit, warehouseSubmitJob } from "../jobs/definitions/warehouse-submit";
+import { __setSandboxVerificationsForTests } from "./sandbox-verification";
 
 const ADDRESS = { name: "Pat Example", line1: "123 Test Street", line2: null, city: "Memphis", state: "TN", postal_code: "38103", country: "US", phone: "9015550100" };
 const NOW = new Date("2026-09-18T12:00:00.000Z");
@@ -282,6 +283,71 @@ describe("tenant guard", () => {
     expect(client.calls).toEqual([]);
     seed({ orders: [order({ livemode: true })] });
     await expect(submitOne(sub(), { client: fakeClient(), now: () => NOW, tenantMode: "live" })).resolves.toBe("sent");
+  });
+});
+
+describe("sandbox verification allowance", () => {
+  const flag = (orderId = "ord-1", expiresAt = "2999-01-01T00:00:00.000Z") => [{ order_id: orderId, designated_inbox: "qa-inbox@example.test", authorized_by: "tester", note: null, created_at: "2026-09-18T11:00:00.000Z", expires_at: expiresAt }];
+  afterEach(() => __setSandboxVerificationsForTests(null));
+  it("only a flagged sandbox order against the sandbox tenant is sendable; every other combination is unchanged", () => {
+    expect(tenantVerdict({ livemode: false }, "test", true)).toBe("send");
+    expect(tenantVerdict({ livemode: false }, "live", true)).toBe("skip");
+    expect(tenantVerdict({ livemode: false }, "test", false)).toBe("skip");
+    expect(tenantVerdict({ livemode: true }, "test", true)).toBe("hold");
+    expect(tenantVerdict({ livemode: true }, "live", true)).toBe("send");
+  });
+  it("submits a flagged sandbox order to the sandbox tenant and never to a live tenant", async () => {
+    __setSandboxVerificationsForTests(flag());
+    seed({ orders: [order({ livemode: false })] });
+    const live = fakeClient();
+    await expect(submitOne(sub(), { client: live, now: () => NOW, tenantMode: "live" })).resolves.toBe("skipped");
+    expect(live.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "skipped", skipped_reason: SKIPPED_SANDBOX_REASON });
+    seed({ orders: [order({ livemode: false })] });
+    const sandbox = fakeClient();
+    await expect(submitOne(sub(), { client: sandbox, now: () => NOW, tenantMode: "test" })).resolves.toBe("sent");
+    expect(sandbox.calls).toEqual(["create"]);
+    expect(sub()).toMatchObject({ state: "sent", warehouse_order_id: "1436119" });
+    expect(shipment()).toMatchObject({ warehouse_state: "sent" });
+  });
+  it("an expired flag, a flag for another order, or a real order under the flag changes nothing", async () => {
+    const client = fakeClient();
+    __setSandboxVerificationsForTests(flag("ord-1", "2026-09-18T11:59:00.000Z"));
+    seed({ orders: [order({ livemode: false })] });
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "test" })).resolves.toBe("skipped");
+    __setSandboxVerificationsForTests(flag("ord-other"));
+    seed({ orders: [order({ livemode: false })] });
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "test" })).resolves.toBe("skipped");
+    __setSandboxVerificationsForTests(flag());
+    seed({ orders: [order({ livemode: true })] });
+    await expect(submitOne(sub(), { client, now: () => NOW, tenantMode: "test" })).resolves.toBe("held");
+    expect(client.calls).toEqual([]);
+  });
+  it("lets the flagged sandbox order be cancelled at the sandbox tenant through the verified lookup, but not at a live tenant", async () => {
+    __setSandboxVerificationsForTests(flag());
+    seed({ orders: [order({ livemode: false, fulfillment_status: "canceled" })], submissions: [submission({ state: "sent", warehouse_order_id: "1436119", payload: { ClientOrderId: "TH-000123" } })] });
+    const live = fakeClient({ lookup: async () => liveOrder("Imported") });
+    expect(await cancelAtWarehouse("ord-1", { client: live, tenantMode: "live" })).toMatchObject({ kind: "unavailable" });
+    expect(live.calls).toEqual([]);
+    const sandbox = fakeClient({ lookup: async () => liveOrder("Imported") });
+    expect((await cancelAtWarehouse("ord-1", { client: sandbox, tenantMode: "test" })).kind).toBe("applied");
+    expect(sandbox.calls).toEqual(["lookup", "cancel"]);
+  });
+  it("the verification pass drains only the flagged order ids", async () => {
+    __setSandboxVerificationsForTests(flag("ord-2"));
+    seed({
+      orders: [order({ livemode: false }), order({ id: "ord-2", order_number: "TH-2", livemode: false })],
+      items: [item(), item({ id: "i2", order_id: "ord-2" })],
+      submissions: [submission(), submission({ id: "sub-2", order_id: "ord-2" })],
+    });
+    const created: string[] = [];
+    const client = fakeClient({ create: async (payload) => { created.push(payload.ClientOrderId); return { kind: "created", order_id: 77 }; } });
+    const tallies: Record<string, number> = {};
+    const context = { now: NOW, dryRun: false, leaseLost: false, tally: (key: string, by: number) => { tallies[key] = (tallies[key] ?? 0) + by; }, failItem: () => {}, log: () => {}, checkpoint: () => {} } as unknown as JobContext;
+    await runWarehouseSubmit(context, { client, tenantMode: "test", onlyOrderIds: ["ord-2"] });
+    expect(created).toEqual(["TH-2"]);
+    expect(tallies).toMatchObject({ due: 1, sent: 1 });
+    expect(state.tables.billing_warehouse_submissions.map((row: any) => [row.order_id, row.state])).toEqual([["ord-1", "pending"], ["ord-2", "sent"]]);
   });
 });
 

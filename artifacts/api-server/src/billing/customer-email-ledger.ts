@@ -6,6 +6,7 @@ import { EmailPhiViolationError, recipientDigest, sendTemplatedEmail } from "../
 import { logger } from "../lib/logger";
 import type { JobContext } from "../jobs/types";
 import { liveBillingEffectsAllowed } from "./lifecycle-scopes";
+import { orderIdFilter } from "./sandbox-verification";
 import {
   insert, insertIgnore, selectMany, selectOne, update,
   type BillingCustomerEmailRow, type BillingNotificationContactRow, type CustomerEmailAttempt,
@@ -181,13 +182,16 @@ export const RETRY_MAX_BATCHES = 4;
  * Runs inside a pinned billing scope (forEachBillingScope) so the store reads
  * are scoped like every other billing query.
  */
-export async function drainDueRetries(ctx: JobContext, deps: AttemptDeps = {}): Promise<void> {
-  if (!liveBillingEffectsAllowed()) return;
+export async function drainDueRetries(ctx: JobContext, deps: AttemptDeps & { onlyOrderIds?: readonly string[] } = {}): Promise<void> {
+  // Outside the live scope only the sandbox-verification pass may drain, and
+  // only the rows of the explicitly flagged orders.
+  if (!liveBillingEffectsAllowed() && !deps.onlyOrderIds?.length) return;
+  const onlyFilter = orderIdFilter("order_id", deps.onlyOrderIds);
   const nowIso = ctx.now.toISOString();
   for (let batch = 0; batch < RETRY_MAX_BATCHES; batch += 1) {
     ctx.checkpoint();
     const due = await selectMany("billing_customer_emails",
-      `status=eq.retrying&next_attempt_at=lte.${enc(nowIso)}&order=next_attempt_at.asc,created_at.asc&limit=${RETRY_BATCH_SIZE}`);
+      `status=eq.retrying&next_attempt_at=lte.${enc(nowIso)}${onlyFilter}&order=next_attempt_at.asc,created_at.asc&limit=${RETRY_BATCH_SIZE}`);
     if (!due.length) break;
     ctx.tally("due", due.length);
     if (ctx.dryRun) { ctx.tally("wouldRetry", due.length); break; }

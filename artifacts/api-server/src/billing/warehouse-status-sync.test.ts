@@ -107,6 +107,7 @@ import {
   BASELINE_DAYS, DEFAULT_STALLED_MINUTES, MAX_WINDOW_DAYS, applyStatusRow, computePollWindow, followUpCandidates, runWarehouseStatusPoll, stalledAfterMs, warehouseSyncHealth,
 } from "./warehouse-status-sync";
 import { runWarehouseStatusSync, warehouseStatusSyncJob } from "../jobs/definitions/warehouse-status-sync";
+import { __setSandboxVerificationsForTests } from "./sandbox-verification";
 import { evaluateThresholds } from "../system/thresholds";
 
 const NOW = new Date("2026-09-18T12:00:00.000Z");
@@ -206,6 +207,25 @@ describe("applyStatusRow", () => {
     await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("not_submitted");
     expect(ship().status).toBe("processing");
     expect(state.emails).toEqual([]);
+  });
+  it("ignores sandbox (Stripe test) orders unless explicitly flagged for verification under the sandbox tenant", async () => {
+    const flag = [{ order_id: "ord-1", designated_inbox: "qa-inbox@example.test", authorized_by: "tester", note: null, created_at: "2026-09-18T11:00:00.000Z", expires_at: "2999-01-01T00:00:00.000Z" }];
+    try {
+      vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+      seed({ orders: [order({ livemode: false })] });
+      await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("not_submitted");
+      expect(ship().status).toBe("processing");
+      __setSandboxVerificationsForTests(flag);
+      vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+      await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("not_submitted");
+      vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+      await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("transition");
+      expect(ship()).toMatchObject({ status: "shipped", tracking_number: "9400111899223", source: "provider" });
+      expect(state.emails).toEqual([{ from: "processing", to: "shipped" }]);
+    } finally {
+      __setSandboxVerificationsForTests(null);
+      vi.unstubAllEnvs();
+    }
   });
   it("refuses a by-id row whose ClientOrderId is not ours (the tenant answers for other clients)", async () => {
     await expect(applyStatusRow(feedRow("Shipped", [parcel()], { client_order_id: "SOMEONE-ELSE" }), { now: () => NOW })).resolves.toBe("mismatch");

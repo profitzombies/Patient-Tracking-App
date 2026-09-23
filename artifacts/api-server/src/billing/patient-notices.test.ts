@@ -1,4 +1,5 @@
-import { describe, expect, it as test } from "vitest";
+import { afterEach, describe, expect, it as test, vi } from "vitest";
+import { __setSandboxVerificationsForTests } from "./sandbox-verification";
 import { runWithBillingIdentity } from "./stripe-environment";
 const it = (name: string, fn: () => unknown) => test(name, () =>
   runWithBillingIdentity({ mode: "live", platformAccountId: "acct_live" }, fn));
@@ -53,6 +54,8 @@ function subscription(overrides: Partial<BillingSubscriptionRow> = {}): BillingS
   } as BillingSubscriptionRow;
 }
 
+afterEach(() => { __setSandboxVerificationsForTests(null); vi.unstubAllEnvs(); });
+
 describe("order shipped notice", () => {
   it("never queues a test transaction or a notification inside Test scope", async () => {
     const store = new MemoryNotificationStore();
@@ -63,6 +66,23 @@ describe("order shipped notice", () => {
         subscription: subscription(), invoiceId: "in_test", productName: "Control", message: "declined",
       }, store)).toBe(false);
     });
+  });
+  test("queues for a sandbox order only when it is flagged for verification under the sandbox tenant", async () => {
+    const flag = [{ order_id: ORDER, designated_inbox: "qa-inbox@example.test", authorized_by: "tester", note: null, created_at: "2026-09-10T00:00:00.000Z", expires_at: "2999-01-01T00:00:00.000Z" }];
+    const store = new MemoryNotificationStore();
+    const inTest = <T,>(fn: () => Promise<T>) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, fn);
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+    expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(false);
+    __setSandboxVerificationsForTests(flag);
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(false);
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+    // A real order under the flag still follows the live rules.
+    expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: true }), shipment: shipment() }, store))).toBe(false);
+    expect(store.notifications.size).toBe(0);
+    expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(true);
+    expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(false);
+    expect([...store.notifications.values()].map((row) => row.kind)).toEqual(["order_shipped"]);
   });
   it("queues one account-level notice per order with an allow-listable order deep link", async () => {
     const store = new MemoryNotificationStore();

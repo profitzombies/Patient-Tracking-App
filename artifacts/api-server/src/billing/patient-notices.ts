@@ -11,6 +11,7 @@
 import { logger } from "../lib/logger";
 import { forEachBillingScope, liveBillingEffectsAllowed } from "./lifecycle-scopes";
 import { supabaseNotificationStore, type NotificationStore } from "../notifications/store";
+import { sandboxVerificationFor } from "./sandbox-verification";
 import { selectMany } from "./store";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 
@@ -36,8 +37,8 @@ export const RENEWAL_UPCOMING_BODY = "Open the app to review the date, the amoun
 export function orderRoute(orderId: string): string { return `/orders/${orderId}`; }
 export function subscriptionRoute(subscriptionId: string): string { return `/my-subscriptions/${subscriptionId}`; }
 
-async function queue(store: NotificationStore, what: string, input: Parameters<NotificationStore["enqueue"]>[0]): Promise<boolean> {
-  if (!liveBillingEffectsAllowed()) return false;
+async function queue(store: NotificationStore, what: string, input: Parameters<NotificationStore["enqueue"]>[0], allowed = liveBillingEffectsAllowed()): Promise<boolean> {
+  if (!allowed) return false;
   try {
     const { created } = await store.enqueue(input);
     return created;
@@ -53,7 +54,10 @@ export async function notifyOrderShipped(
   store: NotificationStore = supabaseNotificationStore,
 ): Promise<boolean> {
   const { order, shipment } = input;
-  if (order.livemode !== true || !order.patient_id || shipment.status !== "shipped") return false;
+  if (!order.patient_id || shipment.status !== "shipped") return false;
+  // Live orders in the live scope; otherwise only an explicitly flagged sandbox order.
+  const allowed = order.livemode === true ? liveBillingEffectsAllowed() : Boolean(await sandboxVerificationFor(order));
+  if (!allowed) return false;
   return queue(store, "order shipped", {
     patientId: order.patient_id,
     kind: ORDER_SHIPPED_KIND,
@@ -62,7 +66,7 @@ export async function notifyOrderShipped(
     body: ORDER_SHIPPED_BODY,
     data: { route: orderRoute(order.id), kind: ORDER_SHIPPED_KIND, orderId: order.id, patientId: order.patient_id },
     dedupeKey: `${ORDER_SHIPPED_KIND}:${order.id}`,
-  });
+  }, allowed);
 }
 
 /** Once per failed invoice; the app opens the subscription with a retry-with-card path. */

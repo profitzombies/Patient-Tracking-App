@@ -93,6 +93,7 @@ import {
   notifyShipmentTransition, notifySubscriptionEvent, notifySubscriptionStarted, renewalReminderDays, subscriptionLinks,
 } from "./customer-emails";
 import type { BillingCustomerEmailRow, BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
+import { __setSandboxVerificationsForTests } from "./sandbox-verification";
 
 const sent: Array<{ from: string; to: string; subject: string; html: string; text: string }> = [];
 let transportFailure: Error | null = null;
@@ -158,6 +159,67 @@ beforeEach(() => {
 });
 
 afterAll(() => __setEmailClientForTests(null));
+
+describe("sandbox verification allowance", () => {
+  const testScope = { stripe_mode: "test" as const, stripe_platform_account_id: "acct_test" };
+  const inTest = <T,>(fn: () => Promise<T>) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, fn);
+  const sandboxOrder = () => order({ ...testScope, livemode: false, id: "order-sbx", order_number: "TH-SBX" });
+  const flag = (expiresAt = "2999-01-01T00:00:00.000Z") => [{ order_id: "order-sbx", designated_inbox: "qa-inbox@example.test", authorized_by: "tester", note: null, created_at: "2026-09-14T15:00:00.000Z", expires_at: expiresAt }];
+  const shipped = { id: "ship-sbx", order_id: "order-sbx", provider_id: "office-1", status: "shipped", carrier: "UPS", tracking_number: "1Z9", tracking_url: "https://www.ups.com/track?tracknum=1Z9", source: "provider", external_id: "1", label_created_at: null, shipped_at: "2026-09-15T12:00:00.000Z", delivered_at: null, canceled_at: null, canceled_reason: null, events: [], updated_by: null, created_at: "", updated_at: "" } as unknown as BillingShipmentRow;
+  beforeEach(() => {
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+    tables.billing_orders = [sandboxOrder()];
+    tables.billing_payers = [{ ...testScope, id: "payer-1", name: "Riley Example", email: "riley@example.test" }];
+    tables.billing_notification_contacts = [{ ...testScope, id: "contact-1", payer_id: "payer-1", email: "aunt@example.test", active: true }];
+    __setSandboxVerificationsForTests(null);
+  });
+  afterAll(() => { vi.unstubAllEnvs(); __setSandboxVerificationsForTests(null); });
+  test("an unflagged sandbox order stays silent in the test scope", async () => {
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("skipped");
+    expect(sent).toEqual([]);
+    expect(tables.billing_customer_emails).toEqual([]);
+  });
+  test("a flagged sandbox order under the sandbox tenant emails the designated inbox only, never the payer or contacts", async () => {
+    __setSandboxVerificationsForTests(flag());
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("sent");
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("duplicate");
+    expect(sent.map((message) => message.to)).toEqual(["qa-inbox@example.test"]);
+    expect(sent[0].subject).toBe("THINNR Order (TH-SBX) has shipped");
+    expect(tables.billing_customer_emails).toEqual([expect.objectContaining({ order_id: "order-sbx", recipient: "qa-inbox@example.test", status: "sent", kind: "automatic" })]);
+  });
+  test("the flag is ignored under a live warehouse tenant, once expired, and for live-mode orders", async () => {
+    __setSandboxVerificationsForTests(flag());
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("skipped");
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
+    __setSandboxVerificationsForTests(flag("2020-01-01T00:00:00.000Z"));
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("skipped");
+    // A real order flagged by mistake is still governed by the live rules: nothing in the test scope.
+    __setSandboxVerificationsForTests(flag());
+    tables.billing_orders = [order({ ...testScope, id: "order-sbx", order_number: "TH-SBX", livemode: true })];
+    expect(await inTest(() => notifyShipmentTransition(tables.billing_orders[0] as BillingOrderRow, shipped, "processing"))).toBe("skipped");
+    expect(sent).toEqual([]);
+    expect(tables.billing_customer_emails).toEqual([]);
+  });
+  test("a flagged row's retries drain in the test scope only through the verification pass, and only for flagged orders", async () => {
+    __setSandboxVerificationsForTests(flag());
+    transportFailure = new Error("Resend send failed (500)");
+    expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("retrying");
+    transportFailure = null;
+    const row = tables.billing_customer_emails[0];
+    const ctx = jobContext(row.next_attempt_at);
+    await inTest(() => drainDueRetries(ctx));
+    expect(ctx.tallies).toEqual({});
+    const other = jobContext(row.next_attempt_at);
+    await inTest(() => drainDueRetries(other, { onlyOrderIds: ["some-other-order"] }));
+    expect(other.tallies).toEqual({});
+    const pass = jobContext(row.next_attempt_at);
+    await inTest(() => drainDueRetries(pass, { onlyOrderIds: ["order-sbx"] }));
+    expect(pass.tallies).toEqual({ due: 1, sent: 1 });
+    expect(tables.billing_customer_emails[0]).toMatchObject({ status: "sent", attempts: 2, recipient: "qa-inbox@example.test" });
+    expect(sent.map((message) => message.to)).toEqual(["qa-inbox@example.test"]);
+  });
+});
 
 describe("notifyOnce", () => {
   it("suppresses Test effects before claiming, composing, or sending", async () => {

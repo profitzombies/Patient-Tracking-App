@@ -3,6 +3,7 @@ import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates
 import { logger } from "../lib/logger";
 import { MAX_EMAIL_ATTEMPTS, attemptDelivery, fanOutToContacts } from "./customer-email-ledger";
 import { formatReceiptTimestamp } from "./receipts";
+import { sandboxVerificationFor, sandboxVerificationPossible } from "./sandbox-verification";
 import {
   insertIgnore, selectMany, selectOne, update,
   type BillingCustomerEmailRow, type BillingOrderRow, type BillingPayerRow, type BillingShipmentRow, type BillingSubscriptionRow,
@@ -87,7 +88,7 @@ export async function notifyOnce(
   dedupeKey: string, templateId: EmailTemplateId, refs: NotifyRefs,
   compose: () => Promise<{ to: string | null; variables: EmailVariables } | null>,
 ): Promise<NotifyOutcome> {
-  if (!liveBillingEffectsAllowed()) return "skipped";
+  if (!liveBillingEffectsAllowed() && !sandboxVerificationPossible()) return "skipped";
   let claimId: string | null = null;
   try {
     // A live request must not accidentally deliver a notification for a test row.
@@ -95,7 +96,12 @@ export async function notifyOnce(
       ? await selectOne("billing_orders", `id=eq.${encodeURIComponent(refs.order_id)}`)
       : refs.subscription_id
         ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(refs.subscription_id)}`) : null;
-    if (!source || source.livemode !== true) return "skipped";
+    if (!source) return "skipped";
+    // The one exception to "live rows only": an explicitly flagged sandbox
+    // ORDER under the sandbox warehouse tenant, delivered to its designated
+    // test inbox instead of the payer (and never fanned out to contacts).
+    const verification = source.livemode !== true && refs.order_id ? await sandboxVerificationFor({ id: refs.order_id, livemode: source.livemode }) : null;
+    if (!verification && !(liveBillingEffectsAllowed() && source.livemode === true)) return "skipped";
     const claim = await insertIgnore("billing_customer_emails", {
       dedupe_key: dedupeKey, template_id: templateId, provider_id: refs.provider_id ?? null, payer_id: source.payer_id ?? null,
       subscription_id: refs.subscription_id ?? null, order_id: refs.order_id ?? null, status: "claimed", kind: "automatic",
@@ -104,16 +110,17 @@ export async function notifyOnce(
     if (!claim) return "duplicate";
     claimId = claim.id;
     const message = await compose();
-    if (!message || !message.to) {
+    const to = message && verification ? verification.designated_inbox : message?.to;
+    if (!message || !to) {
       await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { status: "skipped", error: message ? "no email address" : "nothing to send" });
       return "skipped";
     }
-    const recipient = message.to.trim().toLowerCase();
+    const recipient = to.trim().toLowerCase();
     const variables = { ...message.variables } as Record<string, string>;
     const composed = await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { recipient, variables });
     const primary: BillingCustomerEmailRow = { ...claim, ...(composed ?? {}), recipient, variables };
     const outcome = await attemptDelivery(primary);
-    await fanOutToContacts(primary);
+    if (!verification) await fanOutToContacts(primary);
     return outcome;
   } catch (error) {
     logger.error({ err: error, templateId, dedupeKey }, "customer email failed");

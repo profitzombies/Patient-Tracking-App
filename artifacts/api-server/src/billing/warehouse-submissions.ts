@@ -19,6 +19,7 @@ import {
   warehouseOrderClient, type WarehouseOrder, type WarehouseOrderClient, type WarehouseOrderPayload,
 } from "../shipping/warehousecraft-orders";
 import { WarehouseCraftError, warehouseTenantMode, type WarehouseTenantMode } from "../shipping/warehousecraft";
+import { sandboxVerificationFor } from "./sandbox-verification";
 import { ensureShipment } from "./shipments";
 import { raiseWarehouseHqAlert } from "./warehouse-alerts";
 import {
@@ -51,11 +52,13 @@ export const HOLD_RECHECK_MS = 15 * MINUTE_MS;
 export const HELD_LIVE_ORDER_MESSAGE = `${HELD_PREFIX}this is a real (live-mode) order but the warehouse connection is in TEST mode. It will be sent once WAREHOUSECRAFT_TENANT_MODE=live is set with the live credentials.`;
 export const SKIPPED_SANDBOX_REASON = "test-mode (Stripe sandbox) order; never sent to the live warehouse";
 
-export function tenantVerdict(order: Pick<BillingOrderRow, "livemode">, mode: WarehouseTenantMode): "send" | "hold" | "skip" {
+export function tenantVerdict(order: Pick<BillingOrderRow, "livemode">, mode: WarehouseTenantMode, sandboxVerified = false): "send" | "hold" | "skip" {
   const real = order.livemode === true;
   // Stripe Test is a payment simulation, not permission to place a real
   // fulfillment request (even a warehouse test tenant may send notifications).
-  if (!real) return "skip";
+  // The single exception is an explicitly flagged sandbox order against the
+  // sandbox tenant (billing/sandbox-verification.ts); never against live.
+  if (!real) return sandboxVerified && mode === "test" ? "send" : "skip";
   if (real && mode !== "live") return "hold";
   return "send";
 }
@@ -127,7 +130,8 @@ export async function submitOne(submission: BillingWarehouseSubmissionRow, deps:
     await mirror(order, { warehouse_state: "skipped" });
     return "skipped";
   }
-  const verdict = tenantVerdict(order, deps.tenantMode ?? warehouseTenantMode());
+  const tenantMode = deps.tenantMode ?? warehouseTenantMode();
+  const verdict = tenantVerdict(order, tenantMode, Boolean(await sandboxVerificationFor(order, { tenantMode, now })));
   if (verdict === "skip") {
     await update("billing_warehouse_submissions", `id=eq.${enc(submission.id)}`, { state: "skipped", skipped_reason: SKIPPED_SANDBOX_REASON, last_attempt_at: at });
     await mirror(order, { warehouse_state: "skipped", warehouse_error: null });
@@ -246,9 +250,9 @@ function clientOrderIdFor(order: Pick<BillingOrderRow, "order_number">, submissi
  * order's Stripe mode has to match the configured tenant, and the order has to be found
  * under our ClientOrderId right now. There is no fallback to the cached numeric id.
  */
-async function verifiedWarehouseOrder(order: Pick<BillingOrderRow, "livemode" | "order_number">, submission: BillingWarehouseSubmissionRow, client: WarehouseOrderClient, deps: SubmissionDeps): Promise<{ ok: true; live: WarehouseOrder } | { ok: false; message: string }> {
+async function verifiedWarehouseOrder(order: Pick<BillingOrderRow, "id" | "livemode" | "order_number">, submission: BillingWarehouseSubmissionRow, client: WarehouseOrderClient, deps: SubmissionDeps): Promise<{ ok: true; live: WarehouseOrder } | { ok: false; message: string }> {
   const mode = deps.tenantMode ?? warehouseTenantMode();
-  if (tenantVerdict(order, mode) !== "send") {
+  if (tenantVerdict(order, mode, Boolean(await sandboxVerificationFor(order, { tenantMode: mode }))) !== "send") {
     return { ok: false, message: `the warehouse connection is in ${mode.toUpperCase()} mode but this is a ${order.livemode === true ? "live" : "sandbox"} order; nothing was changed at the warehouse.` };
   }
   const clientOrderId = clientOrderIdFor(order, submission);

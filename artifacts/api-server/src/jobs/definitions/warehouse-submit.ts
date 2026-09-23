@@ -11,6 +11,7 @@ import { forEachBillingScope } from "../../billing/lifecycle-scopes";
  * Production runs no process timers: this job is reachable from the external
  * tick like every other worker family.
  */
+import { forEachSandboxVerificationScope, orderIdFilter } from "../../billing/sandbox-verification";
 import { selectMany, selectOne } from "../../billing/store";
 import { HELD_PREFIX, submitOne, type SubmissionDeps } from "../../billing/warehouse-submissions";
 import { warehouseTenantMode } from "../../shipping/warehousecraft";
@@ -26,6 +27,8 @@ export interface WarehouseSubmitDeps extends SubmissionDeps {
   autoSubmit?: () => Promise<boolean>;
   /** Overrides the offboarding/offboarded office scan (tests). */
   inactiveOffices?: () => Promise<Set<string>>;
+  /** Sandbox verification pass: only these order ids are drained (test scope). */
+  onlyOrderIds?: readonly string[];
 }
 
 async function readAutoSubmit(): Promise<boolean> {
@@ -51,10 +54,11 @@ export async function runWarehouseSubmit(ctx: JobContext, deps: WarehouseSubmitD
   const offboardedFilter = inactiveOffices.size
     ? `&provider_id=not.in.(${[...inactiveOffices].map((id) => encodeURIComponent(`"${id}"`)).join(",")})`
     : "";
+  const onlyFilter = orderIdFilter("order_id", deps.onlyOrderIds);
   for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
     ctx.checkpoint();
     const due = await selectMany("billing_warehouse_submissions",
-      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}${heldFilter}${offboardedFilter}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
+      `state=eq.pending&next_attempt_at=lte.${encodeURIComponent(nowIso)}${heldFilter}${offboardedFilter}${onlyFilter}&order=next_attempt_at.asc,created_at.asc&limit=${BATCH_SIZE}`);
     if (!due.length) break;
     ctx.tally("due", due.length);
     if (ctx.dryRun) { ctx.tally("wouldSubmit", due.length); break; }
@@ -81,5 +85,9 @@ export const warehouseSubmitJob: JobDefinition = {
   description: "Sends paid orders to WarehouseCraft (one intent per order, retried with bounded backoff), reconciles duplicate acknowledgements by lookup, and parks definite rejections as Needs attention with a staff alert.",
   intervalMs: 2 * MINUTE_MS,
   leaseSeconds: 4 * 60,
-  run: (ctx) => forEachBillingScope(() => runWarehouseSubmit(ctx), ["live"]),
+  run: async (ctx) => {
+    await forEachBillingScope(() => runWarehouseSubmit(ctx), ["live"]);
+    // Explicitly flagged sandbox orders (sandbox tenant only); a no-op otherwise.
+    await forEachSandboxVerificationScope((onlyOrderIds) => runWarehouseSubmit(ctx, { onlyOrderIds }), ctx.now);
+  },
 };

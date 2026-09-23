@@ -1,7 +1,9 @@
 /**
  * Isolated fixture for genuine Stripe TEST app verification.
  *
- * `prepare` writes only local application rows. It never changes Stripe.
+ * `prepare` writes only local application rows. It never changes Stripe. The
+ * connection row goes through the real connect guard; removing it again needs
+ * SUPABASE_ACCESS_TOKEN (management API), so prepare requires it up front.
  * `preflight` is read-only. Charging is deliberately a separate future command
  * and must not be added without the explicit safety interlocks documented here.
  */
@@ -9,7 +11,8 @@ import crypto from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type Stripe from "stripe";
-import { supabaseAdmin } from "../src/lib/supabase-admin";
+import { supabaseAdmin, supabaseBase } from "../src/lib/supabase-admin";
+import { claimConnect, connectGuard } from "../src/billing/connect-guard";
 import { getStripe, getStripeCredentials } from "../src/billing/stripe-client";
 import { runWithBillingIdentity, type BillingIdentity } from "../src/billing/stripe-environment";
 import { insert, remove, selectMany, selectOne } from "../src/billing/store";
@@ -52,6 +55,30 @@ async function identity(): Promise<BillingIdentity> {
   return { mode: "test", platformAccountId: credentials.account_id };
 }
 
+/**
+ * Connection rows are guarded by the identity trigger: inserts require a claimed
+ * connect operation and deletes require safe restart, which refuses accounts that
+ * have ever taken charges. The fixture therefore attaches through the same guard
+ * RPC the product uses, and removes the synthetic connection with one
+ * transaction-local bypass over the management API (the same teardown path the
+ * other fixtures use), so the guard itself is never weakened.
+ */
+async function removeConnectedAccount(providerId: string): Promise<void> {
+  const management = process.env.SUPABASE_ACCESS_TOKEN?.trim();
+  if (!management) throw new Error("SUPABASE_ACCESS_TOKEN is required to remove the synthetic connection.");
+  if (!/^stripe-app-e2e-[a-f0-9]+$/.test(providerId)) throw new Error("Refusing to remove a non-fixture connection.");
+  const ref = new URL(supabaseBase()).hostname.split(".")[0];
+  const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
+    method: "POST", headers: { Authorization: `Bearer ${management}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: `begin; select set_config('thinnr.connect_mutation','allowed',true);
+delete from public.billing_connected_accounts where provider_id='${providerId}';
+delete from public.billing_connect_archive where provider_id='${providerId}';
+delete from public.billing_connect_guards where provider_id='${providerId}';
+commit;` }),
+  });
+  if (!response.ok) throw new Error(`Synthetic connection removal failed (${response.status}).`);
+}
+
 async function enabledAccount(accountId: string): Promise<Stripe.Account> {
   if (!/^acct_[A-Za-z0-9]+$/.test(accountId)) throw new Error("A valid STRIPE_APP_E2E_ACCOUNT_ID is required.");
   const stripe = await getStripe("test");
@@ -73,6 +100,7 @@ async function enabledAccount(accountId: string): Promise<Stripe.Account> {
 async function prepare(): Promise<void> {
   if (existsSync(STATE_PATH)) throw new Error("Fixture state already exists; use preflight rather than preparing twice.");
   const accountId = process.env.STRIPE_APP_E2E_ACCOUNT_ID?.trim() ?? "";
+  if (!process.env.SUPABASE_ACCESS_TOKEN?.trim()) throw new Error("SUPABASE_ACCESS_TOKEN is required so the synthetic connection can be removed again.");
   const billingIdentity = await identity();
   const account = await enabledAccount(accountId);
   const suffix = crypto.randomBytes(6).toString("hex");
@@ -95,7 +123,8 @@ async function prepare(): Promise<void> {
     const state = await runWithBillingIdentity(billingIdentity, async (): Promise<State> => {
       const product = await selectOne("billing_products", "active=eq.true&status=eq.active&order=sort_order.asc");
       if (!product) throw new Error("No active shared catalog product is available.");
-      await insert("billing_connected_accounts", {
+      const claim = await claimConnect(providerId);
+      await connectGuard("attach", providerId, { p_token: claim.token, p_generation: claim.generation, p_version: claim.modeVersion, p_account: {
         provider_id: providerId,
         stripe_account_id: account.id,
         origin: "oauth",
@@ -117,7 +146,7 @@ async function prepare(): Promise<void> {
         stripe_customer_emails: "unverified",
         stripe_customer_emails_checked_at: null,
         stripe_customer_emails_note: "Synthetic TEST fixture; no customer email is deliverable.",
-      });
+      } });
       await insert("billing_office_prices", {
         provider_id: providerId,
         product_id: product.id,
@@ -174,8 +203,8 @@ async function prepare(): Promise<void> {
     await runWithBillingIdentity(billingIdentity, async () => {
       await remove("billing_payment_links", `provider_id=eq.${encodeURIComponent(providerId)}`).catch(() => undefined);
       await remove("billing_office_prices", `provider_id=eq.${encodeURIComponent(providerId)}`).catch(() => undefined);
-      await remove("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`).catch(() => undefined);
     });
+    await removeConnectedAccount(providerId).catch(() => undefined);
     await supabaseAdmin("DELETE", `/rest/v1/providers?provider_id=eq.${encodeURIComponent(providerId)}`);
     throw error;
   }
@@ -228,8 +257,8 @@ async function cleanup(): Promise<void> {
     }
     await remove("billing_payment_links", `provider_id=eq.${encodeURIComponent(state.provider_id)}`);
     await remove("billing_office_prices", `provider_id=eq.${encodeURIComponent(state.provider_id)}`);
-    await remove("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(state.provider_id)}`);
   });
+  await removeConnectedAccount(state.provider_id);
   const provider = await supabaseAdmin("DELETE", `/rest/v1/providers?provider_id=eq.${encodeURIComponent(state.provider_id)}`);
   if (provider.status >= 300) throw new Error(`Synthetic provider cleanup failed (${provider.status}).`);
   unlinkSync(STATE_PATH);
@@ -312,8 +341,8 @@ async function cleanupFinancial(): Promise<void> {
     await remove("billing_payment_links", q);
     await remove("billing_office_prices", q);
     await remove("billing_account_events", q);
-    await remove("billing_connected_accounts", q);
   });
+  await removeConnectedAccount(state.provider_id);
   const provider = await supabaseAdmin("DELETE", `/rest/v1/providers?provider_id=eq.${encodeURIComponent(state.provider_id)}`);
   if (provider.status >= 300) throw new Error("Synthetic provider cleanup failed.");
   unlinkSync(STATE_PATH);

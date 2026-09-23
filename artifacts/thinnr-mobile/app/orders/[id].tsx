@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { GhostButton } from '@/components/onboarding/OnboardingFields';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -31,7 +31,7 @@ export default function OrderDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] ?? '' : params.id ?? '';
   const load = useCallback(() => getOrder(id), [id]);
-  const order = useBillingResource<PatientOrderDetail>(load, () => demoOrder(id));
+  const order = useBillingResource<PatientOrderDetail>(load, () => demoOrder(id), 'order');
   const notice = useBillingNotice();
   const [busy, setBusy] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<PatientReceipt | null>(null);
@@ -66,6 +66,12 @@ export default function OrderDetailScreen() {
     void run('track', () => openExternal(url));
   };
 
+  const refresh = async () => {
+    const failure = await order.refresh();
+    if (failure) notice.announce(`Couldn't refresh this order. ${failure}`);
+    else AccessibilityInfo.announceForAccessibility(order.demo ? 'Demo order is up to date' : 'Order updated');
+  };
+
   const demoMissing = order.demo && !row;
   return (
     <BillingScreen
@@ -78,6 +84,9 @@ export default function OrderDetailScreen() {
       demo={order.demo}
       notice={notice.notice}
       onDismissNotice={notice.dismiss}
+      onRefresh={demoMissing ? undefined : () => void refresh()}
+      refreshing={order.refreshing}
+      refreshLabel="Refresh order"
     >
       {row ? (
         <>

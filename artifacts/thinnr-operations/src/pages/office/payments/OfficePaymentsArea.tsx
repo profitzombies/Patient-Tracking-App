@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, useSearch } from 'wouter';
 import { ArrowRight, Copy, ExternalLink, MoreHorizontal, Package } from 'lucide-react';
@@ -31,6 +31,7 @@ import {
   ConnectTaxSettings,
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { RefreshControl } from '@/components/billing/RefreshControl';
 import { StripeCustomerEmailsFlag, StripeCustomerEmailsNotice } from '@/components/billing/StripeCustomerEmails';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { SellToPatientDialog } from '@/components/billing/SellToPatientDialog';
@@ -761,7 +762,7 @@ function LinksView({
 
 function Transactions() {
   return (
-    <Boundary demo={demoPage('Transactions', <OrdersTable rows={DEMO_ORDERS} demo />)}>
+    <Boundary demo={demoPage('Transactions', <OrdersTable rows={DEMO_ORDERS} demo />, undefined, <RefreshControl subject="Transactions" demo />)}>
       {(status) => <TransactionsQuery status={status} />}
     </Boundary>
   );
@@ -784,7 +785,12 @@ function TransactionsQuery({ status }: { status: OfficeBillingStatus }) {
   };
   return (
     <div className={PAGE}>
-      <Header title="Transactions" sub="Orders and refunds for your office." sandbox={status.sandbox} />
+      <Header
+        title="Transactions"
+        sub="Orders and refunds for your office."
+        sandbox={status.sandbox}
+        action={<RefreshControl subject="Transactions" sources={[query]} />}
+      />
       <div className="flex flex-wrap gap-2">
         <input
           className={`${INPUT_CLASS} h-9`}
@@ -817,7 +823,7 @@ function TransactionsQuery({ status }: { status: OfficeBillingStatus }) {
       </div>
       {query.isPending ? (
         <p>Loading transactions…</p>
-      ) : query.isError ? (
+      ) : query.isError && !query.data ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : (
         <OrdersTable rows={query.data?.items ?? []} />
@@ -927,6 +933,7 @@ function DemoTransactionDetail({ orderId }: { orderId: string }) {
       order={order}
       sandbox
       demo
+      refresh={<RefreshControl subject="Order" demo />}
       refundOpen={refundOpen}
       setRefundOpen={(open) => {
         setRefundOpen(open);
@@ -953,7 +960,7 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
     },
   });
   if (query.isPending) return <div className={PAGE}>Loading transaction…</div>;
-  if (query.isError || !query.data)
+  if (!query.data)
     return (
       <div className={PAGE}>
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
@@ -964,6 +971,7 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
     <DetailView
       order={order}
       sandbox={status.sandbox}
+      refresh={<RefreshControl subject="Order" sources={[query]} />}
       refundOpen={refundOpen}
       setRefundOpen={(open) => {
         if (open) refund.reset();
@@ -980,6 +988,7 @@ function DetailView({
   order,
   sandbox,
   demo = false,
+  refresh,
   refundOpen,
   setRefundOpen,
   onRefund,
@@ -989,6 +998,7 @@ function DetailView({
   order: OrderDetail;
   sandbox: boolean;
   demo?: boolean;
+  refresh?: ReactNode;
   refundOpen: boolean;
   setRefundOpen: (open: boolean) => void;
   onRefund: (amount: number, reason: string) => void;
@@ -1015,9 +1025,12 @@ function DetailView({
         tabs={false}
         back={{ href: '/transactions', label: 'Back to transactions' }}
         action={
-          <button className={`${BTN_SECONDARY} h-9 px-3 text-destructive`} onClick={() => setRefundOpen(true)}>
-            Refund
-          </button>
+          <>
+            {refresh}
+            <button className={`${BTN_SECONDARY} h-9 px-3 text-destructive`} onClick={() => setRefundOpen(true)}>
+              Refund
+            </button>
+          </>
         }
       />
       <div className="grid gap-5 lg:grid-cols-2">
@@ -1177,7 +1190,12 @@ function DemoRefundDialog({
 function SubscriptionsPage() {
   return (
     <Boundary
-      demo={demoPage('Product subscriptions', <SubscriptionsView status={null} items={DEMO_SUBSCRIPTIONS} demo />)}
+      demo={demoPage(
+        'Product subscriptions',
+        <SubscriptionsView status={null} items={DEMO_SUBSCRIPTIONS} demo />,
+        undefined,
+        <RefreshControl subject="Subscriptions" demo />,
+      )}
     >
       {(status) => <SubscriptionsQuery status={status} />}
     </Boundary>
@@ -1188,24 +1206,33 @@ function SubscriptionsQuery({ status }: { status: OfficeBillingStatus }) {
   const query = useOfficeSubscriptions({ status: params.get('status') });
   const prices = useOfficePrices();
   if (query.isPending || prices.isPending) return <div className={PAGE}>Loading subscriptions…</div>;
-  if (query.isError || prices.isError)
+  if ((query.isError && !query.data) || (prices.isError && !prices.data))
     return (
       <div className={PAGE}>
-        <ErrorBox error={query.error} retry={() => void query.refetch()} />
+        <ErrorBox error={query.error ?? prices.error} retry={() => { void query.refetch(); void prices.refetch(); }} />
       </div>
     );
-  return <SubscriptionsView status={status} items={query.data?.items ?? []} products={prices.data?.products ?? []} />;
+  return (
+    <SubscriptionsView
+      status={status}
+      items={query.data?.items ?? []}
+      products={prices.data?.products ?? []}
+      refresh={<RefreshControl subject="Subscriptions" sources={[query, prices]} />}
+    />
+  );
 }
 function SubscriptionsView({
   status,
   items,
   products = DEMO_PRICES,
   demo = false,
+  refresh,
 }: {
   status: OfficeBillingStatus | null;
   items: SubscriptionRow[];
   products?: OfficePrice[];
   demo?: boolean;
+  refresh?: ReactNode;
 }) {
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
@@ -1280,7 +1307,7 @@ function SubscriptionsView({
   return (
     <div className={demo ? '' : PAGE}>
       {!demo && (
-        <Header title="Product subscriptions" sub="Products that renew every 4 weeks." sandbox={status?.sandbox} />
+        <Header title="Product subscriptions" sub="Products that renew every 4 weeks." sandbox={status?.sandbox} action={refresh} />
       )}
       <SectionCard title="Subscriptions">
         <div className="overflow-x-auto">

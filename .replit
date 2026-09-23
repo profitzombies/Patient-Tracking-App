@@ -508,6 +508,14 @@ args = "customer-email-ledger-clients"
 task = "workflow.run"
 args = "sandbox-verification-gate"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "order-refresh-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "order-refresh-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3057,6 +3065,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/sandbox-verification.test.ts src/billing/warehouse-submissions.test.ts src/billing/warehouse-status-sync.test.ts src/billing/patient-notices.test.ts src/billing/customer-emails.test.ts src/practice-launch/connect-safety.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "order-refresh-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:order-refresh && pnpm --filter @workspace/thinnr-operations run test:billing-hq && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "order-refresh-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:order-refresh && pnpm --filter @workspace/thinnr-mobile run test:payments-refresh && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:payments-transactions && pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -142,6 +142,25 @@ export function useOfficePatientPurchases(userId: string, patientId: string) {
   return scoped(userId, ['patient-purchases', patientId], (scope) => officeBilling.patientPurchases(patientId, scope));
 }
 
+/**
+ * On-demand re-read for the screen's header Refresh / pull-to-refresh: every
+ * active office-billing query for this identity (the page's list or detail,
+ * plus the billing status) refetches through our API. Cached data stays in
+ * place while the reads are in flight; a failed read resolves with its error
+ * so the screen can show a non-blocking notice instead of an error state.
+ */
+export function useRefreshOfficeBilling(userId: string) {
+  const client = useQueryClient();
+  return useCallback(async (): Promise<Error | null> => {
+    const queryKey = officeBillingKey(userId);
+    await client.refetchQueries({ queryKey, type: 'active' });
+    const failed = client.getQueryCache().findAll({ queryKey, type: 'active' }).find((query) => query.state.status === 'error');
+    if (!failed) return null;
+    const error = failed.state.error;
+    return error instanceof Error ? error : new Error('The refresh did not complete.');
+  }, [client, userId]);
+}
+
 /** Drops every cached office-billing read for this identity (after any write). */
 export function useInvalidateOfficeBilling(userId: string) {
   const client = useQueryClient();

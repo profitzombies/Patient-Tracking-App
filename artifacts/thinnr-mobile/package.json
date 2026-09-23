@@ -80,6 +80,8 @@
     "test:payments-status": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-status.tsx",
     "test:sell-to-patient": "tsx --tsconfig tsconfig.payments.json scripts/verify-sell-to-patient.tsx",
     "test:patient-orders": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-orders.tsx",
+    "test:order-refresh": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-order-refresh.tsx",
+    "test:payments-refresh": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-refresh.tsx",
     "test:patient-subscriptions": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-subscriptions.tsx",
     "test:tap-to-pay": "tsx --tsconfig tsconfig.payments.json scripts/verify-tap-to-pay.tsx",
     "test:session-persistence": "tsx --tsconfig tsconfig.session-persistence.json scripts/verify-session-persistence.tsx"

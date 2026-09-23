@@ -181,10 +181,15 @@ export function Boundary({
   return <>{children(status.data)}</>;
 }
 
-export function demoPage(title: string, body: ReactNode, sub = 'A guided example of your office payment workspace.') {
+export function demoPage(
+  title: string,
+  body: ReactNode,
+  sub = 'A guided example of your office payment workspace.',
+  action?: ReactNode,
+) {
   return (
     <div className={PAGE}>
-      <Header title={title} sub={sub} sandbox />
+      <Header title={title} sub={sub} sandbox action={action} />
       <DemoNotice />
       {body}
     </div>

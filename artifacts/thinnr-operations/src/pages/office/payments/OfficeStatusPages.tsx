@@ -29,6 +29,7 @@ function waitingLine(warehouse: WarehouseSubmission | null | undefined): string 
 }
 import type { OfficeBillingStatus, OfficeRefundRow, OrderDetail } from '@/lib/billing-types';
 import { DEMO_ACTIVITY, DEMO_FULFILLMENT, DEMO_REFUNDS } from './demo-data';
+import { RefreshControl } from '@/components/billing/RefreshControl';
 import { Boundary, DemoNotice, ErrorBox, Header, PAGE, RowLink, clickable, useUrlFilters } from './shared';
 
 // ---------------------------------------------------------------- Activity
@@ -304,6 +305,7 @@ function FulfillmentView({ status, demo = false }: { status: OfficeBillingStatus
         title="Fulfillment"
         sub="Where each paid order is on its way to the patient. THINNR packs and ships every order and emails the patient tracking."
         sandbox={status?.sandbox ?? demo}
+        action={<RefreshControl subject="Fulfillment" demo={demo} sources={[query]} />}
       />
       {demo && <DemoNotice />}
       <div className="flex gap-2" role="group" aria-label="Fulfillment stage">
@@ -322,7 +324,7 @@ function FulfillmentView({ status, demo = false }: { status: OfficeBillingStatus
       </div>
       {!demo && query.isPending ? (
         <Skeleton className="h-64" />
-      ) : !demo && query.isError ? (
+      ) : !demo && query.isError && !rows ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : (
         <div className="space-y-3" data-testid="fulfillment-list">

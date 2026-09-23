@@ -1,8 +1,9 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
 import { router } from 'expo-router';
 import { BillingScreen, SectionLabel } from '@/components/billing/BillingScreen';
 import { OrderCard } from '@/components/billing/BillingPieces';
+import { useBillingNotice } from '@/components/billing/useBillingNotice';
 import { useBillingResource } from '@/components/billing/useBillingResource';
 import { ErrorBox, GhostButton } from '@/components/onboarding/OnboardingFields';
 import { DEMO_ORDERS } from '@/data/patient-billing-demo';
@@ -16,7 +17,8 @@ const PAGE_SIZE = 20;
 export default function OrdersScreen() {
   const colors = useColors();
   const load = useCallback((): Promise<PatientOrderList> => listOrders(null, PAGE_SIZE), []);
-  const orders = useBillingResource<PatientOrderList>(load, () => ({ items: DEMO_ORDERS, next_cursor: null }));
+  const orders = useBillingResource<PatientOrderList>(load, () => ({ items: DEMO_ORDERS, next_cursor: null }), 'orders');
+  const notice = useBillingNotice();
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   const rows = orders.data?.items ?? [];
@@ -42,6 +44,14 @@ export default function OrdersScreen() {
     }
   };
 
+  // Pull-to-refresh / header Refresh keep the loaded list on screen; a failed
+  // re-read shows as a notice rather than replacing the orders.
+  const refresh = async () => {
+    const failure = await orders.refresh();
+    if (failure) notice.announce(`Couldn't refresh orders. ${failure}`);
+    else AccessibilityInfo.announceForAccessibility(orders.demo ? 'Demo orders are up to date' : 'Orders updated');
+  };
+
   return (
     <BillingScreen
       title="Orders"
@@ -51,6 +61,11 @@ export default function OrdersScreen() {
       onRetry={() => void orders.reload()}
       hasContent={orders.data !== null}
       demo={orders.demo}
+      notice={notice.notice}
+      onDismissNotice={notice.dismiss}
+      onRefresh={() => void refresh()}
+      refreshing={orders.refreshing}
+      refreshLabel="Refresh orders"
     >
       <SectionLabel text="Order history" />
       {rows.length ? rows.map(order => (

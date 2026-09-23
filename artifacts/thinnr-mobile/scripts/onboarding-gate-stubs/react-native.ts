@@ -43,7 +43,17 @@ function hostComponent(name: string) {
 export const View = hostComponent('View');
 export const Text = hostComponent('Text');
 export const TextInput = hostComponent('TextInput');
-export const ScrollView = hostComponent('ScrollView');
+/**
+ * Like the real ScrollView, a `refreshControl` element is rendered as the
+ * first child rather than left in host props (an element in props is a
+ * circular structure for renderer.toJSON()).
+ */
+const ScrollViewHost = hostComponent('ScrollView');
+export function ScrollView(props: AnyProps & { refreshControl?: React.ReactNode }): React.ReactElement {
+  const { refreshControl, children, ...rest } = props;
+  return React.createElement(ScrollViewHost, rest, refreshControl ?? null, children as React.ReactNode);
+}
+ScrollView.displayName = 'ScrollView';
 export const Pressable = hostComponent('Pressable') as React.FC<PressableProps>;
 export const Switch = hostComponent('Switch');
 /**
@@ -59,6 +69,7 @@ export const Image = Object.assign(hostComponent('Image'), {
   },
 });
 export const ActivityIndicator = hostComponent('ActivityIndicator');
+export const RefreshControl = hostComponent('RefreshControl');
 
 export const StyleSheet = {
   create<T>(styles: T): T {

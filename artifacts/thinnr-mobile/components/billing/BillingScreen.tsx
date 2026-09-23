@@ -6,7 +6,7 @@
  * invents a healthy-looking empty state while a load is failing.
  */
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,13 +29,27 @@ interface BillingScreenProps {
   notice?: BillingNotice | null;
   onDismissNotice?: () => void;
   demo?: boolean;
+  /**
+   * Non-blocking re-read: enables pull-to-refresh on the body and, with
+   * `refreshLabel`, a Refresh button in the header. The caller keeps the
+   * last good record on screen while `refreshing` is true.
+   */
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  /** Accessible name for the header Refresh button, e.g. "Refresh order". Omit for pull-only. */
+  refreshLabel?: string;
   children: React.ReactNode;
 }
 
-export function BillingScreen({ title, testID, loading, error, onRetry, hasContent, notice, onDismissNotice, demo = false, children }: BillingScreenProps) {
+export function BillingScreen({
+  title, testID, loading, error, onRetry, hasContent, notice, onDismissNotice, demo = false,
+  onRefresh, refreshing = false, refreshLabel, children,
+}: BillingScreenProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
+  // Pull-to-refresh waits for the first load; a refresh has nothing to keep until then.
+  const canRefresh = Boolean(onRefresh) && !loading;
   return (
     <View testID={testID} style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -43,11 +57,32 @@ export function BillingScreen({ title, testID, loading, error, onRetry, hasConte
           <Feather name="chevron-left" size={22} color={colors.navy} />
         </Pressable>
         <Text style={[styles.title, { color: colors.navy }]}>{title}</Text>
-        <View style={styles.spacer} />
+        {onRefresh && refreshLabel ? (
+          <Pressable
+            testID={`${testID}-refresh`}
+            accessibilityRole="button"
+            accessibilityLabel={refreshing ? `${refreshLabel}, refreshing` : refreshLabel}
+            accessibilityState={{ busy: refreshing, disabled: !canRefresh }}
+            aria-busy={refreshing}
+            onPress={() => { if (canRefresh && !refreshing) onRefresh(); }}
+            hitSlop={10}
+            style={styles.refresh}
+          >
+            {refreshing
+              ? <ActivityIndicator testID={`${testID}-refreshing`} size="small" color={colors.cobalt} />
+              : <Feather name="refresh-cw" size={18} color={colors.navy} />}
+          </Pressable>
+        ) : (
+          <View style={styles.spacer} />
+        )}
       </View>
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + (Platform.OS === 'web' ? 34 : 28) + (notice ? 72 : 0) }]}
         bottomOffset={72}
+        scrollBoundary={canRefresh ? 'refresh' : undefined}
+        refreshControl={canRefresh ? (
+          <RefreshControl testID={`${testID}-pull`} refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />
+        ) : undefined}
       >
         {demo ? (
           <Text testID={`${testID}-demo-note`} style={[styles.demoNote, { color: colors.subtleText, borderColor: colors.border }]}>
@@ -88,6 +123,7 @@ const styles = StyleSheet.create({
   header: { minHeight: 58, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1 },
   title: { fontSize: 18, fontFamily: 'PlayfairDisplay_700Bold' },
   spacer: { width: 22 },
+  refresh: { width: 22, minHeight: 22, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 18, maxWidth: 520, width: '100%', alignSelf: 'center' },
   section: { fontSize: 10, letterSpacing: 1.4, fontFamily: 'Inter_700Bold', marginTop: 20, marginBottom: 8 },
   demoNote: { fontSize: 12, lineHeight: 17, fontFamily: 'Inter_500Medium', borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6 },

@@ -50,6 +50,14 @@ export function useHqBillingScope() {
 
 type QueryOpts<T> = Omit<UseQueryOptions<T, Error>, 'queryKey' | 'queryFn' | 'enabled'>;
 
+/**
+ * Order, fulfillment and subscription reads refetch when the tab regains
+ * focus only once the loaded copy is older than this; the header Refresh
+ * control refetches on demand regardless of age.
+ */
+export const ORDER_REFRESH_STALE_MS = 30_000;
+const refreshOnStaleFocus = { staleTime: ORDER_REFRESH_STALE_MS, refetchOnWindowFocus: true } as const;
+
 // ---------------- office ----------------
 export function usePaymentsHealth() {
   const { liveEnabled, base } = useHqBillingScope();
@@ -161,6 +169,7 @@ export function useOfficeOrders(filters: ListFilters) {
     queryKey: [...base, 'orders', filters],
     queryFn: () => officeBilling.orders(filters, office),
     enabled: liveEnabled,
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -170,6 +179,7 @@ export function useOfficeOrder(orderId: string | null) {
     queryKey: [...base, 'order', orderId],
     queryFn: () => officeBilling.order(orderId as string, office),
     enabled: liveEnabled && Boolean(orderId),
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -179,6 +189,7 @@ export function useOfficeSubscriptions(filters: ListFilters) {
     queryKey: [...base, 'subscriptions', filters],
     queryFn: () => officeBilling.subscriptions(filters, office),
     enabled: liveEnabled,
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -229,6 +240,7 @@ export function useOfficeFulfillment(filters: ListFilters) {
     queryKey: [...base, 'fulfillment', filters],
     queryFn: () => officeBilling.fulfillment(filters, office),
     enabled: liveEnabled,
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -310,6 +322,7 @@ export function useHqTransactions(filters: ListFilters) {
     queryKey: [...base, 'transactions', filters],
     queryFn: () => hqBilling.transactions(filters),
     enabled: liveEnabled,
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -319,6 +332,7 @@ export function useHqTransaction(orderId: string | null) {
     queryKey: [...base, 'transaction', orderId],
     queryFn: () => hqBilling.transaction(orderId as string),
     enabled: liveEnabled && Boolean(orderId),
+    ...refreshOnStaleFocus,
   });
 }
 
@@ -328,6 +342,7 @@ export function useHqFulfillment(filters: ListFilters) {
     queryKey: [...base, 'fulfillment', filters],
     queryFn: () => hqBilling.fulfillment(filters),
     enabled: liveEnabled,
+    ...refreshOnStaleFocus,
   });
 }
 

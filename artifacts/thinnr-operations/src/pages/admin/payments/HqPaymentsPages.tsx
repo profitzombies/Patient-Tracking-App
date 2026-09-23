@@ -23,6 +23,7 @@ import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useDateRange } from '@/contexts/date-range';
 import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { RefreshControl } from '@/components/billing/RefreshControl';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PaymentsHealthBanner } from '@/components/billing/PaymentsHealthBanner';
@@ -525,7 +526,12 @@ function TransactionsBody({ demo }: { demo: boolean }) {
   const rows = demo ? DEMO_ORDERS : query.data?.items;
   return (
     <AdminPage>
-      <Header title="Transactions" sub="Search and review all provider orders." sandbox={sandbox.data?.sandbox} />
+      <Header
+        title="Transactions"
+        sub="Search and review all provider orders."
+        sandbox={sandbox.data?.sandbox}
+        action={<RefreshControl subject="Transactions" demo={demo} sources={[query]} />}
+      />
       {demo && <Preview />}
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <label className="relative lg:col-span-2">
@@ -571,7 +577,7 @@ function TransactionsBody({ demo }: { demo: boolean }) {
       </div>
       {!demo && query.isPending ? (
         <Skeleton className="h-60" />
-      ) : !demo && query.isError ? (
+      ) : !demo && query.isError && !rows ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : (
         <SectionCard title="Orders">
@@ -660,17 +666,20 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
         tabs={false}
         back={{ href: '/transactions', label: 'Back to transactions' }}
         action={
-          order && canWrite ? (
-            <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => { refund.reset(); setRefundOpen(true); }}>
-              Refund
-            </button>
-          ) : undefined
+          <>
+            <RefreshControl subject="Order" demo={demo} sources={[query]} />
+            {order && canWrite ? (
+              <button className={`${BTN_PRIMARY} h-9 px-3.5`} onClick={() => { refund.reset(); setRefundOpen(true); }}>
+                Refund
+              </button>
+            ) : null}
+          </>
         }
       />
       {demo && <Preview />}
       {!demo && query.isPending ? (
         <Skeleton className="h-80" />
-      ) : !demo && query.isError ? (
+      ) : !demo && query.isError && !order ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : order ? (
         <div className="grid gap-5 lg:grid-cols-2">
@@ -873,7 +882,12 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
   };
   return (
     <AdminPage>
-      <Header title="Fulfillment" sub="Ship paid orders and keep patients informed." sandbox={sandbox.data?.sandbox} />
+      <Header
+        title="Fulfillment"
+        sub="Ship paid orders and keep patients informed."
+        sandbox={sandbox.data?.sandbox}
+        action={<RefreshControl subject="Fulfillment" demo={demo} sources={[query]} />}
+      />
       {demo && <Preview />}
       <div className="mb-4 flex gap-2">
         {(['to_ship', 'shipped', 'canceled'] as const).map((x) => (
@@ -888,7 +902,7 @@ function FulfillmentBody({ demo, canWrite }: { demo: boolean; canWrite: boolean 
       </div>
       {!demo && query.isPending ? (
         <Skeleton className="h-64" />
-      ) : !demo && query.isError ? (
+      ) : !demo && query.isError && !rows ? (
         <ErrorBox error={query.error} retry={() => void query.refetch()} />
       ) : (
         <div className="space-y-3">

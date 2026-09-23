@@ -13,7 +13,7 @@ import type { PatientSubscriptionDetail } from '@/lib/patient-billing-types';
 export default function SubscriptionsScreen() {
   const colors = useColors();
   const load = useCallback(async (): Promise<PatientSubscriptionDetail[]> => (await listSubscriptions()).items, []);
-  const subscriptions = useBillingResource<PatientSubscriptionDetail[]>(load, () => DEMO_SUBSCRIPTIONS);
+  const subscriptions = useBillingResource<PatientSubscriptionDetail[]>(load, () => DEMO_SUBSCRIPTIONS, 'subscriptions');
   const rows = subscriptions.data ?? [];
   const current = rows.filter(row => row.status !== 'canceled');
   const ended = rows.filter(row => row.status === 'canceled');

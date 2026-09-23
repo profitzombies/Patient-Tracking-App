@@ -5,7 +5,7 @@
  * receipts). Reloading this URL without params shows a neutral message
  * rather than inventing an order.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { GhostButton, PrimaryButton } from '@/components/onboarding/OnboardingFields';
+import { invalidateBillingResources } from '@/components/billing/useBillingResource';
 import { useColors } from '@/hooks/useColors';
 import { formatCents } from '@/lib/cart-math';
 import { arrivalWindow } from '@/lib/patient-billing-core';
@@ -41,6 +42,13 @@ export default function OrderConfirmationScreen() {
   const office = typeof params.office === 'string' ? params.office : '';
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const hasResult = orders.length > 0 || subscriptions.length > 0;
+
+  // A paid checkout changes the patient's orders and subscriptions: any of
+  // those screens still mounted behind this one re-reads now, so the new
+  // order is there the moment the patient navigates to it.
+  useEffect(() => {
+    if (hasResult) invalidateBillingResources(['orders', 'subscriptions']);
+  }, [hasResult]);
   const shippingLabel = params.shippingSource === 'fallback' || params.shippingMethod !== 'expedited'
     ? 'Standard shipping'
     : 'Expedited shipping';

@@ -46,6 +46,7 @@ export default function FulfillmentScreen() {
       section="fulfillment"
       title="Fulfillment"
       sub="Where each paid order is on its way to the patient. THINNR packs and ships every order and emails the patient tracking."
+      refresh="fulfillment"
       demo={<FulfillmentView stage={stage} setStage={setStage} rows={demoRows} />}
       live={(ctx) => <LiveFulfillment ctx={ctx} stage={stage} setStage={setStage} />}
     />
@@ -71,7 +72,8 @@ function LiveFulfillment({
       </>
     );
   }
-  if (query.isError || !query.data) {
+  // A failed re-read keeps the loaded pages on screen (the shell shows a notice).
+  if (!query.data) {
     return (
       <>
         <Filters stage={stage} setStage={setStage} />

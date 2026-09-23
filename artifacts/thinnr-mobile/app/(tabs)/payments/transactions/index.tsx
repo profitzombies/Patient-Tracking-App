@@ -66,6 +66,7 @@ export default function TransactionsScreen() {
       section="transactions"
       title="Transactions"
       sub="Orders and refunds for your office."
+      refresh="transactions"
       demo={<TransactionsView {...controls} rows={demoRows} />}
       live={(ctx) => <LiveTransactions ctx={ctx} {...controls} />}
     />
@@ -92,7 +93,8 @@ function LiveTransactions({ ctx, ...controls }: { ctx: PaymentsLive } & Controls
       </>
     );
   }
-  if (query.isError || !query.data) {
+  // A failed re-read keeps the loaded pages on screen (the shell shows a notice).
+  if (!query.data) {
     return (
       <>
         <RangePicker testIDPrefix="transactions-range" />

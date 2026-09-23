@@ -16,8 +16,8 @@
  * the provider launcher; this strip reaches every sub-page). Detail pages
  * hide the strip and show a back link instead.
  */
-import React, { type ReactNode } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { AccessibilityInfo, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type RefreshControlProps } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { Redirect, router, usePathname, type Href } from 'expo-router';
@@ -27,8 +27,9 @@ import { fonts } from '@/constants/colors';
 import { useSupabaseSession } from '@/lib/supabase';
 import { OfficeBillingError } from '@/lib/office-billing-api';
 import type { OfficeBillingStatus } from '@/lib/office-billing-types';
-import { useOfficeBillingStatus } from '@/hooks/useOfficeBilling';
-import { Body, DemoNotice, ErrorBox, LoadingBox, Panel, SandboxBadge } from './primitives';
+import { useOfficeBillingStatus, useRefreshOfficeBilling } from '@/hooks/useOfficeBilling';
+import { Snackbar } from '@/components/ui/Snackbar';
+import { Body, Button, DemoNotice, ErrorBox, LoadingBox, Panel, SandboxBadge } from './primitives';
 
 export const PAYMENTS_BASE = '/payments';
 
@@ -68,7 +69,84 @@ export interface PaymentsScreenProps {
   back?: { href: Href; label: string };
   /** Demo title suffix override (defaults to the shared demo subtitle). */
   demoSub?: string;
+  /**
+   * Pull-to-refresh plus a header Refresh button. Live pages re-read every
+   * active office-billing query through our API and keep the last good data
+   * on screen (a failed read is a snackbar, not an error state); the demo
+   * persona animates the same controls without loading anything. The value
+   * names what is refreshed for screen readers ("Refresh transactions").
+   */
+  refresh?: string;
   testID?: string;
+}
+
+const DEMO_REFRESH_MS = 500;
+const NOTICE_MS = 5000;
+
+interface RefreshState {
+  refreshing: boolean;
+  notice: string | null;
+  dismiss: () => void;
+  run: () => void;
+}
+
+/**
+ * One refresh at a time; completion is announced for screen readers and a
+ * failed live read becomes a dismissable notice.
+ */
+function useScreenRefresh(subject: string | undefined, read: (() => Promise<Error | null>) | null): RefreshState {
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+  const dismiss = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    setNotice(null);
+  }, []);
+  const run = useCallback(() => {
+    if (!subject || refreshing) return;
+    setRefreshing(true);
+    void (async () => {
+      const failure = read ? await read() : await new Promise<null>((resolve) => setTimeout(() => resolve(null), DEMO_REFRESH_MS));
+      if (!mounted.current) return;
+      setRefreshing(false);
+      if (failure) {
+        const message = `Couldn't refresh ${subject}. ${failure.message} Showing the last loaded data.`;
+        setNotice(message);
+        AccessibilityInfo.announceForAccessibility(message);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => { timer.current = null; setNotice(null); }, NOTICE_MS);
+      } else {
+        AccessibilityInfo.announceForAccessibility(read ? `${subject[0].toUpperCase()}${subject.slice(1)} updated` : 'Demo data is up to date');
+      }
+    })();
+  }, [read, refreshing, subject]);
+  return { refreshing, notice, dismiss, run };
+}
+
+function RefreshAction({ subject, state }: { subject: string; state: RefreshState }) {
+  return (
+    <Button
+      testID="payments-refresh"
+      label="Refresh"
+      accessibilityLabel={`Refresh ${subject}`}
+      busy={state.refreshing}
+      onPress={state.run}
+      small
+    />
+  );
+}
+
+function refreshControl(state: RefreshState, color: string): React.ReactElement<RefreshControlProps> {
+  return <RefreshControl testID="payments-pull-refresh" refreshing={state.refreshing} onRefresh={state.run} tintColor={color} />;
 }
 
 export function PaymentsScreen(props: PaymentsScreenProps) {
@@ -85,16 +163,34 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
     );
   }
   const demo = !sessionLoading;
+  return <DemoOrResolving {...props} showDemo={demo} bottomPad={bottomPad} />;
+}
+
+function DemoOrResolving({ showDemo: demo, bottomPad, ...props }: PaymentsScreenProps & { showDemo: boolean; bottomPad: number }) {
+  const colors = useColors();
+  const refresh = useScreenRefresh(demo ? props.refresh : undefined, null);
+  const subject = demo ? props.refresh : undefined;
+  const action = demo ? props.action?.(undefined) : undefined;
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]} testID={props.testID ?? `payments-${props.section}`}>
-      <PageScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]} keyboardShouldPersistTaps="handled">
+      <PageScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+        keyboardShouldPersistTaps="handled"
+        scrollBoundary={subject ? 'refresh' : undefined}
+        refreshControl={subject ? refreshControl(refresh, colors.cobalt) : undefined}
+      >
         <PaymentsHeader
           section={props.section}
           title={props.title}
           sub={demo ? props.demoSub ?? DEMO_SUB : props.sub}
           sandbox={demo || undefined}
           back={props.back}
-          action={demo ? props.action?.(undefined) : undefined}
+          action={subject || action ? (
+            <>
+              {subject ? <RefreshAction subject={subject} state={refresh} /> : null}
+              {action}
+            </>
+          ) : undefined}
         />
         {demo ? (
           <>
@@ -110,8 +206,11 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
 }
 
 function LiveGate({ userId, bottomPad, ...props }: PaymentsScreenProps & { userId: string; bottomPad: number }) {
+  const colors = useColors();
   const status = useOfficeBillingStatus(userId);
   const pathname = usePathname();
+  const read = useRefreshOfficeBilling(userId);
+  const refresh = useScreenRefresh(props.refresh, read);
   const forbidden = (status.error instanceof OfficeBillingError && status.error.status === 403) || status.data?.viewer.can_manage === false;
 
   let body: ReactNode;
@@ -131,11 +230,43 @@ function LiveGate({ userId, bottomPad, ...props }: PaymentsScreenProps & { userI
     body = props.live(ctx);
   }
 
+  // The refresh controls appear once the live body is on screen; earlier
+  // states have their own retry and nothing loaded to keep.
+  const subject = ctx ? props.refresh : undefined;
+  const action = props.action?.(ctx);
   return (
-    <PageScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]} keyboardShouldPersistTaps="handled">
-      <PaymentsHeader section={props.section} title={props.title} sub={props.sub} sandbox={status.data?.sandbox} back={props.back} action={props.action?.(ctx)} />
-      {body}
-    </PageScrollView>
+    <>
+      <PageScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
+        keyboardShouldPersistTaps="handled"
+        scrollBoundary={subject ? 'refresh' : undefined}
+        refreshControl={subject ? refreshControl(refresh, colors.cobalt) : undefined}
+      >
+        <PaymentsHeader
+          section={props.section}
+          title={props.title}
+          sub={props.sub}
+          sandbox={status.data?.sandbox}
+          back={props.back}
+          action={subject || action ? (
+            <>
+              {subject ? <RefreshAction subject={subject} state={refresh} /> : null}
+              {action}
+            </>
+          ) : undefined}
+        />
+        {body}
+      </PageScrollView>
+      {refresh.notice ? (
+        <Snackbar
+          testID="payments-refresh-notice"
+          actionTestID="payments-refresh-notice-dismiss"
+          message={refresh.notice}
+          actionLabel="OK"
+          onAction={refresh.dismiss}
+        />
+      ) : null}
+    </>
   );
 }
 

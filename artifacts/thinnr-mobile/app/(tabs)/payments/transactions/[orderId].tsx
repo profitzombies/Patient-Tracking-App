@@ -50,6 +50,7 @@ export default function TransactionDetailScreen() {
         ? `${demoOrder.payer.name} · ${formatDateTime(demoOrder.created_at)}`
         : 'Order details and payment history.'}
       back={{ href: '/payments/transactions', label: 'Transactions' }}
+      refresh="this transaction"
       demo={demoOrder
         ? <DetailView order={demoOrder} demo />
         : <Empty>This transaction is not part of the guided demo.</Empty>}
@@ -63,7 +64,8 @@ function LiveDetail({ ctx, orderId }: { ctx: PaymentsLive; orderId: string }) {
   if (query.isPending) {
     return <LoadingBox label="Loading transaction…" testID="transaction-loading" />;
   }
-  if (query.isError || !query.data) {
+  // A failed re-read keeps the loaded record on screen (the shell shows a notice).
+  if (!query.data) {
     return <ErrorBox error={query.error} retry={() => void query.refetch()} testID="transaction-error" />;
   }
   return <DetailView order={query.data} userId={ctx.userId} />;

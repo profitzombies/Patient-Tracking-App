@@ -61,6 +61,7 @@
     "test:billing-public": "TZ=UTC tsx --tsconfig tsconfig.billing-public.json scripts/verify-billing-public.tsx",
     "test:billing-hq": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-hq.tsx",
     "test:billing-office": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-billing-office.tsx",
+    "test:order-refresh": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-order-refresh.tsx",
     "test:files": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-files.tsx",
     "test:office-files": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-files.tsx",
     "test:local-time": "TZ=America/New_York tsx scripts/verify-local-time.ts && TZ=America/Los_Angeles tsx scripts/verify-local-time.ts && TZ=UTC tsx scripts/verify-local-time.ts && TZ=Asia/Tokyo tsx scripts/verify-local-time.ts",

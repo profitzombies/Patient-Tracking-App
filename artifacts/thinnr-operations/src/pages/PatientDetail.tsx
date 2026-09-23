@@ -24,6 +24,10 @@ import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
 import { LiveMedications } from "@/components/office/LiveMedications";
 import { LiveProgressPhotos } from "@/components/office/LiveProgressPhotos";
 import { LivePatientPurchases, PatientPurchasesPanel, demoPurchasesSummary } from "@/components/office/PatientPurchases";
+import { CustomerEmailsCard } from "@/components/billing/CustomerEmailsCard";
+import { demoEmailDataset } from "@/components/billing/customer-emails-demo";
+import { useHqCanManageEmails } from "@/hooks/use-billing";
+import type { PatientPurchasesSummary } from "@/lib/billing-types";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import { PatientRecordExport } from "@/components/office/PatientRecordExport";
 import { PatientEditHistory } from "@/components/office/PatientEditHistory";
@@ -344,6 +348,9 @@ function DemoPatientDetail() {
           <PatientPurchasesPanel summary={demoPurchasesSummary(patient, subscription, MOCK_PRODUCTS)} demo />
         </div>
         <div className="lg:col-span-3">
+          <DemoPatientEmails patientId={patient.id} name={patient.name} email={patient.email ?? null} summary={demoPurchasesSummary(patient, subscription, MOCK_PRODUCTS)} />
+        </div>
+        <div className="lg:col-span-3">
           <SectionCard title="Bloodwork Reports">
             <EmptyState>Demo only: Bloodwork requires a real patient record.</EmptyState>
           </SectionCard>
@@ -409,6 +416,19 @@ function LiveDiaryDay({ day, totals }: { day: { dateKey: string; waterOz?: numbe
   );
 }
 
+/** Guided demo: the emails a payer would have received for the seeded purchase history, read-only. */
+function DemoPatientEmails({ patientId, name, email, summary }: { patientId: string; name: string; email: string | null; summary: PatientPurchasesSummary }) {
+  const dataset = useMemo(() => demoEmailDataset(
+    { id: `payer-${patientId}`, name, email, patient_id: patientId },
+    summary.orders.map((order, index) => ({
+      id: order.id, order_number: order.order_number, created_at: order.created_at,
+      shipped_at: order.shipment?.shipped_at ?? null, delivered_at: order.shipment?.delivered_at ?? null,
+      payment_failed: index === 0 && summary.last_payment_problem != null,
+    })),
+  ), [patientId, name, email, summary]);
+  return <CustomerEmailsCard area="office" filter={{ patient_id: patientId }} canAct={false} demo={dataset} sub="Every order and shipment email sent to this patient's payer." />;
+}
+
 function LivePatientDetail({ id, office, isHq }: { id: string; office: string | null; isHq: boolean }) {
   const { toast } = useToast();
   const [weightEntryOpen, setWeightEntryOpen] = useState(false);
@@ -424,6 +444,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
     refetchInterval: 30_000,
   });
   const canEdit = useCanEditLiveRecord(detail.data?.patient);
+  const canManageEmails = useHqCanManageEmails();
   const notificationTimeline = useQuery({
     queryKey: ['office-patient-notifications', office ?? 'own', id],
     queryFn: () => fetchOfficePatientNotifications(id, office),
@@ -652,6 +673,10 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
         </div>
         <div className="lg:col-span-3">
           <LivePatientPurchases patientId={id} office={office} />
+        </div>
+        <div className="lg:col-span-3">
+          {/* The office ledger routes already 403 anyone below owner/admin, so a loaded list means the viewer may act; HQ still needs Admin rights. */}
+          <CustomerEmailsCard area="office" filter={{ patient_id: id }} canAct={canManageEmails} sub="Every order and shipment email sent to this patient's payer." />
         </div>
         <div className="lg:col-span-3">
           <PatientBloodwork patientId={id} office={office} canEdit={canEdit} />

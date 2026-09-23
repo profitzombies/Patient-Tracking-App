@@ -175,8 +175,8 @@ beforeEach(() => {
     ],
     billing_orders: [{ ...scope, id: ORDER_A, order_number: "TH-ABCD2345", provider_id: "office-a", payer_id: PAYER_A, livemode: true }],
     providers: [
-      { provider_id: "office-a", office_name: "Harbor Health", provider_name: "Dr. Harbor" },
-      { provider_id: "office-b", office_name: "Bayside Clinic", provider_name: "Dr. Bay" },
+      { provider_id: "office-a", office_name: "Harbor Health", provider_name: "Dr. Harbor", auth_user_id: "office-a-user" },
+      { provider_id: "office-b", office_name: "Bayside Clinic", provider_name: "Dr. Bay", auth_user_id: "office-b-user" },
     ],
     billing_customer_emails: [
       emailRow({ id: EMAIL_1, dedupe_key: "shipped:a", template_id: "order-shipped", provider_id: "office-a", payer_id: PAYER_A, order_id: ORDER_A, subject: "Shipped", created_at: "2026-09-10T00:00:00.000Z",
@@ -248,13 +248,14 @@ describe("office ledger routes", () => {
     expect(own.status).toBe(400);
     const added = await call("POST", `/billing/office/payers/${PAYER_A}/contacts`, "office-a", { email: " Spouse@Example.test ", label: "Spouse" });
     expect(added.status).toBe(201);
-    expect(added.json.contact).toMatchObject({ payer_id: PAYER_A, email: "spouse@example.test", label: "Spouse", active: true });
+    // The adding staff member is named so the UI can show "added by"; resolution is best-effort.
+    expect(added.json.contact).toMatchObject({ payer_id: PAYER_A, email: "spouse@example.test", label: "Spouse", active: true, added_by_name: "Dr. Harbor" });
     expect(added.json.contacts).toHaveLength(1);
     expect(tables.billing_notification_contacts[0]).toMatchObject({ provider_id: "office-a", created_by: "office-a-user" });
     expect((await call("POST", `/billing/office/payers/${PAYER_A}/contacts`, "office-a", { email: "spouse@example.test" })).status).toBe(409);
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: "billing_notification_contact_added", targetKind: "billing_notification_contact", targetId: added.json.contact.id, metadata: { payer_id: PAYER_A } }));
     const listed = await call("GET", `/billing/office/payers/${PAYER_A}/contacts`, "office-a");
-    expect(listed.json).toEqual({ payer: { id: PAYER_A, name: "Riley Example", email: "riley@example.test" }, contacts: [expect.objectContaining({ email: "spouse@example.test" })] });
+    expect(listed.json).toEqual({ payer: { id: PAYER_A, name: "Riley Example", email: "riley@example.test" }, contacts: [expect.objectContaining({ email: "spouse@example.test", added_by_name: "Dr. Harbor" })] });
     const removed = await call("DELETE", `/billing/office/payers/${PAYER_A}/contacts/${added.json.contact.id}`, "office-a");
     expect(removed.status).toBe(200);
     expect(removed.json.contact).toMatchObject({ active: false, removed_at: expect.any(String) });

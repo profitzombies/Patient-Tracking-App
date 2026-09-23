@@ -13,6 +13,10 @@ import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { hqBilling, officeBilling, type ListFilters } from '@/lib/billing-api';
 import type {
   BillingSettings,
+  CustomerEmailList,
+  CustomerEmailSendResult,
+  NotificationContactChange,
+  NotificationContactsResponse,
   CatalogProductDetail,
   CatalogProductInput,
   FulfillmentUpdate,
@@ -512,4 +516,102 @@ export function useInvalidateHqBilling() {
   const { base } = useHqBillingScope();
   const client = useQueryClient();
   return () => client.invalidateQueries({ queryKey: base });
+}
+
+export type EmailLedgerArea = 'office' | 'hq';
+
+export function useNotificationContacts(area: EmailLedgerArea, payerId: string | null, options?: QueryOpts<NotificationContactsResponse>) {
+  const { api, office, base, liveEnabled } = useEmailLedgerScope(area);
+  return useQuery({
+    queryKey: emailLedgerKeys.contacts(base, payerId),
+    queryFn: () => api.contacts(payerId as string, office),
+    enabled: liveEnabled && Boolean(payerId),
+    ...options,
+  });
+}
+
+export function useCustomerEmailPreview(area: EmailLedgerArea, emailId: string | null) {
+  const { api, office, base, liveEnabled } = useEmailLedgerScope(area);
+  return useQuery({
+    queryKey: emailLedgerKeys.preview(base, emailId),
+    queryFn: () => api.emailPreview(emailId as string, office),
+    enabled: liveEnabled && Boolean(emailId),
+    // A 409 (template retired / never composed) is a fact about the row, not a blip.
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export const emailLedgerKeys = {
+  emails: (base: readonly unknown[], filter: EmailLedgerFilter) => [...base, 'customer-emails', filter] as const,
+  preview: (base: readonly unknown[], emailId: string | null) => [...base, 'customer-email-preview', emailId] as const,
+  contacts: (base: readonly unknown[], payerId: string | null) => [...base, 'notification-contacts', payerId] as const,
+};
+
+/** Which emails a card lists: one order, one payer, or every payer linked to a patient. */
+export type EmailLedgerFilter = { order_id: string } | { payer_id: string } | { patient_id: string };
+
+/**
+ * Resend / send-to-other / contact writes. Every success refreshes the ledger
+ * lists under this scope so the new linked row (or contact) appears wherever
+ * the card is mounted; a failed delivery (502) still lands a row, so the
+ * lists refresh on settle rather than only on success.
+ */
+export function useCustomerEmailActions(area: EmailLedgerArea) {
+  const { api, office, base } = useEmailLedgerScope(area);
+  const client = useQueryClient();
+  const refreshEmails = () => client.invalidateQueries({ queryKey: [...base, 'customer-emails'] });
+  const refreshContacts = () => client.invalidateQueries({ queryKey: [...base, 'notification-contacts'] });
+  const resend = useMutation<CustomerEmailSendResult, Error, { emailId: string }>({
+    mutationFn: ({ emailId }) => api.resendEmail(emailId, office),
+    onSettled: () => void refreshEmails(),
+  });
+  const sendTo = useMutation<CustomerEmailSendResult, Error, { emailId: string; to: string }>({
+    mutationFn: ({ emailId, to }) => api.sendEmailTo(emailId, to, office),
+    onSettled: () => void refreshEmails(),
+  });
+  const addContact = useMutation<NotificationContactChange, Error, { payerId: string; email: string; label?: string | null }>({
+    mutationFn: ({ payerId, email, label }) => api.addContact(payerId, { email, label: label ?? null }, office),
+    onSuccess: () => void refreshContacts(),
+  });
+  const removeContact = useMutation<NotificationContactChange, Error, { payerId: string; contactId: string }>({
+    mutationFn: ({ payerId, contactId }) => api.removeContact(payerId, contactId, office),
+    onSuccess: () => void refreshContacts(),
+  });
+  return { resend, sendTo, addContact, removeContact };
+}
+
+export function useCustomerEmails(area: EmailLedgerArea, filter: EmailLedgerFilter, options?: QueryOpts<CustomerEmailList>) {
+  const { api, office, base, liveEnabled } = useEmailLedgerScope(area);
+  return useQuery({
+    queryKey: emailLedgerKeys.emails(base, filter),
+    queryFn: () => api.emails({ ...filter, limit: 50 }, office),
+    enabled: liveEnabled,
+    ...options,
+  });
+}
+
+/**
+ * Resolves the client, cache root, and `?office=` for the ledger card. Office
+ * pages (and HQ drill-ins into an office) ride the office routes; HQ payments
+ * pages ride the HQ routes. Both scopes are read every render so the hook order
+ * never depends on the area.
+ */
+export function useEmailLedgerScope(area: EmailLedgerArea) {
+  const officeScope = useOfficeBillingScope();
+  const hqScope = useHqBillingScope();
+  if (area === 'hq') return { api: hqBilling, office: null as string | null, base: hqScope.base, liveEnabled: hqScope.liveEnabled };
+  return { api: officeBilling, office: officeScope.office, base: officeScope.base, liveEnabled: officeScope.liveEnabled };
+}
+
+/**
+ * Whether an HQ session may act on the office ledger routes it drills into.
+ * The server resolves an HQ drill-in as the office owner (`can_manage` is
+ * true) but still requires HQ provider-manage rights for writes, which the
+ * web maps to the Admin and Super Admin roles. Office sessions pass through.
+ */
+export function useHqCanManageEmails(): boolean {
+  const { authRole, hqRole } = useSession();
+  if (authRole !== 'hq_admin') return true;
+  return hqRole === 'Super Admin' || hqRole === 'Admin';
 }

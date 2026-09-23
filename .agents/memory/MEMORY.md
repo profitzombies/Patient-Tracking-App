@@ -157,3 +157,4 @@
 - [Sandbox verification gate](sandbox-verification-gate.md) — sandbox orders reach warehouse/email only under test tenant + per-order allowance row; vendor sandbox never ships itself; checkout needs X-Billing-Scope.
 - [Connect guard mode row](connect-guard-mode-row.md) — missing billing_mode_state must read as implicit Test/v0; 40001 raises surface as PostgREST timeouts; fixture connections attach via the guard RPC.
 - [Refresh controls & focus refetch](refresh-controls-and-focus-refetch.md) — RQ 5.x invalidates data after a background error (focus refetches despite staleTime); demo refresh animates as a no-op; RN stub child refreshControl.
+- [Staff Emails card](customer-emails-card.md) — office ledger 403 IS the role check (no status request); HQ gated client-side; demo rows derive from the on-screen order; query-level retry overrides test client retry:false.

@@ -10,6 +10,7 @@ import {
   type BillingCustomerEmailEventRow, type BillingCustomerEmailRow, type BillingNotificationContactRow, type BillingPayerRow,
 } from "../billing/store";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
+import { resolveAuditNames, type AuditNames } from "../lib/audit-events";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 
@@ -58,6 +59,8 @@ export interface CustomerEmailDto {
 }
 export interface NotificationContactDto {
   id: string; payer_id: string; email: string; label: string | null; active: boolean; created_at: string; removed_at: string | null;
+  /** Display name of the staff member who added the address, when still resolvable (HQ member, office account holder, or teammate). */
+  added_by_name: string | null;
 }
 
 const inList = (ids: Iterable<string>): string => [...new Set(ids)].map((id) => enc(`"${id}"`)).join(",");
@@ -108,9 +111,19 @@ export async function toCustomerEmailDtos(rows: BillingCustomerEmailRow[], optio
     };
   });
 }
-const toContactDto = (row: BillingNotificationContactRow): NotificationContactDto => ({
+const toContactDto = (row: BillingNotificationContactRow, names?: AuditNames): NotificationContactDto => ({
   id: row.id, payer_id: row.payer_id, email: row.email, label: row.label, active: row.active, created_at: row.created_at, removed_at: row.removed_at,
+  added_by_name: row.created_by ? names?.actors.get(row.created_by) ?? null : null,
 });
+/** Contact DTOs with the adding staff member named; lookups are best-effort and never fail the request. */
+async function toContactDtos(rows: BillingNotificationContactRow[]): Promise<NotificationContactDto[]> {
+  if (!rows.length) return [];
+  const names = await resolveAuditNames(rows.map((row) => ({
+    id: 0, occurred_at: row.created_at, action: "billing_notification_contact_added", actor_user_id: row.created_by,
+    actor_kind: "unknown", provider_id: null, target_kind: null, target_id: null, request_id: null, metadata: null,
+  })));
+  return rows.map((row) => toContactDto(row, names));
+}
 
 /** Payers of one patient within an office (a patient can only have one payer per office, but legacy data may differ). */
 async function payersForPatient(providerId: string | null, patientId: string): Promise<BillingPayerRow[]> {
@@ -192,7 +205,7 @@ async function loadPayer(payerId: string, providerId: string | null): Promise<Bi
 }
 async function listContacts(payer: BillingPayerRow): Promise<NotificationContactDto[]> {
   const rows = await selectMany("billing_notification_contacts", `payer_id=eq.${enc(payer.id)}&active=is.true&order=created_at.asc&limit=50`);
-  return rows.map(toContactDto);
+  return toContactDtos(rows);
 }
 const emailIdOf = (req: Request) => String(req.params.email_id);
 
@@ -228,7 +241,8 @@ async function addContactAction(req: Request, res: Response, actor: Actor, payer
   }, "billing_notification_contacts_active_unique");
   if (!inserted) { res.status(409).json({ error: "That address is already on this payer's notification list.", field: "email" }); return; }
   await audit(req, { ...actor, providerId: payer.provider_id }, "billing_notification_contact_added", "billing_notification_contact", inserted.id, { payer_id: payer.id });
-  res.status(201).json({ contact: toContactDto(inserted), contacts: await listContacts(payer) });
+  const contacts = await listContacts(payer);
+  res.status(201).json({ contact: contacts.find((row) => row.id === inserted.id) ?? toContactDto(inserted), contacts });
 }
 async function removeContactAction(req: Request, res: Response, actor: Actor, payer: BillingPayerRow): Promise<void> {
   const contactId = String(req.params.contact_id);

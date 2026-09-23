@@ -235,6 +235,7 @@ console.log('\nrecord: guided demo renders the panel from the seeded dataset');
   {
     const { root } = await render(`/patients/${failing.id}`, record());
     check('demo: no network calls', requests.length === 0, requests.map((r) => r.url).join('|'));
+    check('demo: emails card lists the seeded payer emails read-only', Boolean(one(root, 'emails-list')) && byTestId(root, 'email-template').length >= 1 && byTestId(root, 'button-send-to-other').every((node) => node.props.disabled === true) && Boolean(one(root, 'button-notification-emails')));
     const panel = one(root, 'panel-purchases');
     const summary = demoPurchasesSummary(failing, MOCK_SUBSCRIPTIONS.find((s) => s.patientId === failing.id), MOCK_PRODUCTS);
     check('demo: lifetime spend mirrors the seeded patient revenue', textOf(one(root, 'stat-purchases-lifetime')).includes(`$${(summary.totals.lifetime_net_cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`) && summary.totals.lifetime_net_cents >= failing.revenue * 100, textOf(one(root, 'stat-purchases-lifetime')));

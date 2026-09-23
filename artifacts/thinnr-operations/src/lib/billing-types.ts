@@ -1605,6 +1605,8 @@ export interface NotificationContact {
   active: boolean;
   created_at: string;
   removed_at: string | null;
+  /** Staff member who added the address, when the server can still name them. */
+  added_by_name: string | null;
 }
 
 export interface NotificationContactsResponse {

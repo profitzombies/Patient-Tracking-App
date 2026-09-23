@@ -321,7 +321,7 @@ await check(
   'transaction detail back link',
   '/admin/payments/transactions/demo-order-1',
   () => <PaymentTransactionDetail params={{ orderId: 'demo-order-1' }} />,
-  ['TH-D3MO01', 'Back to transactions', 'Warehouse', 'Sent to warehouse', 'Warehouse order 1436100', 'Warehouse status', 'Being Fulfilled'],
+  ['TH-D3MO01', 'Back to transactions', 'Warehouse', 'Sent to warehouse', 'Warehouse order 1436100', 'Warehouse status', 'Being Fulfilled', 'Emails', 'Order confirmation', 'Notification emails'],
 );
 await check(
   'transaction detail delivered and back-ordered rows',

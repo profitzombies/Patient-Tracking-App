@@ -23,6 +23,8 @@ import { DateRangeControl } from '@/components/layout/DateRangeControl';
 import { useDateRange } from '@/contexts/date-range';
 import { ProviderActivityTiles, ProviderRecentOrders } from '@/components/billing/hq/ProviderPaymentsSummary';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { CustomerEmailsCard } from '@/components/billing/CustomerEmailsCard';
+import { demoEmailDatasetForOrder } from '@/components/billing/customer-emails-demo';
 import { RefreshControl } from '@/components/billing/RefreshControl';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -807,6 +809,16 @@ function TransactionDetailBody({ demo, canWrite, id }: { demo: boolean; canWrite
               />
             </div>
           </SectionCard>
+          <CustomerEmailsCard
+            area="hq"
+            filter={{ order_id: order.id }}
+            payer={order.payer}
+            canAct={canWrite}
+            demo={demo ? demoEmailDatasetForOrder(order) : null}
+            sub={`Every email sent to ${order.payer.name} about this order.`}
+            className="lg:col-span-2"
+            forbiddenMessage="Emails need financial read access."
+          />
           <RefundDialog
             order={order}
             open={refundOpen}

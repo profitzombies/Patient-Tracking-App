@@ -146,7 +146,8 @@ console.log('office billing: gates and setup');
   check(
     'demo transaction renders its order detail and relative Back link',
     requests.length === 0 && text(demoDetail.root).includes('TH-D3MO01') && backLink.length === 1
-      && ['Shipping method', 'Standard', 'Flat rate', 'Carrier cost', 'Pick-and-pack fee', 'Packaging'].every((value) => text(demoDetail.root).includes(value)),
+      && ['Shipping method', 'Standard', 'Flat rate', 'Carrier cost', 'Pick-and-pack fee', 'Packaging', 'Emails', 'Order confirmation'].every((value) => text(demoDetail.root).includes(value))
+      && all(demoDetail.root, 'emails-list').length === 1 && all(demoDetail.root, 'button-send-to-other').every((node) => node.props.disabled === true),
     `requests=${requests.length}; back=${backLink.length}; text=${text(demoDetail.root).slice(0, 180)}`,
   );
   demoDetail.renderer.unmount();

@@ -32,6 +32,8 @@ import {
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
 import { RefreshControl } from '@/components/billing/RefreshControl';
+import { CustomerEmailsCard } from '@/components/billing/CustomerEmailsCard';
+import { demoEmailDatasetForOrder } from '@/components/billing/customer-emails-demo';
 import { StripeCustomerEmailsFlag, StripeCustomerEmailsNotice } from '@/components/billing/StripeCustomerEmails';
 import { CancelSubscriptionDialog } from '@/components/billing/CancelSubscriptionDialog';
 import { SellToPatientDialog } from '@/components/billing/SellToPatientDialog';
@@ -39,6 +41,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  useHqCanManageEmails,
   useInvalidateOfficeBilling,
   useOfficeBillingScope,
   useOfficeLinks,
@@ -950,6 +953,8 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
   const query = useOfficeOrder(orderId);
   const { office } = useOfficeBillingScope();
   const invalidate = useInvalidateOfficeBilling();
+  // HQ drill-ins resolve as the office owner server-side, but email writes still need HQ provider-manage rights.
+  const canActAsHq = useHqCanManageEmails();
   const [refundOpen, setRefundOpen] = useState(false);
   const refund = useMutation({
     mutationFn: ({ amount, reason }: { amount: number; reason: string }) =>
@@ -972,6 +977,7 @@ function DetailQuery({ status, orderId }: { status: OfficeBillingStatus; orderId
       order={order}
       sandbox={status.sandbox}
       refresh={<RefreshControl subject="Order" sources={[query]} />}
+      canManageEmails={status.viewer.can_manage && canActAsHq}
       refundOpen={refundOpen}
       setRefundOpen={(open) => {
         if (open) refund.reset();
@@ -989,6 +995,7 @@ function DetailView({
   sandbox,
   demo = false,
   refresh,
+  canManageEmails = false,
   refundOpen,
   setRefundOpen,
   onRefund,
@@ -999,6 +1006,8 @@ function DetailView({
   sandbox: boolean;
   demo?: boolean;
   refresh?: ReactNode;
+  /** Whether this viewer may resend emails and edit notification contacts (office owner/admin, HQ Admin). */
+  canManageEmails?: boolean;
   refundOpen: boolean;
   setRefundOpen: (open: boolean) => void;
   onRefund: (amount: number, reason: string) => void;
@@ -1135,6 +1144,14 @@ function DetailView({
           </div>
         </SectionCard>
       )}
+      <CustomerEmailsCard
+        area="office"
+        filter={{ order_id: order.id }}
+        payer={order.payer}
+        canAct={canManageEmails}
+        demo={demo ? demoEmailDatasetForOrder(order) : null}
+        sub={`Every email sent to ${order.payer.name} about this order.`}
+      />
       {demo && <DemoNotice />}
       {demo ? (
         <DemoRefundDialog

@@ -114,7 +114,6 @@
 - [Billing topic directory](billing-topic-directory.md) — grouped Stripe, payments, checkout, sales, email, and billing-state lessons; see original topic pages for details.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
-- [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
 - [HQ file drive](hq-file-drive.md) — replace = CAS swap; archived rows stay real; providers read-only via shared read module; HQ-only manual order; 250 MB cap in constant+OpenAPI+DB check, preview bound separate.
 - [Fixed-layout table width budget](fixed-table-width-budget.md) — truncate needs table-fixed; reserve widths for all but one column and keep the sum under the card width or the free column starves.
 - [HQ drill-in office scope](hq-drillin-office-scope.md) — office screens under /admin/accounts/:id/office must send ?office= on every live request and hide HQ-forbidden care-team writes; hold the frame while accounts load.
@@ -139,9 +138,6 @@
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
 - [AI usage ledger & prompt cache](ai-usage-ledger-and-prompt-cache.md) — meter at the client seam; one system message in canonical source order caches ~99%; tier switches only via recorded harnesses.
 - [JSX type args vs dev metadata plugin](jsx-type-args-metadata-plugin.md) — `<Comp<'a'|'b'>…>` typechecks but the dev-only metadata transform makes Vite fail on every route; instantiate the generic at module level.
-- [WarehouseCraft shipping rates](warehousecraft-shipping-rates.md) — NOVEX_* secrets are the WarehouseCraft creds; fallback = flat charge exactly, recovery always carrier+pick-pack; one rater via planCart, renewals re-quote.
-- [WarehouseCraft order submission](warehousecraft-order-submission.md) — legacy /api/OrderDatas routes; trigger-made intent queue; test/live tenant guard holds real orders until the prod-only flag flips; 8-char order numbers.
-- [WarehouseCraft status feed sync](warehousecraft-status-sync.md) — feed authoritative only for sent orders, provider writes share the staff shipment path + one forward-only guard; docs ByDate route is 404, tenant uses OrderStatusDatas date-only Central days.
 - [Retention compliance floors](retention-compliance-floors.md) — floors live in bounds+OpenAPI min+DB CHECK+clamp-on-read together; clinical record window is separate from the chat timer, care-team pinned by SQL test.
 - [PHI-free push and email](phi-free-outbound.md) — all email through one transport seam with per-template PHI class + catalog lint; both push senders wrap the client in sendGuarded; copy generic, data ids-only.
 - [Staff idle timeout & fresh-code re-auth](staff-idle-timeout-reauth.md) — idle window is client-side (stable signOut, BroadcastChannel); code proof = session-bound ledger stamp, gate after authz, fail closed.
@@ -152,10 +148,4 @@
 - [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Practice launch pricing](practice-launch-pricing.md) — user-approved 2× means THINNR product fee paid by the office, excluding shipping/card fees, not supplier cost or patient retail.
-- [Stripe setup reset policy](stripe-setup-reset-policy.md) — re-gating preserves connections; unfinished setup may restart, but financial history requires HQ investigation, never forced replacement.
-- [Customer email delivery ledger](customer-email-ledger.md) — one row per address with its own 3-try budget; deterministic failures never retry; staff sends are linked rows, never re-flipped claims.
-- [Sandbox verification gate](sandbox-verification-gate.md) — sandbox orders reach warehouse/email only under test tenant + per-order allowance row; vendor sandbox never ships itself; checkout needs X-Billing-Scope.
-- [Connect guard mode row](connect-guard-mode-row.md) — missing billing_mode_state must read as implicit Test/v0; 40001 raises surface as PostgREST timeouts; fixture connections attach via the guard RPC.
 - [Refresh controls & focus refetch](refresh-controls-and-focus-refetch.md) — RQ 5.x invalidates data after a background error (focus refetches despite staleTime); demo refresh animates as a no-op; RN stub child refreshControl.
-- [Staff Emails card](customer-emails-card.md) — office ledger 403 IS the role check (no status request); HQ gated client-side; demo rows derive from the on-screen order; query-level retry overrides test client retry:false.
-- [Email vendor delivery webhook](email-vendor-webhook.md) — inbox-then-link by vendor message id, re-match on tick; "Tracking not enabled" beats zeros; HQ Payments gate has no read-only persona.

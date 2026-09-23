@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: vi.fn() }));
 
 import { isJobDue, registerJob, resetJobRegistry, runDueJobs, runJob, runUserJob, signalJob } from "./scheduler";
+import { warehouseStatusSyncJob } from "./definitions/warehouse-status-sync";
 import { createMemoryJobStore } from "./store";
 import type { JobContext, JobDefinition } from "./types";
 
@@ -161,6 +162,14 @@ describe("job scheduler", () => {
       expect(isJobDue(def, { lastStartedAt: started, lastStatus: "failed", nextEligibleAt: soon }, clock)).toBe(false);
       const past = new Date(clock.getTime() - 1_000).toISOString();
       expect(isJobDue(def, { lastStartedAt: started, lastStatus: "failed", nextEligibleAt: past }, clock)).toBe(true);
+    });
+    it("makes the warehouse status feed due again five minutes after its last start, not on the next one-minute tick", () => {
+      expect(warehouseStatusSyncJob.intervalMs).toBe(5 * 60_000);
+      const state = (minutesAgo: number) => ({ lastStartedAt: new Date(clock.getTime() - minutesAgo * 60_000).toISOString(), lastStatus: "succeeded" as const, nextEligibleAt: null });
+      expect(isJobDue(warehouseStatusSyncJob, state(1), clock)).toBe(false);
+      expect(isJobDue(warehouseStatusSyncJob, state(4), clock)).toBe(false);
+      expect(isJobDue(warehouseStatusSyncJob, state(5), clock)).toBe(true);
+      expect(isJobDue(warehouseStatusSyncJob, state(15), clock)).toBe(true);
     });
   });
 

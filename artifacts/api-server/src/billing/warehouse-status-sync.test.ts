@@ -104,7 +104,7 @@ import { notifyShipmentTransition } from "./customer-emails";
 import { recordShipment } from "./shipments";
 import { ShipmentTransitionError } from "./warehouse-status";
 import {
-  BASELINE_DAYS, MAX_WINDOW_DAYS, applyStatusRow, computePollWindow, followUpCandidates, runWarehouseStatusPoll, warehouseSyncHealth,
+  BASELINE_DAYS, DEFAULT_STALLED_MINUTES, MAX_WINDOW_DAYS, applyStatusRow, computePollWindow, followUpCandidates, runWarehouseStatusPoll, stalledAfterMs, warehouseSyncHealth,
 } from "./warehouse-status-sync";
 import { runWarehouseStatusSync, warehouseStatusSyncJob } from "../jobs/definitions/warehouse-status-sync";
 import { evaluateThresholds } from "../system/thresholds";
@@ -401,8 +401,8 @@ describe("runWarehouseStatusPoll", () => {
     await runWarehouseStatusPoll(ctx(), { client: fakeClient() });
     expect(state.tables.billing_warehouse_sync_polls.map((row) => row.id)).toEqual(["recent", expect.any(String)]);
   });
-  it("is registered as a 15-minute leased job that tallies unconfigured and does nothing without credentials", async () => {
-    expect(warehouseStatusSyncJob).toMatchObject({ name: "warehouse-status-sync", intervalMs: 15 * 60_000 });
+  it("is registered as a 5-minute leased job that tallies unconfigured and does nothing without credentials", async () => {
+    expect(warehouseStatusSyncJob).toMatchObject({ name: "warehouse-status-sync", intervalMs: 5 * 60_000 });
     expect(warehouseStatusSyncJob.leaseSeconds).toBeGreaterThanOrEqual(300);
     for (const name of ["WAREHOUSECRAFT_API_BASE_URL", "WAREHOUSECRAFT_API_USERNAME", "WAREHOUSECRAFT_API_PASSWORD", "NOVEX_API_BASE_URL", "NOVEX_API_USERNAME", "NOVEX_API_PASSWORD"]) vi.stubEnv(name, "");
     try {
@@ -425,17 +425,31 @@ describe("warehouseSyncHealth and the stalled threshold", () => {
     const health = await warehouseSyncHealth(NOW);
     expect(health).toMatchObject({
       last_success_at: "2026-09-18T09:00:01.000Z", last_poll_at: "2026-09-18T11:30:00.000Z", last_error: "HTTP 503", last_window: { start: "2026-09-11", end: "2026-09-19" },
-      rows_seen_24h: 4, transitions_24h: 1, errors_24h: 1, polls_24h: 2, failed_polls_24h: 1, stalled: true, stalled_after_minutes: 60, back_ordered: 1, awaiting_tracking: 1,
+      rows_seen_24h: 4, transitions_24h: 1, errors_24h: 1, polls_24h: 2, failed_polls_24h: 1, stalled: true, stalled_after_minutes: 15, back_ordered: 1, awaiting_tracking: 1,
     });
     const findings = evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: health.last_success_at, lastPollAt: health.last_poll_at, stalledAfterMinutes: health.stalled_after_minutes, lastError: health.last_error } });
-    expect(findings).toEqual([expect.objectContaining({ metric: "warehouse_poll", level: "red", value: 179, limit: 60 })]);
+    expect(findings).toEqual([expect.objectContaining({ metric: "warehouse_poll", level: "red", value: 179, limit: 15 })]);
     expect(findings[0].message).toContain("Last error: HTTP 503");
   });
   it("is quiet while the feed is fresh or has never run", async () => {
     expect(await warehouseSyncHealth(NOW)).toMatchObject({ stalled: false, last_poll_at: null, polls_24h: 0 });
-    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: null, lastPollAt: null, stalledAfterMinutes: 60, lastError: null } })).toEqual([]);
-    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: "2026-09-18T11:30:00.000Z", lastPollAt: "2026-09-18T11:45:00.000Z", stalledAfterMinutes: 60, lastError: "blip" } })).toEqual([]);
+    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: null, lastPollAt: null, stalledAfterMinutes: 15, lastError: null } })).toEqual([]);
+    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: "2026-09-18T11:50:00.000Z", lastPollAt: "2026-09-18T11:55:00.000Z", stalledAfterMinutes: 15, lastError: "blip" } })).toEqual([]);
     // Never succeeded but polling for longer than the limit: also red.
-    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: null, lastPollAt: "2026-09-18T10:00:00.000Z", stalledAfterMinutes: 60, lastError: "auth" } })[0]?.message).toContain("never synced");
+    expect(evaluateThresholds({ latencyLastHour: [], growth: null, now: NOW, warehousePoll: { lastSuccessAt: null, lastPollAt: "2026-09-18T10:00:00.000Z", stalledAfterMinutes: 15, lastError: "auth" } })[0]?.message).toContain("never synced");
+  });
+  it("defaults the stalled threshold to three missed 5-minute polls and still honours the environment knob", async () => {
+    expect(DEFAULT_STALLED_MINUTES).toBe(15);
+    expect(stalledAfterMs()).toBe(15 * 60_000);
+    // 16 minutes since the last success: stalled at the default, fresh under the old 60-minute knob.
+    seed({ polls: [{ id: "a", started_at: "2026-09-18T11:44:00.000Z", finished_at: "2026-09-18T11:44:00.000Z", ok: true, window_start: "2026-09-11", window_end: "2026-09-19", rows_seen: 0, transitions: 0, errors: 0 }] });
+    expect(await warehouseSyncHealth(NOW)).toMatchObject({ stalled: true, stalled_after_minutes: 15 });
+    vi.stubEnv("WAREHOUSE_POLL_STALLED_MINUTES", "60");
+    try {
+      expect(stalledAfterMs()).toBe(60 * 60_000);
+      expect(await warehouseSyncHealth(NOW)).toMatchObject({ stalled: false, stalled_after_minutes: 60 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

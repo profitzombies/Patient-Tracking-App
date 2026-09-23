@@ -50,7 +50,10 @@ export const FOLLOW_UP_SHIPPED_DAYS = 21;
 /** Poll rows older than this are trimmed by the job. */
 export const POLL_RETENTION_DAYS = 7;
 
-export function stalledAfterMs(): number { return envInt("WAREHOUSE_POLL_STALLED_MINUTES", 60) * 60_000; }
+/** Default stalled-poll threshold: three missed 5-minute polls (overridable with WAREHOUSE_POLL_STALLED_MINUTES). */
+export const DEFAULT_STALLED_MINUTES = 15;
+
+export function stalledAfterMs(): number { return envInt("WAREHOUSE_POLL_STALLED_MINUTES", DEFAULT_STALLED_MINUTES) * 60_000; }
 
 export interface PollWindow { start: string; end: string }
 

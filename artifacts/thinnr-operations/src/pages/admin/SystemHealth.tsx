@@ -260,7 +260,7 @@ function WarehouseSyncTiles({ sync }: { sync: NonNullable<SystemHealthResult['wa
   return (
     <div className="mt-4" data-testid="system-health-warehouse-sync">
       <h3 className="text-xs font-semibold text-navy">Status feed</h3>
-      <p className="text-[11px] text-muted-foreground">Shipped, tracking and delivered updates polled from WarehouseCraft every 15 minutes.</p>
+      <p className="text-[11px] text-muted-foreground">Shipped, tracking and delivered updates polled from WarehouseCraft every 5 minutes.</p>
       {sync === null && (
         <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-warehouse-sync-unreadable">
           The status feed poll ledger could not be read, so these figures are unavailable rather than zero.

@@ -1,5 +1,5 @@
 /**
- * warehouse-status-sync: every 15 minutes, poll WarehouseCraft's order-status
+ * warehouse-status-sync: every 5 minutes, poll WarehouseCraft's order-status
  * feed for a rolling window (last successful poll minus a two-hour overlap,
  * never less than a week and never more than thirty days back, through
  * tomorrow in the warehouse's clock) and apply what it says to the shipments
@@ -14,7 +14,8 @@
  * event key on the shipment and the forward-only transition guard make
  * re-polling idempotent. Dry runs compute the window and touch nothing.
  * Production runs no process timers: this job is reachable from the external
- * tick like every other worker family.
+ * tick like every other worker family. The cadence is this one constant:
+ * the tick itself stays at one minute and nothing else about the poll changes.
  */
 import { runWarehouseStatusPoll, type SyncDeps } from "../../billing/warehouse-status-sync";
 import type { JobContext, JobDefinition } from "../types";
@@ -30,7 +31,7 @@ export const warehouseStatusSyncJob: JobDefinition = {
   name: "warehouse-status-sync",
   title: "Warehouse status feed",
   description: "Polls WarehouseCraft for order status, tracking numbers, delivery, back orders, and cancellations of submitted orders and applies them to shipments (forward-only, one email per transition).",
-  intervalMs: 15 * MINUTE_MS,
+  intervalMs: 5 * MINUTE_MS,
   leaseSeconds: 10 * 60,
   run: (ctx) => forEachBillingScope(() => runWarehouseStatusSync(ctx), ["live"]),
 };

@@ -10,7 +10,8 @@ export type BillingTable =
   | "billing_payment_links" | "billing_payers" | "billing_orders" | "billing_order_items"
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
-  | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls";
+  | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls"
+  | "billing_notification_contacts" | "billing_customer_email_events";
 
 export interface BillingIdentityColumns {
   stripe_mode?: "test" | "live" | null;
@@ -97,9 +98,36 @@ export interface BillingConnectedAccountRow extends TimestampedRow {
 }
 /** Whether Stripe itself may email this office's customers; THINNR sends every customer email, so "off" is the healthy state. */
 export type StripeCustomerEmailsState = "off" | "unverified" | "on";
+export type CustomerEmailStatus = "claimed" | "retrying" | "sent" | "skipped" | "failed";
+export type CustomerEmailKind = "automatic" | "resend" | "send_to_other";
+/** One delivery attempt; addresses appear only as hash + domain here. */
+export interface CustomerEmailAttempt {
+  at: string; outcome: "sent" | "failed"; error: string | null; vendor_message_id: string | null;
+  recipient_hash: string; recipient_domain: string | null;
+}
+/**
+ * One customer email to one address. Automatic rows own the transition dedupe
+ * key; resend / send_to_other rows link to the original through parent_id.
+ * Bodies are never stored: previews re-render from template_id + variables.
+ */
 export interface BillingCustomerEmailRow extends TimestampedRow {
   id: string; dedupe_key: string; template_id: string; provider_id: string | null; subscription_id: string | null;
-  order_id: string | null; status: "claimed" | "sent" | "skipped" | "failed"; error: string | null;
+  order_id: string | null; status: CustomerEmailStatus; error: string | null;
+  kind: CustomerEmailKind; parent_id: string | null; contact_id: string | null; payer_id: string | null;
+  recipient: string | null; subject: string | null; variables: Record<string, string> | null;
+  attempts: number; max_attempts: number; last_attempt_at: string | null; next_attempt_at: string | null;
+  sent_at: string | null; vendor_message_id: string | null; attempt_log: CustomerEmailAttempt[]; requested_by: string | null;
+}
+/** An extra address copied on a payer's future order and shipment emails. */
+export interface BillingNotificationContactRow extends TimestampedRow {
+  id: string; payer_id: string; provider_id: string; email: string; label: string | null; active: boolean;
+  created_by: string | null; removed_at: string | null; removed_by: string | null;
+}
+export type CustomerEmailEventType = "sent" | "delivered" | "delivery_delayed" | "bounced" | "complained" | "opened" | "clicked";
+/** Vendor delivery event attached to a ledger row by vendor message id (filled by webhook ingestion). */
+export interface BillingCustomerEmailEventRow extends TimestampedRow {
+  id: string; email_id: string | null; vendor_message_id: string; vendor_event_id: string | null;
+  event_type: CustomerEmailEventType; occurred_at: string; detail: Record<string, unknown>;
 }
 export interface BillingAccountEventRow extends TimestampedRow {
   id: string; provider_id: string; kind: string; detail: Record<string, unknown>;
@@ -244,6 +272,8 @@ export type BillingRows = {
   billing_prebuilt_carts: BillingPrebuiltCartRow; billing_office_settings: BillingOfficeSettingsRow;
   billing_warehouse_submissions: BillingWarehouseSubmissionRow;
   billing_warehouse_sync_polls: BillingWarehouseSyncPollRow;
+  billing_notification_contacts: BillingNotificationContactRow;
+  billing_customer_email_events: BillingCustomerEmailEventRow;
 };
 
 export class BillingStoreError extends Error {

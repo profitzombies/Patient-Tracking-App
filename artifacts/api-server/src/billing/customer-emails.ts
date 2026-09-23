@@ -1,11 +1,11 @@
 import { liveBillingEffectsAllowed } from "./lifecycle-scopes";
 import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
-import { sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
+import { MAX_EMAIL_ATTEMPTS, attemptDelivery, fanOutToContacts } from "./customer-email-ledger";
 import { formatReceiptTimestamp } from "./receipts";
 import {
   insertIgnore, selectMany, selectOne, update,
-  type BillingOrderRow, type BillingPayerRow, type BillingShipmentRow, type BillingSubscriptionRow,
+  type BillingCustomerEmailRow, type BillingOrderRow, type BillingPayerRow, type BillingShipmentRow, type BillingSubscriptionRow,
 } from "./store";
 import { getOrderBundle, getProvider, type ProviderSummary } from "./store-orders";
 
@@ -14,9 +14,11 @@ import { getOrderBundle, getProvider, type ProviderSummary } from "./store-order
  *
  * Every send goes through `notifyOnce`: a claim row keyed by the transition is
  * inserted BEFORE the message is composed, so replays (webhook redelivery,
- * job re-runs, staff double taps) find the claim and send nothing. Nothing in
- * here throws: a failed email is logged on the claim row and never blocks the
- * money or state transition that triggered it.
+ * job re-runs, staff double taps) find the claim and send nothing. The claim
+ * row is also the delivery ledger (customer-email-ledger.ts): a failed attempt
+ * schedules a retry instead of giving up, and staff resends link back to it.
+ * Nothing in here throws: a failed email is logged on the claim row and never
+ * blocks the money or state transition that triggered it.
  */
 
 export const RENEWAL_REMINDER_DEFAULT_DAYS = 3;
@@ -70,12 +72,15 @@ export const planLabel = (productName: string, quantity: number | null | undefin
 const firstName = (payer: BillingPayerRow): string => (payer.name ?? "").trim().split(/\s+/)[0] ?? "";
 const officeLabel = (office: ProviderSummary | null): string => office?.office_name || office?.provider_name || "your provider office";
 
-export type NotifyOutcome = "sent" | "duplicate" | "skipped" | "failed";
+export type NotifyOutcome = "sent" | "retrying" | "duplicate" | "skipped" | "failed";
 interface NotifyRefs { provider_id?: string | null; subscription_id?: string | null; order_id?: string | null }
 
 /**
- * Claims `dedupeKey` and, if this call won the claim, composes and sends the
- * email. `compose` may return null to record a deliberate skip (no address,
+ * Claims `dedupeKey` and, if this call won the claim, composes and delivers
+ * the email through the ledger: the first attempt happens here, further
+ * attempts (up to MAX_EMAIL_ATTEMPTS) are driven by the retry job. The payer's
+ * additional contacts receive their own linked copies for order and shipment
+ * notices. `compose` may return null to record a deliberate skip (no address,
  * missing rows). Never throws.
  */
 export async function notifyOnce(
@@ -92,8 +97,9 @@ export async function notifyOnce(
         ? await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(refs.subscription_id)}`) : null;
     if (!source || source.livemode !== true) return "skipped";
     const claim = await insertIgnore("billing_customer_emails", {
-      dedupe_key: dedupeKey, template_id: templateId, provider_id: refs.provider_id ?? null,
-      subscription_id: refs.subscription_id ?? null, order_id: refs.order_id ?? null, status: "claimed",
+      dedupe_key: dedupeKey, template_id: templateId, provider_id: refs.provider_id ?? null, payer_id: source.payer_id ?? null,
+      subscription_id: refs.subscription_id ?? null, order_id: refs.order_id ?? null, status: "claimed", kind: "automatic",
+      attempts: 0, max_attempts: MAX_EMAIL_ATTEMPTS, attempt_log: [],
     }, "billing_customer_emails_dedupe_key_unique");
     if (!claim) return "duplicate";
     claimId = claim.id;
@@ -102,12 +108,13 @@ export async function notifyOnce(
       await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { status: "skipped", error: message ? "no email address" : "nothing to send" });
       return "skipped";
     }
-    await sendTemplatedEmail({
-      to: message.to, templateId, variables: message.variables, sender: "branded",
-      refs: { dedupeKey, claimId, orderId: refs.order_id ?? null, subscriptionId: refs.subscription_id ?? null },
-    });
-    await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { status: "sent", error: null });
-    return "sent";
+    const recipient = message.to.trim().toLowerCase();
+    const variables = { ...message.variables } as Record<string, string>;
+    const composed = await update("billing_customer_emails", `id=eq.${encodeURIComponent(claimId)}`, { recipient, variables });
+    const primary: BillingCustomerEmailRow = { ...claim, ...(composed ?? {}), recipient, variables };
+    const outcome = await attemptDelivery(primary);
+    await fanOutToContacts(primary);
+    return outcome;
   } catch (error) {
     logger.error({ err: error, templateId, dedupeKey }, "customer email failed");
     if (claimId) {

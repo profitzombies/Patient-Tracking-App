@@ -26,6 +26,7 @@ vi.mock("../lib/staff-auth", async () => {
 });
 import hq from "./billing-hq";
 import hqOrders from "./billing-hq-orders";
+import customerEmails from "./billing-customer-emails";
 import office from "./billing-office";
 import officeOrders from "./billing-office-orders";
 import publicBilling from "./billing-public";
@@ -58,6 +59,22 @@ const ROUTES: Record<string, Access> = {
   "GET /billing/office/refunds": "office-read",
   "GET /billing/office/fulfillment": "office-read",
   "GET /billing/office/orders": "office-read",
+  "GET /billing/office/emails": "office-read",
+  "GET /billing/office/emails/:email_id": "office-read",
+  "GET /billing/office/emails/:email_id/preview": "office-read",
+  "POST /billing/office/emails/:email_id/resend": "office-write",
+  "POST /billing/office/emails/:email_id/send-to": "office-write",
+  "GET /billing/office/payers/:payer_id/contacts": "office-read",
+  "POST /billing/office/payers/:payer_id/contacts": "office-write",
+  "DELETE /billing/office/payers/:payer_id/contacts/:contact_id": "office-write",
+  "GET /billing/hq/emails": "hq-read",
+  "GET /billing/hq/emails/:email_id": "hq-read",
+  "GET /billing/hq/emails/:email_id/preview": "hq-read",
+  "POST /billing/hq/emails/:email_id/resend": "hq-provider-write",
+  "POST /billing/hq/emails/:email_id/send-to": "hq-provider-write",
+  "GET /billing/hq/payers/:payer_id/contacts": "hq-read",
+  "POST /billing/hq/payers/:payer_id/contacts": "hq-provider-write",
+  "DELETE /billing/hq/payers/:payer_id/contacts/:contact_id": "hq-provider-write",
   "GET /billing/office/orders/:id": "office-read",
   "GET /billing/office/subscriptions": "office-read",
   "GET /billing/office/subscriptions/:id/change-quote": "office-read",
@@ -132,6 +149,14 @@ const EXPECTED_HQ_PERMISSIONS: Record<string, "financial_read" | "provider_manag
   "GET /billing/hq/overview/today": "financial_read",
   "GET /billing/hq/activity": "financial_read",
   "GET /billing/hq/transactions": "financial_read",
+  "GET /billing/hq/emails": "financial_read",
+  "GET /billing/hq/emails/:email_id": "financial_read",
+  "GET /billing/hq/emails/:email_id/preview": "financial_read",
+  "POST /billing/hq/emails/:email_id/resend": "provider_manage",
+  "POST /billing/hq/emails/:email_id/send-to": "provider_manage",
+  "GET /billing/hq/payers/:payer_id/contacts": "financial_read",
+  "POST /billing/hq/payers/:payer_id/contacts": "provider_manage",
+  "DELETE /billing/hq/payers/:payer_id/contacts/:contact_id": "provider_manage",
   "GET /billing/hq/transactions/:id": "financial_read",
   "GET /billing/hq/fulfillment": "financial_read",
   "GET /billing/hq/subscriptions": "financial_read",
@@ -234,6 +259,8 @@ function bodyFor(route: string): unknown {
     purchase: "one_time",
   };
   if (route.endsWith("/refund")) return { amount_cents: 100, reason: "Patient request" };
+  if (route.endsWith("/send-to")) return { email: "other@example.test" };
+  if (route.endsWith("/contacts")) return { email: "spouse@example.test" };
   if (route.endsWith("/cancel")) return { at_period_end: true };
   if (route.endsWith("/change")) return { product_id: ROW_ID };
   if (route.includes("/fulfillment/:order_id")) return { status: "to_ship" };
@@ -251,7 +278,8 @@ function bodyFor(route: string): unknown {
 
 function concretePath(pattern: string, access: Access): string {
   let path = pattern.replace(/:cancel_token|:token/g, "test-token").replace(/:provider_id/g, OFFICE_A)
-    .replace(/:product_id|:order_id|:patientId|:imageId|:id/g, ROW_ID);
+    .replace(/:product_id|:order_id|:patientId|:imageId|:email_id|:payer_id|:contact_id|:id/g, ROW_ID);
+  if (pattern === "GET /billing/office/emails") path += `?order_id=${ROW_ID}`;
   if ((access === "office-read" || access === "office-write" || access==="owner-restart") && !path.includes("?")) path += `?office=${OFFICE_A}`;
   if (pattern.endsWith("/change-quote")) path += `${path.includes("?") ? "&" : "?"}product_id=${ROW_ID}`;
   return path;
@@ -270,7 +298,7 @@ async function request(route: string, access: Access, identity: Identity): Promi
 }
 
 function inventory(): string[] {
-  const routers = [hq, hqOrders, office, officeOrders, publicBilling] as Array<{ stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> }>;
+  const routers = [hq, hqOrders, office, officeOrders, publicBilling, customerEmails] as Array<{ stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> }>;
   return routers.flatMap((router) => router.stack.flatMap((layer) => {
     if (!layer.route) return [];
     return Object.keys(layer.route.methods).filter((method) => layer.route!.methods[method]).map((method) => `${method.toUpperCase()} ${layer.route!.path}`);
@@ -285,9 +313,10 @@ function hqPermissionInventory(): Record<string, string> {
       stack: Array<{ handle: { __hqPermission?: string } }>;
     };
   };
-  const routers = [hq, hqOrders] as Array<{ stack: RouteLayer[] }>;
+  const routers = [hq, hqOrders, customerEmails] as Array<{ stack: RouteLayer[] }>;
   return Object.fromEntries(routers.flatMap((router) => router.stack.flatMap((layer) => {
-    if (!layer.route) return [];
+    // The customer-emails router carries office routes too; only HQ paths bind an HQ permission.
+    if (!layer.route || !layer.route.path.startsWith("/billing/hq/")) return [];
     const permission = layer.route.stack
       .map((handler) => handler.handle.__hqPermission)
       .filter((value): value is string => Boolean(value));
@@ -312,7 +341,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_synthetic" }, next));
-  app.use(hq, hqOrders, office, officeOrders, publicBilling);
+  app.use(hq, hqOrders, office, officeOrders, publicBilling, customerEmails);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

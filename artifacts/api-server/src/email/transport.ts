@@ -132,9 +132,12 @@ export interface SendEmailInput {
 export interface SendEmailResult {
   messageId: string | null;
   phiClass: EmailPhiClass;
+  /** The rendered subject line (safe to store: templates keep subjects generic). */
+  subject: string;
 }
 
-function recipientDigest(to: string): { recipientHash: string; recipientDomain: string | null } {
+/** Log-safe stand-in for an address: a truncated hash plus the domain, never the mailbox. */
+export function recipientDigest(to: string): { recipientHash: string; recipientDomain: string | null } {
   const normalized = to.trim().toLowerCase();
   const at = normalized.lastIndexOf("@");
   return {
@@ -177,7 +180,7 @@ export async function sendTemplatedEmail(input: SendEmailInput): Promise<SendEma
     const result = await client.send({ from, to: input.to, subject: rendered.subject, html: rendered.html, text: rendered.text });
     const messageId = result?.id ?? null;
     logger.info({ ...log, outcome: "sent", messageId, durationMs: Date.now() - startedAt }, "email send");
-    return { messageId, phiClass };
+    return { messageId, phiClass, subject: rendered.subject };
   } catch (error) {
     logger.error(
       { ...log, outcome: "failed", durationMs: Date.now() - startedAt, status: error instanceof EmailSendError ? error.status : null, err: error },

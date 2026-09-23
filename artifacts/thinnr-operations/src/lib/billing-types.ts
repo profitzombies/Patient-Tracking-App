@@ -1531,3 +1531,88 @@ export interface AiCostSummary {
   by_model: AiCostModel[];
   models: { surface: string; model: string; overridden: boolean }[];
 }
+
+// ---------------- customer email ledger (SPEC §6, Customer email ledger) ----------------
+
+export type CustomerEmailKind = 'automatic' | 'resend' | 'send_to_other';
+export type CustomerEmailStatus = 'claimed' | 'retrying' | 'sent' | 'skipped' | 'failed';
+
+export interface CustomerEmailAttempt {
+  at: string;
+  outcome: 'sent' | 'failed';
+  error: string | null;
+  vendor_message_id: string | null;
+  recipient_domain: string | null;
+}
+
+export interface CustomerEmailEvent {
+  id: string;
+  event_type: string;
+  occurred_at: string;
+}
+
+/** One email to one address, with every delivery attempt. Bodies are never stored; use the preview route. */
+export interface CustomerEmail {
+  id: string;
+  kind: CustomerEmailKind;
+  parent_id: string | null;
+  contact_id: string | null;
+  template_id: string;
+  status: CustomerEmailStatus;
+  recipient: string | null;
+  subject: string | null;
+  provider_id: string | null;
+  office_name: string | null;
+  payer_id: string | null;
+  payer_name: string | null;
+  patient_id: string | null;
+  order_id: string | null;
+  order_number: string | null;
+  subscription_id: string | null;
+  attempts: number;
+  max_attempts: number;
+  last_attempt_at: string | null;
+  next_attempt_at: string | null;
+  sent_at: string | null;
+  vendor_message_id: string | null;
+  error: string | null;
+  requested_by: string | null;
+  created_at: string;
+  attempt_log: CustomerEmailAttempt[];
+  events: CustomerEmailEvent[];
+}
+
+export interface CustomerEmailList extends Paged<CustomerEmail> {
+  payers: { id: string; name: string; email: string | null }[];
+}
+
+export interface CustomerEmailPreview {
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface CustomerEmailSendResult {
+  email: CustomerEmail;
+  outcome: 'sent' | 'retrying' | 'failed';
+}
+
+export interface NotificationContact {
+  id: string;
+  payer_id: string;
+  email: string;
+  label: string | null;
+  active: boolean;
+  created_at: string;
+  removed_at: string | null;
+}
+
+export interface NotificationContactsResponse {
+  payer: { id: string; name: string; email: string | null };
+  contacts: NotificationContact[];
+}
+
+export interface NotificationContactChange {
+  contact: NotificationContact;
+  contacts: NotificationContact[];
+}

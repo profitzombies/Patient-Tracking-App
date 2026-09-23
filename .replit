@@ -496,6 +496,14 @@ args = "account-danger-zone"
 task = "workflow.run"
 args = "provider-loading"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "customer-email-ledger-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "customer-email-ledger-clients"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3012,6 +3020,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pnpm --filter @workspace/thinnr-operations run test:provider-loading"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "customer-email-ledger-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/customer-emails.test.ts src/routes/billing-customer-emails.test.ts src/routes/billing-permissions.test.ts src/email/transport.test.ts src/email src/routes/system-jobs.test.ts src/jobs/scheduler.test.ts src/lib/audit-events.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "customer-email-ledger-clients"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations exec tsx --tsconfig tsconfig.billing.json scripts/verify-billing-scope.ts && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

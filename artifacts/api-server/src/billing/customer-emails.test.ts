@@ -12,18 +12,46 @@ const it = (name: string, fn: () => unknown) => test(name, () =>
  */
 type Row = Record<string, any>;
 let tables: Record<string, Row[]> = {};
+function matchesOne(row: Row, key: string, raw: string): boolean {
+  if (raw === "is.null") return row[key] == null;
+  if (raw === "is.false") return row[key] === false;
+  if (raw === "is.true") return row[key] === true;
+  if (raw.startsWith("eq.")) return String(row[key]) === decodeURIComponent(raw.slice(3));
+  if (raw.startsWith("in.(")) return raw.slice(4, -1).split(",").map((v) => decodeURIComponent(v).replace(/^"|"$/g, "")).includes(String(row[key]));
+  if (raw.startsWith("ilike.")) {
+    const needle = decodeURIComponent(raw.slice(6)).replace(/^\*|\*$/g, "").toLowerCase();
+    return String(row[key] ?? "").toLowerCase().includes(needle);
+  }
+  const bound = /^(gte|lte|lt)\.(.*)$/.exec(raw);
+  if (bound) {
+    if (row[key] == null) return false;
+    const compare = String(row[key]).localeCompare(decodeURIComponent(bound[2]));
+    return bound[1] === "gte" ? compare >= 0 : bound[1] === "lte" ? compare <= 0 : compare < 0;
+  }
+  return true;
+}
+/** Splits a PostgREST or=(a,b,c(d,e)) list at top-level commas. */
+function splitClauses(text: string): string[] {
+  const parts: string[] = []; let depth = 0; let current = "";
+  for (const ch of text) {
+    if (ch === "(") depth += 1; if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) { parts.push(current); current = ""; } else current += ch;
+  }
+  if (current) parts.push(current);
+  return parts;
+}
 function matches(row: Row, params: URLSearchParams): boolean {
   for (const [key, raw] of params) {
     if (["select", "order", "limit"].includes(key)) continue;
-    if (raw === "is.null") { if (row[key] != null) return false; continue; }
-    if (raw === "is.false") { if (row[key] !== false) return false; continue; }
-    if (raw.startsWith("eq.") && String(row[key]) !== decodeURIComponent(raw.slice(3))) return false;
-    const bound = /^(gte|lte)\.(.*)$/.exec(raw);
-    if (bound) {
-      if (row[key] == null) return false;
-      const compare = String(row[key]).localeCompare(decodeURIComponent(bound[2]));
-      if (bound[1] === "gte" ? compare < 0 : compare > 0) return false;
+    if (key === "or") {
+      const ok = splitClauses(raw.slice(1, -1)).some((clause) => {
+        if (clause.startsWith("and(")) return splitClauses(clause.slice(4, -1)).every((inner) => { const dot = inner.indexOf("."); return matchesOne(row, inner.slice(0, dot), inner.slice(dot + 1)); });
+        const dot = clause.indexOf("."); return matchesOne(row, clause.slice(0, dot), clause.slice(dot + 1));
+      });
+      if (!ok) return false;
+      continue;
     }
+    if (!matchesOne(row, key, raw)) return false;
   }
   return true;
 }
@@ -43,6 +71,9 @@ vi.mock("../lib/supabase-admin", () => ({
       if (table === "billing_customer_emails" && rows.some((row) => row.dedupe_key === input.dedupe_key)) {
         return { status: 409, json: { code: "23505", message: "duplicate key value violates unique constraint \"billing_customer_emails_dedupe_key_unique\"", details: "" } };
       }
+      if (table === "billing_notification_contacts" && rows.some((row) => row.active && row.payer_id === input.payer_id && row.email === input.email)) {
+        return { status: 409, json: { code: "23505", message: "duplicate key value violates unique constraint \"billing_notification_contacts_active_unique\"", details: "" } };
+      }
       const row = { id: crypto.randomUUID(), created_at: new Date().toISOString(), ...input };
       rows.push(row);
       return { status: 201, json: [row] };
@@ -52,14 +83,31 @@ vi.mock("../lib/supabase-admin", () => ({
 }));
 
 import { __setEmailClientForTests } from "../email/transport";
+import type { JobContext } from "../jobs/types";
+import {
+  CustomerEmailError, MAX_EMAIL_ATTEMPTS, backoffMs, drainDueRetries, renderLedgerPreview, sendAgain,
+} from "./customer-email-ledger";
+import { customerEmailRetriesJob } from "../jobs/definitions/customer-email-retries";
 import {
   notifyOnce, notifyOrderConfirmationIfCartComplete, notifyRenewalReminder,
   notifyShipmentTransition, notifySubscriptionEvent, notifySubscriptionStarted, renewalReminderDays, subscriptionLinks,
 } from "./customer-emails";
-import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
+import type { BillingCustomerEmailRow, BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 
 const sent: Array<{ from: string; to: string; subject: string; html: string; text: string }> = [];
 let transportFailure: Error | null = null;
+let vendorMessageId: string | null = null;
+/** Minimal JobContext for the retry drain: tallies and checkpoints are recorded, nothing else. */
+function jobContext(at: string, dryRun = false): JobContext & { tallies: Record<string, number>; failures: string[] } {
+  const tallies: Record<string, number> = {};
+  const failures: string[] = [];
+  return {
+    now: new Date(at), dryRun, leaseLost: false, tallies, failures,
+    tally: (key: string, by = 1) => { tallies[key] = (tallies[key] ?? 0) + by; },
+    checkpoint: () => undefined, log: () => undefined,
+    failItem: (item: string) => { failures.push(item); },
+  } as unknown as JobContext & { tallies: Record<string, number>; failures: string[] };
+}
 const SUB_ID = "0a1b2c3d-0000-4000-8000-00000000aa01";
 const subscription = (over: Partial<BillingSubscriptionRow> = {}): BillingSubscriptionRow => ({
   id: SUB_ID, provider_id: "office-1", payer_id: "payer-1", patient_id: "patient-1", product_id: "product-1",
@@ -87,6 +135,7 @@ const order = (over: Partial<BillingOrderRow> = {}): BillingOrderRow => ({
 beforeEach(() => {
   sent.length = 0;
   transportFailure = null;
+  vendorMessageId = null;
   process.env.PATIENT_APP_URL = "https://app.example.test/";
   delete process.env.BILLING_RENEWAL_REMINDER_DAYS;
   process.env.RESEND_API_KEY = "test";
@@ -95,7 +144,7 @@ beforeEach(() => {
     async send(message) {
       if (transportFailure) throw transportFailure;
       sent.push(message);
-      return { id: null };
+      return { id: vendorMessageId };
     },
   });
   tables = {
@@ -104,6 +153,7 @@ beforeEach(() => {
     billing_products: [{ id: "product-1", name: "Control" }, { id: "product-2", name: "Balance" }],
     providers: [{ provider_id: "office-1", office_name: "Harbor Health", provider_name: "Dr. Harbor", email: "care@harbor.test" }],
     billing_orders: [], billing_order_items: [], billing_subscriptions: [subscription()],
+    billing_notification_contacts: [], billing_customer_email_events: [],
   };
 });
 
@@ -134,12 +184,17 @@ describe("notifyOnce", () => {
     expect(sent).toHaveLength(1);
     expect(tables.billing_customer_emails).toEqual([expect.objectContaining({ dedupe_key: "paused:x:1", template_id: "subscription-paused", status: "sent" })]);
   });
-  it("never throws: a failed send is recorded on the claim and not retried", async () => {
+  it("never throws: a failed send schedules a retry on the claim and the claim still dedupes", async () => {
     transportFailure = new Error("Resend send failed (500)");
     const compose = async () => ({ to: "riley@example.test", variables: { productName: "Control", officeName: "Harbor Health" } });
-    expect(await notifyOnce("paused:y:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("failed");
-    expect(tables.billing_customer_emails[0]).toMatchObject({ status: "failed", error: "Resend send failed (500)" });
+    expect(await notifyOnce("paused:y:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("retrying");
+    const row = tables.billing_customer_emails[0];
+    expect(row).toMatchObject({ status: "retrying", error: "Resend send failed (500)", attempts: 1, max_attempts: MAX_EMAIL_ATTEMPTS, recipient: "riley@example.test" });
+    expect(new Date(row.next_attempt_at).getTime() - new Date(row.last_attempt_at).getTime()).toBe(backoffMs(1));
+    expect(row.attempt_log).toEqual([expect.objectContaining({ outcome: "failed", error: "Resend send failed (500)", recipient_domain: "example.test" })]);
+    expect(JSON.stringify(row.attempt_log)).not.toContain("riley@");
     transportFailure = null;
+    // Dedupe is preserved while the retry is pending: the transition never claims twice.
     expect(await notifyOnce("paused:y:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("duplicate");
     expect(sent).toHaveLength(0);
   });
@@ -265,5 +320,194 @@ describe("shipment transitions", () => {
     expect(sent.map((message) => message.subject)).toEqual(["THINNR Order (TH-1) has shipped", "Your THINNR order TH-1 was delivered"]);
     expect(sent[0].html).toContain("https://www.ups.com/track?tracknum=1Z9");
     expect(sent[1].text).toContain("Delivered: Sep 18, 2026, 2:05 PM EDT");
+  });
+});
+
+describe("delivery ledger", () => {
+  const compose = async () => ({ to: "riley@example.test", variables: { name: "Riley", productName: "Control", officeName: "Harbor Health", manageLink: "" } });
+  const claimRow = () => tables.billing_customer_emails[0] as BillingCustomerEmailRow & Row;
+  const dueAt = (row: Row = claimRow()) => row.next_attempt_at as string;
+
+  it("retries a vendor failure from the job until three attempts are spent, then fails for good", async () => {
+    transportFailure = new Error("Resend send failed (503)");
+    expect(await notifyOnce("paused:r:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("retrying");
+    const firstRetryAt = claimRow().next_attempt_at as string;
+    // Not due yet: the drain leaves it alone.
+    const early = jobContext(new Date(new Date(firstRetryAt).getTime() - 1000).toISOString());
+    await drainDueRetries(early);
+    expect(early.tallies).toEqual({});
+    expect(claimRow().attempts).toBe(1);
+    // Second attempt fails too: still retrying, with the longer backoff.
+    const second = jobContext(firstRetryAt);
+    await drainDueRetries(second);
+    expect(second.tallies).toEqual({ due: 1, retrying: 1 });
+    expect(claimRow()).toMatchObject({ status: "retrying", attempts: 2 });
+    expect(new Date(dueAt()).getTime() - new Date(firstRetryAt).getTime()).toBe(backoffMs(2));
+    // Third attempt is the last one.
+    const third = jobContext(dueAt());
+    await drainDueRetries(third);
+    expect(third.tallies).toEqual({ due: 1, failed: 1 });
+    expect(claimRow()).toMatchObject({ status: "failed", attempts: 3, next_attempt_at: null, error: "Resend send failed (503) (gave up after 3 attempts)" });
+    expect(claimRow().attempt_log).toHaveLength(3);
+    // Nothing is due anymore, even long after; the transition still dedupes.
+    const later = jobContext("2030-01-01T00:00:00.000Z");
+    await drainDueRetries(later);
+    expect(later.tallies).toEqual({});
+    transportFailure = null;
+    expect(await notifyOnce("paused:r:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("duplicate");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("marks the row sent with the vendor message id when a retry succeeds, and re-composes from stored variables", async () => {
+    transportFailure = new Error("Resend send failed (500)");
+    expect(await notifyOnce("paused:r:2", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("retrying");
+    transportFailure = null;
+    vendorMessageId = "msg_retry_ok";
+    // Wipe the source rows: the retry must not need the subscription or payer again.
+    tables.billing_subscriptions = [];
+    tables.billing_payers = [];
+    const ctx = jobContext(dueAt());
+    await drainDueRetries(ctx);
+    expect(ctx.tallies).toEqual({ due: 1, sent: 1 });
+    expect(claimRow()).toMatchObject({ status: "sent", attempts: 2, vendor_message_id: "msg_retry_ok", next_attempt_at: null, error: null });
+    expect(claimRow().sent_at).toBe(ctx.now.toISOString());
+    expect(claimRow().subject).toBe(sent[0].subject);
+    expect(claimRow().attempt_log.map((entry: Row) => entry.outcome)).toEqual(["failed", "sent"]);
+    expect(claimRow().attempt_log[1].vendor_message_id).toBe("msg_retry_ok");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("riley@example.test");
+  });
+
+  it("dry runs count due retries without sending, and the job is registered for the live scope", async () => {
+    transportFailure = new Error("Resend send failed (500)");
+    await notifyOnce("paused:r:3", "subscription-paused", { subscription_id: SUB_ID }, compose);
+    transportFailure = null;
+    const ctx = jobContext(dueAt(), true);
+    await drainDueRetries(ctx);
+    expect(ctx.tallies).toEqual({ due: 1, wouldRetry: 1 });
+    expect(claimRow()).toMatchObject({ status: "retrying", attempts: 1 });
+    expect(sent).toHaveLength(0);
+    expect(customerEmailRetriesJob).toMatchObject({ name: "customer-email-retries", intervalMs: 60_000 });
+  });
+
+  it("never drains in a Test billing scope", async () => {
+    transportFailure = new Error("Resend send failed (500)");
+    await notifyOnce("paused:r:4", "subscription-paused", { subscription_id: SUB_ID }, compose);
+    transportFailure = null;
+    const ctx = jobContext(dueAt());
+    await runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, () => drainDueRetries(ctx));
+    expect(ctx.tallies).toEqual({});
+    expect(claimRow().status).toBe("retrying");
+  });
+
+  it("refuses PHI and missing variables permanently instead of retrying", async () => {
+    expect(await notifyOnce("phi:1", "subscription-paused", { subscription_id: SUB_ID }, async () => ({
+      to: "riley@example.test", variables: { ...(await compose()).variables, medicationName: "Semaglutide" },
+    }))).toBe("failed");
+    expect(claimRow()).toMatchObject({ status: "failed", attempts: 1, next_attempt_at: null });
+    expect(claimRow().error).toContain("medicationName");
+    expect(await notifyOnce("missing:1", "subscription-paused", { subscription_id: SUB_ID }, async () => ({ to: "riley@example.test", variables: { name: "Riley" } }))).toBe("failed");
+    expect(tables.billing_customer_emails[1]).toMatchObject({ status: "failed", attempts: 1, next_attempt_at: null });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("resends and sends to another address as linked rows that never touch the original claim", async () => {
+    vendorMessageId = "msg_first";
+    expect(await notifyOnce("paused:s:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("sent");
+    const original = { ...claimRow() };
+    vendorMessageId = "msg_resend";
+    const resend = await sendAgain(claimRow(), { kind: "resend", requestedBy: "staff-1" });
+    expect(resend.outcome).toBe("sent");
+    expect(resend.row).toMatchObject({
+      kind: "resend", parent_id: original.id, recipient: "riley@example.test", template_id: "subscription-paused",
+      status: "sent", vendor_message_id: "msg_resend", requested_by: "staff-1", variables: original.variables,
+    });
+    expect(resend.row.dedupe_key).not.toBe(original.dedupe_key);
+    const other = await sendAgain(claimRow(), { kind: "send_to_other", to: " Spouse@Example.test ", requestedBy: "staff-1" });
+    expect(other.row).toMatchObject({ kind: "send_to_other", parent_id: original.id, recipient: "spouse@example.test", status: "sent" });
+    expect(sent.map((message) => message.to)).toEqual(["riley@example.test", "riley@example.test", "spouse@example.test"]);
+    expect(sent[2].subject).toBe(sent[0].subject);
+    expect(tables.billing_customer_emails[0]).toEqual(original);
+    // The automatic transition is still spent.
+    expect(await notifyOnce("paused:s:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("duplicate");
+    await expect(sendAgain(claimRow(), { kind: "send_to_other", to: "not-an-address", requestedBy: null })).rejects.toMatchObject({ status: 400 });
+    await expect(runWithBillingIdentity({ mode: "test", platformAccountId: "acct_test" }, () =>
+      sendAgain(claimRow(), { kind: "resend", requestedBy: null }))).rejects.toBeInstanceOf(CustomerEmailError);
+    expect(tables.billing_customer_emails).toHaveLength(3);
+  });
+
+  it("a resend that the vendor rejects gets its own retry budget", async () => {
+    expect(await notifyOnce("paused:s:2", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("sent");
+    transportFailure = new Error("Resend send failed (500)");
+    const resend = await sendAgain(claimRow(), { kind: "resend", requestedBy: "staff-1" });
+    expect(resend.outcome).toBe("retrying");
+    expect(resend.row).toMatchObject({ kind: "resend", status: "retrying", attempts: 1 });
+    expect(claimRow().status).toBe("sent");
+    transportFailure = null;
+    const ctx = jobContext(resend.row.next_attempt_at as string);
+    await drainDueRetries(ctx);
+    expect(tables.billing_customer_emails[1]).toMatchObject({ status: "sent", attempts: 2 });
+  });
+
+  it("previews re-render from the stored template and variables, never from a stored body", async () => {
+    expect(await notifyOnce("paused:p:1", "subscription-paused", { subscription_id: SUB_ID }, compose)).toBe("sent");
+    const preview = renderLedgerPreview(claimRow());
+    expect(preview.subject).toBe(sent[0].subject);
+    expect(preview.html).toBe(sent[0].html);
+    expect(preview.text).toBe(sent[0].text);
+    expect(Object.keys(claimRow())).not.toContain("html");
+    expect(() => renderLedgerPreview({ ...claimRow(), variables: null })).toThrow(CustomerEmailError);
+  });
+
+  it("copies order and shipment emails to the payer's active additional contacts as separate rows with their own budgets", async () => {
+    tables.billing_notification_contacts = [
+      { ...scope, id: "contact-1", payer_id: "payer-1", provider_id: "office-1", email: "spouse@example.test", active: true, created_at: "2026-09-01T00:00:00.000Z" },
+      { ...scope, id: "contact-2", payer_id: "payer-1", provider_id: "office-1", email: "old@example.test", active: false, created_at: "2026-09-02T00:00:00.000Z" },
+      { ...scope, id: "contact-3", payer_id: "payer-1", provider_id: "office-1", email: "riley@example.test", active: true, created_at: "2026-09-03T00:00:00.000Z" },
+      { ...scope, id: "contact-9", payer_id: "payer-9", provider_id: "office-1", email: "stranger@example.test", active: true, created_at: "2026-09-04T00:00:00.000Z" },
+    ];
+    const sub = subscription();
+    expect(await notifySubscriptionEvent(sub, { kind: "moved", previous: "2026-10-05T16:00:00.000Z" })).toBe("sent");
+    expect(sent.map((message) => message.to)).toEqual(["riley@example.test", "spouse@example.test"]);
+    expect(sent[1].subject).toBe(sent[0].subject);
+    expect(sent[1].html).toBe(sent[0].html);
+    const [primary, copy] = tables.billing_customer_emails;
+    expect(copy).toMatchObject({
+      kind: "automatic", parent_id: primary.id, contact_id: "contact-1", payer_id: "payer-1", recipient: "spouse@example.test",
+      template_id: "subscription-shipment-moved", status: "sent", dedupe_key: `${primary.dedupe_key}:contact:contact-1`,
+      subscription_id: SUB_ID, variables: primary.variables, attempts: 1, max_attempts: MAX_EMAIL_ATTEMPTS,
+    });
+    expect(tables.billing_customer_emails).toHaveLength(2);
+    // Replaying the transition sends nothing more to anyone.
+    expect(await notifySubscriptionEvent(sub, { kind: "moved", previous: "2026-10-05T16:00:00.000Z" })).toBe("duplicate");
+    expect(sent).toHaveLength(2);
+    // Account notices stay with the payer only.
+    expect(await notifySubscriptionEvent(subscription({ paused_at: "2026-09-15T00:00:00.000Z" }), { kind: "paused" })).toBe("sent");
+    expect(sent).toHaveLength(3);
+    expect(sent[2].to).toBe("riley@example.test");
+  });
+
+  it("a contact copy that fails retries on its own without holding up the payer's email", async () => {
+    tables.billing_notification_contacts = [
+      { ...scope, id: "contact-1", payer_id: "payer-1", provider_id: "office-1", email: "spouse@example.test", active: true, created_at: "2026-09-01T00:00:00.000Z" },
+    ];
+    let calls = 0;
+    __setEmailClientForTests({
+      async send(message) {
+        calls += 1;
+        if (message.to === "spouse@example.test" && calls < 3) throw new Error("Resend send failed (500)");
+        sent.push(message);
+        return { id: `msg_${calls}` };
+      },
+    });
+    expect(await notifySubscriptionEvent(subscription(), { kind: "moved", previous: "2026-10-05T16:00:00.000Z" })).toBe("sent");
+    const [primary, copy] = tables.billing_customer_emails;
+    expect(primary.status).toBe("sent");
+    expect(copy).toMatchObject({ status: "retrying", attempts: 1, recipient: "spouse@example.test" });
+    const ctx = jobContext(dueAt(copy));
+    await drainDueRetries(ctx);
+    expect(ctx.tallies).toEqual({ due: 1, sent: 1 });
+    expect(copy).toMatchObject({ status: "sent", attempts: 2, vendor_message_id: "msg_3" });
+    expect(sent.map((message) => message.to)).toEqual(["riley@example.test", "spouse@example.test"]);
   });
 });

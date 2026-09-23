@@ -54,6 +54,7 @@ import billingOfficeSalesRouter from "./billing-office-sales";
 import billingOfficeOrdersRouter from "./billing-office-orders";
 import billingHqRouter from "./billing-hq";
 import billingHqOrdersRouter from "./billing-hq-orders";
+import billingCustomerEmailsRouter from "./billing-customer-emails";
 import billingPublicRouter from "./billing-public";
 import billingPublicCartsRouter from "./billing-public-carts";
 import officeAlertsRouter from "./office-alerts";
@@ -126,6 +127,7 @@ router.use(billingOfficeSalesRouter);
 router.use(billingOfficeOrdersRouter);
 router.use(billingHqRouter);
 router.use(billingHqOrdersRouter);
+router.use(billingCustomerEmailsRouter);
 router.use(billingPublicRouter);
 router.use(billingPublicCartsRouter);
 

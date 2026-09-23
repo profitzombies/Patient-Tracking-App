@@ -16,6 +16,7 @@ import { billingReconcileJob } from "./definitions/billing-reconcile";
 import { warehouseStatusSyncJob } from "./definitions/warehouse-status-sync";
 import { warehouseSubmitJob } from "./definitions/warehouse-submit";
 import { billingRenewalRemindersJob } from "./definitions/billing-renewal-reminders";
+import { customerEmailRetriesJob } from "./definitions/customer-email-retries";
 import { staffAttentionDigestJob } from "./definitions/staff-attention-digest";
 import { patientSignInMetricsJob } from "./definitions/patient-sign-in-metrics";
 import { photoVariantsBackfillJob } from "./definitions/photo-variants-backfill";
@@ -67,6 +68,7 @@ export const ALL_JOBS: JobDefinition[] = [
   appEventsBackfillJob,
   billingReconcileJob,
   billingRenewalRemindersJob,
+  customerEmailRetriesJob,
   warehouseSubmitJob,
   warehouseStatusSyncJob,
   coachTitleProcessingJob,

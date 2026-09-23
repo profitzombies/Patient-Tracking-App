@@ -18,6 +18,10 @@ import type {
   CatalogProductInput,
   ProductStatus,
   ConnectedAccount,
+  CustomerEmail,
+  CustomerEmailList,
+  CustomerEmailPreview,
+  CustomerEmailSendResult,
   FulfillmentUpdate,
   HqCatalogResponse,
   HqActivityRow,
@@ -32,6 +36,8 @@ import type {
   OfficePricesResponse,
   OfficeRefundRow,
   OfficeShippingSettings,
+  NotificationContactChange,
+  NotificationContactsResponse,
   OrderDetail,
   OrderSummary,
   Paged,
@@ -85,9 +91,36 @@ const PUBLIC = '/api/billing/public';
 
 export type ListFilters = Record<string, string | number | null | undefined>;
 
+// ---------------- customer email ledger (shared by office and HQ) ----------------
+
+function emailLedger(root: string) {
+  const email = (emailId: string) => `${root}/emails/${encodeURIComponent(emailId)}`;
+  const contacts = (payerId: string) => `${root}/payers/${encodeURIComponent(payerId)}/contacts`;
+  return {
+    /** Office: one of order_id / payer_id / patient_id / subscription_id is required. HQ: free-text `q` and office/date filters. */
+    emails: (filters: ListFilters, office?: string | null) =>
+      officeRequest<CustomerEmailList>(`${root}/emails${qs(filters, office)}`, MESSAGES),
+    email: (emailId: string, office?: string | null) =>
+      officeRequest<{ email: CustomerEmail }>(`${email(emailId)}${qs({}, office)}`, MESSAGES),
+    emailPreview: (emailId: string, office?: string | null) =>
+      officeRequest<CustomerEmailPreview>(`${email(emailId)}/preview${qs({}, office)}`, MESSAGES),
+    resendEmail: (emailId: string, office?: string | null) =>
+      officeRequest<CustomerEmailSendResult>(`${email(emailId)}/resend${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
+    sendEmailTo: (emailId: string, to: string, office?: string | null) =>
+      officeRequest<CustomerEmailSendResult>(`${email(emailId)}/send-to${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify({ email: to }) }),
+    contacts: (payerId: string, office?: string | null) =>
+      officeRequest<NotificationContactsResponse>(`${contacts(payerId)}${qs({}, office)}`, MESSAGES),
+    addContact: (payerId: string, body: { email: string; label?: string | null }, office?: string | null) =>
+      officeRequest<NotificationContactChange>(`${contacts(payerId)}${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+    removeContact: (payerId: string, contactId: string, office?: string | null) =>
+      officeRequest<NotificationContactChange>(`${contacts(payerId)}/${encodeURIComponent(contactId)}${qs({}, office)}`, MESSAGES, { method: 'DELETE' }),
+  };
+}
+
 // ---------------- office ----------------
 
 export const officeBilling = {
+  ...emailLedger(OFFICE),
   status: (office?: string | null) =>
     officeRequest<OfficeBillingStatus>(`${OFFICE}/status${qs({}, office)}`, MESSAGES),
   createAccount: (billingScope: string, office?: string | null) =>
@@ -220,6 +253,7 @@ export const officeBilling = {
 // ---------------- HQ ----------------
 
 export const hqBilling = {
+  ...emailLedger(HQ),
   mode: () => officeRequest<BillingModeStatus>(`${HQ}/mode`, MESSAGES),
   switchMode: (body: { mode: 'test' | 'live'; expected_version: number; confirm_live: boolean }) =>
     officeRequest<BillingModeStatus>(`${HQ}/mode`, MESSAGES, { method: 'PUT', body: JSON.stringify(body) }),

@@ -153,3 +153,4 @@
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Practice launch pricing](practice-launch-pricing.md) — user-approved 2× means THINNR product fee paid by the office, excluding shipping/card fees, not supplier cost or patient retail.
 - [Stripe setup reset policy](stripe-setup-reset-policy.md) — re-gating preserves connections; unfinished setup may restart, but financial history requires HQ investigation, never forced replacement.
+- [Customer email delivery ledger](customer-email-ledger.md) — one row per address with its own 3-try budget; deterministic failures never retry; staff sends are linked rows, never re-flipped claims.

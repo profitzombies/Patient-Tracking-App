@@ -34,7 +34,7 @@ describe("email transport", () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
     global.fetch = fetchMock as unknown as typeof fetch;
     const result = await sendTemplatedEmail({ to: "riley@example.test", templateId: "verification-code", variables: { code: "123456" }, sender: "configured" });
-    expect(result).toEqual({ messageId: "email-1", phiClass: "security" });
+    expect(result).toEqual({ messageId: "email-1", phiClass: "security", subject: "123456 is your THINNR verification code" });
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(RESEND_SEND_URL);

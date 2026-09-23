@@ -330,6 +330,27 @@ trigger pattern if one exists, otherwise a new `billing_touch_updated_at()`).
   `account text null`, `livemode`, `received_at`, `processed_at null`,
   `error text null`, `payload jsonb`. Idempotency: insert first (on conflict do
   nothing → already handled), process, then mark processed.
+- `billing_customer_emails` (migrations `20261023000000`, `20261115000000`): one
+  row per email to one address. `dedupe_key text unique` (one automatic send per
+  transition; contact copies use `<key>:contact:<contact_id>`, staff sends a
+  random suffix), `template_id`, `kind automatic|resend|send_to_other`,
+  `parent_id` (the original row for copies and staff sends), `contact_id`,
+  `payer_id`, `provider_id`, `order_id`, `subscription_id`, `status
+  claimed|retrying|sent|skipped|failed`, `recipient`, `subject`, `variables
+  jsonb` (PHI-linted template variables; bodies are never stored), `attempts`,
+  `max_attempts` (3), `last_attempt_at`, `next_attempt_at` (retry due time),
+  `sent_at`, `vendor_message_id`, `attempt_log jsonb` (`[{ at, outcome, error,
+  vendor_message_id, recipient_hash, recipient_domain }]`), `error`,
+  `requested_by`. Retries: 1 minute, then 5 minutes, drained by the
+  `customer-email-retries` job from the external tick; deterministic failures
+  (missing variable, PHI refusal) fail immediately.
+- `billing_notification_contacts`: `id`, `payer_id`, `provider_id`, `email`,
+  `label`, `active`, `created_by`, `removed_by`, `removed_at`, scope columns;
+  partial unique `(payer_id, email) where active`. Active contacts receive
+  their own copy of order, shipment, and subscription-shipping emails.
+- `billing_customer_email_events`: `id`, `email_id`, `vendor_message_id`,
+  `event_type` (`sent|delivered|delivery_delayed|bounced|complained|opened|clicked`), `occurred_at`,
+  `payload jsonb`; populated by the outbox webhook task, read on email detail.
 
 Indexes: orders by (provider_id, created_at desc), (patient_id), (status),
 (fulfillment_status); ledger by (provider_id, occurred_at desc); subscriptions
@@ -491,6 +512,11 @@ and `?cursor=` (opaque created_at|id) and return `{ items, next_cursor }`.
 - `GET  /subscriptions?status` / `POST /subscriptions/:id/cancel { at_period_end: bool }`
 - `GET  /payouts` → `{ items (live list, merged with mirrored rows), balance }`
 - `GET  /patients/search?q=` → `[{ id, name, email, phone }]` (for the per-patient link builder; office scope only)
+- Customer email ledger (owners/admins; HQ drill-in via `?office=`):
+  - `GET  /emails?order_id|payer_id|patient_id|subscription_id&status&template&kind&cursor&limit` (one subject filter required, 400 otherwise) → `{ items: CustomerEmail[], next_cursor, payers: [{ id, name, email }] }` — `patient_id` resolves to that patient's payers in the office.
+  - `GET  /emails/:email_id` → `{ email }` (with `attempt_log` and delivery `events`); `GET /emails/:email_id/preview` → `{ subject, html, text }` re-rendered from the stored template id + variables (bodies are never stored; 409 when the row was never composed).
+  - `POST /emails/:email_id/resend` → `{ email, outcome }` new row `kind:"resend"` linked by `parent_id` to the recipient on record; `POST /emails/:email_id/send-to { email }` → same with `kind:"send_to_other"` (400 `field:"email"` when invalid). Both 409 outside Live mode, 502 when the immediate attempt fails (the new row keeps its own retry budget). Audit `billing_customer_email_resent` / `billing_customer_email_sent_to_other`.
+  - `GET  /payers/:payer_id/contacts` → `{ payer: { id, name, email }, contacts: NotificationContact[] }`; `POST … { email, label? }` → 201 `{ contact, contacts }` (400 payer's own address, 409 already listed); `DELETE …/contacts/:contact_id` → `{ contact, contacts }` (soft removal). Active contacts are copied on future order/shipment/subscription-shipping emails as their own ledger rows. Audit `billing_notification_contact_added` / `_removed`.
 
 ### HQ (`/api/billing/hq/...`)
 - `GET  /overview?from&to` (`financial_read`) → program totals: collected, thinnr fees, shipping, hard costs, profit, refunds, disputes, active subs, providers onboarded/pending, orders to ship, recent activity, series.
@@ -503,6 +529,10 @@ and `?cursor=` (opaque created_at|id) and return `{ items, next_cursor }`.
 - `PUT  /catalog/settings { shipping_charge_cents, shipping_cost_cents, card_fee_bps, card_fee_fixed_cents, subscribe_save_enabled?, subscribe_save_percent? (0–90), expected_version }` (409 stale; omitted subscribe-and-save fields keep their value)
 - `GET  /catalog/changes` → change history with actor display names.
 - `GET  /subscriptions?provider_id&status` → program-wide list.
+- Customer email ledger (`financial_read` to read, `provider_manage` to act): `GET /emails?q&template&status&kind&provider_id&from&to&cursor&limit` — `q` matches payer name / email / phone, office name, order number, and recipient address; same `{ items, next_cursor }` shape; plus `GET /emails/:email_id`, `GET /emails/:email_id/preview`, `POST /emails/:email_id/resend`, `POST /emails/:email_id/send-to`, and `GET|POST /payers/:payer_id/contacts`, `DELETE /payers/:payer_id/contacts/:contact_id` mirroring the office routes without office scoping.
+
+`CustomerEmail` = `{ id, kind: automatic|resend|send_to_other, parent_id, contact_id, template_id, status: claimed|retrying|sent|skipped|failed, recipient, subject, provider_id, office_name, payer_id, payer_name, patient_id, order_id, order_number, subscription_id, attempts, max_attempts, last_attempt_at, next_attempt_at, sent_at, vendor_message_id, error, requested_by, created_at, attempt_log: [{ at, outcome, error, vendor_message_id, recipient_domain }], events: [{ id, event_type, occurred_at }] }`.
+`NotificationContact` = `{ id, payer_id, email, label, active, created_at, removed_at }`.
 
 ### Public (`/api/billing/public/...`)
 - `GET  /links/:token` → link products carry the page content (`category, tagline, format, benefits, how_to_take, facts_title, facts, faqs, disclaimer`), `office_priced` (false = floor-price fallback, one-time only), `subscription_available`, `subscription_cadences_weeks` (empty unless subscribable), `default_cadence_weeks`, `subscribe_save_percent` (0 when off) and `subscription_unit_price_cents|null`. Priced products list first in the office's order, then unpriced active products by catalog order. The same builder feeds the patient app's `GET /api/patient/billing/overview`.

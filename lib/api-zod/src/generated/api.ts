@@ -3969,6 +3969,23 @@ export const getHqSettingsResponseRetentionWebhookEventDaysMax = 3650;
 export const getHqSettingsResponseRetentionClinicalRecordDaysMin = 1825;
 export const getHqSettingsResponseRetentionClinicalRecordDaysMax = 3650;
 
+export const getHqSettingsResponseAccessBillingMonthlyPriceCentsMin = 0;
+export const getHqSettingsResponseAccessBillingMonthlyPriceCentsMax = 10000000;
+
+export const getHqSettingsResponseAccessBillingYearlyPriceCentsMin = 0;
+export const getHqSettingsResponseAccessBillingYearlyPriceCentsMax = 100000000;
+
+export const getHqSettingsResponseAccessBillingIncludedPeriodDaysMin = 0;
+export const getHqSettingsResponseAccessBillingIncludedPeriodDaysMax = 1095;
+
+export const getHqSettingsResponseAccessBillingGracePeriodDaysMax = 30;
+
+export const getHqSettingsResponseAccessBillingNormalSharePercentMin = 0;
+export const getHqSettingsResponseAccessBillingNormalSharePercentMax = 100;
+
+export const getHqSettingsResponseAccessBillingRestrictedSharePercentMin = 0;
+export const getHqSettingsResponseAccessBillingRestrictedSharePercentMax = 100;
+
 
 
 export const GetHqSettingsResponse = zod.object({
@@ -4011,6 +4028,14 @@ export const GetHqSettingsResponse = zod.object({
   "officeManagers": zod.boolean().describe('Office owners and admins'),
   "allStaff": zod.boolean().describe('Every office teammate')
 }).describe('Who must confirm a texted code after the emailed sign-in code.'),
+  "accessBilling": zod.object({
+  "monthlyPriceCents": zod.number().min(getHqSettingsResponseAccessBillingMonthlyPriceCentsMin).max(getHqSettingsResponseAccessBillingMonthlyPriceCentsMax),
+  "yearlyPriceCents": zod.number().min(getHqSettingsResponseAccessBillingYearlyPriceCentsMin).max(getHqSettingsResponseAccessBillingYearlyPriceCentsMax),
+  "includedPeriodDays": zod.number().min(getHqSettingsResponseAccessBillingIncludedPeriodDaysMin).max(getHqSettingsResponseAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
+  "gracePeriodDays": zod.number().min(1).max(getHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
+  "normalSharePercent": zod.number().min(getHqSettingsResponseAccessBillingNormalSharePercentMin).max(getHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
+  "restrictedSharePercent": zod.number().min(getHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(getHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+}).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4117,6 +4142,23 @@ export const updateHqSettingsBodyStaffIdleTimeoutMinutesMax = 120;
 export const updateHqSettingsBodyHqIdleTimeoutMinutesMin = 5;
 export const updateHqSettingsBodyHqIdleTimeoutMinutesMax = 120;
 
+export const updateHqSettingsBodyAccessBillingMonthlyPriceCentsMin = 0;
+export const updateHqSettingsBodyAccessBillingMonthlyPriceCentsMax = 10000000;
+
+export const updateHqSettingsBodyAccessBillingYearlyPriceCentsMin = 0;
+export const updateHqSettingsBodyAccessBillingYearlyPriceCentsMax = 100000000;
+
+export const updateHqSettingsBodyAccessBillingIncludedPeriodDaysMin = 0;
+export const updateHqSettingsBodyAccessBillingIncludedPeriodDaysMax = 1095;
+
+export const updateHqSettingsBodyAccessBillingGracePeriodDaysMax = 30;
+
+export const updateHqSettingsBodyAccessBillingNormalSharePercentMin = 0;
+export const updateHqSettingsBodyAccessBillingNormalSharePercentMax = 100;
+
+export const updateHqSettingsBodyAccessBillingRestrictedSharePercentMin = 0;
+export const updateHqSettingsBodyAccessBillingRestrictedSharePercentMax = 100;
+
 
 
 export const UpdateHqSettingsBody = zod.object({
@@ -4159,7 +4201,15 @@ export const UpdateHqSettingsBody = zod.object({
   "hqUsers": zod.boolean(),
   "officeManagers": zod.boolean().describe('Office owners and admins'),
   "allStaff": zod.boolean().describe('Every office teammate')
-}).optional().describe('Who must confirm a texted code after the emailed sign-in code.')
+}).optional().describe('Who must confirm a texted code after the emailed sign-in code.'),
+  "accessBilling": zod.object({
+  "monthlyPriceCents": zod.number().min(updateHqSettingsBodyAccessBillingMonthlyPriceCentsMin).max(updateHqSettingsBodyAccessBillingMonthlyPriceCentsMax),
+  "yearlyPriceCents": zod.number().min(updateHqSettingsBodyAccessBillingYearlyPriceCentsMin).max(updateHqSettingsBodyAccessBillingYearlyPriceCentsMax),
+  "includedPeriodDays": zod.number().min(updateHqSettingsBodyAccessBillingIncludedPeriodDaysMin).max(updateHqSettingsBodyAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
+  "gracePeriodDays": zod.number().min(1).max(updateHqSettingsBodyAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
+  "normalSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingNormalSharePercentMin).max(updateHqSettingsBodyAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
+  "restrictedSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingRestrictedSharePercentMin).max(updateHqSettingsBodyAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+}).optional().describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.')
 })
 
 export const updateHqSettingsResponseDefaultQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4187,6 +4237,23 @@ export const updateHqSettingsResponseRetentionWebhookEventDaysMax = 3650;
 
 export const updateHqSettingsResponseRetentionClinicalRecordDaysMin = 1825;
 export const updateHqSettingsResponseRetentionClinicalRecordDaysMax = 3650;
+
+export const updateHqSettingsResponseAccessBillingMonthlyPriceCentsMin = 0;
+export const updateHqSettingsResponseAccessBillingMonthlyPriceCentsMax = 10000000;
+
+export const updateHqSettingsResponseAccessBillingYearlyPriceCentsMin = 0;
+export const updateHqSettingsResponseAccessBillingYearlyPriceCentsMax = 100000000;
+
+export const updateHqSettingsResponseAccessBillingIncludedPeriodDaysMin = 0;
+export const updateHqSettingsResponseAccessBillingIncludedPeriodDaysMax = 1095;
+
+export const updateHqSettingsResponseAccessBillingGracePeriodDaysMax = 30;
+
+export const updateHqSettingsResponseAccessBillingNormalSharePercentMin = 0;
+export const updateHqSettingsResponseAccessBillingNormalSharePercentMax = 100;
+
+export const updateHqSettingsResponseAccessBillingRestrictedSharePercentMin = 0;
+export const updateHqSettingsResponseAccessBillingRestrictedSharePercentMax = 100;
 
 
 
@@ -4230,6 +4297,14 @@ export const UpdateHqSettingsResponse = zod.object({
   "officeManagers": zod.boolean().describe('Office owners and admins'),
   "allStaff": zod.boolean().describe('Every office teammate')
 }).describe('Who must confirm a texted code after the emailed sign-in code.'),
+  "accessBilling": zod.object({
+  "monthlyPriceCents": zod.number().min(updateHqSettingsResponseAccessBillingMonthlyPriceCentsMin).max(updateHqSettingsResponseAccessBillingMonthlyPriceCentsMax),
+  "yearlyPriceCents": zod.number().min(updateHqSettingsResponseAccessBillingYearlyPriceCentsMin).max(updateHqSettingsResponseAccessBillingYearlyPriceCentsMax),
+  "includedPeriodDays": zod.number().min(updateHqSettingsResponseAccessBillingIncludedPeriodDaysMin).max(updateHqSettingsResponseAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
+  "gracePeriodDays": zod.number().min(1).max(updateHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
+  "normalSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingNormalSharePercentMin).max(updateHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
+  "restrictedSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(updateHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+}).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4310,6 +4385,23 @@ export const getOfficeSettingsResponseHqRetentionWebhookEventDaysMax = 3650;
 export const getOfficeSettingsResponseHqRetentionClinicalRecordDaysMin = 1825;
 export const getOfficeSettingsResponseHqRetentionClinicalRecordDaysMax = 3650;
 
+export const getOfficeSettingsResponseHqAccessBillingMonthlyPriceCentsMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingMonthlyPriceCentsMax = 10000000;
+
+export const getOfficeSettingsResponseHqAccessBillingYearlyPriceCentsMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingYearlyPriceCentsMax = 100000000;
+
+export const getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMax = 1095;
+
+export const getOfficeSettingsResponseHqAccessBillingGracePeriodDaysMax = 30;
+
+export const getOfficeSettingsResponseHqAccessBillingNormalSharePercentMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingNormalSharePercentMax = 100;
+
+export const getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax = 100;
+
 export const getOfficeSettingsResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4361,6 +4453,14 @@ export const GetOfficeSettingsResponse = zod.object({
   "officeManagers": zod.boolean().describe('Office owners and admins'),
   "allStaff": zod.boolean().describe('Every office teammate')
 }).describe('Who must confirm a texted code after the emailed sign-in code.'),
+  "accessBilling": zod.object({
+  "monthlyPriceCents": zod.number().min(getOfficeSettingsResponseHqAccessBillingMonthlyPriceCentsMin).max(getOfficeSettingsResponseHqAccessBillingMonthlyPriceCentsMax),
+  "yearlyPriceCents": zod.number().min(getOfficeSettingsResponseHqAccessBillingYearlyPriceCentsMin).max(getOfficeSettingsResponseHqAccessBillingYearlyPriceCentsMax),
+  "includedPeriodDays": zod.number().min(getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMin).max(getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
+  "gracePeriodDays": zod.number().min(1).max(getOfficeSettingsResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
+  "normalSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
+  "restrictedSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+}).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({
@@ -4615,6 +4715,23 @@ export const updateOfficeSettingsOverridesResponseHqRetentionWebhookEventDaysMax
 export const updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMin = 1825;
 export const updateOfficeSettingsOverridesResponseHqRetentionClinicalRecordDaysMax = 3650;
 
+export const updateOfficeSettingsOverridesResponseHqAccessBillingMonthlyPriceCentsMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingMonthlyPriceCentsMax = 10000000;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingYearlyPriceCentsMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingYearlyPriceCentsMax = 100000000;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMax = 1095;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingGracePeriodDaysMax = 30;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMax = 100;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax = 100;
+
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4666,6 +4783,14 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "officeManagers": zod.boolean().describe('Office owners and admins'),
   "allStaff": zod.boolean().describe('Every office teammate')
 }).describe('Who must confirm a texted code after the emailed sign-in code.'),
+  "accessBilling": zod.object({
+  "monthlyPriceCents": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingMonthlyPriceCentsMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingMonthlyPriceCentsMax),
+  "yearlyPriceCents": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingYearlyPriceCentsMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingYearlyPriceCentsMax),
+  "includedPeriodDays": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
+  "gracePeriodDays": zod.number().min(1).max(updateOfficeSettingsOverridesResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
+  "normalSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
+  "restrictedSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+}).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
   "sections": zod.object({

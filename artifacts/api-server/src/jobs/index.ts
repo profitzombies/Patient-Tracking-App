@@ -37,6 +37,7 @@ import { systemThresholdsJob } from "./definitions/system-thresholds";
 import { coldArchiveJob } from "./definitions/cold-archive";
 import { officeBundleExportJob } from "./definitions/office-bundle-export";
 import { officeOffboardingSealJob } from "./definitions/office-offboarding-seal";
+import { officeAccessBillingJob } from "./definitions/office-access-billing";
 
 /** Request-scoped patient upload discards; logged as user runs, never scheduled. */
 export const patientMediaCleanupJob: JobDefinition = {
@@ -96,6 +97,7 @@ export const ALL_JOBS: JobDefinition[] = [
   coldArchiveJob,
   officeBundleExportJob,
   officeOffboardingSealJob,
+  officeAccessBillingJob,
 ];
 
 let registered = false;

@@ -4445,6 +4445,7 @@ components:
         - staffIdleTimeoutMinutes
         - hqIdleTimeoutMinutes
         - secondFactor
+        - accessBilling
         - version
         - updatedAt
         - sections
@@ -4477,10 +4478,47 @@ components:
           type: number
           description: Same window for HQ members (5–120).
         secondFactor: { $ref: "#/components/schemas/StaffSecondFactorPolicy" }
+        accessBilling: { $ref: "#/components/schemas/OfficeAccessBillingPolicy" }
         version: { type: number }
         updatedAt: { type: string }
         sections: { $ref: "#/components/schemas/PolicySectionChanges" }
         coldArchive: { $ref: "#/components/schemas/ColdArchiveSettingsStatus" }
+    OfficeAccessBillingPolicy:
+      type: object
+      description: >-
+        What an office pays THINNR for dashboard and provider-app access, billed
+        on THINNR's own platform Stripe account. Prices are the standard list;
+        HQ may override an individual office.
+      required:
+        - monthlyPriceCents
+        - yearlyPriceCents
+        - includedPeriodDays
+        - gracePeriodDays
+        - normalSharePercent
+        - restrictedSharePercent
+      properties:
+        monthlyPriceCents: { type: number, minimum: 0, maximum: 10000000 }
+        yearlyPriceCents: { type: number, minimum: 0, maximum: 100000000 }
+        includedPeriodDays:
+          type: number
+          minimum: 0
+          maximum: 1095
+          description: Free access window from the office owner's first dashboard sign-in (default one year, up to three).
+        gracePeriodDays:
+          type: number
+          minimum: 1
+          maximum: 30
+          description: Recovery window after every stored instrument fails before the office is restricted.
+        normalSharePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: THINNR's share of a patient payment while the office's access is in good standing.
+        restrictedSharePercent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: THINNR's share of a patient payment while the office is restricted for nonpayment.
     HqOrganizationSettingsInput:
       type: object
       additionalProperties: false
@@ -4505,6 +4543,7 @@ components:
         staffIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
         hqIdleTimeoutMinutes: { type: number, minimum: 5, maximum: 120 }
         secondFactor: { $ref: "#/components/schemas/StaffSecondFactorPolicy" }
+        accessBilling: { $ref: "#/components/schemas/OfficeAccessBillingPolicy" }
     OfficeQuietHoursOverride:
       type: object
       required: [mode]

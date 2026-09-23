@@ -337,6 +337,7 @@ export * from './markOfficeAlertSeenBody';
 export * from './markOfficeAlertSeenParams';
 export * from './notificationCategoryDefaults';
 export * from './nutritionAmounts';
+export * from './officeAccessBillingPolicy';
 export * from './officeAlertDigestsResult';
 export * from './officeAlertItem';
 export * from './officeAlertSettings';

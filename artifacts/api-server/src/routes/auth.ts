@@ -660,6 +660,7 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
             return;
           }
           userId = await ensureStaffAuthUser(staff.hit);
+          await startOfficeIncludedPeriod(staff.hit, userId, req);
         }
       }
     }
@@ -1246,6 +1247,25 @@ export interface SecondFactorStepBody {
  * Decide, right after the emailed code is proven, whether this staff member
  * owes a texted code. Returns null when the emailed code alone signs them in.
  */
+/**
+ * An office owner reaching the provider dashboard starts that office's
+ * included access period (once, ever). Imported lazily so the auth route does
+ * not pull the billing engine in for every other sign-in.
+ */
+async function startOfficeIncludedPeriod(
+  hit: StaffHit,
+  userId: string,
+  req: { log?: { error(detail: unknown, message: string): void } },
+): Promise<void> {
+  if (hit.class !== "provider" || !hit.providerId) return;
+  try {
+    const { noteOwnerDashboardSignIn } = await import("../billing/office-access/sign-in");
+    await noteOwnerDashboardSignIn({ providerId: hit.providerId, staffClass: hit.class, authUserId: userId });
+  } catch (error) {
+    req.log?.error({ err: error }, "office access included period start failed");
+  }
+}
+
 async function staffSecondFactorStep(hit: StaffHit): Promise<{ token: string; body: SecondFactorStepBody } | null> {
   const factor = await loadStaffSecondFactor(factorKindOf(hit.class), hit.ref);
   const policy = await currentSecondFactorPolicy();
@@ -1446,6 +1466,7 @@ router.post(AUTH_LOGIN_PHONE_VERIFY_PATH, async (req, res) => {
     let enrolled: StaffSecondFactor | null = factor;
     if (mode === "enroll") enrolled = await saveStaffSecondFactor(kind, hit.ref, smsRow.identifier);
     const userId = await ensureStaffAuthUser(hit);
+    await startOfficeIncludedPeriod(hit, userId, req);
     await patchRow(step.id, { auth_user_id: userId });
     await patchRow(smsRow.id, { consumed_at: now, resolved_ref: hit.ref, auth_user_id: userId });
     if (mode === "enroll") {

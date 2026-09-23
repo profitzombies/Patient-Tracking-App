@@ -7,6 +7,7 @@
  */
 import type { ColdArchiveSettingsStatus } from './coldArchiveSettingsStatus';
 import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
+import type { OfficeAccessBillingPolicy } from './officeAccessBillingPolicy';
 import type { PolicySectionChanges } from './policySectionChanges';
 import type { QuietHoursWindow } from './quietHoursWindow';
 import type { RetentionPolicy } from './retentionPolicy';
@@ -46,6 +47,7 @@ export interface HqOrganizationSettings {
   /** Same window for HQ members (5–120). */
   hqIdleTimeoutMinutes: number;
   secondFactor: StaffSecondFactorPolicy;
+  accessBilling: OfficeAccessBillingPolicy;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;

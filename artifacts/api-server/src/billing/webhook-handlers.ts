@@ -22,6 +22,10 @@ export async function registerBillingWebhookHandlers(): Promise<void> {
   // payouts.ts — payout.paid, payout.failed
   const payouts = await import("./payouts");
   payouts.registerPayoutWebhookHandlers();
+  // office-access/webhooks.ts — platform-side access charges: ACH settlement
+  // and late failures, card outcomes, disputes, bank verification.
+  const officeAccess = await import("./office-access/webhooks");
+  officeAccess.registerOfficeAccessWebhookHandlers();
 }
 
 /** Test seam: allow a suite to re-register after resetStripeEventHandlers(). */

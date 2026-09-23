@@ -532,6 +532,14 @@ args = "email-outbox-api"
 task = "workflow.run"
 args = "email-outbox-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-access-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-access-clients"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3150,3 +3158,25 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations 
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "office-access-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/routes/hq-org-policy.test.ts src/routes/billing-webhooks.test.ts src/routes/system-jobs.test.ts src/jobs/scheduler.test.ts src/routes/auth.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-access-clients"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"

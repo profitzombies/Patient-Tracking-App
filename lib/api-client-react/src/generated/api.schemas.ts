@@ -1898,6 +1898,46 @@ export interface HqEscalationResolveInput {
   note?: string | null;
 }
 
+/**
+ * What an office pays THINNR for dashboard and provider-app access, billed on THINNR's own platform Stripe account. Prices are the standard list; HQ may override an individual office.
+ */
+export interface OfficeAccessBillingPolicy {
+  /**
+     * @minimum 0
+     * @maximum 10000000
+     */
+  monthlyPriceCents: number;
+  /**
+     * @minimum 0
+     * @maximum 100000000
+     */
+  yearlyPriceCents: number;
+  /**
+     * Free access window from the office owner's first dashboard sign-in (default one year, up to three).
+     * @minimum 0
+     * @maximum 1095
+     */
+  includedPeriodDays: number;
+  /**
+     * Recovery window after every stored instrument fails before the office is restricted.
+     * @minimum 1
+     * @maximum 30
+     */
+  gracePeriodDays: number;
+  /**
+     * THINNR's share of a patient payment while the office's access is in good standing.
+     * @minimum 0
+     * @maximum 100
+     */
+  normalSharePercent: number;
+  /**
+     * THINNR's share of a patient payment while the office is restricted for nonpayment.
+     * @minimum 0
+     * @maximum 100
+     */
+  restrictedSharePercent: number;
+}
+
 export interface HqOrganizationSettings {
   organizationName: string;
   /** @nullable */
@@ -1932,6 +1972,7 @@ export interface HqOrganizationSettings {
   /** Same window for HQ members (5–120). */
   hqIdleTimeoutMinutes: number;
   secondFactor: StaffSecondFactorPolicy;
+  accessBilling: OfficeAccessBillingPolicy;
   version: number;
   updatedAt: string;
   sections: PolicySectionChanges;
@@ -2012,6 +2053,7 @@ export interface HqOrganizationSettingsInput {
      */
   hqIdleTimeoutMinutes?: number;
   secondFactor?: StaffSecondFactorPolicy;
+  accessBilling?: OfficeAccessBillingPolicy;
 }
 
 export type OfficeQuietHoursOverrideMode = typeof OfficeQuietHoursOverrideMode[keyof typeof OfficeQuietHoursOverrideMode];

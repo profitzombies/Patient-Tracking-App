@@ -11,7 +11,9 @@ export type BillingTable =
   | "billing_subscriptions" | "billing_ledger" | "billing_refunds" | "billing_disputes"
   | "billing_payouts" | "billing_webhook_endpoints" | "billing_webhook_events" | "billing_shipments" | "billing_carts" | "billing_customer_emails"
   | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls"
-  | "billing_notification_contacts" | "billing_customer_email_events";
+  | "billing_notification_contacts" | "billing_customer_email_events"
+  | "billing_office_access_subscriptions" | "billing_office_access_instruments"
+  | "billing_office_access_attempts" | "billing_office_access_events";
 
 export interface BillingIdentityColumns {
   stripe_mode?: "test" | "live" | null;
@@ -261,6 +263,46 @@ export interface BillingWebhookEventRow extends BillingIdentityColumns {
   payload: Record<string, unknown>;
 }
 
+/**
+ * The office's own subscription to THINNR (platform account), not a patient
+ * subscription on the office's connected account. See
+ * supabase/migrations/20261125000000_office_access_subscriptions.sql and
+ * billing/office-access/.
+ */
+export type OfficeAccessState = "setup_incomplete" | "included_period" | "paid_current" | "past_due" | "restricted";
+export type OfficeAccessPlan = "monthly" | "yearly";
+export type OfficeAccessSlot = "bank" | "card_primary" | "card_backup";
+export type PaidThroughSource = "stripe" | "offline" | "hq_migration";
+export interface BillingOfficeAccessSubscriptionRow extends TimestampedRow {
+  id: string; provider_id: string; state: OfficeAccessState; plan: OfficeAccessPlan;
+  price_cents_override: number | null;
+  included_period_started_at: string | null; included_period_ends_at: string | null; lifetime: boolean;
+  paid_through: string | null; paid_through_source: PaidThroughSource | null;
+  current_period_start: string | null; current_period_end: string | null;
+  grace_started_at: string | null; grace_ends_at: string | null; restricted_at: string | null;
+  stripe_customer_id: string | null; setup_completed_at: string | null;
+  bank_verification_deadline: string | null; last_attempt_at: string | null; version: number;
+}
+export interface BillingOfficeAccessInstrumentRow extends TimestampedRow {
+  id: string; subscription_id: string; provider_id: string; slot: OfficeAccessSlot; kind: "bank" | "card";
+  stripe_payment_method_id: string; fingerprint: string | null; brand: string | null; last4: string | null;
+  exp_month: number | null; exp_year: number | null; bank_name: string | null;
+  verification_status: "verified" | "pending" | "failed"; verification_deadline: string | null;
+  removed_at: string | null;
+}
+export interface BillingOfficeAccessAttemptRow extends TimestampedRow {
+  id: string; subscription_id: string; provider_id: string; period_start: string; period_end: string;
+  cycle: number; slot: OfficeAccessSlot; plan: OfficeAccessPlan; amount_cents: number;
+  stripe_payment_intent_id: string | null; status: "processing" | "succeeded" | "failed";
+  failure_code: string | null; failure_message: string | null; settled_at: string | null; failed_at: string | null;
+}
+export interface BillingOfficeAccessEventRow extends BillingIdentityColumns {
+  id: number; subscription_id: string; provider_id: string; event: string;
+  from_state: OfficeAccessState | null; to_state: OfficeAccessState | null;
+  actor_user_id: string | null; actor_kind: "system" | "hq" | "provider" | "team_member" | "stripe";
+  detail: Record<string, unknown>; created_at: string;
+}
+
 export type BillingRows = {
   billing_settings: BillingSettingsRow; billing_products: BillingProductRow;
   billing_product_images: BillingProductImageRow; billing_catalog_changes: BillingCatalogChangeRow; billing_connected_accounts: BillingConnectedAccountRow;
@@ -277,6 +319,10 @@ export type BillingRows = {
   billing_warehouse_sync_polls: BillingWarehouseSyncPollRow;
   billing_notification_contacts: BillingNotificationContactRow;
   billing_customer_email_events: BillingCustomerEmailEventRow;
+  billing_office_access_subscriptions: BillingOfficeAccessSubscriptionRow;
+  billing_office_access_instruments: BillingOfficeAccessInstrumentRow;
+  billing_office_access_attempts: BillingOfficeAccessAttemptRow;
+  billing_office_access_events: BillingOfficeAccessEventRow;
 };
 
 export class BillingStoreError extends Error {

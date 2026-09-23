@@ -90,6 +90,7 @@ export function mergePolicyInput(
     defaultCategories: { ...current.defaultCategories },
     retention: { ...current.retention },
     secondFactor: { ...current.secondFactor },
+    accessBilling: { ...current.accessBilling },
   };
   const fail = (error = INVALID_SETTINGS) => ({ ok: false as const, error });
 
@@ -159,6 +160,12 @@ export function mergePolicyInput(
     ["clinicalRecordDays", input.retention?.clinicalRecordDays, v => { next.retention.clinicalRecordDays = v; }, "Clinical record retention"],
     ["staffIdleTimeoutMinutes", input.staffIdleTimeoutMinutes, v => { next.staffIdleTimeoutMinutes = v; }, "Staff idle timeout"],
     ["hqIdleTimeoutMinutes", input.hqIdleTimeoutMinutes, v => { next.hqIdleTimeoutMinutes = v; }, "HQ idle timeout"],
+    ["accessMonthlyPriceCents", input.accessBilling?.monthlyPriceCents, v => { next.accessBilling.monthlyPriceCents = v; }, "Monthly access price"],
+    ["accessYearlyPriceCents", input.accessBilling?.yearlyPriceCents, v => { next.accessBilling.yearlyPriceCents = v; }, "Yearly access price"],
+    ["accessIncludedPeriodDays", input.accessBilling?.includedPeriodDays, v => { next.accessBilling.includedPeriodDays = v; }, "Included access period"],
+    ["accessGracePeriodDays", input.accessBilling?.gracePeriodDays, v => { next.accessBilling.gracePeriodDays = v; }, "Access grace period"],
+    ["accessNormalSharePercent", input.accessBilling?.normalSharePercent, v => { next.accessBilling.normalSharePercent = v; }, "Standard revenue share"],
+    ["accessRestrictedSharePercent", input.accessBilling?.restrictedSharePercent, v => { next.accessBilling.restrictedSharePercent = v; }, "Restricted revenue share"],
   ];
   for (const [key, value, set, label] of ints) {
     if (value === undefined) continue;

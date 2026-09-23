@@ -1,35 +1,21 @@
 - [THINNR visual direction](dashboard-design-system-direction.md) — Heritage evolution of Cobalt Ledger is approved app-wide: soft radius 9/7, serif Playfair display titles, cream cards; square geometry superseded.
-- [THINNR mobile test target](mobile-test-target.md) — Prove tests are on the Expo domain before trusting results; the sibling web UI is similar enough to mask a wrong target.
 - [Cross-artifact seed parity](cross-artifact-seed-parity.md) — web + mobile demo data must share one fixed anchor date and identical seed logic; never derive "today" from the clock.
-- [expo-router guarded redirects](expo-router-guard-redirects.md) — gate screen-level Redirects on usePathname; ungated guards hijack in-flight navigation during teardown.
 - [THINNR verbatim sources](thinnr-verbatim-sources.md) — quote program wording from the docs archive, never paraphrase; structured copies need an automated verbatim check against the source.
-- [RN web deprecated/unmapped props](rn-web-shadow-props.md) — shadow*/textShadow*/pointerEvents props and accessibilityState objects do nothing on Expo web; use boxShadow/textShadow strings, style.pointerEvents, flat aria-*.
 - [Approved-foods entry points](approved-foods-entry-points.md) — every "Approved list" shortcut routes through one shared constant in the mobile app; retarget there, not per-callsite.
 - [Coach topic directory](coach-topic-directory.md) — grouped coach grounding, routing, card, reply, voice, stream, failure-staging, and account-grounding lessons; see original topic pages for details.
 - [OpenAPI codegen zod quirk](openapi-codegen-zod.md) — never use type: integer in openapi.yaml (orval emits zod-4 zod.int(), workspace is zod 3); use type: number + server-side clamp.
 - [Validation gate](validation-gate.md) — register suites via setValidationCommand (not workflows); completion runs ALL commands in parallel — EAGAIN/134/502 load flakes; re-run failures serially; repeated poll-budget stalls → skip_validation_reason with green evidence.
-- [Expo font pipeline](expo-font-pipeline.md) — preload icon fonts at the root (lazy load = silent Android tofu); keep static-build font URLs canonical; run verify-static-fonts.js as proof.
 - [Long-running commands](long-running-builds.md) — use managed background/workflows, not detached shells; fingerprint and checkpoint model benchmarks per case.
-- [Mobile context suites in Node](mobile-context-suites.md) — run real Expo contexts and full screen trees under tsx via tsconfig-paths stubs + react-test-renderer; prove new suites with mutation runs.
 - [Post-merge stale dev servers](post-merge-stale-dev-servers.md) — reconciliation can leave old listeners alive; verify port ownership and feature routes, not just workflow state or a green health check.
 - [Rebase configuration and runtimes](rebase-config-runtime.md) — conflicted .replit can temporarily remove Node/pnpm/Python from shells; validate the merged config before reinstalling tools.
-- [Expo Go SDK mismatch](expo-go-sdk-mismatch.md) — Android-only tofu icons = store Expo Go outran project SDK; check device RN version via log probe, fix is installing matching Expo Go from expo.dev/go.
 - [Variant fan-out parity](variant-fanout-parity.md) — parallel subagents drift on state semantics, promise unimplemented shared-layer behavior, and may return golfed code; spec briefs, line-length sweep, review seams.
-- [Custom tab labels drop accessible names](tab-label-a11y.md) — a function tabBarLabel needs tabBarAccessibilityLabel per screen, or every tab silently loses its screen-reader name.
-- [Expo persona gate](expo-persona-gate.md) — patient screens hide behind the persona chooser on Expo web; verify via the testing subagent; compare app vs mockup in one capture pipeline.
-- [Expo typed routes lag new screens](expo-typed-routes-lag.md) — a new app/ route fails typecheck until Metro regenerates .expo/types/router.d.ts; restart the Expo workflow, then re-typecheck.
-- [Mobile e2e quirks](mobile-e2e-quirks.md) — Undo taps and native warnings have capture gaps; width checks need isMobile; scroll metrics must exclude hidden mounted tabs.
 - [Completion-diff provenance](completion-diff-provenance.md) — mid-session main-workspace commits can be swept into a task's completion diff; check HEAD before completing and state provenance in drift_reason.
-- [Announced error pattern](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region + iOS announce; never nest live regions); blocked CTAs intercept taps via aria-disabled instead of swallowing them.
 - [Generated recipe image style](recipe-image-style.md) — coach images must match the seeded illustrated family; "crisp outlines" → ink-lines gotcha; the AI-recipe preview shows zero generation UI by design.
 - [Menu & meal photo scans](menu-photo-scan.md) — image rides only the request tail; server triage announces photoKind; meal reads need mid-tier (detail:"high" ignored); typed corrections re-attach the held photo.
 - [Coach client-held flows](coach-client-flows.md) — sub-conversations that bind a reply to held data (label naming) resolve client-side; finished bubbles ride the bounded request history window.
 - [Range picker restart](range-picker-restart.md) — a pre-filled complete range must restart on the next day-click; react-day-picker's default stretches the old range instead.
-- [Tailwind v4 var syntax](tailwind-v4-var-syntax.md) — `h-[--x]` (v3 form) is silently dropped by v4; use `h-(--x)`; grep the ui/ folder when a shadcn part renders unsized.
-- [Tailwind v4 color-token mapping](tailwind-theme-color-mapping.md) — a css var only becomes a utility class once mapped --color-* in @theme inline; unmapped bg-chart-*/text-warn silently render nothing.
 - [Range-calibrated analytics](range-calibrated-analytics.md) — seeded series calibrated so the default range reproduces approved headline figures; comparisons predating the dataset go honestly null.
 - [Ingredient decomposition](ingredient-decomposition.md) — exact curated sums, ORIGINAL-baseline scaling, delta totals, server normalization; oz/fl-oz via name-keyed measure bridge (head-noun matcher); adjustments persist recipe-linked only.
-- [Expo multi-artifact preview routing](expo-multi-artifact-preview.md) — multiple Expo apps can share a direct domain; verify the intended artifact by local port and served title.
 - [Provider-scope pattern](provider-scope-pattern.md) — office screens read via useScoped* hooks (unscoped = exact singletons, byte-identical demo); HQ accounts must partition program totals exactly.
 - [URL-persisted admin filters](url-state-admin-filters.md) — query string as single source of truth; per-keystroke replace-navigation verified safe (no focus loss, no scroll reset) on HQ pages.
 - [Supabase profile migrations](supabase-profile-migrations.md) — profile RLS migrations must carry their own non-recursive admin helper and tolerate the legacy profile shape.
@@ -39,20 +25,14 @@
 - [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
-- [Indefinite-height flex chains](indefinite-height-flex.md) — h-full collapses in min-h-full columns; shell-hosted roots must not add min-h-[100dvh]; RN-web alignSelf kills inset stretch; measure rects.
 - [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
-- [Fluid menu rail](menu-rail-fluid.md) — collapsed rails size blocks fluidly (w-full in gutters + overflow-hidden → 44px boxes); fixed-width clipping slices box edges and was rejected.
-- [Phone-width table overflow](table-overflow-phone.md) — sr-only spans escape overflow-x wrappers (ICB) and widen the page; truncate max-w caps drive table min-content; measure page AND wrapper at 390px.
-- [Clickable cards/rows](clickable-surfaces.md) — review rejects focusable div/tr click targets; use stretched-link cards or one announced row link + pointer-only tr onClick; RTR a11y suite enforces it.
 - [Web admin persona gate](web-admin-persona-gate.md) — operations /admin screenshots need the tester through the guided-demo persona (sessionStorage); static Screenshot only sees the sign-in card.
 - [Provider account lock](account-lock-pattern.md) — presence-keyed row + lock-aware caller_* helpers collapse office RLS at one choke point; keep locked staff's own-profile read for the notice.
-- [Web fit-to-iPhone shell](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin/disable; gBCR consumers see real px.
 - [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids at ingest; HTTP seed path now behind the HQ content gate.
 - [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); chat open per-IP-limited, knowledge routes now HQ-gated; never bundle creds.
 - [Unicode in authored TSX](tsx-unicode-escapes.md) — \uXXXX in JSX text renders literally (green builds, broken UI); write real characters when generating files.
 - [Synthetic image fixtures](synthetic-image-fixtures.md) — deterministic encoders avoid optional tooling; benchmark expected values must match visible rendered content, not just generator arrays.
 - [In-app food camera handoff](food-camera-handoff.md) — camera route settles a module promise with the RAW asset; prep + single blue confirm live at entry points; denied fallbacks live inside the surface.
-- [HQ toast layer](hq-toast-layer.md) — sound rides the variant; Radix won't announce in-place morphs (ANNOUNCE live region); progress toasts pin vs eviction; gated writes return landed booleans.
 - [Composite typecheck staleness](composite-typecheck-staleness.md) — phantom "no exported member" typecheck errors = stale referenced-lib dist d.ts; tsc -b the lib first; ts lib predates es2023 (no findLastIndex).
 - [Barcode lookup pattern](barcode-lookup.md) — open route fills a shared Supabase facts table from Open Food Facts; canonical-code keying, found-only caching; fake-looking codes can be REAL — verify miss fixtures live.
 - [Gateway model knobs](gateway-model-knobs.md) — probe knobs for acceptance only (5.6 fleet rejects "minimal"; image detail ignored); quality knobs need the multi-plate harness — "none" degraded real plate reads.
@@ -81,7 +61,6 @@
 - [Stale async phase guards](stale-phase-guards.md) — phase-machine screens: every navigation bumps a generation ref; submits re-check it after each await (finally too); test via held-fetch gate + un-awaited act press.
 - [Food catalog search trust](food-catalog-search-trust.md) — external text hits are not usable foods without complete serving macros; curate exact restaurant rows and never surface raw HTTP/HTML errors.
 - [USDA portion semantics](usda-portion-semantics.md) — source amount, descriptor, and grams stay together; standard conversions must not overwrite recorded portions.
-- [Expo SDK upgrade lessons](expo-sdk-upgrade.md) — 54→57: absoluteFillObject gone, media-library needs /legacy (+stub map), TS6 baseUrl bridge, splash→plugin, blank-screenshot hydration race.
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.
 - [Live/demo UI isolation](live-demo-ui-isolation.md) — choose demo vs live from auth state, never missing data; propagate loading/errors so outages cannot look like healthy zeroes.
@@ -99,7 +78,6 @@
 - [Shared conversation inbox](staff-inbox-workflow.md) — human chats stay outside AI; ownership includes metrics; first-read races and service-role RPCs need real-PG proof.
 - [System jobs framework](system-jobs-framework.md) — all clean-up rides the leased job ledger (intents, two-way reconcile flags, dry-run neutrality); live traps: pg-safeupdate bare DELETE, locate("/objects/"), real-HQ tester login recipe.
 - [Offline patient write queue](offline-write-queue.md) — state=project(base,queue), head-first drain, receipts claimed BEFORE the write, pinned photo uploads; sync chip quiet by default (grace + seen-flash).
-- [Scoped style font reset trap](scoped-style-font-reset.md) — `.root button{font:inherit}` (0,1,1) beats class font-size rules; use font-family:inherit in mockup <style> blocks; verify subagent captures yourself.
 - [Account security & session ledger](account-security-sessions.md) — client attaches signInId after token redeem; report links fire only on explicit tap; send cap 429 ≠ forced-reset; pin delivery modes in vitest.
 - [Medication records & reminders](medication-records.md) — one schedule core copied byte-identical (parity test); reminders derive from records; notification actions MUST foreground the app; adherence is a nullable extra roster input.
 - [Live office leaderboard](office-leaderboard-live.md) — facts RPC + server ranks/adherence, clients only re-sort; branch by auth state; demo-staff script login is a decoy under passwordless directory.
@@ -114,8 +92,8 @@
 - [Billing topic directory](billing-topic-directory.md) — grouped Stripe, payments, checkout, sales, email, and billing-state lessons; see original topic pages for details.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.
+- [Revenue chart conventions](revenue-chart-conventions.md) — hover-only readouts (nothing pinned at rest); "today" series are running totals with a signed y-domain; sr-only live text only while engaged.
 - [HQ file drive](hq-file-drive.md) — replace = CAS swap; archived rows stay real; providers read-only via shared read module; HQ-only manual order; 250 MB cap in constant+OpenAPI+DB check, preview bound separate.
-- [Fixed-layout table width budget](fixed-table-width-budget.md) — truncate needs table-fixed; reserve widths for all but one column and keep the sum under the card width or the free column starves.
 - [HQ drill-in office scope](hq-drillin-office-scope.md) — office screens under /admin/accounts/:id/office must send ?office= on every live request and hide HQ-forbidden care-team writes; hold the frame while accounts load.
 - [Inbox notes side panel](inbox-notes-side-panel.md) — white thread + separate docked/overlay notes panel; HQ never composes notes on any thread; back-button breakpoint must equal list-pane breakpoint.
 - [Staff attention alerts](staff-attention-alerts.md) — one evaluator feeds roster/bell/digest/email; staff outbox is separate from patient outbox; opt-outs applied at send; ALL mail via the templates library shell.
@@ -138,6 +116,9 @@
 - [New exports on factory-mocked libs](mocked-lib-new-exports.md) — a new named import from a lib that route suites mock by factory fails ~16 unrelated suites; wire hooks via `"x" in mod` and run the FULL suite once.
 - [AI usage ledger & prompt cache](ai-usage-ledger-and-prompt-cache.md) — meter at the client seam; one system message in canonical source order caches ~99%; tier switches only via recorded harnesses.
 - [JSX type args vs dev metadata plugin](jsx-type-args-metadata-plugin.md) — `<Comp<'a'|'b'>…>` typechecks but the dev-only metadata transform makes Vite fail on every route; instantiate the generic at module level.
+- [WarehouseCraft shipping rates](warehousecraft-shipping-rates.md) — NOVEX_* secrets are the WarehouseCraft creds; fallback = flat charge exactly, recovery always carrier+pick-pack; one rater via planCart, renewals re-quote.
+- [WarehouseCraft order submission](warehousecraft-order-submission.md) — legacy /api/OrderDatas routes; trigger-made intent queue; test/live tenant guard holds real orders until the prod-only flag flips; 8-char order numbers.
+- [WarehouseCraft status feed sync](warehousecraft-status-sync.md) — feed authoritative only for sent orders, provider writes share the staff shipment path + one forward-only guard; docs ByDate route is 404, tenant uses OrderStatusDatas date-only Central days.
 - [Retention compliance floors](retention-compliance-floors.md) — floors live in bounds+OpenAPI min+DB CHECK+clamp-on-read together; clinical record window is separate from the chat timer, care-team pinned by SQL test.
 - [PHI-free push and email](phi-free-outbound.md) — all email through one transport seam with per-template PHI class + catalog lint; both push senders wrap the client in sendGuarded; copy generic, data ids-only.
 - [Staff idle timeout & fresh-code re-auth](staff-idle-timeout-reauth.md) — idle window is client-side (stable signOut, BroadcastChannel); code proof = session-bound ledger stamp, gate after authz, fail closed.
@@ -148,4 +129,13 @@
 - [Record-access audit](record-access-audit.md) — staff reads dedupe in ONE SQL RPC (actor+target window), patient self-reads write nothing; live audit table has a provider FK and is append-only.
 - [Staff SMS second factor](staff-second-factor.md) — emailed verify returns a step token instead of a session when the rule applies; policy read fresh, outage falls back to required; STEP_EXPIRED = restart from email.
 - [Practice launch pricing](practice-launch-pricing.md) — user-approved 2× means THINNR product fee paid by the office, excluding shipping/card fees, not supplier cost or patient retail.
+- [Stripe setup reset policy](stripe-setup-reset-policy.md) — re-gating preserves connections; unfinished setup may restart, but financial history requires HQ investigation, never forced replacement.
+- [Customer email delivery ledger](customer-email-ledger.md) — one row per address with its own 3-try budget; deterministic failures never retry; staff sends are linked rows, never re-flipped claims.
+- [Sandbox verification gate](sandbox-verification-gate.md) — sandbox orders reach warehouse/email only under test tenant + per-order allowance row; vendor sandbox never ships itself; checkout needs X-Billing-Scope.
+- [Connect guard mode row](connect-guard-mode-row.md) — missing billing_mode_state must read as implicit Test/v0; 40001 raises surface as PostgREST timeouts; fixture connections attach via the guard RPC.
 - [Refresh controls & focus refetch](refresh-controls-and-focus-refetch.md) — RQ 5.x invalidates data after a background error (focus refetches despite staleTime); demo refresh animates as a no-op; RN stub child refreshControl.
+- [Staff Emails card](customer-emails-card.md) — office ledger 403 IS the role check (no status request); HQ gated client-side; demo rows derive from the on-screen order; query-level retry overrides test client retry:false.
+- [Email vendor delivery webhook](email-vendor-webhook.md) — inbox-then-link by vendor message id, re-match on tick; "Tracking not enabled" beats zeros; HQ Payments gate has no read-only persona.
+- [Mobile & Expo topic directory](mobile-expo-topic-directory.md) — grouped Expo Go, router, fonts, typed-routes, RN-web prop, persona-gate and mobile test-harness lessons; see the named topic pages.
+- [Web UI & Tailwind topic directory](web-ui-layout-topic-directory.md) — grouped Tailwind v4 syntax/token, flex-height, table-width, clickable-surface, toast and scoped-style lessons; see the named topic pages.
+- [Office access subscriptions](office-access-subscriptions.md) — offices pay THINNR on the PLATFORM account via direct PaymentIntents (no Stripe dunning); state derives from dates, charges claim in SQL first.

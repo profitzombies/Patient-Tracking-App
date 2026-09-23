@@ -11,7 +11,7 @@
  */
 import { supabaseAdmin } from "./supabase-admin";
 
-export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention", "security", "archive"] as const;
+export const POLICY_SECTIONS = ["organization", "coach", "notifications", "conversations", "retention", "security", "archive", "accessBilling"] as const;
 
 /** 6 years: HIPAA's minimum for compliance documentation and the audit trail. */
 export const AUDIT_EVENT_RETENTION_FLOOR_DAYS = 2190;
@@ -58,6 +58,30 @@ export interface SecondFactorPolicy {
   hqUsers: boolean;
   officeManagers: boolean;
   allStaff: boolean;
+}
+
+/**
+ * What an office pays THINNR for access to the provider dashboard and the
+ * provider mobile app, charged on THINNR's OWN platform Stripe account. This
+ * is a separate direction of money from the patient payments an office
+ * collects on its connected account.
+ *
+ * Prices here are the standard list; HQ may override an individual office on
+ * its own access-subscription row. The included period is the free window
+ * every office gets before paid billing starts, measured from its owner's
+ * first provider-dashboard sign-in.
+ */
+export interface AccessBillingPolicy {
+  monthlyPriceCents: number;
+  yearlyPriceCents: number;
+  /** Free access window in days (default one year; up to three). */
+  includedPeriodDays: number;
+  /** Recovery window after every stored instrument fails, before restriction. */
+  gracePeriodDays: number;
+  /** THINNR's share of a patient payment while the office is in good standing. */
+  normalSharePercent: number;
+  /** THINNR's share of a patient payment while the office is restricted. */
+  restrictedSharePercent: number;
 }
 export interface OrgPolicy {
   organizationName: string;
@@ -108,6 +132,8 @@ export interface OrgPolicy {
   updatedAt: string;
 
   secondFactor: SecondFactorPolicy;
+
+  accessBilling: AccessBillingPolicy;
 }
 
 export interface SectionChange {
@@ -139,6 +165,7 @@ export const FIELD_SECTIONS = {
   hqIdleTimeoutMinutes: "security",
   coldArchiveEnabled: "archive",
   secondFactor: "security",
+  accessBilling: "accessBilling",
 } as const satisfies Record<Exclude<keyof OrgPolicy, "version" | "updatedAt">, PolicySection>;
 export type PolicyField = keyof typeof FIELD_SECTIONS;
 
@@ -166,6 +193,13 @@ export const POLICY_BOUNDS = {
   exportLinkHours: { min: 1, max: 168 },
   staffIdleTimeoutMinutes: { min: 5, max: 120 },
   hqIdleTimeoutMinutes: { min: 5, max: 120 },
+  accessMonthlyPriceCents: { min: 0, max: 10_000_000 },
+  accessYearlyPriceCents: { min: 0, max: 100_000_000 },
+  /** Up to three years of included access; 0 means paid from the first day. */
+  accessIncludedPeriodDays: { min: 0, max: 1095 },
+  accessGracePeriodDays: { min: 1, max: 30 },
+  accessNormalSharePercent: { min: 0, max: 100 },
+  accessRestrictedSharePercent: { min: 0, max: 100 },
 } as const;
 
 /** Idle-timeout bounds shared by both HQ values and the office override. */
@@ -199,6 +233,14 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
   hqIdleTimeoutMinutes: 15,
   coldArchiveEnabled: false,
   secondFactor: { hqUsers: true, officeManagers: true, allStaff: false },
+  accessBilling: {
+    monthlyPriceCents: 20_000,
+    yearlyPriceCents: 200_000,
+    includedPeriodDays: 365,
+    gracePeriodDays: 7,
+    normalSharePercent: 60,
+    restrictedSharePercent: 100,
+  },
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
 };
@@ -218,7 +260,9 @@ export const SETTINGS_SELECT =
   "outreach_cooldown_days,outreach_daily_cap,conversation_auto_close_days,retention_chat_days,retention_photo_days," +
   "retention_notification_days,retention_audit_days,retention_job_run_days,retention_sign_in_days,retention_webhook_event_days," +
   "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled," +
-  "second_factor_hq_users,second_factor_office_managers,second_factor_all_staff,section_changes";
+  "second_factor_hq_users,second_factor_office_managers,second_factor_all_staff,section_changes," +
+  "access_monthly_price_cents,access_yearly_price_cents,access_included_period_days,access_grace_period_days," +
+  "access_share_normal_percent,access_share_restricted_percent";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -275,6 +319,14 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       hqUsers: row.second_factor_hq_users !== false,
       officeManagers: row.second_factor_office_managers !== false,
       allStaff: row.second_factor_all_staff === true,
+    },
+    accessBilling: {
+      monthlyPriceCents: int(row.access_monthly_price_cents, d.accessBilling.monthlyPriceCents),
+      yearlyPriceCents: int(row.access_yearly_price_cents, d.accessBilling.yearlyPriceCents),
+      includedPeriodDays: int(row.access_included_period_days, d.accessBilling.includedPeriodDays),
+      gracePeriodDays: int(row.access_grace_period_days, d.accessBilling.gracePeriodDays),
+      normalSharePercent: int(row.access_share_normal_percent, d.accessBilling.normalSharePercent),
+      restrictedSharePercent: int(row.access_share_restricted_percent, d.accessBilling.restrictedSharePercent),
     },
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
@@ -334,6 +386,12 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     second_factor_hq_users: policy.secondFactor.hqUsers,
     second_factor_office_managers: policy.secondFactor.officeManagers,
     second_factor_all_staff: policy.secondFactor.allStaff,
+    access_monthly_price_cents: policy.accessBilling.monthlyPriceCents,
+    access_yearly_price_cents: policy.accessBilling.yearlyPriceCents,
+    access_included_period_days: policy.accessBilling.includedPeriodDays,
+    access_grace_period_days: policy.accessBilling.gracePeriodDays,
+    access_share_normal_percent: policy.accessBilling.normalSharePercent,
+    access_share_restricted_percent: policy.accessBilling.restrictedSharePercent,
   };
 }
 

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { NotificationCategoryDefaults } from './notificationCategoryDefaults';
+import type { OfficeAccessBillingPolicy } from './officeAccessBillingPolicy';
 import type { QuietHoursWindow } from './quietHoursWindow';
 import type { RetentionPolicy } from './retentionPolicy';
 import type { StaffSecondFactorPolicy } from './staffSecondFactorPolicy';
@@ -84,4 +85,5 @@ export interface HqOrganizationSettingsInput {
      */
   hqIdleTimeoutMinutes?: number;
   secondFactor?: StaffSecondFactorPolicy;
+  accessBilling?: OfficeAccessBillingPolicy;
 }

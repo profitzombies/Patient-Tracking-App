@@ -81,6 +81,30 @@ describe("thresholds", () => {
   });
 });
 
+describe("email webhook threshold", () => {
+  const base = { latencyLastHour: [], growth: null, now: new Date("2026-09-23T15:00:00.000Z") };
+  const hook = { configured: true, lastEventAt: "2026-09-23T14:30:00.000Z", lastEmailSentAt: "2026-09-23T14:20:00.000Z", stalledAfterMinutes: 120, rejectedToday: 0 };
+  it("stays quiet while events keep up with sends, while nothing was sent recently, and while tracking is not enabled", () => {
+    expect(evaluateThresholds({ ...base, emailWebhook: hook })).toEqual([]);
+    // Events lag the last send, but the send is still inside the stalled window.
+    expect(evaluateThresholds({ ...base, emailWebhook: { ...hook, lastEventAt: "2026-09-23T14:00:00.000Z" } })).toEqual([]);
+    // Nothing ever sent: nothing to expect events for.
+    expect(evaluateThresholds({ ...base, emailWebhook: { ...hook, lastEventAt: null, lastEmailSentAt: null } })).toEqual([]);
+    // Secret not configured is "tracking not enabled", never an outage, however stale the ledger looks.
+    expect(evaluateThresholds({ ...base, emailWebhook: { ...hook, configured: false, lastEventAt: null, lastEmailSentAt: "2026-09-01T00:00:00.000Z" } })).toEqual([]);
+    expect(evaluateThresholds({ ...base, emailWebhook: null })).toEqual([]);
+  });
+  it("goes red when a confirmed send is older than the limit and no event has arrived since, naming refused deliveries", () => {
+    const stalled = evaluateThresholds({ ...base, emailWebhook: { ...hook, lastEventAt: "2026-09-23T11:00:00.000Z", lastEmailSentAt: "2026-09-23T12:30:00.000Z" } });
+    expect(stalled.map((f) => [f.metric, f.level, f.value, f.limit])).toEqual([["email_webhook", "red", 150, 120]]);
+    expect(stalled[0]?.message).toBe("No email delivery events since the last customer email was sent 150 minutes ago (limit 120). Check the vendor webhook and tracking switches.");
+    const never = evaluateThresholds({ ...base, emailWebhook: { ...hook, lastEventAt: null, lastEmailSentAt: "2026-09-23T12:30:00.000Z", rejectedToday: 1 } });
+    expect(never[0]?.message).toBe("No email delivery events have ever arrived; the last customer email was sent 150 minutes ago (limit 120). Check the vendor webhook and tracking switches. 1 delivery was refused today for a bad signature; check the webhook secret.");
+    // Exactly at the limit is not yet stalled.
+    expect(evaluateThresholds({ ...base, emailWebhook: { ...hook, lastEventAt: null, lastEmailSentAt: "2026-09-23T13:00:00.000Z" } })).toEqual([]);
+  });
+});
+
 describe("latencyFamilyFromRow", () => {
   it("sums shares and estimates quantiles from the merged buckets", () => {
     const dto = latencyFamilyFromRow({

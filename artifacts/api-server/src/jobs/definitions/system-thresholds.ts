@@ -61,7 +61,8 @@ export function thresholdTitle(finding: ThresholdFinding): string {
     : finding.metric === "db_growth" ? "Database growing fast"
       : finding.metric === "warehouse_poll" ? "Warehouse status feed stalled"
         : finding.metric === "cold_archive" ? (finding.level === "red" ? "Cold archive failing" : "Cold archive behind")
-          : "Storage growing fast";
+          : finding.metric === "email_webhook" ? "Email delivery tracking stalled"
+            : "Storage growing fast";
   return `${finding.level === "red" ? "Red" : "Amber"}: ${label}`;
 }
 

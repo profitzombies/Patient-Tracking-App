@@ -117,6 +117,9 @@ export interface BillingCustomerEmailRow extends TimestampedRow {
   recipient: string | null; subject: string | null; variables: Record<string, string> | null;
   attempts: number; max_attempts: number; last_attempt_at: string | null; next_attempt_at: string | null;
   sent_at: string | null; vendor_message_id: string | null; attempt_log: CustomerEmailAttempt[]; requested_by: string | null;
+  /** First time each vendor delivery event was seen (webhook ingestion), plus the latest event. Opens are pixel-based and indicative. */
+  delivered_at?: string | null; delayed_at?: string | null; bounced_at?: string | null; complained_at?: string | null;
+  opened_at?: string | null; clicked_at?: string | null; last_event_type?: CustomerEmailEventType | null; last_event_at?: string | null;
 }
 /** An extra address copied on a payer's future order and shipment emails. */
 export interface BillingNotificationContactRow extends TimestampedRow {

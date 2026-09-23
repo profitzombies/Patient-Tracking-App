@@ -44,6 +44,7 @@ const readers = {
   growth: async () => null,
   warehousePoll: async () => null,
   coldArchive: async () => null,
+  emailWebhook: async () => null,
 };
 
 describe("system-thresholds job", () => {
@@ -187,6 +188,34 @@ describe("system-thresholds job", () => {
       data: expect.objectContaining({ metric: "cold_archive", level: "red", value: 2, limit: 2, message: expect.stringContaining("4 days pending. Last error: storage returned 503") }),
     });
     expect(rows[0]!.title).toBe("Red: Cold archive failing");
+  });
+
+  it("raises a red HQ alert when customer emails go out but no vendor delivery event follows, and stays quiet while tracking is not enabled", async () => {
+    mocks.admin.mockResolvedValue({ status: 201, json: [{ id: "n1" }] });
+    const quietLatency = async () => ({ lastHour: { since: "h", families: [] }, lastDay: { since: "d", families: [] } });
+    const stalled = { configured: true, lastEventAt: "2026-09-18T06:00:00Z", lastEmailSentAt: "2026-09-18T09:00:00Z", stalledAfterMinutes: 120, rejectedToday: 2 };
+    const off = ctx();
+    await runSystemThresholds(off.context, {
+      readers: { ...readers, latency: quietLatency, emailWebhook: async () => ({ ...stalled, configured: false }) },
+      recipients: async () => { throw new Error("recipients must not be read"); },
+    });
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(off.tallies).toEqual({ findings: 0, redFindings: 0 });
+
+    const fresh = ctx();
+    await runSystemThresholds(fresh.context, { readers: { ...readers, latency: quietLatency, emailWebhook: async () => ({ ...stalled, lastEventAt: "2026-09-18T09:05:00Z" }) }, recipients: async () => recipients });
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(fresh.tallies).toEqual({ findings: 0, redFindings: 0 });
+
+    const { context, tallies } = ctx();
+    await runSystemThresholds(context, { readers: { ...readers, latency: quietLatency, emailWebhook: async () => stalled }, recipients: async () => recipients });
+    expect(tallies).toMatchObject({ findings: 1, redFindings: 1, alertsQueued: 1 });
+    const rows = mocks.admin.mock.calls[0]![2] as Array<Record<string, unknown>>;
+    expect(rows[0]).toMatchObject({
+      dedupe_key: "system_threshold:email_webhook:-:red:2026-09-18:u1:email",
+      data: expect.objectContaining({ metric: "email_webhook", level: "red", value: 195, limit: 120, message: expect.stringContaining("2 deliveries were refused today for a bad signature") }),
+    });
+    expect(rows[0]!.title).toBe("Red: Email delivery tracking stalled");
   });
 
   it("runs every 15 minutes", () => {

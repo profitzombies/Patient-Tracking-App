@@ -11,14 +11,14 @@ import { envInt } from "../lib/env";
 import { latencyBudget } from "../lib/request-metrics";
 
 export type ThresholdLevel = "ok" | "amber" | "red";
-export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth" | "warehouse_poll" | "cold_archive";
+export type ThresholdMetric = "p95_latency" | "db_growth" | "storage_growth" | "warehouse_poll" | "cold_archive" | "email_webhook";
 
 export interface ThresholdFinding {
   metric: ThresholdMetric;
   level: Exclude<ThresholdLevel, "ok">;
   /** Route family for latency findings; null for growth. */
   family: string | null;
-  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful poll for the warehouse feed, consecutive failed runs (red) or pending days (amber) for the cold archive. */
+  /** Observed value: ms for latency, bytes per day for growth, minutes since the last successful poll for the warehouse feed, consecutive failed runs (red) or pending days (amber) for the cold archive, minutes since the last vendor-confirmed send with no delivery event for the email webhook. */
   value: number;
   /** The limit that was crossed, in the same unit. */
   limit: number;
@@ -81,6 +81,21 @@ export interface WarehousePollInput {
   lastError: string | null;
 }
 
+/** Email vendor webhook freshness (see email/vendor-webhook.ts); null when the health row could not be read. */
+export interface EmailWebhookInput {
+  /** Signing secret configured; an unconfigured webhook is "tracking not enabled", never an outage. */
+  configured: boolean;
+  lastEventAt: string | null;
+  /** Most recent vendor-confirmed customer email; events are expected to follow every send. */
+  lastEmailSentAt: string | null;
+  stalledAfterMinutes: number;
+  rejectedToday: number;
+}
+
+/** Default: no delivery event for two hours after a confirmed send means the vendor stream is broken (overridable with EMAIL_WEBHOOK_STALLED_MINUTES). */
+export const DEFAULT_EMAIL_WEBHOOK_STALLED_MINUTES = 120;
+export function emailWebhookStalledAfterMinutes(): number { return envInt("EMAIL_WEBHOOK_STALLED_MINUTES", DEFAULT_EMAIL_WEBHOOK_STALLED_MINUTES); }
+
 /** Cold archive job health (see lib/cold-archive.ts); null when the ledger could not be read. */
 export interface ColdArchiveInput {
   enabled: boolean;
@@ -111,8 +126,28 @@ export function formatBytesShort(bytes: number): string {
 }
 
 /** Latency findings use the last hour; families under `minRequests` are skipped (too few samples to call slow). */
-export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null; warehousePoll?: WarehousePollInput | null; coldArchive?: ColdArchiveInput | null; now?: Date }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
+export function evaluateThresholds(input: { latencyLastHour: LatencyFamilyInput[]; growth: GrowthInput | null; warehousePoll?: WarehousePollInput | null; coldArchive?: ColdArchiveInput | null; emailWebhook?: EmailWebhookInput | null; now?: Date }, config: ThresholdConfig = thresholdConfig()): ThresholdFinding[] {
   const findings: ThresholdFinding[] = [];
+  // Email delivery tracking is red when emails keep going out but the vendor
+  // has not posted a single event since the last confirmed send for longer
+  // than the stalled limit. Only while the webhook secret is configured: an
+  // unconfigured webhook is "not enabled", not an outage.
+  const hook = input.emailWebhook;
+  if (hook && hook.configured && hook.lastEmailSentAt) {
+    const now = input.now ?? new Date();
+    const sentAt = new Date(hook.lastEmailSentAt).getTime();
+    const eventAt = hook.lastEventAt ? new Date(hook.lastEventAt).getTime() : null;
+    const sinceMinutes = Math.floor((now.getTime() - sentAt) / 60_000);
+    if ((eventAt === null || eventAt < sentAt) && sinceMinutes > hook.stalledAfterMinutes) {
+      const rejected = hook.rejectedToday > 0 ? ` ${hook.rejectedToday} deliver${hook.rejectedToday === 1 ? "y was" : "ies were"} refused today for a bad signature; check the webhook secret.` : "";
+      findings.push({
+        metric: "email_webhook", level: "red", family: null, value: sinceMinutes, limit: hook.stalledAfterMinutes,
+        message: eventAt === null
+          ? `No email delivery events have ever arrived; the last customer email was sent ${sinceMinutes} minutes ago (limit ${hook.stalledAfterMinutes}). Check the vendor webhook and tracking switches.${rejected}`
+          : `No email delivery events since the last customer email was sent ${sinceMinutes} minutes ago (limit ${hook.stalledAfterMinutes}). Check the vendor webhook and tracking switches.${rejected}`,
+      });
+    }
+  }
   // The cold archive only counts while HQ has it on: repeated failed runs are
   // red (nights are being missed), a backlog past the limit is amber (the
   // job runs but is not keeping up). Off = no finding, whatever the ledger says.

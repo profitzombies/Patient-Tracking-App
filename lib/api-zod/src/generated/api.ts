@@ -5257,6 +5257,19 @@ export const GetHqSystemHealthResponse = zod.object({
   "daysPending": zod.number().describe('Closed UTC days not yet archived.'),
   "rowsArchived": zod.number(),
   "bytesWritten": zod.number().describe('Compressed bytes written across every archived day.')
+}),zod.null()]).optional(),
+  "emailWebhook": zod.union([zod.object({
+  "vendor": zod.string(),
+  "configured": zod.boolean().describe('Webhook signing secret present. The vendor dashboard tracking switches cannot be observed from the server.'),
+  "last_event_at": zod.string().nullable().describe('Occurrence time of the newest accepted delivery event of any type.'),
+  "last_event_type": zod.string().nullable(),
+  "events_24h": zod.number().describe('Events received in the last 24 hours (capped tally).'),
+  "unmatched_count": zod.number().describe('Events whose vendor message id has no customer email row yet.'),
+  "oldest_unmatched_at": zod.string().nullable(),
+  "last_rejected_at": zod.string().nullable().describe('Last delivery refused for a bad or missing signature.'),
+  "rejected_today": zod.number().describe('Refused deliveries during the current UTC day.'),
+  "rejected_total": zod.number(),
+  "last_email_sent_at": zod.string().nullable().describe('Newest vendor-confirmed customer email send; events are expected to follow it.')
 }),zod.null()]).optional()
 })
 

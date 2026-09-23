@@ -524,6 +524,14 @@ args = "customer-emails-web"
 task = "workflow.run"
 args = "customer-emails-api"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "email-outbox-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "email-outbox-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3117,6 +3125,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run src/routes/billing-customer-emails.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "email-outbox-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/email/vendor-webhook.test.ts src/routes/email-webhooks.test.ts src/routes/billing-customer-emails.test.ts src/system/performance.test.ts src/routes/system-jobs.test.ts src/jobs/definitions/system-thresholds.test.ts src/jobs/scheduler.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "email-outbox-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:email-outbox && pnpm --filter @workspace/thinnr-operations run test:customer-emails && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

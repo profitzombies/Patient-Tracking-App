@@ -14,6 +14,7 @@ type Row = Record<string, any>;
 let tables: Record<string, Row[]> = {};
 function matchesOne(row: Row, key: string, raw: string): boolean {
   if (raw === "is.null") return row[key] == null;
+  if (raw === "not.is.null") return row[key] != null;
   if (raw === "is.true") return row[key] === true;
   if (raw === "is.false") return row[key] === false;
   if (raw.startsWith("eq.")) return String(row[key]) === decodeURIComponent(raw.slice(3));
@@ -180,9 +181,11 @@ beforeEach(() => {
     ],
     billing_customer_emails: [
       emailRow({ id: EMAIL_1, dedupe_key: "shipped:a", template_id: "order-shipped", provider_id: "office-a", payer_id: PAYER_A, order_id: ORDER_A, subject: "Shipped", created_at: "2026-09-10T00:00:00.000Z",
+        delivered_at: "2026-09-10T00:00:30.000Z", opened_at: "2026-09-10T01:00:00.000Z", last_event_type: "opened", last_event_at: "2026-09-10T01:00:00.000Z",
         variables: { name: "Riley", officeName: "Harbor Health", orderNumber: "TH-ABCD2345", carrier: "UPS", trackingNumber: "1Z", trackingLink: "", items: "Control", shipTo: "Austin", manageLink: "" } }),
       emailRow({ id: EMAIL_2, dedupe_key: "paused:a", provider_id: "office-a", payer_id: PAYER_A, created_at: "2026-09-11T00:00:00.000Z", status: "failed", error: "Resend send failed (500) (gave up after 3 attempts)", attempts: 3 }),
-      emailRow({ id: EMAIL_3, dedupe_key: "paused:b", provider_id: "office-b", payer_id: PAYER_B, recipient: "morgan@other.test", created_at: "2026-09-12T00:00:00.000Z" }),
+      emailRow({ id: EMAIL_3, dedupe_key: "paused:b", provider_id: "office-b", payer_id: PAYER_B, recipient: "morgan@other.test", created_at: "2026-09-12T00:00:00.000Z",
+        bounced_at: "2026-09-12T00:01:00.000Z", last_event_type: "bounced", last_event_at: "2026-09-12T00:01:00.000Z" }),
     ],
     billing_notification_contacts: [],
     billing_customer_email_events: [{ ...scope, id: "evt-1", email_id: EMAIL_1, vendor_message_id: "msg_1", event_type: "opened", occurred_at: "2026-09-10T01:00:00.000Z" }],
@@ -286,6 +289,26 @@ describe("HQ ledger routes", () => {
     const second = await call("GET", `/billing/hq/emails?limit=2&cursor=${encodeURIComponent(first.json.next_cursor)}`, "hq-reader");
     expect(second.json.items.map((row: Row) => row.id)).toEqual([EMAIL_1]);
     expect(second.json.next_cursor).toBeNull();
+  });
+  it("carries folded delivery facts per row, filters on delivery outcomes, and sums the whole filter for the outbox strip", async () => {
+    const all = await call("GET", "/billing/hq/emails?summary=1&limit=1", "hq-reader");
+    expect(all.json.items).toHaveLength(1);
+    expect(all.json.items[0].delivery).toEqual({ delivered_at: null, delayed_at: null, bounced_at: "2026-09-12T00:01:00.000Z", complained_at: null, opened_at: null, clicked_at: null, last_event_type: "bounced", last_event_at: "2026-09-12T00:01:00.000Z" });
+    // The strip counts every matching row, not just the one on this page.
+    expect(all.json.summary).toEqual({ total: 3, sent: 2, failed: 1, bounced: 1, opened: 1, clicked: 0, truncated: false });
+    // Tracking state rides along so the page can say "not enabled" instead of showing zeros: no secret in this suite, no event row.
+    expect(all.json.tracking).toEqual({ vendor: "resend", configured: false, last_event_at: null });
+    tables.email_webhook_health = [{ vendor: "resend", last_event_at: "2026-09-12T00:01:00.000Z" }];
+    expect((await call("GET", "/billing/hq/emails?summary=1", "hq-reader")).json.tracking).toEqual({ vendor: "resend", configured: false, last_event_at: "2026-09-12T00:01:00.000Z" });
+    expect((await call("GET", "/billing/hq/emails", "hq-reader")).json.summary).toBeUndefined();
+    expect((await call("GET", "/billing/hq/emails", "hq-reader")).json.tracking).toBeUndefined();
+    expect((await call("GET", "/billing/hq/emails?status=bounced", "hq-reader")).json.items.map((row: Row) => row.id)).toEqual([EMAIL_3]);
+    expect((await call("GET", "/billing/hq/emails?status=opened", "hq-reader")).json.items.map((row: Row) => row.id)).toEqual([EMAIL_1]);
+    expect((await call("GET", "/billing/hq/emails?status=clicked", "hq-reader")).json.items).toEqual([]);
+    const scoped = await call("GET", "/billing/hq/emails?summary=1&provider_id=office-a&status=sent", "hq-reader");
+    expect(scoped.json.items.map((row: Row) => row.id)).toEqual([EMAIL_1]);
+    expect(scoped.json.summary).toEqual({ total: 1, sent: 1, failed: 0, bounced: 0, opened: 1, clicked: 0, truncated: false });
+    expect((await call("GET", "/billing/hq/emails?status=weird", "hq-reader")).status).toBe(400);
   });
   it("reads with financial_read and acts with provider_manage, auditing as HQ", async () => {
     expect((await call("GET", `/billing/hq/emails/${EMAIL_3}/preview`, "hq-reader")).status).toBe(200);

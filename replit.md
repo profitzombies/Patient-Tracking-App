@@ -141,4 +141,5 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Pointers
 
+- HQ Email outbox + Resend delivery/open/click webhook: `docs/email-delivery-tracking-setup.md` (dashboard switches, `RESEND_WEBHOOK_SECRET`, route `/api/email/webhooks/resend`, migration `20261117000000`).
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

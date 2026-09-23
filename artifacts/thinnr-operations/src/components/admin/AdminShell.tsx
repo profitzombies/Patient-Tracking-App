@@ -71,6 +71,7 @@ const NAV_ITEMS: NavItem[] = [
       { path: '/admin/payments/transactions', label: 'Transactions' },
       { path: '/admin/payments/fulfillment', label: 'Fulfillment' },
       { path: '/admin/payments/subscriptions', label: 'Subscriptions' },
+      { path: '/admin/payments/emails', label: 'Email outbox' },
       { path: '/admin/payments/providers', label: 'Providers' },
       { path: '/admin/payments/catalog', label: 'Product catalog' },
     ],

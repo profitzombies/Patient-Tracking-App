@@ -29,6 +29,7 @@ import type { WorkerDrains } from "../jobs/worker-drains";
 import { createSystemJobsRouter, describeInterval, jobHealthStatus, type JobHealthDto } from "./system-jobs";
 import type { PerformanceDto } from "../system/performance";
 import type { ColdArchiveHealth } from "../lib/cold-archive";
+import type { EmailWebhookHealth } from "../email/vendor-webhook";
 import { thresholdConfig } from "../system/thresholds";
 
 let clock = new Date("2026-09-07T12:00:00Z");
@@ -54,6 +55,8 @@ let server: http.Server;
 let base = "";
 const coldArchiveIdle: ColdArchiveHealth = { enabled: false, storageConfigured: false, earliestDay: null, lastArchivedDay: null, lastArchivedAt: null, daysArchived: 0, daysPending: 0, rowsArchived: 0, bytesWritten: 0 };
 let coldArchive: (now: Date) => Promise<ColdArchiveHealth> = async () => coldArchiveIdle;
+const emailWebhookIdle: EmailWebhookHealth = { vendor: "resend", configured: false, last_event_at: null, last_event_type: null, events_24h: 0, unmatched_count: 0, oldest_unmatched_at: null, last_rejected_at: null, rejected_today: 0, rejected_total: 0, last_email_sent_at: null };
+let emailWebhook: (now: Date) => Promise<EmailWebhookHealth> = async () => emailWebhookIdle;
 let performance: (now: Date) => Promise<PerformanceDto> = async (now) => ({
   asOf: now.toISOString(), latency: null, slowStatements: null, growth: null,
   thresholds: { level: "ok", config: thresholdConfig(), findings: [] },
@@ -66,7 +69,7 @@ function def(overrides: Partial<JobDefinition> & { name: string; run: JobDefinit
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
-  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now), readPerformance: (now) => performance(now), coldArchiveHealth: (now) => coldArchive(now) }));
+  app.use(createSystemJobsRouter(store, { manualWaitMs: 150, tickStore, drains, outboxBacklog: (now) => outbox(now), readPerformance: (now) => performance(now), coldArchiveHealth: (now) => coldArchive(now), emailWebhookHealth: (now) => emailWebhook(now) }));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -86,6 +89,7 @@ beforeEach(() => {
   resetJobRegistry();
   outbox = async () => ({ due: 0, oldestDueAt: null, inFlight: 0 });
   coldArchive = async () => coldArchiveIdle;
+  emailWebhook = async () => emailWebhookIdle;
   mocks.audit.mockReset().mockResolvedValue(undefined);
   // No ledger by default: the sign-in metric degrades to null.
   mocks.admin.mockReset().mockResolvedValue({ status: 503, json: null });
@@ -178,6 +182,18 @@ describe("GET /hq/system-health", () => {
     const degraded = await broken.json() as { coldArchive: unknown; jobs: unknown[] };
     expect(degraded.coldArchive).toBeNull();
     expect(Array.isArray(degraded.jobs)).toBe(true);
+  });
+
+  it("reports email delivery tracking health (last event, unmatched backlog, refused deliveries) and null when unreadable", async () => {
+    const live: EmailWebhookHealth = { vendor: "resend", configured: true, last_event_at: "2026-09-23T14:30:00.000Z", last_event_type: "opened", events_24h: 42, unmatched_count: 2, oldest_unmatched_at: "2026-09-23T10:00:00.000Z", last_rejected_at: null, rejected_today: 0, rejected_total: 3, last_email_sent_at: "2026-09-23T14:20:00.000Z" };
+    emailWebhook = async () => live;
+    const res = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(res.status).toBe(200);
+    expect((await res.json() as { emailWebhook: EmailWebhookHealth | null }).emailWebhook).toEqual(live);
+    emailWebhook = async () => { throw new Error("pg down"); };
+    const broken = await fetch(`${base}/hq/system-health`, { headers: admin });
+    expect(broken.status).toBe(200);
+    expect((await broken.json() as { emailWebhook: unknown }).emailWebhook).toBeNull();
   });
 
   it("carries text-message login codes per active patient per month, newest first", async () => {

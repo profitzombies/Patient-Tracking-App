@@ -22,6 +22,7 @@
  */
 import { warehouseHealth } from "../billing/warehouse-submissions";
 import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
+import { readEmailWebhookHealth, type EmailWebhookHealth } from "../email/vendor-webhook";
 import { withLiveBillingScope } from "../billing/lifecycle-scopes";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { createLimiter } from "../coach/limits";
@@ -148,6 +149,8 @@ export interface SystemJobsRouterOptions {
   readPerformance?: typeof readPerformance;
   /** Cold archive backlog reader (fake in tests). */
   coldArchiveHealth?: (now: Date) => Promise<ColdArchiveHealth>;
+  /** Email vendor webhook health reader (fake in tests). */
+  emailWebhookHealth?: (now: Date) => Promise<EmailWebhookHealth>;
 }
 
 export interface OutboxBacklogDto extends OutboxBacklog {
@@ -171,6 +174,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
   const drains = options.drains ?? defaultWorkerDrains;
   const readOutbox = options.outboxBacklog ?? ((now: Date) => supabaseNotificationStore.outboxBacklog(now));
   const readColdArchive = options.coldArchiveHealth ?? readColdArchiveHealth;
+  const readEmailWebhook = options.emailWebhookHealth ?? readEmailWebhookHealth;
 
   r.get("/hq/system-health", requireHqPermission("settings_manage"), async (req: Request, res: Response) => {
     try {
@@ -178,7 +182,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
       // The outbox read is separate from the job ledger: when it fails the
       // page still shows the jobs, and the outbox tiles read as unavailable
       // rather than an empty, healthy-looking queue.
-      const [states, recentRuns, ticks, outbox, warehouse, coldArchive] = await Promise.all([
+      const [states, recentRuns, ticks, outbox, warehouse, coldArchive, emailWebhook] = await Promise.all([
         store.listStates(),
         store.listRecentRuns(25),
         tickStore.list(),
@@ -207,6 +211,11 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
         // Cold archive backlog: a failed tally shows as unavailable, never as an empty, caught-up archive.
         readColdArchive(now).catch((error: unknown) => {
           req.log?.error({ err: error }, "cold archive health read failed");
+          return null;
+        }),
+        // Email delivery tracking: a failed read shows as unavailable, never as a quiet, healthy webhook.
+        readEmailWebhook(now).catch((error: unknown) => {
+          req.log?.error({ err: error }, "email webhook health read failed");
           return null;
         }),
       ]);
@@ -238,6 +247,7 @@ export function createSystemJobsRouter(store: JobStore = supabaseJobStore, optio
         outbox,
         warehouse,
         coldArchive,
+        emailWebhook,
         patientSignIns,
         externalTrigger: toExternalTriggerHealth(ticks, now),
       });

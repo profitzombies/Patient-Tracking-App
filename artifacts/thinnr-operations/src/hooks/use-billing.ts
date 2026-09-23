@@ -7,7 +7,7 @@
  * are gated on a signed-in HQ session. Add new hooks here rather than calling
  * the client from pages so the gating stays in one place.
  */
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useSession } from '@/contexts/session';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { hqBilling, officeBilling, type ListFilters } from '@/lib/billing-api';
@@ -587,6 +587,23 @@ export function useCustomerEmails(area: EmailLedgerArea, filter: EmailLedgerFilt
     queryKey: emailLedgerKeys.emails(base, filter),
     queryFn: () => api.emails({ ...filter, limit: 50 }, office),
     enabled: liveEnabled,
+    ...options,
+  });
+}
+
+/**
+ * HQ email outbox: every outbound customer email across offices, filtered by
+ * the URL (q, template, status, provider_id, from, to, cursor) with the
+ * summary strip counted over the whole filter. Cached under the HQ billing
+ * root so resend / send-to-other refresh it like the order cards.
+ */
+export function useHqEmailOutbox(filters: ListFilters, options?: QueryOpts<CustomerEmailList>) {
+  const { base, liveEnabled } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'customer-emails', 'outbox', filters] as const,
+    queryFn: () => hqBilling.emails({ ...filters, limit: 50, summary: 1 }),
+    enabled: liveEnabled,
+    placeholderData: keepPreviousData,
     ...options,
   });
 }

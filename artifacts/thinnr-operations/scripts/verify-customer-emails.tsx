@@ -95,12 +95,14 @@ const baseEmail = (overrides: Partial<CustomerEmail>): CustomerEmail => ({
     { id: 'ev-2', event_type: 'delivered', occurred_at: '2026-09-20T15:00:05Z' },
     { id: 'ev-3', event_type: 'opened', occurred_at: '2026-09-20T16:00:00Z' },
   ],
+  delivery: { delivered_at: '2026-09-20T15:00:05Z', delayed_at: null, bounced_at: null, complained_at: null, opened_at: '2026-09-20T16:00:00Z', clicked_at: null, last_event_type: 'opened', last_event_at: '2026-09-20T16:00:00Z' },
   ...overrides,
 });
+const NO_DELIVERY: CustomerEmail['delivery'] = { delivered_at: null, delayed_at: null, bounced_at: null, complained_at: null, opened_at: null, clicked_at: null, last_event_type: null, last_event_at: null };
 const liveEmails = (): CustomerEmail[] => [
   baseEmail({}),
-  baseEmail({ id: 'email-2', template_id: 'order-shipped', subject: 'On the way', status: 'retrying', attempts: 2, sent_at: null, next_attempt_at: '2026-09-21T10:00:00Z', error: 'ETIMEDOUT', events: [], created_at: '2026-09-21T09:00:00Z' }),
-  baseEmail({ id: 'email-3', template_id: 'subscription-renewal-reminder', subject: 'Renewal soon', status: 'failed', attempts: 3, sent_at: null, error: '550 5.1.1 mailbox not found', events: [], created_at: '2026-09-22T09:00:00Z' }),
+  baseEmail({ id: 'email-2', template_id: 'order-shipped', subject: 'On the way', status: 'retrying', attempts: 2, sent_at: null, next_attempt_at: '2026-09-21T10:00:00Z', error: 'ETIMEDOUT', events: [], delivery: NO_DELIVERY, created_at: '2026-09-21T09:00:00Z' }),
+  baseEmail({ id: 'email-3', template_id: 'subscription-renewal-reminder', subject: 'Renewal soon', status: 'failed', attempts: 3, sent_at: null, error: '550 5.1.1 mailbox not found', events: [], delivery: NO_DELIVERY, created_at: '2026-09-22T09:00:00Z' }),
 ];
 const contact = (overrides: Partial<NotificationContact> = {}): NotificationContact => ({
   id: 'contact-1', payer_id: PAYER.id, email: 'spouse@example.com', label: 'Spouse', active: true,
@@ -147,7 +149,7 @@ console.log('office owner: live list, preview, resend');
   on('GET', EMAILS_PATH, () => ({ status: 200, body: { items: emails, next_cursor: null, payers: [PAYER] } }));
   on('GET', `${EMAILS_PATH}/email-1/preview`, () => ({ status: 200, body: preview }));
   on('POST', `${EMAILS_PATH}/email-1/resend`, () => {
-    const row = baseEmail({ id: 'email-4', kind: 'resend', parent_id: 'email-1', created_at: '2026-09-23T12:00:00Z', sent_at: '2026-09-23T12:00:00Z', events: [] });
+    const row = baseEmail({ id: 'email-4', kind: 'resend', parent_id: 'email-1', created_at: '2026-09-23T12:00:00Z', sent_at: '2026-09-23T12:00:00Z', events: [], delivery: NO_DELIVERY });
     emails = [row, ...emails];
     return { status: 200, body: { outcome: 'sent', email: row } };
   });

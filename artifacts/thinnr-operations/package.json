@@ -78,7 +78,8 @@
     "test:patient-retention": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-patient-retention.tsx",
     "test:idle-timeout": "TZ=UTC tsx --tsconfig tsconfig.idle-timeout.json scripts/verify-idle-timeout.tsx",
     "test:practice-launch": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-practice-launch.tsx",
-    "test:customer-emails": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-customer-emails.tsx"
+    "test:customer-emails": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-customer-emails.tsx",
+    "test:email-outbox": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-email-outbox.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

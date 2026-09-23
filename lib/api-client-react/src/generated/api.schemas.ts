@@ -2660,6 +2660,38 @@ export interface ColdArchiveHealth {
   bytesWritten: number;
 }
 
+export interface EmailWebhookHealth {
+  vendor: string;
+  /** Webhook signing secret present. The vendor dashboard tracking switches cannot be observed from the server. */
+  configured: boolean;
+  /**
+     * Occurrence time of the newest accepted delivery event of any type.
+     * @nullable
+     */
+  last_event_at: string | null;
+  /** @nullable */
+  last_event_type: string | null;
+  /** Events received in the last 24 hours (capped tally). */
+  events_24h: number;
+  /** Events whose vendor message id has no customer email row yet. */
+  unmatched_count: number;
+  /** @nullable */
+  oldest_unmatched_at: string | null;
+  /**
+     * Last delivery refused for a bad or missing signature.
+     * @nullable
+     */
+  last_rejected_at: string | null;
+  /** Refused deliveries during the current UTC day. */
+  rejected_today: number;
+  rejected_total: number;
+  /**
+     * Newest vendor-confirmed customer email send; events are expected to follow it.
+     * @nullable
+     */
+  last_email_sent_at: string | null;
+}
+
 export interface SystemHealthResult {
   asOf: string;
   jobs: SystemJobHealth[];
@@ -2671,6 +2703,7 @@ export interface SystemHealthResult {
   externalTrigger: ExternalTriggerHealth;
   warehouse?: WarehouseSubmissionHealth | null;
   coldArchive?: ColdArchiveHealth | null;
+  emailWebhook?: EmailWebhookHealth | null;
 }
 
 export type ThresholdLevel = typeof ThresholdLevel[keyof typeof ThresholdLevel];

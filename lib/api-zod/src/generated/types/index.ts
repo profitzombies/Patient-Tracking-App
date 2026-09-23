@@ -157,6 +157,7 @@ export * from './conversationSummaryThread';
 export * from './correctBloodworkResultParams';
 export * from './dateRangeKeys';
 export * from './deleteBloodworkReportParams';
+export * from './emailWebhookHealth';
 export * from './engagementTrendPoint';
 export * from './engagementTrendResult';
 export * from './engagementTrendResultRange';

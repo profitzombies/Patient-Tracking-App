@@ -11,7 +11,8 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { estimateQuantile, latencyBudget, STREAMING_FAMILIES } from "../lib/request-metrics";
 import { warehouseSyncHealth } from "../billing/warehouse-status-sync";
 import { withLiveBillingScope } from "../billing/lifecycle-scopes";
-import { evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ColdArchiveInput, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
+import { emailWebhookStalledAfterMinutes, evaluateThresholds, levelFor, thresholdConfig, worstLevel, type ColdArchiveInput, type EmailWebhookInput, type ThresholdConfig, type ThresholdFinding, type ThresholdLevel, type WarehousePollInput } from "./thresholds";
+import { readEmailWebhookHealth } from "../email/vendor-webhook";
 import { readColdArchiveHealth } from "../lib/cold-archive";
 import { supabaseJobStore } from "../jobs/store";
 
@@ -321,7 +322,15 @@ export interface PerformanceReaders {
   warehousePoll?: (now: Date) => Promise<WarehousePollInput | null>;
   /** Cold archive job health; feeds the repeated-failure / backlog threshold. */
   coldArchive?: (now: Date) => Promise<ColdArchiveInput | null>;
-  onError?: (section: "latency" | "slowStatements" | "growth" | "warehousePoll" | "coldArchive", error: unknown) => void;
+  /** Email vendor webhook freshness; feeds the stalled-tracking threshold. */
+  emailWebhook?: (now: Date) => Promise<EmailWebhookInput | null>;
+  onError?: (section: PerformanceSection, error: unknown) => void;
+}
+export type PerformanceSection = "latency" | "slowStatements" | "growth" | "warehousePoll" | "coldArchive" | "emailWebhook";
+
+async function readEmailWebhook(now: Date): Promise<EmailWebhookInput | null> {
+  const health = await readEmailWebhookHealth(now);
+  return { configured: health.configured, lastEventAt: health.last_event_at, lastEmailSentAt: health.last_email_sent_at, stalledAfterMinutes: emailWebhookStalledAfterMinutes(), rejectedToday: health.rejected_today };
 }
 
 async function readWarehousePoll(now: Date): Promise<WarehousePollInput | null> {
@@ -342,7 +351,7 @@ async function readColdArchive(now: Date): Promise<ColdArchiveInput | null> {
 
 export async function readPerformance(now: Date, readers: PerformanceReaders = {}): Promise<PerformanceDto> {
   const config = thresholdConfig();
-  const guard = async <T>(section: "latency" | "slowStatements" | "growth" | "warehousePoll" | "coldArchive", read: () => Promise<T>): Promise<T | null> => {
+  const guard = async <T>(section: PerformanceSection, read: () => Promise<T>): Promise<T | null> => {
     try {
       return await read();
     } catch (error) {
@@ -350,18 +359,19 @@ export async function readPerformance(now: Date, readers: PerformanceReaders = {
       return null;
     }
   };
-  const [latency, slowStatements, growth, warehousePoll, coldArchive] = await Promise.all([
+  const [latency, slowStatements, growth, warehousePoll, coldArchive, emailWebhook] = await Promise.all([
     guard("latency", () => (readers.latency ?? readLatency)(now)),
     guard("slowStatements", () => (readers.slowStatements ?? readSlowStatements)()),
     guard("growth", () => (readers.growth ?? readGrowth)(now, config)),
     guard("warehousePoll", () => (readers.warehousePoll ?? readWarehousePoll)(now)),
     guard("coldArchive", () => (readers.coldArchive ?? readColdArchive)(now)),
+    guard("emailWebhook", () => (readers.emailWebhook ?? readEmailWebhook)(now)),
   ]);
   const findings = evaluateThresholds(
     {
       latencyLastHour: latency ? latency.lastHour.families.map((family) => ({ family: family.family, requests: family.requests, p95Ms: family.p95Ms })) : [],
       growth: growth ? { databaseBytesPerDay: growth.database.bytesPerDay, storageBytesPerDay: growth.storage.bytesPerDay } : null,
-      warehousePoll, coldArchive, now,
+      warehousePoll, coldArchive, emailWebhook, now,
     },
     config,
   );

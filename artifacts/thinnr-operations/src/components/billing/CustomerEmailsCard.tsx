@@ -43,6 +43,8 @@ const TEMPLATE_LABEL: Record<string, string> = {
   'subscription-address-changed': 'Address changed',
   'subscription-card-updated': 'Card updated',
 };
+/** Customer billing templates in the order the outbox filter lists them. */
+export const CUSTOMER_TEMPLATE_OPTIONS: ReadonlyArray<{ id: string; label: string }> = Object.entries(TEMPLATE_LABEL).map(([id, label]) => ({ id, label }));
 export function templateLabel(templateId: string): string {
   return TEMPLATE_LABEL[templateId]
     ?? EMAIL_TEMPLATE_CATALOG.find((template) => template.id === templateId)?.name
@@ -70,10 +72,14 @@ const MARKS: Array<{ type: string; label: string; tone: PillTone }> = [
   { type: 'bounced', label: 'Bounced', tone: 'bad' },
   { type: 'complained', label: 'Marked as spam', tone: 'bad' },
 ];
+const DELIVERY_COLUMN: Record<string, keyof CustomerEmail['delivery']> = {
+  delivered: 'delivered_at', opened: 'opened_at', clicked: 'clicked_at', delivery_delayed: 'delayed_at', bounced: 'bounced_at', complained: 'complained_at',
+};
+/** Delivery facts from the folded columns (list rows carry no events); detail rows without columns fall back to the event list. */
 export function deliveryMarks(email: CustomerEmail): Array<{ label: string; tone: PillTone; at: string }> {
   return MARKS.flatMap((mark) => {
-    const hit = email.events.find((row) => row.event_type === mark.type);
-    return hit ? [{ label: mark.label, tone: mark.tone, at: hit.occurred_at }] : [];
+    const at = email.delivery?.[DELIVERY_COLUMN[mark.type]] ?? email.events?.find((row) => row.event_type === mark.type)?.occurred_at ?? null;
+    return at ? [{ label: mark.label, tone: mark.tone, at }] : [];
   });
 }
 
@@ -345,7 +351,7 @@ function EmailRows({ emails, canAct, demo = false, onPreview, onSendTo, onRetry,
 
 // ---------------------------------------------------------------- preview dialog
 
-function EmailPreviewDialog({ area, email, canAct, demo = false, onOpenChange, onResend, resendPending, resendError }: {
+export function EmailPreviewDialog({ area, email, canAct, demo = false, onOpenChange, onResend, resendPending, resendError }: {
   area?: EmailLedgerArea;
   email: CustomerEmail | null;
   canAct: boolean;
@@ -469,7 +475,7 @@ function PreviewBody({ area, email, canAct, demo, close, onResend, resendPending
 
 // ---------------------------------------------------------------- send to a different email
 
-function SendToDialog({ email, onOpenChange, onSend, pending, error }: {
+export function SendToDialog({ email, onOpenChange, onSend, pending, error }: {
   email: CustomerEmail | null;
   onOpenChange: (open: boolean) => void;
   onSend: (email: CustomerEmail, to: string) => void;

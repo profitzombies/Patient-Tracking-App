@@ -14,6 +14,7 @@ import {
   PaymentsTransactions,
 } from './HqPaymentsPages';
 import { PaymentsActivity } from './PaymentsActivity';
+import { PaymentsEmailOutbox } from './PaymentsEmailOutbox';
 import { PaymentsAiCosts } from './PaymentsAiCosts';
 import { PaymentsCatalog } from './catalog/CatalogPage';
 import { PaymentsCatalogHistory } from './catalog/CatalogHistory';
@@ -30,6 +31,7 @@ export default function HqPaymentsArea() {
       <Route path="/transactions" component={PaymentsTransactions} />
       <Route path="/transactions/:orderId" component={PaymentTransactionDetail} />
       <Route path="/fulfillment" component={PaymentsFulfillment} />
+      <Route path="/emails" component={PaymentsEmailOutbox} />
       <Route path="/catalog" component={PaymentsCatalog} />
       <Route path="/catalog/history" component={PaymentsCatalogHistory} />
       <Route path="/catalog/products/new" component={ProductEditorPage} />

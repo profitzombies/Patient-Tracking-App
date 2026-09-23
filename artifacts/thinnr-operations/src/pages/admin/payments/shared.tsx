@@ -19,6 +19,7 @@ export const PAYMENT_SECTIONS = [
   { path: '/transactions', label: 'Transactions' },
   { path: '/fulfillment', label: 'Fulfillment' },
   { path: '/subscriptions', label: 'Subscriptions' },
+  { path: '/emails', label: 'Email outbox' },
   { path: '/providers', label: 'Providers' },
   { path: '/ai-costs', label: 'AI costs' },
   { path: '/catalog', label: 'Product catalog' },

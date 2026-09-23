@@ -6,6 +6,7 @@ import { COACH_CHAT_PATH } from "./routes/coach";
 import { MENU_SCAN_PATH } from "./routes/menu-scan";
 import { LABEL_SCAN_PATH } from "./routes/label-scan";
 import billingWebhooksRouter from "./routes/billing-webhooks";
+import emailWebhooksRouter from "./routes/email-webhooks";
 import { logger } from "./lib/logger";
 import { createRequestTiming } from "./lib/request-timing";
 import { markRequestDependency } from "./lib/request-context";
@@ -83,6 +84,8 @@ app.use(
 // Stripe webhooks verify a signature over the exact raw bytes, so they mount
 // ahead of every body parser (the router applies express.raw itself).
 app.use("/api/billing/webhooks", billingWebhooksRouter);
+// The email vendor's delivery-event webhook signs the raw bytes the same way.
+app.use("/api/email/webhooks", emailWebhooksRouter);
 
 const LARGE_BODY_PATHS = new Set([MENU_SCAN_PATH, LABEL_SCAN_PATH, COACH_CHAT_PATH]);
 const jsonParser = express.json();

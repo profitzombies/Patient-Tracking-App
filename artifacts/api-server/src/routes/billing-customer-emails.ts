@@ -13,6 +13,7 @@ import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/a
 import { resolveAuditNames, type AuditNames } from "../lib/audit-events";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { EMAIL_VENDOR, isWebhookConfigured } from "../email/vendor-webhook";
 
 /**
  * Customer email ledger for staff: what THINNR emailed a payer about an order
@@ -28,6 +29,11 @@ const Uuid = z.string().uuid();
 const SendToSchema = z.object({ email: z.string().min(3).max(320) });
 const ContactSchema = z.object({ email: z.string().min(3).max(320), label: z.string().trim().max(80).optional().nullable() });
 const STATUSES = new Set(["claimed", "retrying", "sent", "skipped", "failed"]);
+/** Delivery outcomes the outbox can filter on, on top of the ledger statuses (a bounced email is a `sent` row the vendor could not deliver). */
+const DELIVERY_FILTERS: Record<string, string> = {
+  bounced: "bounced_at=not.is.null", complained: "complained_at=not.is.null", delivered: "delivered_at=not.is.null",
+  opened: "opened_at=not.is.null", clicked: "clicked_at=not.is.null", delayed: "delayed_at=not.is.null",
+};
 const KINDS = new Set(["automatic", "resend", "send_to_other"]);
 
 interface Actor { actorUserId: string; actorKind: "hq" | "team_member"; providerId: string | null }
@@ -56,6 +62,28 @@ export interface CustomerEmailDto {
   attempts: number; max_attempts: number; last_attempt_at: string | null; next_attempt_at: string | null; sent_at: string | null;
   vendor_message_id: string | null; error: string | null; requested_by: string | null; created_at: string;
   attempt_log: CustomerEmailAttemptDto[]; events: CustomerEmailEventDto[];
+  /** Vendor delivery facts folded onto the row by webhook ingestion (first time each was seen). Opens are pixel-based and indicative. */
+  delivery: CustomerEmailDeliveryDto;
+}
+export interface CustomerEmailDeliveryDto {
+  delivered_at: string | null; delayed_at: string | null; bounced_at: string | null; complained_at: string | null;
+  opened_at: string | null; clicked_at: string | null; last_event_type: string | null; last_event_at: string | null;
+}
+/** Counts over every row the active filter matches (not just the page); `truncated` when the tally hit its cap. */
+export interface CustomerEmailSummaryDto {
+  total: number; sent: number; failed: number; bounced: number; opened: number; clicked: number; truncated: boolean;
+}
+const SUMMARY_CAP = 5000;
+export function summarizeEmails(rows: Array<Pick<BillingCustomerEmailRow, "status" | "bounced_at" | "opened_at" | "clicked_at">>, truncated: boolean): CustomerEmailSummaryDto {
+  const summary: CustomerEmailSummaryDto = { total: rows.length, sent: 0, failed: 0, bounced: 0, opened: 0, clicked: 0, truncated };
+  for (const row of rows) {
+    if (row.status === "sent") summary.sent += 1;
+    if (row.status === "failed") summary.failed += 1;
+    if (row.bounced_at) summary.bounced += 1;
+    if (row.opened_at) summary.opened += 1;
+    if (row.clicked_at) summary.clicked += 1;
+  }
+  return summary;
 }
 export interface NotificationContactDto {
   id: string; payer_id: string; email: string; label: string | null; active: boolean; created_at: string; removed_at: string | null;
@@ -108,6 +136,10 @@ export async function toCustomerEmailDtos(rows: BillingCustomerEmailRow[], optio
         at: attempt.at, outcome: attempt.outcome, error: attempt.error, vendor_message_id: attempt.vendor_message_id, recipient_domain: attempt.recipient_domain,
       })),
       events: eventsByEmail.get(row.id) ?? [],
+      delivery: {
+        delivered_at: row.delivered_at ?? null, delayed_at: row.delayed_at ?? null, bounced_at: row.bounced_at ?? null, complained_at: row.complained_at ?? null,
+        opened_at: row.opened_at ?? null, clicked_at: row.clicked_at ?? null, last_event_type: row.last_event_type ?? null, last_event_at: row.last_event_at ?? null,
+      },
     };
   });
 }
@@ -132,8 +164,21 @@ async function payersForPatient(providerId: string | null, patientId: string): P
 }
 
 interface ListFilters { providerId: string | null; query: Request["query"] }
+interface ListResult {
+  items: CustomerEmailDto[]; next_cursor: string | null; payers: Array<{ id: string; name: string; email: string | null }>;
+  /** Present when the caller asked for `summary=1`: counts over the whole filter, independent of the page cursor. */
+  summary?: CustomerEmailSummaryDto;
+  /** With `summary=1`: whether vendor delivery events can reach us at all, so the outbox says "Tracking not enabled" instead of showing zeros. */
+  tracking?: EmailTrackingDto;
+}
+export interface EmailTrackingDto { vendor: string; configured: boolean; last_event_at: string | null }
+async function readTracking(): Promise<EmailTrackingDto> {
+  const result = await supabaseAdmin("GET", `/rest/v1/email_webhook_health?vendor=eq.${EMAIL_VENDOR}&select=last_event_at&limit=1`);
+  const row = result.status < 300 && Array.isArray(result.json) ? (result.json[0] as { last_event_at: string | null } | undefined) : undefined;
+  return { vendor: EMAIL_VENDOR, configured: isWebhookConfigured(), last_event_at: row?.last_event_at ?? null };
+}
 /** Shared list: office calls pin providerId; HQ passes null and may filter by provider_id itself. */
-async function listEmails({ providerId, query }: ListFilters): Promise<{ items: CustomerEmailDto[]; next_cursor: string | null; payers: Array<{ id: string; name: string; email: string | null }> }> {
+async function listEmails({ providerId, query }: ListFilters): Promise<ListResult> {
   const page = pagination(query);
   const filters: string[] = [];
   let payers: BillingPayerRow[] = [];
@@ -155,8 +200,9 @@ async function listEmails({ providerId, query }: ListFilters): Promise<{ items: 
     filters.push(`template_id=eq.${enc(query.template)}`);
   }
   if (typeof query.status === "string" && query.status) {
-    if (!STATUSES.has(query.status)) throw new CustomerEmailError("Unknown status.", 400);
-    filters.push(`status=eq.${enc(query.status)}`);
+    if (DELIVERY_FILTERS[query.status]) filters.push(DELIVERY_FILTERS[query.status]);
+    else if (STATUSES.has(query.status)) filters.push(`status=eq.${enc(query.status)}`);
+    else throw new CustomerEmailError("Unknown status.", 400);
   }
   if (typeof query.kind === "string" && query.kind) {
     if (!KINDS.has(query.kind)) throw new CustomerEmailError("Unknown kind.", 400);
@@ -181,13 +227,24 @@ async function listEmails({ providerId, query }: ListFilters): Promise<{ items: 
       filters.push(`or=(${clauses.join(",")})`);
     }
   }
+  const wantSummary = query.summary === "1" || query.summary === "true";
+  const filterQuery = `${filters.join("&")}${filters.length ? "&" : ""}`;
+  const summaryRead = wantSummary
+    ? selectMany("billing_customer_emails", `${filterQuery}select=id,status,bounced_at,opened_at,clicked_at&order=created_at.desc&limit=${SUMMARY_CAP + 1}`)
+    : Promise.resolve(null);
   if (page.cursor) filters.push(cursorFilter(page.cursor));
-  const rows = await selectMany("billing_customer_emails", `${filters.join("&")}${filters.length ? "&" : ""}order=created_at.desc,id.desc&limit=${page.limit + 1}`);
+  const [rows, summaryRows, tracking] = await Promise.all([
+    selectMany("billing_customer_emails", `${filters.join("&")}${filters.length ? "&" : ""}order=created_at.desc,id.desc&limit=${page.limit + 1}`),
+    summaryRead,
+    wantSummary ? readTracking() : Promise.resolve(null),
+  ]);
   const visible = rows.slice(0, page.limit);
   return {
     items: await toCustomerEmailDtos(visible),
     next_cursor: rows.length > page.limit ? encodeCursor(visible.at(-1) ?? null) : null,
     payers: payers.map((row) => ({ id: row.id, name: row.name, email: row.email })),
+    ...(summaryRows ? { summary: summarizeEmails(summaryRows.slice(0, SUMMARY_CAP), summaryRows.length > SUMMARY_CAP) } : {}),
+    ...(tracking ? { tracking } : {}),
   };
 }
 

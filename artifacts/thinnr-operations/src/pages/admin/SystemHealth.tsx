@@ -252,6 +252,81 @@ function ColdArchiveSection({ archive, loaded }: { archive: SystemHealthResult['
   );
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  sent: 'Sent', delivered: 'Delivered', delivery_delayed: 'Delivery delayed', bounced: 'Bounced', complained: 'Marked as spam', opened: 'Opened', clicked: 'Clicked',
+};
+
+/**
+ * Email delivery tracking: the vendor's delivery-event webhook (delivered,
+ * opened, clicked, bounced). Says "Tracking not enabled" while the signing
+ * secret is missing or no event has ever arrived, and never shows zeros as
+ * a healthy stream. Points at the outbox, which reads the same events.
+ */
+function EmailWebhookSection({ hook, loaded }: { hook: SystemHealthResult['emailWebhook'] | undefined; loaded: boolean }) {
+  const unreadable = loaded && hook === null;
+  const missing = unreadable ? 'Webhook health unreadable' : 'Waiting for first read';
+  const enabled = Boolean(hook?.configured && hook?.last_event_at);
+  const stalled = Boolean(hook?.configured && hook?.last_email_sent_at && (!hook?.last_event_at || hook.last_event_at < hook.last_email_sent_at));
+  return (
+    <section className="mt-6" aria-labelledby="email-webhook-heading" data-testid="system-health-email-webhook">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="email-webhook-heading" className="font-serif text-base font-bold text-navy">Email delivery tracking</h2>
+        <p className="text-[11px] text-muted-foreground">
+          Delivered, opened, clicked, and bounced events posted by the email vendor for customer emails. Opens are pixel-based and indicative. Feeds the{' '}
+          <Link href="/admin/payments/emails" className="underline underline-offset-2">Email outbox</Link>.
+        </p>
+      </div>
+      {unreadable && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-email-webhook-unreadable">
+          The webhook health row could not be read, so these figures are unavailable rather than zero.
+        </p>
+      )}
+      {hook && !hook.configured && (
+        <p role="status" className="mt-3 rounded-md border border-border bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground" data-testid="text-email-webhook-not-enabled">
+          Tracking not enabled. Add the RESEND_WEBHOOK_SECRET secret from the vendor's webhook (endpoint /api/email/webhooks/resend) and switch on open and click tracking for the sending domain in the vendor dashboard.
+        </p>
+      )}
+      {hook && hook.configured && !hook.last_event_at && (
+        <p role="status" className="mt-3 rounded-md border border-border bg-muted/40 px-4 py-2.5 text-xs text-muted-foreground" data-testid="text-email-webhook-waiting">
+          Tracking not enabled yet: the secret is set but no delivery event has arrived. Check the webhook is pointed at /api/email/webhooks/resend and subscribed to the email events.
+          {hook.rejected_today > 0 ? ` ${hook.rejected_today.toLocaleString()} ${hook.rejected_today === 1 ? 'delivery was' : 'deliveries were'} refused today for a bad signature, which usually means the secret does not match.` : ''}
+        </p>
+      )}
+      {hook && enabled && stalled && (
+        <p role="alert" className="mt-3 rounded-md border border-[#e8b47c] bg-[#fff4e6] px-4 py-2.5 text-xs text-[#b65c22]" data-testid="text-email-webhook-stalled">
+          No delivery event has arrived since the last customer email was sent {when(hook.last_email_sent_at)}. If this persists, the vendor webhook or its secret needs attention.
+        </p>
+      )}
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <MetricTile
+          label="Last event"
+          value={hook ? (hook.last_event_at ? when(hook.last_event_at) : enabled ? '—' : 'Tracking not enabled') : '—'}
+          detail={hook ? (hook.last_event_type ? EVENT_LABELS[hook.last_event_type] ?? hook.last_event_type : hook.configured ? 'No event yet' : 'Secret not configured') : missing}
+          testId="metric-email-webhook-last-event"
+        />
+        <MetricTile
+          label="Events, 24 h"
+          value={hook ? (enabled ? hook.events_24h.toLocaleString() : 'Tracking not enabled') : '—'}
+          detail={hook ? (hook.last_email_sent_at ? `Last email sent ${when(hook.last_email_sent_at)}` : 'No customer email sent yet') : missing}
+          testId="metric-email-webhook-events"
+        />
+        <MetricTile
+          label="Unmatched events"
+          value={hook ? (enabled ? hook.unmatched_count.toLocaleString() : 'Tracking not enabled') : '—'}
+          detail={hook ? (hook.unmatched_count > 0 ? `Oldest ${when(hook.oldest_unmatched_at)}; re-matched every minute` : 'Every event found its email') : missing}
+          testId="metric-email-webhook-unmatched"
+        />
+        <MetricTile
+          label="Refused deliveries"
+          value={hook ? hook.rejected_today.toLocaleString() : '—'}
+          detail={hook ? (hook.last_rejected_at ? `Today (UTC); ${hook.rejected_total.toLocaleString()} ever, last ${when(hook.last_rejected_at)}` : 'Bad or missing signatures; none so far') : missing}
+          testId="metric-email-webhook-rejected"
+        />
+      </div>
+    </section>
+  );
+}
+
 function WarehouseSyncTiles({ sync }: { sync: NonNullable<SystemHealthResult['warehouse']>['sync'] }) {
   if (sync === undefined) return null;
   const missing = 'Poll ledger unreadable';
@@ -586,6 +661,8 @@ export default function SystemHealth() {
           <WarehouseSubmissionsSection warehouse={data?.warehouse} loaded={Boolean(data)} />
 
           <ColdArchiveSection archive={data?.coldArchive} loaded={Boolean(data)} />
+
+          <EmailWebhookSection hook={data?.emailWebhook} loaded={Boolean(data)} />
 
           {isError && (
             <div role="alert" className="mt-6 rounded-md border border-[#d5a7a7] bg-[#fff0f0] px-4 py-3 text-xs text-destructive" data-testid="text-system-health-error">

@@ -1580,10 +1580,38 @@ export interface CustomerEmail {
   created_at: string;
   attempt_log: CustomerEmailAttempt[];
   events: CustomerEmailEvent[];
+  /** Vendor delivery facts folded onto the row by webhook ingestion (first time each was seen). Opens are pixel-based and indicative. */
+  delivery: CustomerEmailDelivery;
+}
+
+export interface CustomerEmailDelivery {
+  delivered_at: string | null;
+  delayed_at: string | null;
+  bounced_at: string | null;
+  complained_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  last_event_type: string | null;
+  last_event_at: string | null;
+}
+
+/** Counts over every row the active filter matches (not just the page); `truncated` when the tally hit its cap. */
+export interface CustomerEmailSummary {
+  total: number;
+  sent: number;
+  failed: number;
+  bounced: number;
+  opened: number;
+  clicked: number;
+  truncated: boolean;
 }
 
 export interface CustomerEmailList extends Paged<CustomerEmail> {
   payers: { id: string; name: string; email: string | null }[];
+  /** Present when the request asked for `summary=1`. */
+  summary?: CustomerEmailSummary;
+  /** With `summary=1`: whether vendor delivery events can reach the server at all. */
+  tracking?: { vendor: string; configured: boolean; last_event_at: string | null };
 }
 
 export interface CustomerEmailPreview {

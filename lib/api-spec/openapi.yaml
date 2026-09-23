@@ -4815,6 +4815,27 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ColdArchiveHealth"
             - type: "null"
+        # Email vendor delivery-event webhook (opens, clicks, bounces); null when
+        # its health row could not be read. Optional so older servers still validate.
+        emailWebhook:
+          oneOf:
+            - $ref: "#/components/schemas/EmailWebhookHealth"
+            - type: "null"
+    EmailWebhookHealth:
+      type: object
+      required: [vendor, configured, last_event_at, last_event_type, events_24h, unmatched_count, oldest_unmatched_at, last_rejected_at, rejected_today, rejected_total, last_email_sent_at]
+      properties:
+        vendor: { type: string }
+        configured: { type: boolean, description: "Webhook signing secret present. The vendor dashboard tracking switches cannot be observed from the server." }
+        last_event_at: { type: ["string", "null"], description: "Occurrence time of the newest accepted delivery event of any type." }
+        last_event_type: { type: ["string", "null"] }
+        events_24h: { type: number, description: "Events received in the last 24 hours (capped tally)." }
+        unmatched_count: { type: number, description: "Events whose vendor message id has no customer email row yet." }
+        oldest_unmatched_at: { type: ["string", "null"] }
+        last_rejected_at: { type: ["string", "null"], description: "Last delivery refused for a bad or missing signature." }
+        rejected_today: { type: number, description: "Refused deliveries during the current UTC day." }
+        rejected_total: { type: number }
+        last_email_sent_at: { type: ["string", "null"], description: "Newest vendor-confirmed customer email send; events are expected to follow it." }
     ColdArchiveHealth:
       type: object
       required: [enabled, storageConfigured, earliestDay, lastArchivedDay, lastArchivedAt, daysArchived, daysPending, rowsArchived, bytesWritten]

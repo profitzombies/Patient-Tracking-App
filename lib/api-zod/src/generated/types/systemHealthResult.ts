@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ColdArchiveHealth } from './coldArchiveHealth';
+import type { EmailWebhookHealth } from './emailWebhookHealth';
 import type { ExternalTriggerHealth } from './externalTriggerHealth';
 import type { PatientSignInMonth } from './patientSignInMonth';
 import type { PushOutboxBacklog } from './pushOutboxBacklog';
@@ -24,4 +25,5 @@ export interface SystemHealthResult {
   externalTrigger: ExternalTriggerHealth;
   warehouse?: WarehouseSubmissionHealth | null;
   coldArchive?: ColdArchiveHealth | null;
+  emailWebhook?: EmailWebhookHealth | null;
 }

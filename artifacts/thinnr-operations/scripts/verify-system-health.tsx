@@ -176,6 +176,15 @@ let coldArchive: ColdArchiveFixture = {
   enabled: true, storageConfigured: true, earliestDay: '2026-08-01', lastArchivedDay: '2026-09-16', lastArchivedAt: new Date(NOW - 7 * 3_600_000).toISOString(),
   daysArchived: 47, daysPending: 2, rowsArchived: 1_284_311, bytesWritten: 3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024,
 };
+type EmailWebhookFixture = {
+  vendor: string; configured: boolean; last_event_at: string | null; last_event_type: string | null; events_24h: number; unmatched_count: number;
+  oldest_unmatched_at: string | null; last_rejected_at: string | null; rejected_today: number; rejected_total: number; last_email_sent_at: string | null;
+} | null | undefined;
+const healthyEmailWebhook = (): EmailWebhookFixture => ({
+  vendor: 'resend', configured: true, last_event_at: new Date(NOW - 6 * 60_000).toISOString(), last_event_type: 'opened', events_24h: 312, unmatched_count: 2,
+  oldest_unmatched_at: new Date(NOW - 50 * 60_000).toISOString(), last_rejected_at: null, rejected_today: 0, rejected_total: 0, last_email_sent_at: new Date(NOW - 8 * 60_000).toISOString(),
+});
+let emailWebhook: EmailWebhookFixture = healthyEmailWebhook();
 let runAnswer: (name: string, dryRun: boolean) => { status: number; body: unknown } = (name, dryRun) => ({
   status: 200,
   body: { run: { id: 'run-9', jobName: name, trigger: 'manual', dryRun, status: 'succeeded', owner: 'api:1', startedAt: new Date(NOW).toISOString(), finishedAt: new Date(NOW).toISOString(), counts: dryRun ? { wouldDelete: 3 } : { deleted: 3 }, failureCount: 0, error: null } },
@@ -253,7 +262,7 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   }
   if (url.includes('/api/hq/system-health')) {
     if (healthStatus !== 200) return json({ error: 'Could not load system health right now.' }, healthStatus);
-    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger, warehouse, coldArchive });
+    return json({ asOf: new Date(NOW).toISOString(), jobs, recentRuns, outbox, patientSignIns, externalTrigger, warehouse, coldArchive, emailWebhook });
   }
   throw new Error(`unexpected fetch ${method} ${url}`);
 };
@@ -443,6 +452,46 @@ console.log('\nsystem health: cold storage archive');
   check('an API without the archive field shows waiting dashes and no unreadable notice',
     textOf(byTestId(older.root, 'metric-cold-archive-pending')[0]) === '—' && byTestId(older.root, 'text-cold-archive-unreadable').length === 0);
   coldArchive = { enabled: true, storageConfigured: true, earliestDay: '2026-08-01', lastArchivedDay: '2026-09-16', lastArchivedAt: new Date(NOW - 7 * 3_600_000).toISOString(), daysArchived: 47, daysPending: 2, rowsArchived: 1_284_311, bytesWritten: 3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024 };
+}
+
+console.log('\nsystem health: email delivery tracking webhook');
+{
+  const { root } = await render('/admin/system-health', <SystemHealth />);
+  const tile = (id: string) => textOf(byTestId(root, `metric-email-webhook-${id}`)[0]);
+  const section = textOf(byTestId(root, 'system-health-email-webhook')[0]);
+  check('a healthy webhook shows the last event, 24 h volume, unmatched count and refused deliveries',
+    tile('last-event') === format(new Date(healthyEmailWebhook()!.last_event_at!), 'MMM d, yyyy HH:mm') && section.includes('Opened') && tile('events') === '312' && tile('unmatched') === '2' && section.includes('re-matched every minute') && tile('rejected') === '0'
+      && byTestId(root, 'text-email-webhook-stalled').length === 0 && byTestId(root, 'text-email-webhook-not-enabled').length === 0,
+    `${tile('last-event')} / ${tile('events')} / ${tile('unmatched')} / ${tile('rejected')}`);
+  check('the section links to the Email outbox and calls opens indicative', byTestId(root, 'system-health-email-webhook')[0].findAll((node: any) => node.type === 'a').some((node: any) => node.props.href === '/admin/payments/emails') && textOf(byTestId(root, 'system-health-email-webhook')[0]).includes('indicative'));
+
+  emailWebhook = { ...healthyEmailWebhook()!, configured: false, last_event_at: null, last_event_type: null, events_24h: 0, unmatched_count: 0, oldest_unmatched_at: null };
+  const off = await render('/admin/system-health', <SystemHealth />);
+  check('no secret reads as Tracking not enabled with the secret name and dashboard switches, never zeros',
+    byTestId(off.root, 'text-email-webhook-not-enabled').length === 1 && textOf(byTestId(off.root, 'text-email-webhook-not-enabled')[0]).includes('RESEND_WEBHOOK_SECRET') && textOf(byTestId(off.root, 'text-email-webhook-not-enabled')[0]).includes('open and click tracking')
+      && textOf(byTestId(off.root, 'metric-email-webhook-events')[0]).includes('Tracking not enabled') && textOf(byTestId(off.root, 'metric-email-webhook-unmatched')[0]).includes('Tracking not enabled'),
+    textOf(byTestId(off.root, 'metric-email-webhook-events')[0]));
+
+  emailWebhook = { ...healthyEmailWebhook()!, last_event_at: null, last_event_type: null, events_24h: 0, unmatched_count: 0, oldest_unmatched_at: null, rejected_today: 3, rejected_total: 3, last_rejected_at: new Date(NOW - 60_000).toISOString() };
+  const waiting = await render('/admin/system-health', <SystemHealth />);
+  check('secret set but silent: the waiting notice names the endpoint and counts refused signatures as a likely mismatch',
+    byTestId(waiting.root, 'text-email-webhook-waiting').length === 1 && textOf(byTestId(waiting.root, 'text-email-webhook-waiting')[0]).includes('/api/email/webhooks/resend') && textOf(byTestId(waiting.root, 'text-email-webhook-waiting')[0]).includes('3 deliveries were refused')
+      && textOf(byTestId(waiting.root, 'metric-email-webhook-rejected')[0]) === '3',
+    textOf(byTestId(waiting.root, 'text-email-webhook-waiting')[0]));
+
+  emailWebhook = { ...healthyEmailWebhook()!, last_event_at: new Date(NOW - 5 * 3_600_000).toISOString(), last_email_sent_at: new Date(NOW - 20 * 60_000).toISOString() };
+  const stalled = await render('/admin/system-health', <SystemHealth />);
+  check('events older than the last send raise the stalled alert', byTestId(stalled.root, 'text-email-webhook-stalled').length === 1 && textOf(byTestId(stalled.root, 'text-email-webhook-stalled')[0]).includes('No delivery event has arrived since'));
+
+  emailWebhook = null;
+  const unreadable = await render('/admin/system-health', <SystemHealth />);
+  check('an unreadable health row shows dashes and a notice, never zeros',
+    textOf(byTestId(unreadable.root, 'metric-email-webhook-events')[0]).startsWith('—') && byTestId(unreadable.root, 'text-email-webhook-unreadable').length === 1 && byTestId(unreadable.root, 'text-email-webhook-not-enabled').length === 0);
+
+  emailWebhook = undefined;
+  const older = await render('/admin/system-health', <SystemHealth />);
+  check('an API without the field shows waiting dashes and no unreadable notice', textOf(byTestId(older.root, 'metric-email-webhook-events')[0]).startsWith('—') && byTestId(older.root, 'text-email-webhook-unreadable').length === 0);
+  emailWebhook = healthyEmailWebhook();
 }
 
 console.log('\nsystem health: warehouse submissions');

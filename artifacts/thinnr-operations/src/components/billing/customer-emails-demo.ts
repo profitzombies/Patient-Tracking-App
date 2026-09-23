@@ -4,7 +4,7 @@
  * rows from the order or patient already on screen, so the demo never reads
  * the clock and never issues a request. Rows are deterministic per order id.
  */
-import type { CustomerEmail, CustomerEmailEvent, NotificationContact, OrderDetail } from '@/lib/billing-types';
+import type { CustomerEmail, CustomerEmailDelivery, CustomerEmailEvent, NotificationContact, OrderDetail } from '@/lib/billing-types';
 
 export interface DemoEmailOrder {
   id: string;
@@ -31,7 +31,7 @@ function row(
   order: DemoEmailOrder, payer: DemoEmailPayer, template_id: string, subject: string, at: string,
   overrides: Partial<CustomerEmail> = {},
 ): CustomerEmail {
-  return {
+  const built: Omit<CustomerEmail, 'delivery'> = {
     id: `demo-email-${order.id}-${template_id}`, kind: 'automatic', parent_id: null, contact_id: null, template_id, status: 'sent',
     recipient: payer.email ?? 'patient@example.com', subject, provider_id: 'office-1', office_name: null, payer_id: payer.id,
     payer_name: payer.name, patient_id: payer.patient_id ?? null, order_id: order.id, order_number: order.order_number, subscription_id: null,
@@ -40,6 +40,17 @@ function row(
     attempt_log: [{ at, outcome: 'sent', error: null, vendor_message_id: `demo_${order.id}`, recipient_domain: 'example.com' }],
     events: [event('sent', at), event('delivered', iso(at, 0.05))],
     ...overrides,
+  };
+  return { ...built, delivery: deliveryFromEvents(built.events) };
+}
+
+/** The folded delivery columns a live row carries, derived from the demo's event list so both views agree. */
+export function deliveryFromEvents(events: CustomerEmailEvent[]): CustomerEmailDelivery {
+  const first = (type: string) => events.find((row) => row.event_type === type)?.occurred_at ?? null;
+  const last = [...events].sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))[0] ?? null;
+  return {
+    delivered_at: first('delivered'), delayed_at: first('delivery_delayed'), bounced_at: first('bounced'), complained_at: first('complained'),
+    opened_at: first('opened'), clicked_at: first('clicked'), last_event_type: last?.event_type ?? null, last_event_at: last?.occurred_at ?? null,
   };
 }
 

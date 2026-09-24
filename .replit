@@ -540,6 +540,22 @@ args = "office-access-api"
 task = "workflow.run"
 args = "office-access-clients"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-restricted-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-restricted-share"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-restricted-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-restricted-mobile"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3180,3 +3196,47 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run typecheck && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[[workflows.workflow]]
+name = "office-restricted-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/office-restriction.test.ts src/billing/office-share.test.ts src/auth/office-scope-restriction.test.ts src/auth/signup-office-restriction.test.ts src/routes/patient-care-team.test.ts src/routes/office-offboarding.test.ts src/routes/claim.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-restricted-share"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-restricted-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-restricted && pnpm --filter @workspace/thinnr-operations run test:care-team-conversations && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-restricted-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:office-restricted && pnpm --filter @workspace/thinnr-mobile run test:care-team-chat && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

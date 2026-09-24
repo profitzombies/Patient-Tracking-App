@@ -17,8 +17,12 @@ import {
   isOfficeMenuPathActive,
   OFFICE_NAV_ITEMS,
   OFFICE_NAV_SECTION_DEFS,
+  RESTRICTED_OFFICE_NAV_SECTION_DEFS,
+  restrictedOfficeNavItems,
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
+import { useOfficeRestriction } from '@/contexts/office-restriction';
+import { RestrictedBanner } from '@/components/office/RestrictedAccess';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { AttentionBell } from '@/components/office/AttentionBell';
 import { IdleTimeoutDialog } from '@/components/layout/IdleTimeoutDialog';
@@ -53,8 +57,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const scrollPositionsRef = useRef(new Map<string, number>());
   const isHistoryNavigationRef = useRef(false);
 
-  // One shared item list drives this menu and the /menu design lab.
-  const navItems = OFFICE_NAV_ITEMS;
+  // One shared item list drives this menu and the /menu design lab. An office
+  // narrowed for nonpayment sees only what it can still use.
+  const { restricted } = useOfficeRestriction();
+  const navItems = restricted ? restrictedOfficeNavItems() : OFFICE_NAV_ITEMS;
   const activeItem = findActiveOfficeNavItem(location);
 
   useEffect(() => {
@@ -103,7 +109,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const { accountName, accountRole, initials, workspaceLabel } = useOfficeIdentity();
 
   // The Porcelain menu: shared sections, live links, real sign-out.
-  const menuSections = groupMenuSections(navItems, OFFICE_NAV_SECTION_DEFS).map((section) => ({
+  const menuSections = groupMenuSections(
+    navItems,
+    restricted ? RESTRICTED_OFFICE_NAV_SECTION_DEFS : OFFICE_NAV_SECTION_DEFS,
+  ).map((section) => ({
     label: section.label,
     items: section.items.map((item) => ({
       path: item.path,
@@ -176,7 +185,7 @@ export function Shell({ children }: { children: ReactNode }) {
         sections={menuSections}
         isItemActive={(path) => isOfficeMenuPathActive(path, location)}
         brandSubtitle={workspaceLabel}
-        cta={{ label: 'Add patient', icon: Plus, href: '/patients' }}
+        cta={restricted ? undefined : { label: 'Add patient', icon: Plus, href: '/patients' }}
         accountName={accountName}
         accountRole={accountRole}
         accountInitials={initials}
@@ -189,7 +198,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 navigate('/');
               }
         }
-        onSettings={() => navigate('/settings')}
+        onSettings={restricted ? undefined : () => navigate('/settings')}
       />
 
       {/* Main Content Area */}
@@ -202,7 +211,9 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <DateRangeControl />
-            {searchOpen && (
+            {/* Roster search and the attention bell both open blocked areas
+                while the office is narrowed for nonpayment. */}
+            {!restricted && searchOpen && (
               <input
                 autoFocus
                 placeholder="Search patient or ID..."
@@ -213,10 +224,12 @@ export function Shell({ children }: { children: ReactNode }) {
                 onKeyDown={handleSearchSubmit}
               />
             )}
-            <ActionButton label="Search" onClick={() => setSearchOpen(!searchOpen)}>
-              <Search size={16} />
-            </ActionButton>
-            <AttentionBell />
+            {!restricted && (
+              <ActionButton label="Search" onClick={() => setSearchOpen(!searchOpen)}>
+                <Search size={16} />
+              </ActionButton>
+            )}
+            {!restricted && <AttentionBell />}
             {!scope && (
               /* Standalone personas sign out here; the HQ drill-in exits via
                  its own "Back to HQ" banner instead. */
@@ -246,6 +259,8 @@ export function Shell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </header>
+
+        <RestrictedBanner />
 
         {/* The scrollable content */}
         <div ref={scrollContainerRef} className="flex-1 overflow-x-hidden overflow-y-auto">

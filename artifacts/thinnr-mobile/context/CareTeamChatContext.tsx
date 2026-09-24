@@ -20,7 +20,7 @@ import type {
   PatientCareTeamMessage as GeneratedCareTeamMessage,
 } from '@workspace/api-client-react';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { CareTeamUnreadContext } from '@/context/CareTeamUnreadContext';
+import { CareTeamComposeContext, CareTeamUnreadContext } from '@/context/CareTeamUnreadContext';
 import { subscribeChatSync } from '@/lib/chat-sync-events';
 import { missingTokenMessage, supabase } from '@/lib/supabase';
 import { TODAY } from '@/data/patient-data';
@@ -704,7 +704,9 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
 
   return (
     <CareTeamUnreadContext.Provider value={unreadCount}>
-      <CareTeamContext.Provider value={value}>{children}</CareTeamContext.Provider>
+      <CareTeamComposeContext.Provider value={currentConversation?.canSend !== false}>
+        <CareTeamContext.Provider value={value}>{children}</CareTeamContext.Provider>
+      </CareTeamComposeContext.Provider>
     </CareTeamUnreadContext.Provider>
   );
 }

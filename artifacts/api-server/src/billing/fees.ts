@@ -10,8 +10,16 @@ export interface FeeLine {
   quantity: number;
 }
 
-export function thinnrSharePerUnit(floorCents: number): number {
-  return Math.floor(floorCents * 60 / 100);
+/**
+ * THINNR's normal share of a product's floor price. Catalog economics (price
+ * floors, break-even minimums, practice-launch pricing) are always quoted at
+ * this share — an office narrowed for nonpayment pays a higher share on the
+ * charges it takes, it does not get a different price list.
+ */
+export const NORMAL_THINNR_SHARE_PERCENT = 60;
+
+export function thinnrSharePerUnit(floorCents: number, sharePercent: number = NORMAL_THINNR_SHARE_PERCENT): number {
+  return Math.floor(floorCents * sharePercent / 100);
 }
 
 export function estimateStripeFee(totalCents: number, settings: Pick<FeeSettings, "card_fee_bps" | "card_fee_fixed_cents">): number {
@@ -19,13 +27,21 @@ export function estimateStripeFee(totalCents: number, settings: Pick<FeeSettings
 }
 
 /**
- * The platform fee = THINNR's 60% floor share + what THINNR must recover for the
+ * The platform fee = THINNR's floor share + what THINNR must recover for the
  * shipment. Legacy flat shipping recovers the flat charge; a rated shipment
  * recovers carrier cost + pick-and-pack + packaging (whatever the patient paid).
+ *
+ * `sharePercent` is the office's share at the moment of the charge: the normal
+ * share, or the elevated one while the office is restricted for nonpayment.
  */
-export function computeOrderFees(lines: FeeLine[], settings: FeeSettings, shippingRecoveryCents = settings.shipping_charge_cents) {
+export function computeOrderFees(
+  lines: FeeLine[],
+  settings: FeeSettings,
+  shippingRecoveryCents = settings.shipping_charge_cents,
+  sharePercent: number = NORMAL_THINNR_SHARE_PERCENT,
+) {
   const thinnr_share_cents = lines.reduce(
-    (sum, line) => sum + thinnrSharePerUnit(line.floor_price_cents) * line.quantity,
+    (sum, line) => sum + thinnrSharePerUnit(line.floor_price_cents, sharePercent) * line.quantity,
     0,
   );
   return {

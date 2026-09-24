@@ -7,6 +7,8 @@
  * cannot be fixed mid-renewal, so it is a fallback too, never an error).
  */
 import { getSettings, productFulfillment, shippingRules } from "./catalog";
+import { thinnrSharePerUnit } from "./fees";
+import { NORMAL_THINNR_SHARE_PERCENT, officeThinnrSharePercent, rescaleShare } from "./office-share";
 import { rateShipment, resolvePassThrough, selectMethod, type ShipmentQuote } from "../shipping/rating";
 import { selectMany, selectOne, type BillingSubscriptionRow } from "./store";
 import type { ShippingAddress } from "./types";
@@ -28,16 +30,31 @@ export interface RenewalShippingQuote {
  * THINNR's product share of a subscription's fee. The initial order's items
  * carry it exactly for every subscription generation; rows without one (very
  * old links) were built as fee = share + flat charge.
+ *
+ * `sharePercent` is the office's share at the moment of THIS renewal, so a
+ * subscription that already exists picks up the elevated share at its next
+ * charge. At the normal share the answer is the stored one, unchanged: the
+ * snapshotted floor prices are re-shared by the very formula that produced
+ * them.
  */
-export async function subscriptionThinnrShare(subscription: BillingSubscriptionRow): Promise<number> {
+export async function subscriptionThinnrShare(
+  subscription: BillingSubscriptionRow,
+  sharePercent: number = NORMAL_THINNR_SHARE_PERCENT,
+): Promise<number> {
   const initial = await selectMany("billing_orders",
     `subscription_id=eq.${enc(subscription.id)}&kind=in.(subscription_initial,one_time)&order=created_at.asc&limit=1&select=id`);
   const orderId = initial[0]?.id;
   if (orderId) {
-    const items = await selectMany("billing_order_items", `order_id=eq.${enc(orderId)}&select=thinnr_share_cents`);
-    if (items.length > 0) return items.reduce((sum, item) => sum + item.thinnr_share_cents, 0);
+    const items = await selectMany("billing_order_items",
+      `order_id=eq.${enc(orderId)}&select=thinnr_share_cents,floor_price_cents_snapshot,quantity`);
+    if (items.length > 0) {
+      return sharePercent === NORMAL_THINNR_SHARE_PERCENT
+        ? items.reduce((sum, item) => sum + item.thinnr_share_cents, 0)
+        : items.reduce((sum, item) => sum + thinnrSharePerUnit(item.floor_price_cents_snapshot, sharePercent) * item.quantity, 0);
+    }
   }
-  return subscription.application_fee_cents - subscription.shipping_charge_cents;
+  // No item rows to re-share: scale the fee's product part instead.
+  return rescaleShare(subscription.application_fee_cents - subscription.shipping_charge_cents, sharePercent);
 }
 
 /**
@@ -57,9 +74,15 @@ export async function quoteRenewalShipping(subscription: BillingSubscriptionRow,
   if (!product) return null;
   const rules = shippingRules(settings);
   const fulfillment = productFulfillment(product);
+  // The office's share as it stands for THIS renewal: a restriction that began
+  // after the subscription started applies from the next charge onward.
+  const sharePercent = await officeThinnrSharePercent(subscription.provider_id);
   const share = pending
-    ? (subscription.pending_application_fee_cents ?? subscription.application_fee_cents) - (subscription.pending_shipping_charge_cents ?? subscription.shipping_charge_cents)
-    : await subscriptionThinnrShare(subscription);
+    ? rescaleShare(
+      (subscription.pending_application_fee_cents ?? subscription.application_fee_cents) - (subscription.pending_shipping_charge_cents ?? subscription.shipping_charge_cents),
+      sharePercent,
+    )
+    : await subscriptionThinnrShare(subscription, sharePercent);
   const options = await rateShipment({
     lines: [{
       product_id: product.id, name: product.name, sku: fulfillment.warehousecraft_sku, quantity,

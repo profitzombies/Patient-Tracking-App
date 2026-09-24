@@ -15,6 +15,7 @@
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { officeIsActive } from "../lib/office-status";
+import { officeRestrictedForNonpayment } from "../lib/office-restriction";
 import type { NormalizedIdentifier } from "../claim/normalize";
 import type { Candidate } from "./ledger";
 
@@ -288,6 +289,9 @@ export async function resolveSignupOffice(code: string): Promise<SignupOffice | 
   }
   if (!row || !officeIsActive(row)) return null;
   if (await providerLocked(row.provider_id)) return null;
+  // An office narrowed for nonpayment enrolls no one new. The patient is told
+  // only that the code does not work — nothing about the office's billing.
+  if (await officeRestrictedForNonpayment(row.provider_id)) return null;
   return {
     providerId: row.provider_id,
     officeName: String(row.office_name ?? row.provider_name ?? "your provider's office"),
@@ -304,6 +308,7 @@ export async function resolveSignupOfficeById(providerId: string): Promise<Signu
   const row = await loadProviderById(providerId);
   if (!row || !officeIsActive(row)) return null;
   if (await providerLocked(row.provider_id)) return null;
+  if (await officeRestrictedForNonpayment(row.provider_id)) return null;
   return {
     providerId: row.provider_id,
     officeName: String(row.office_name ?? row.provider_name ?? "your provider's office"),

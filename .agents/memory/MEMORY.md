@@ -138,4 +138,5 @@
 - [Email vendor delivery webhook](email-vendor-webhook.md) — inbox-then-link by vendor message id, re-match on tick; "Tracking not enabled" beats zeros; HQ Payments gate has no read-only persona.
 - [Mobile & Expo topic directory](mobile-expo-topic-directory.md) — grouped Expo Go, router, fonts, typed-routes, RN-web prop, persona-gate and mobile test-harness lessons; see the named topic pages.
 - [Web UI & Tailwind topic directory](web-ui-layout-topic-directory.md) — grouped Tailwind v4 syntax/token, flex-height, table-width, clickable-surface, toast and scoped-style lessons; see the named topic pages.
+- [Office restricted for nonpayment](office-nonpayment-restriction.md) — narrowed ≠ locked: state derived from dates at one path-keyed gate, unknown reads never narrow, share percent snapshotted per order.
 - [Office access subscriptions](office-access-subscriptions.md) — offices pay THINNR on the PLATFORM account via direct PaymentIntents (no Stripe dunning); state derives from dates, charges claim in SQL first.

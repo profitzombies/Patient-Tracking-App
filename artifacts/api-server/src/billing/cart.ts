@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { logger } from "../lib/logger";
 import { getSettings, productCadences, resolveOffering, subscribeSavePercent, subscriptionUnitPrice } from "./catalog";
 import { ensureCustomer } from "./customers";
-import { applicationFeePercentFor, breakEvenMinimum, computeOrderFees, hqProfit } from "./fees";
+import { applicationFeePercentFor, breakEvenMinimum, computeOrderFees, hqProfit, thinnrSharePerUnit } from "./fees";
+import { NORMAL_THINNR_SHARE_PERCENT, officeThinnrSharePercent } from "./office-share";
 import { resolvePayer } from "./links";
 import { markOrderPaidFromInvoice } from "./orders";
 import { ensureRecurringPrices } from "./prices";
@@ -39,7 +40,11 @@ export type InternalGroup = CartQuoteGroup & {
   /** The locked shipment quote for the chosen method (carrier cost, fees, window, source). */
   shipping_quote: ShipmentQuote;
 };
-export type CartPlan = { quote: CartQuote; groups: InternalGroup[]; settings: BillingSettingsRow };
+export type CartPlan = {
+  quote: CartQuote; groups: InternalGroup[]; settings: BillingSettingsRow;
+  /** THINNR's share of floor applied to this checkout (elevated while the office is restricted). */
+  share_percent: number;
+};
 /** Where a cart ships and how; address null = flat charge until one is known. */
 export type CartShipping = { address: ShippingAddress | null; method: ShippingMethod };
 export const DEFAULT_CART_SHIPPING: CartShipping = { address: null, method: "standard" };
@@ -133,11 +138,12 @@ export async function planCart(providerId: string, input: CartLineInput[], taxEn
       throw new BillingCartError(`Each quantity must be between 1 and ${MAX_LINE_QUANTITY}.`, 400, "lines");
     }
   }
-  const [prices, products, settings, officeSettings] = await Promise.all([
+  const [prices, products, settings, officeSettings, sharePercent] = await Promise.all([
     selectMany("billing_office_prices", `provider_id=eq.${enc(providerId)}`),
     selectMany("billing_products", "active=eq.true"),
     getSettings(),
     selectOne("billing_office_settings", `provider_id=eq.${enc(providerId)}`),
+    officeThinnrSharePercent(providerId),
   ]);
   const rules = shippingRules(settings);
   const passThrough = resolvePassThrough(rules, officeSettings?.pick_pack_pass_through);
@@ -205,6 +211,7 @@ export async function planCart(providerId: string, input: CartLineInput[], taxEn
     const shipment = selectMethod(options, shipping.method);
     const fees = computeOrderFees(
       members.map((line) => ({ floor_price_cents: line.floor_price_cents, quantity: line.quantity })), settings, shipment.thinnr_shipping_cost_cents,
+      sharePercent,
     );
     return {
       kind, product_id: kind === "subscription" ? members[0].product_id : null,
@@ -235,7 +242,7 @@ export async function planCart(providerId: string, input: CartLineInput[], taxEn
     tax_enabled: taxEnabled, tax_cents: null, total_due_cents: null,
   };
   if (!taxEnabled) { quote.tax_cents = 0; quote.total_due_cents = quote.total_cents; }
-  return { quote, groups, settings };
+  return { quote, groups, settings, share_percent: sharePercent };
 }
 
 /** The quote with its sales-tax estimate filled in (0 for offices that do not collect tax). */
@@ -501,7 +508,10 @@ export async function liveAccount(providerId: string): Promise<BillingConnectedA
 /** The plan a resumed attempt must run on: the one the first attempt priced and persisted, never a re-price. */
 function storedPlan(cart: BillingCartRow): CartPlan | null {
   const stored = cart.quote as unknown as Partial<StoredCart> | null;
-  return stored?.plan && Array.isArray(stored.plan.groups) && stored.plan.settings ? stored.plan : null;
+  if (!stored?.plan || !Array.isArray(stored.plan.groups) || !stored.plan.settings) return null;
+  // A cart priced before the share was snapshotted carries the normal share —
+  // its fees were computed at that percentage and must not be re-read now.
+  return { ...stored.plan, share_percent: stored.plan.share_percent ?? NORMAL_THINNR_SHARE_PERCENT };
 }
 
 /** Which cart lines each order carries, so the app can drop exactly the paid lines after a partial result. */
@@ -1006,7 +1016,7 @@ export async function insertCartRows(
       shipping_cost_cents: group.shipping_cost_cents, ...shipmentColumns(group.shipping_quote),
       hq_profit_cents: hqProfit(group.application_fee_cents, group.hard_cost_cents, group.shipping_cost_cents, group.shipping_quote.pick_pack_fee_cents + group.shipping_quote.packaging_cents),
       shipping_address: address, stripe_invoice_id: null, stripe_payment_intent_id: null, livemode,
-      fulfillment_status: "to_ship", cart_id: input.cartId,
+      fulfillment_status: "to_ship", cart_id: input.cartId, thinnr_share_percent: plan.share_percent,
       metadata: { settings: plan.settings, source, cart: plan.quote },
     }, "billing_orders_pkey");
     const order = insertedOrder ?? await selectOne("billing_orders", `id=eq.${enc(orderId)}`);
@@ -1017,7 +1027,7 @@ export async function insertCartRows(
       await insertIgnore("billing_order_items", {
         id: cartItemId(input.cartId, index, lineIndex), order_id: orderId, product_id: line.product_id, product_name_snapshot: line.name, quantity: line.quantity,
         unit_price_cents: line.unit_price_cents, floor_price_cents_snapshot: line.floor_price_cents,
-        thinnr_share_cents: Math.floor(line.floor_price_cents * 60 / 100) * line.quantity,
+        thinnr_share_cents: thinnrSharePerUnit(line.floor_price_cents, plan.share_percent) * line.quantity,
         hard_cost_cents_snapshot: line.hard_cost_cents,
         warehousecraft_sku_snapshot: productFulfillment(line.product).warehousecraft_sku,
         shipping_weight_oz_snapshot: productFulfillment(line.product).shipping_weight_oz,

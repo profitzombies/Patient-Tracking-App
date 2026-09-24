@@ -6,6 +6,7 @@ import { inboxFeed } from "../lib/inbox-feed";
 import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
 import { suggestionFromCard } from "../billing/product-suggestions";
 import { recordPatientEvent } from "../lib/patient-events";
+import { officeRestrictedForNonpayment } from "../lib/office-restriction";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -26,7 +27,27 @@ function businessName(row: Row): string {
   return String(row.office_name || provider.office_name || provider.provider_name || "Care Team");
 }
 
-function conversationDto(row: Row, currentProvider: string) {
+/**
+ * What the patient is told when their office cannot take messages here.
+ *
+ * Deliberately says nothing about the office's billing: the patient only
+ * learns that this thread is not the way to reach them right now, and how to
+ * reach them instead.
+ */
+function officeUnavailableNotice(phone: string | null): string {
+  return phone
+    ? `Your care team isn't reading messages here right now. Please call the office at ${phone} with anything you need.`
+    : "Your care team isn't reading messages here right now. Please call the office with anything you need.";
+}
+
+interface OfficeAvailability {
+  /** The office keeps its patients' history readable but takes no new messages. */
+  messagingPaused: boolean;
+  phone: string | null;
+}
+
+function conversationDto(row: Row, currentProvider: string, office?: OfficeAvailability) {
+  const paused = office?.messagingPaused === true && row.provider_id === currentProvider;
   const lastSeq = Number(row.last_seq ?? 0);
   const readSeq = Number(row.last_read_seq ?? 0);
   return {
@@ -34,7 +55,9 @@ function conversationDto(row: Row, currentProvider: string) {
     providerId: String(row.provider_id),
     businessName: businessName(row),
     current: row.provider_id === currentProvider,
-    canSend: row.provider_id === currentProvider && row.office_available !== false,
+    canSend: row.provider_id === currentProvider && row.office_available !== false && !paused,
+    readOnlyNotice: paused ? officeUnavailableNotice(office?.phone ?? null) : null,
+    officePhone: paused ? office?.phone ?? null : null,
     status: String(row.status ?? "open"),
     unreadCount: Number(row.unread_count ?? 0),
     lastMessageSeq: lastSeq,
@@ -72,6 +95,27 @@ async function patientConversation(patientId: string, id: string): Promise<Row |
     ? (result.json as Row[]).find(row => row.id === id) ?? null : null;
 }
 
+/**
+ * Whether this office is taking care-team messages, and how to reach it if not.
+ *
+ * An office narrowed for nonpayment cannot reach its inbox, so its patients
+ * must not be left writing into a thread nobody reads. History stays readable;
+ * the phone number is the way through. A failed lookup leaves messaging open —
+ * silencing a working office would be the worse mistake.
+ */
+async function officeAvailability(providerId: string): Promise<OfficeAvailability> {
+  try {
+    if (!(await officeRestrictedForNonpayment(providerId))) return { messagingPaused: false, phone: null };
+    const result = await supabaseAdmin("GET",
+      `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=phone&limit=1`);
+    const row = Array.isArray(result.json) ? (result.json[0] as Row | undefined) : undefined;
+    const phone = typeof row?.phone === "string" && row.phone.trim() ? row.phone.trim() : null;
+    return { messagingPaused: true, phone };
+  } catch {
+    return { messagingPaused: false, phone: null };
+  }
+}
+
 async function authenticated(req: Parameters<typeof resolvePatient>[0], res: {
   status(code: number): { json(value: unknown): unknown };
 }) {
@@ -85,7 +129,8 @@ async function authenticated(req: Parameters<typeof resolvePatient>[0], res: {
     res.status(403).json({ error: "Messaging is unavailable for this account." });
     return null;
   }
-  return { auth, patient, providerId: String(patient.provider_id) };
+  const providerId = String(patient.provider_id);
+  return { auth, patient, providerId, office: await officeAvailability(providerId) };
 }
 
 router.get("/patient-care-team", async (req, res) => {
@@ -96,7 +141,7 @@ router.get("/patient-care-team", async (req, res) => {
       { p_patient_id: found.auth.patientId });
     if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`care team bootstrap failed (${result.status})`);
     const rows = result.json as Row[];
-    const dtos = rows.map(row => conversationDto(row, found.providerId));
+    const dtos = rows.map(row => conversationDto(row, found.providerId, found.office));
     res.json({ current: dtos.find(row => row.current) ?? null, retained: dtos.filter(row => !row.current) });
   } catch (error) {
     req.log?.error({ err: error }, "patient care team bootstrap failed");
@@ -118,7 +163,7 @@ router.post("/patient-care-team/start", async (req, res) => {
     const row = typeof payload?.conversationId === "string"
       ? await patientConversation(found.auth.patientId, payload.conversationId) : null;
     if (!row) throw new Error("care team start returned no conversation");
-    res.json({ conversation: conversationDto(row, found.providerId), created: payload.created === true });
+    res.json({ conversation: conversationDto(row, found.providerId, found.office), created: payload.created === true });
   } catch (error) {
     req.log?.error({ err: error }, "patient care team start failed");
     res.status(502).json({ error: "Couldn't start your care team conversation right now." });
@@ -145,7 +190,7 @@ router.get("/patient-care-team/:conversationId/messages", async (req, res) => {
     let rows = (result.json as Row[]).slice(0, q.limit);
     if (!q.after) rows = rows.reverse();
     res.json({
-      conversation: conversationDto(conversation, found.providerId),
+      conversation: conversationDto(conversation, found.providerId, found.office),
       messages: rows.map(patientMessage),
       nextBefore: !q.after && hasMore && rows.length ? Number(rows[0].seq) : null,
       nextAfter: q.after && hasMore && rows.length ? Number(rows[rows.length - 1].seq) : null,
@@ -172,6 +217,11 @@ router.post("/patient-care-team/:conversationId/messages", async (req, res) => {
     }
     if (conversation.office_available === false) {
       res.status(403).json({ error: "Messaging is unavailable while your care team's office is locked." }); return;
+    }
+    // The office cannot read this thread right now; the patient is pointed at
+    // the phone instead, and told nothing about why.
+    if (found.office.messagingPaused) {
+      res.status(403).json({ error: officeUnavailableNotice(found.office.phone), readOnly: true }); return;
     }
     const sent = await supabaseAdmin("POST", "/rest/v1/rpc/care_team_send", {
       p_conversation_id: id.data, p_patient_id: found.auth.patientId, p_provider_id: found.providerId,

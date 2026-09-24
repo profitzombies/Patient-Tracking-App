@@ -22,6 +22,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { type Href } from 'expo-router';
 import { FabMenu, type FabMenuItem } from '@/components/ui/FabMenu';
+import { useOfficeRestriction } from '@/context/OfficeRestrictionContext';
+import { OFFICE_ACCESS_ROUTE } from '@/lib/office-restriction';
 
 const DESTINATIONS: {
   key: string;
@@ -44,8 +46,35 @@ const ITEMS: FabMenuItem[] = DESTINATIONS.map((destination) => ({
   action: { kind: 'navigate', href: destination.href },
 }));
 
+/**
+ * What the launcher offers while the office is narrowed for nonpayment: the
+ * account it must pay, and the payments area it keeps. Everything else is
+ * refused server-side, so listing it would only lead staff into a wall.
+ */
+const RESTRICTED_ITEMS: FabMenuItem[] = [
+  {
+    key: 'account',
+    label: 'Account & billing',
+    icon: { family: 'feather', name: 'credit-card' },
+    action: { kind: 'navigate', href: OFFICE_ACCESS_ROUTE },
+  },
+  {
+    key: 'subscriptions',
+    label: 'Subscriptions',
+    icon: { family: 'feather', name: 'repeat' },
+    action: { kind: 'navigate', href: '/payments/subscriptions' },
+  },
+  {
+    key: 'payouts',
+    label: 'Payouts',
+    icon: { family: 'feather', name: 'dollar-sign' },
+    action: { kind: 'navigate', href: '/payments/payouts' },
+  },
+];
+
 export function ProviderFabMenu() {
   const insets = useSafeAreaInsets();
+  const { restricted } = useOfficeRestriction();
   // No staff tab bar: the circle clears the home indicator (or 14 where
   // there is none) plus a 14 gap — the resting spot the menu raises above.
   const fabBottom = Math.max(insets.bottom, 14) + 14;
@@ -55,14 +84,24 @@ export function ProviderFabMenu() {
       idPrefix="provider"
       openAccessibilityLabel="Open navigation menu"
       closeAccessibilityLabel="Close navigation menu"
-      sections={[{ key: 'navigate', label: 'NAVIGATE', items: ITEMS }]}
-      primaryAction={{
-        key: 'support',
-        label: 'AI Support',
-        icon: 'message-circle',
-        accessibilityLabel: 'Open AI Support',
-        action: { kind: 'push', href: '/support-chat' },
-      }}
+      sections={[{ key: 'navigate', label: 'NAVIGATE', items: restricted ? RESTRICTED_ITEMS : ITEMS }]}
+      primaryAction={
+        restricted
+          ? {
+              key: 'pay',
+              label: 'Pay now',
+              icon: 'credit-card',
+              accessibilityLabel: 'Open account and billing',
+              action: { kind: 'push', href: OFFICE_ACCESS_ROUTE },
+            }
+          : {
+              key: 'support',
+              label: 'AI Support',
+              icon: 'message-circle',
+              accessibilityLabel: 'Open AI Support',
+              action: { kind: 'push', href: '/support-chat' },
+            }
+      }
       fabBottom={fabBottom}
     />
   );

@@ -9,6 +9,7 @@ import { resolvePayer, touchLinkUse } from "./links";
 import { BillingOrderError, markOrderPaidFromInvoice, quoteOrder } from "./orders";
 import { ensureRecurringPrices } from "./prices";
 import { invoiceShippingLineAmount, quoteRenewalShipping, subscriptionThinnrShare } from "./renewal-shipping";
+import { officeThinnrSharePercent } from "./office-share";
 import { sendPaymentFailed } from "./receipts";
 import { connectedOpts, getPublishableKey, getStripe, isSandbox } from "./stripe-client";
 import {
@@ -110,6 +111,7 @@ export async function createSubscriptionOrder(input: {
     application_fee_collected_cents: null, stripe_fee_cents: null, office_net_cents: null,
     hard_cost_cents: quote.hard_cost_cents, shipping_cost_cents: quote.shipping_cost_cents,
     hq_profit_cents: hqProfit(quote.application_fee_cents, quote.hard_cost_cents, quote.shipping_cost_cents),
+    thinnr_share_percent: quote.share_percent,
     shipping_address: input.shipping_address as unknown as Record<string, unknown>,
     stripe_invoice_id: null, stripe_payment_intent_id: null, livemode: !await isSandbox(),
     fulfillment_status: "to_ship", metadata: { settings: quote.settings },
@@ -193,7 +195,10 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   const hard = product.hard_cost_cents * quantity;
   const terms = shipmentTerms(subscription);
   const fulfillmentFee = terms.pick_pack_fee_cents + terms.packaging_cents;
-  const share = await subscriptionThinnrShare(subscription);
+  // The share as it stands for this renewal: an office restricted since the
+  // subscription began pays the elevated share from this charge forward.
+  const sharePercent = await officeThinnrSharePercent(subscription.provider_id);
+  const share = await subscriptionThinnrShare(subscription, sharePercent);
   const created = await insertIgnore("billing_orders", {
     id, order_number: orderNumber(), provider_id: subscription.provider_id, payer_id: subscription.payer_id,
     patient_id: subscription.patient_id, link_id: null, kind: "subscription_renewal", subscription_id: subscription.id,
@@ -204,6 +209,7 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
     application_fee_cents: subscription.application_fee_cents, application_fee_collected_cents: null,
     stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: hard, shipping_cost_cents: subscription.shipping_cost_cents,
     hq_profit_cents: hqProfit(subscription.application_fee_cents, hard, subscription.shipping_cost_cents, fulfillmentFee),
+    thinnr_share_percent: sharePercent,
     shipping_method: terms.shipping_method, shipping_source: terms.shipping_source, carrier_service_name: terms.carrier_service_name,
     pick_pack_fee_cents: terms.pick_pack_fee_cents, packaging_cents: terms.packaging_cents,
     pick_pack_passed_through: terms.pick_pack_passed_through,

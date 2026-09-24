@@ -171,6 +171,11 @@ export interface BillingOrderRow extends TimestampedRow, Partial<ShipmentColumns
   metadata: Record<string, unknown>; failure_message: string | null;
   /** In-app checkout id shared by every order the same cart created (null for link/renewal orders). */
   cart_id?: string | null;
+  /**
+   * THINNR's share of floor applied to THIS charge, snapshotted like the share
+   * amount itself. Null on orders taken before the share became variable.
+   */
+  thinnr_share_percent?: number | null;
 }
 export interface BillingOrderItemRow extends TimestampedRow {
   id: string; order_id: string; product_id: string; product_name_snapshot: string; quantity: number;

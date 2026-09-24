@@ -10,7 +10,16 @@ const state = vi.hoisted(() => ({
   handlers: new Map<string, (event: any, ctx: any) => Promise<void>>(),
   settings: {} as Record<string, unknown>,
   fetcher: vi.fn(),
+  /** THINNR's share of this office's charges right now: 60 normally, 80 while restricted. */
+  sharePercent: 60,
 }));
+
+// The office's state decides the share; this suite moves it by hand so a
+// renewal can be taken before, during and after a restriction.
+vi.mock("./office-share", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./office-share")>();
+  return { ...actual, officeThinnrSharePercent: vi.fn(async () => state.sharePercent) };
+});
 
 vi.mock("../shipping/warehousecraft", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../shipping/warehousecraft")>();
@@ -111,7 +120,7 @@ beforeEach(() => {
   state.products = [{ id: "product-old", name: "SlimCell", active: true, status: "active", floor_price_cents: 2000, hard_cost_cents: 500,
     warehousecraft_sku: "Test01", shipping_weight_oz: 8, oversized: false, package_length_in: null, package_width_in: null, package_height_in: null }];
   state.orders = [{ id: "order-initial", subscription_id: "sub-local", kind: "subscription_initial", created_at: "2026-09-01T00:00:00.000Z" }];
-  state.items = [{ order_id: "order-initial", thinnr_share_cents: 3600 }];
+  state.items = [{ order_id: "order-initial", thinnr_share_cents: 3600, floor_price_cents_snapshot: 2000, quantity: 3 }];
   state.officeSettings = [];
   state.updates = []; state.invoiceItems = []; state.invoiceUpdates = [];
 });
@@ -203,5 +212,51 @@ describe("renewal shipping re-quote", () => {
     await fire(inv);
     expect(state.invoiceItems).toHaveLength(0);
     expect(state.invoiceUpdates).toEqual([{ id: "in_renewal", patch: { application_fee_amount: 2800 } }]);
+  });
+
+  it("charges the elevated share on a renewal taken while the office is restricted, and 60% again once it pays", async () => {
+    // Normal: the share is exactly what the initial order recorded.
+    await fire(invoice(900));
+    expect(state.invoiceUpdates[0].patch.application_fee_amount).toBe(3600 + LIVE_STANDARD + PICK_PACK);
+    const paidRun = state.subscriptions[0].application_fee_cents;
+
+    // Restricted: the SAME subscription's next charge re-shares the initial
+    // order's floors at 80% — the office keeps its markup above floor.
+    state.sharePercent = 80;
+    state.invoiceItems = []; state.invoiceUpdates = [];
+    Object.assign(state.subscriptions[0], { shipping_charge_cents: 900, application_fee_cents: 3600 + 800 });
+    await fire(invoice(900));
+    const elevated = Math.floor(2000 * 80 / 100) * 3;
+    expect(elevated).toBe(4800);
+    expect(state.invoiceUpdates[0].patch.application_fee_amount).toBe(elevated + LIVE_STANDARD + PICK_PACK);
+    expect(state.invoiceUpdates[0].patch.application_fee_amount).toBeGreaterThan(paidRun);
+
+    // A charge already processed is never revisited: the initial order's own
+    // recorded share is untouched by any of this.
+    expect(state.items[0].thinnr_share_cents).toBe(3600);
+
+    // Recovery: the next charge is back at the normal share, with no HQ action.
+    state.sharePercent = 60;
+    state.invoiceItems = []; state.invoiceUpdates = [];
+    Object.assign(state.subscriptions[0], { shipping_charge_cents: 900, application_fee_cents: 3600 + 800 });
+    await fire(invoice(900));
+    expect(state.invoiceUpdates[0].patch.application_fee_amount).toBe(paidRun);
+  });
+
+  it("scales a pending plan change's share at the elevated percentage too", async () => {
+    state.sharePercent = 80;
+    state.products.push({ id: "product-new", name: "New", active: true, status: "active", floor_price_cents: 3000, hard_cost_cents: 700,
+      warehousecraft_sku: "Test02", shipping_weight_oz: 16, oversized: false, package_length_in: null, package_width_in: null, package_height_in: null });
+    Object.assign(state.subscriptions[0], {
+      pending_product_id: "product-new", pending_unit_price_cents: 3000, pending_application_fee_cents: 1800 + 1000,
+      pending_shipping_charge_cents: 1000, pending_stripe_price_id: "price_new",
+    });
+    const inv = invoice(1000);
+    inv.lines.data[0].price = { id: "price_new" };
+    await fire(inv);
+    // The pending change's share was built at 60% (1800); the restricted
+    // renewal charges the same share scaled to 80%.
+    expect(state.subscriptions[0].pending_application_fee_cents)
+      .toBe(Math.floor(1800 * 80 / 60) + state.subscriptions[0].shipping_cost_cents + PICK_PACK);
   });
 });

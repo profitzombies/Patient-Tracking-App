@@ -1422,6 +1422,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         actorKind: "hq",
         officeRole: "owner",
         teamMemberId: null,
+        restricted: false,
       });
       const note = body.data.note?.trim() || null;
       const patched = await supabaseAdmin(

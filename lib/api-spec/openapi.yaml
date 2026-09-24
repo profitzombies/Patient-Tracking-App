@@ -4154,6 +4154,19 @@ components:
         businessName: { type: string }
         current: { type: boolean }
         canSend: { type: boolean }
+        readOnlyNotice:
+          description: >-
+            Shown in place of the composer when the office is not reading this
+            thread. Neutral by design: it tells the patient how to reach the
+            office, never why the thread is quiet.
+          oneOf:
+            - type: string
+            - type: "null"
+        officePhone:
+          description: The office's phone number, present only alongside readOnlyNotice.
+          oneOf:
+            - type: string
+            - type: "null"
         status: { type: string, enum: [open, waiting_patient, closed] }
         unreadCount: { type: number }
         lastMessageSeq: { type: number }

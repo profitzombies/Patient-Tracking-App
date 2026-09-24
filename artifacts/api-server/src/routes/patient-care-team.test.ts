@@ -7,6 +7,10 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn(),
   admin: vi.fn(),
   audit: vi.fn(),
+  restricted: vi.fn(),
+}));
+vi.mock("../lib/office-restriction", () => ({
+  officeRestrictedForNonpayment: mocks.restricted,
 }));
 vi.mock("../lib/patient-auth", () => ({ resolvePatient: mocks.resolve }));
 vi.mock("../lib/supabase-admin", () => ({ supabaseAdmin: mocks.admin }));
@@ -61,6 +65,7 @@ afterAll(() => server.close());
 beforeEach(() => {
   calls = [];
   mocks.audit.mockReset().mockResolvedValue(undefined);
+  mocks.restricted.mockReset().mockResolvedValue(false);
   mocks.resolve.mockReset().mockResolvedValue({
     ok: true, patientId: PATIENT, authUserId: USER, consent: { satisfied: true },
   });
@@ -238,5 +243,55 @@ describe("patient care-team HTTP contract", () => {
       .mockImplementationOnce(async () => ({ status: 200, json: [current({ office_available: false })] }));
     expect((await request("POST", `/patient-care-team/${CONVERSATION}/messages`,
       { clientId: "locked-1", text: "no" })).status).toBe(403);
+  });
+  it("makes the thread read-only, with the office's phone and no billing hint, while the office is restricted", async () => {
+    mocks.restricted.mockResolvedValue(true);
+    const base = mocks.admin.getMockImplementation()!;
+    mocks.admin.mockImplementation(async (method: string, path: string, body?: unknown) =>
+      path.startsWith("/rest/v1/providers?")
+        ? { status: 200, json: [{ phone: "(555) 010-2030" }] }
+        : base(method, path, body));
+
+    const listed = await request("GET", "/patient-care-team");
+    const thread = listed.json.current as Record<string, unknown>;
+    expect(thread.canSend).toBe(false);
+    expect(thread.officePhone).toBe("(555) 010-2030");
+    expect(String(thread.readOnlyNotice)).toContain("(555) 010-2030");
+    // The patient is told how to reach the office, never why the thread paused.
+    expect(JSON.stringify(listed.json)).not.toMatch(/billing|unpaid|overdue|payment/i);
+    // A thread the office never left keeps its own history readable too.
+    expect((listed.json.retained as Array<Record<string, unknown>>)[0].readOnlyNotice).toBeNull();
+
+    const history = await request("GET", `/patient-care-team/${CONVERSATION}/messages`);
+    expect(history.status).toBe(200);
+    expect((history.json.messages as unknown[]).length).toBeGreaterThan(0);
+    expect((history.json.conversation as Record<string, unknown>).canSend).toBe(false);
+
+    // Sending is refused by the server, not merely hidden by the app.
+    const sent = await request("POST", `/patient-care-team/${CONVERSATION}/messages`,
+      { clientId: "restricted-1", text: "hello?" });
+    expect(sent.status).toBe(403);
+    expect(JSON.stringify(sent.json)).not.toMatch(/billing|unpaid|overdue|payment/i);
+    expect(calls.some(call => call.path === "/rest/v1/rpc/care_team_send")).toBe(false);
+  });
+
+  it("leaves messaging open when the office's access state cannot be read", async () => {
+    mocks.restricted.mockRejectedValue(new Error("access state unavailable"));
+    const listed = await request("GET", "/patient-care-team");
+    expect((listed.json.current as Record<string, unknown>).canSend).toBe(true);
+  });
+
+  it("resumes sending the moment the office pays, with no HQ action", async () => {
+    mocks.restricted.mockResolvedValueOnce(true).mockResolvedValue(false);
+    expect(((await request("GET", "/patient-care-team")).json.current as Record<string, unknown>).canSend).toBe(false);
+
+    const listed = await request("GET", "/patient-care-team");
+    const thread = listed.json.current as Record<string, unknown>;
+    expect(thread.canSend).toBe(true);
+    expect(thread.readOnlyNotice).toBeNull();
+    expect(thread.officePhone).toBeNull();
+    const sent = await request("POST", `/patient-care-team/${CONVERSATION}/messages`,
+      { clientId: "recovered-1", text: "hello again" });
+    expect(sent.status).toBe(200);
   });
 });

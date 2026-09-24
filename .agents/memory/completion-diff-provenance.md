@@ -15,6 +15,8 @@ Also: auto-generated files (e.g. mockup-sandbox src/.generated/mockup-components
 
 Swept-in commits also bring their VALIDATION COMMANDS, dependency additions, and stale dev servers: completion validation runs the upstream feature's live checks against YOUR environment. Repair before re-completing — `pnpm install` (new package.json deps), restart the dev-server workflows the checks probe (a server started before the sweep lacks the new routes), then re-run the failing command locally to confirm green.
 
+**Prove a suspected regression is not yours before debugging it.** A mid-session upstream merge can leave whole route suites red for reasons unrelated to your diff. Cheapest check: `git worktree add /tmp/base HEAD`, symlink the workspace `node_modules` (root and the package's own) into the worktree, and run the suite there with the workspace vitest binary. Identical failure counts at HEAD mean the breakage arrived with the merge; note it in drift_reason and keep it out of your validation commands.
+
 **Upstream merge before review (Aug 2026):** the completion flow merges main-repl into the task branch BEFORE validation + code review, so (1) live-suite validation can fail purely because running dev servers still serve pre-merge code — restart the api-server/web workflows after a rejected completion that pulled upstream commits, then re-run the failed suites; (2) the completion reviewer may attribute upstream commits' changes (even their memory edits) to your task — answer with git show --stat provenance for YOUR commit in drift_reason and request a fresh review, never by reverting the user's merged upstream work.
 
 

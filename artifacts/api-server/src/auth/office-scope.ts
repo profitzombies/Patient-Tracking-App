@@ -22,6 +22,11 @@ import { recordAccessDenied } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
 import { OFFICE_OFFBOARDED_STAFF_MESSAGE, offboardingStatusOf } from "../lib/office-status";
+import {
+  isRestrictedAllowedPath,
+  officeRestrictedForNonpayment,
+  OFFICE_RESTRICTED_STAFF_MESSAGE,
+} from "../lib/office-restriction";
 import { identifyBearer } from "./identify";
 import { isLaunchAllowedPath, readLaunch, operationalLaunchComplete } from "../practice-launch/state";
 import { verificationModeFor, type VerificationRequest } from "./verification-policy";
@@ -51,6 +56,12 @@ export interface OfficeScope {
   officeRole: OfficeRole;
   /** The caller's own team_members row, when they are a teammate. */
   teamMemberId: string | null;
+  /**
+   * The office is narrowed for nonpayment. The request itself was already
+   * allowed by the restricted policy; routes that shape a response (rather
+   * than refuse one) read this to stay coherent with it.
+   */
+  restricted: boolean;
 }
 
 export type OfficeRole = "owner" | "admin" | "staff";
@@ -61,6 +72,7 @@ export type OfficeScopeDenialReason =
   | "office_locked"
   | "office_unavailable"
   | "office_offboarded"
+  | "office_restricted"
   | "deactivated"
   | "permission"
   | "office_required";
@@ -126,8 +138,10 @@ function officeScopeFrom(
   actorUserId: string,
   actorKind: OfficeScope["actorKind"],
   member: { id: string; officeRole: OfficeRole } | null = null,
+  restricted = false,
 ): OfficeScope {
   return {
+    restricted,
     providerId: row.provider_id,
     officeName: String(row.office_name ?? row.provider_name ?? "your office"),
     providerName: String(row.provider_name ?? row.office_name ?? "your provider"),
@@ -196,7 +210,9 @@ export async function resolveOfficeScope(input: {
     }
     const gate = await launchGate(row.provider_id, user.id, input.request);
     if (gate) return gate;
-    return { kind: "ok", scope: officeScopeFrom(row, user.id, "provider") };
+    const narrowed = await restrictionGate(row.provider_id, user.id, input.request);
+    if (narrowed.kind === "denied") return narrowed;
+    return { kind: "ok", scope: officeScopeFrom(row, user.id, "provider", null, narrowed.restricted) };
   }
 
   // Office team member? Same rule — always their own office. A deactivated
@@ -231,12 +247,14 @@ export async function resolveOfficeScope(input: {
     }
     const gate = await launchGate(office.provider_id, user.id, input.request);
     if (gate) return gate;
+    const narrowed = await restrictionGate(office.provider_id, user.id, input.request);
+    if (narrowed.kind === "denied") return narrowed;
     return {
       kind: "ok",
       scope: officeScopeFrom(office, user.id, "team_member", {
         id: String(member.id),
         officeRole: isOfficeRole(member.office_role) ? member.office_role : "staff",
-      }),
+      }, narrowed.restricted),
     };
   }
 
@@ -263,7 +281,35 @@ export async function resolveOfficeScope(input: {
   if (input.requireUnlocked && (await providerLocked(office.provider_id))) {
     return denied(403, OFFICE_LOCKED_MESSAGE, "office_locked", identity.userId, office.provider_id);
   }
-  return { kind: "ok", scope: officeScopeFrom(office, identity.userId, "hq") };
+  // HQ is not narrowed by an office's nonpayment: the restriction shapes what
+  // the OFFICE can do, and HQ must still see (and help) the office it manages.
+  return {
+    kind: "ok",
+    scope: officeScopeFrom(office, identity.userId, "hq", null, await officeRestrictedForNonpayment(office.provider_id)),
+  };
+}
+
+/**
+ * The narrowed surface, enforced once for every office-scoped route. A
+ * restricted office keeps payment, subscription and export requests and is
+ * refused everything else — independently of what its client offers.
+ *
+ * Every staff role reaches the allowed surface: any staff member can pay, so
+ * the narrowing never depends on the office role.
+ */
+async function restrictionGate(
+  providerId: string,
+  userId: string,
+  request?: VerificationRequest,
+): Promise<{ kind: "ok"; restricted: boolean } | OfficeScopeDenied> {
+  const restricted = await officeRestrictedForNonpayment(providerId);
+  if (!restricted) return { kind: "ok", restricted: false };
+  const url = request?.originalUrl ?? request?.url;
+  // A caller that does not name its request cannot be placed on the narrowed
+  // map; it is answered as the allowed surface, and the route it reaches
+  // enforces its own rule (the charge path applies the share regardless).
+  if (!url || isRestrictedAllowedPath(url)) return { kind: "ok", restricted: true };
+  return denied(403, OFFICE_RESTRICTED_STAFF_MESSAGE, "office_restricted", userId, providerId);
 }
 
 async function launchGate(providerId:string,userId:string,request?:VerificationRequest):Promise<OfficeScopeDenied|null> {
@@ -280,7 +326,13 @@ async function launchGate(providerId:string,userId:string,request?:VerificationR
  * attempt. Anonymous / expired tokens (401) are not recorded.
  */
 export function respondOfficeScopeDenied(req: Request, res: Response, result: OfficeScopeDenied): void {
-  res.status(result.status).json({ error: result.message });
+  // The narrowed office is a state the client must recognize (it routes to the
+  // explanation screen), so that one refusal carries a machine-readable code.
+  res.status(result.status).json(
+    result.reason === "office_restricted"
+      ? { error: result.message, code: "office_restricted" }
+      : { error: result.message },
+  );
   if (result.status !== 403 || !result.actorUserId) return;
   const reason =
     result.reason === "deactivated" || result.reason === "office_locked" ||

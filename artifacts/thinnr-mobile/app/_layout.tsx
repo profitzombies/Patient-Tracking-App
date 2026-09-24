@@ -33,6 +33,9 @@ import * as Notifications from 'expo-notifications';
 import { emitChatSync } from '@/lib/chat-sync-events';
 import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
+import { OfficeRestrictionProvider, useOfficeRestriction } from '@/context/OfficeRestrictionContext';
+import { RestrictedStaffNotice } from '@/components/provider/RestrictedStaffNotice';
+import { staffRouteBlocked } from '@/lib/office-restriction';
 import { CoachChatProvider } from '@/context/CoachChatContext';
 import { CareTeamChatProvider } from '@/context/CareTeamChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
@@ -321,6 +324,7 @@ function RootLayoutNav() {
       <Stack.Screen name="coach-memories" options={{ headerShown: false }} />
       <Stack.Screen name="coach-chat" options={{ headerShown: false }} />
       <Stack.Screen name="support-chat" options={{ headerShown: false }} />
+      <Stack.Screen name="office-account" options={{ headerShown: false }} />
       <Stack.Screen
         name="food-camera"
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
@@ -330,6 +334,44 @@ function RootLayoutNav() {
         options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}
       />
     </Stack>
+  );
+}
+
+/**
+ * Route admission for a staff office narrowed for nonpayment.
+ *
+ * The allowed payment and subscription screens stay exactly as they are;
+ * every other staff route resolves to the explanation instead. The navigator
+ * stays mounted underneath (same shape as the patient gate) so Expo Router
+ * keeps its history, and the blocked screen is inert while it is covered.
+ *
+ * The server refuses the blocked surface on its own, so this never holds the
+ * app while the office's state is still unknown.
+ */
+function StaffRestrictionGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const { mode, hydrated } = useAppMode();
+  const { restricted } = useOfficeRestriction();
+  const blocked = hydrated && staffRouteBlocked({ mode, restricted, pathname });
+  const gatedNavigatorProps = {
+    accessibilityElementsHidden: blocked,
+    importantForAccessibility: blocked ? 'no-hide-descendants' : 'auto',
+    'aria-hidden': blocked,
+    pointerEvents: blocked ? 'none' : 'auto',
+    ...(Platform.OS === 'web' ? { inert: blocked } : {}),
+  } as unknown as React.ComponentProps<typeof View>;
+
+  return (
+    <>
+      <View style={gateStyles.gatedNavigator} {...gatedNavigatorProps}>
+        {children}
+      </View>
+      {blocked ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 900 }]} pointerEvents="auto" accessibilityViewIsModal>
+          <RestrictedStaffNotice />
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -588,6 +630,7 @@ export default function RootLayout() {
             <GestureHandlerRootView style={{ flex: 1 }}>
               <KeyboardProvider>
                 <AppModeProvider>
+                  <OfficeRestrictionProvider>
                   <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
@@ -600,7 +643,9 @@ export default function RootLayout() {
                           <CoachChatProvider>
                           <CareTeamChatProvider>
                             <LivePatientEntryGuard>
-                              <RootLayoutNav />
+                              <StaffRestrictionGuard>
+                                <RootLayoutNav />
+                              </StaffRestrictionGuard>
                             </LivePatientEntryGuard>
                             <PushResponseBridge />
                             <PatientSyncNotice />
@@ -614,6 +659,7 @@ export default function RootLayout() {
                       </PatientProvider>
                     </PatientAccountProvider>
                   </OperationsProvider>
+                  </OfficeRestrictionProvider>
                 </AppModeProvider>
               </KeyboardProvider>
             </GestureHandlerRootView>

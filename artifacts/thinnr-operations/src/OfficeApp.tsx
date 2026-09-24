@@ -35,11 +35,16 @@ import OfficeAudit from '@/pages/OfficeAudit';
 import OfficeFiles from '@/pages/OfficeFiles';
 import Security from '@/pages/Security';
 import OfficeAlerts from '@/pages/OfficeAlerts';
+import OfficeAccess from '@/pages/OfficeAccess';
+import { RestrictedRoutes } from '@/components/office/RestrictedAccess';
 import { PracticeLaunchGuard } from '@/pages/PracticeLaunch';
+import { useOfficeAccess } from '@/hooks/use-office-access';
+import { OfficeRestrictionProvider } from '@/contexts/office-restriction';
 
 export function OfficeApp() {
   return (
     <RoutedErrorBoundary>
+      <OfficeRestrictionGate>
       <PracticeLaunchGuard>
         <Switch>
           {/* Side-menu design lab: renders without the app chrome so the
@@ -48,6 +53,7 @@ export function OfficeApp() {
           <Route>
             <Shell>
               <PatientRouteScrollBehavior />
+              <RestrictedRoutes>
               <Switch>
                 <Route path="/" component={Overview} />
                 <Route path="/patients" component={Patients} />
@@ -70,13 +76,35 @@ export function OfficeApp() {
                 <Route path="/team" component={OfficeTeam} />
                 <Route path="/audit" component={OfficeAudit} />
                 <Route path="/security" component={Security} />
+                <Route path="/account" component={OfficeAccess} />
                 <Route component={NotFound} />
               </Switch>
+              </RestrictedRoutes>
             </Shell>
           </Route>
         </Switch>
       </PracticeLaunchGuard>
+      </OfficeRestrictionGate>
     </RoutedErrorBoundary>
+  );
+}
+
+/**
+ * Publishes the office's narrowed-for-nonpayment state to the workspace.
+ *
+ * The server is the authority — it refuses the blocked surface on its own —
+ * so this never holds the app while the answer is in flight: an office that
+ * is not restricted must not see a spinner on every visit.
+ */
+function OfficeRestrictionGate({ children }: { children: ReactNode }) {
+  const access = useOfficeAccess();
+  const restricted = access.data?.restricted === true;
+  return (
+    <OfficeRestrictionProvider
+      value={{ restricted, message: restricted ? access.data?.message ?? null : null }}
+    >
+      {children}
+    </OfficeRestrictionProvider>
   );
 }
 

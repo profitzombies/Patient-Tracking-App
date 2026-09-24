@@ -37,7 +37,7 @@ export function demoOfficeSettings(): OfficeSettingsDto {
       includedPeriodDays: 365,
       gracePeriodDays: 7,
       normalSharePercent: 60,
-      restrictedSharePercent: 100,
+      restrictedSharePercent: 80,
     },
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',

@@ -313,7 +313,9 @@ export default function CareTeamChatScreen() {
           <View testID="care-team-empty" style={styles.stateBox}>
             <Feather name="message-circle" size={20} color={colors.cobalt} />
             <Text style={[styles.stateText, { color: colors.bodyText }]}>
-              No messages yet. Send a message to start the conversation with your care team.
+              {selectedConversation.canSend
+                ? "No messages yet. Send a message to start the conversation with your care team."
+                : "No messages here yet."}
             </Text>
           </View>
         ) : null}
@@ -457,10 +459,12 @@ export default function CareTeamChatScreen() {
               ]}
             >
               <Feather name="info" size={13} color={colors.warnText} style={styles.errorIcon} />
-               <Text style={[styles.errorText, { color: colors.warnText }]}>
-                 {selectedConversation.current
-                   ? "This conversation is closed for new messages."
-                   : "Previous-office conversations are read only."}
+               <Text testID="care-team-read-only-notice" style={[styles.errorText, { color: colors.warnText }]}>
+                 {selectedConversation.readOnlyNotice
+                   ? selectedConversation.readOnlyNotice
+                   : selectedConversation.current
+                     ? "This conversation is closed for new messages."
+                     : "Previous-office conversations are read only."}
                </Text>
             </View>
           ) : null}

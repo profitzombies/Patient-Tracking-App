@@ -4,7 +4,8 @@ import type Stripe from "stripe";
 import { logger } from "../lib/logger";
 import { recordPatientEvent } from "../lib/patient-events";
 import { getSettings, resolveOffering } from "./catalog";
-import { breakEvenMinimum, computeOrderFees, estimateStripeFee, hqProfit } from "./fees";
+import { breakEvenMinimum, computeOrderFees, estimateStripeFee, hqProfit, thinnrSharePerUnit } from "./fees";
+import { officeThinnrSharePercent } from "./office-share";
 import { ensureCustomer } from "./customers";
 import { resolvePayer, touchLinkUse } from "./links";
 import { sendReceipt } from "./receipts";
@@ -33,6 +34,8 @@ export type OrderQuote = {
   lines: QuoteLine[]; subtotal_cents: number; shipping_charge_cents: number; total_cents: number;
   application_fee_cents: number; thinnr_share_cents: number; hard_cost_cents: number;
   shipping_cost_cents: number; settings: Awaited<ReturnType<typeof getSettings>>;
+  /** THINNR's share of floor applied to this charge (elevated while the office is restricted). */
+  share_percent: number;
 };
 
 export async function quoteOrder(link: BillingPaymentLinkRow, items: ItemInput[], purchase: "one_time" | "subscription"): Promise<OrderQuote> {
@@ -42,10 +45,11 @@ export async function quoteOrder(link: BillingPaymentLinkRow, items: ItemInput[]
   if (items.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 10)) {
     throw new BillingOrderError("Each quantity must be between 1 and 10.", 400, "items");
   }
-  const [prices, products, settings] = await Promise.all([
+  const [prices, products, settings, sharePercent] = await Promise.all([
     selectMany("billing_office_prices", `provider_id=eq.${encodeURIComponent(link.provider_id)}`),
     selectMany("billing_products", "active=eq.true"),
     getSettings(),
+    officeThinnrSharePercent(link.provider_id),
   ]);
   const priceMap = new Map(prices.map((row) => [row.product_id, row]));
   const productMap = new Map(products.map((row) => [row.id, row]));
@@ -69,9 +73,13 @@ export async function quoteOrder(link: BillingPaymentLinkRow, items: ItemInput[]
       hard_cost_cents: product.hard_cost_cents, stripe_tax_code: product.stripe_tax_code,
     };
   });
-  const fees = computeOrderFees(lines.map((line) => ({ floor_price_cents: line.floor_price_cents, quantity: line.quantity })), settings);
+  const fees = computeOrderFees(
+    lines.map((line) => ({ floor_price_cents: line.floor_price_cents, quantity: line.quantity })),
+    settings, settings.shipping_charge_cents, sharePercent,
+  );
   const subtotal = lines.reduce((sum, line) => sum + line.unit_price_cents * line.quantity, 0);
   return {
+    share_percent: sharePercent,
     lines, subtotal_cents: subtotal, shipping_charge_cents: settings.shipping_charge_cents,
     total_cents: subtotal + settings.shipping_charge_cents, application_fee_cents: fees.application_fee_cents,
     thinnr_share_cents: fees.thinnr_share_cents,
@@ -120,6 +128,7 @@ export async function createOneTimeOrder(input: {
     stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: quote.hard_cost_cents,
     shipping_cost_cents: quote.shipping_cost_cents,
     hq_profit_cents: hqProfit(quote.application_fee_cents, quote.hard_cost_cents, quote.shipping_cost_cents),
+    thinnr_share_percent: quote.share_percent,
     shipping_address: input.shipping_address as unknown as Record<string, unknown>, livemode: !await isSandbox(),
     fulfillment_status: "to_ship", metadata: { settings: quote.settings },
   });
@@ -127,7 +136,7 @@ export async function createOneTimeOrder(input: {
     await insert("billing_order_items", {
       order_id: id, product_id: line.product_id, product_name_snapshot: line.name, quantity: line.quantity,
       unit_price_cents: line.unit_price_cents, floor_price_cents_snapshot: line.floor_price_cents,
-      thinnr_share_cents: Math.floor(line.floor_price_cents * 60 / 100) * line.quantity,
+      thinnr_share_cents: thinnrSharePerUnit(line.floor_price_cents, quote.share_percent) * line.quantity,
       hard_cost_cents_snapshot: line.hard_cost_cents,
     });
   }

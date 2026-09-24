@@ -29,7 +29,7 @@ import { FabMenu, type FabMenuSection } from '@/components/ui/FabMenu';
 import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { useCareTeamUnreadCount } from '@/context/CareTeamUnreadContext';
+import { useCareTeamCanCompose, useCareTeamUnreadCount } from '@/context/CareTeamUnreadContext';
 import { useCartCount } from '@/context/CartContext';
 
 export function PatientFabMenu() {
@@ -37,6 +37,9 @@ export function PatientFabMenu() {
   const mealPhoto = useMealPhotoFlow();
   const { account } = usePatientAccount();
   const careTeamUnreadCount = useCareTeamUnreadCount();
+  // A thread the office is not reading invites no new message; the history
+  // behind it stays one tap away.
+  const careTeamCanCompose = useCareTeamCanCompose();
   const cartCount = useCartCount();
 
   const sections: FabMenuSection[] = [
@@ -102,7 +105,7 @@ export function PatientFabMenu() {
         },
         {
           key: 'care-team-chat',
-          label: 'Message My Care Team',
+          label: careTeamCanCompose ? 'Message My Care Team' : 'My Care Team',
           icon: { family: 'feather', name: 'message-square' },
           unreadCount: careTeamUnreadCount,
           action: { kind: 'push', href: '/care-team-chat' as Href },

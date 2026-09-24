@@ -13,6 +13,10 @@ export interface PatientCareTeamConversation {
   businessName: string;
   current: boolean;
   canSend: boolean;
+  /** Shown in place of the composer when the office is not reading this thread. Neutral by design: it tells the patient how to reach the office, never why the thread is quiet. */
+  readOnlyNotice?: string | null;
+  /** The office's phone number, present only alongside readOnlyNotice. */
+  officePhone?: string | null;
   status: PatientCareTeamConversationStatus;
   unreadCount: number;
   lastMessageSeq: number;

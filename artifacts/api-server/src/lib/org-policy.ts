@@ -239,7 +239,7 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
     includedPeriodDays: 365,
     gracePeriodDays: 7,
     normalSharePercent: 60,
-    restrictedSharePercent: 100,
+    restrictedSharePercent: 80,
   },
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",

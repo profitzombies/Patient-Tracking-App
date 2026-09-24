@@ -81,6 +81,44 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
  */
 export const OFFICE_SETTINGS_NAV_ITEM: OfficeNavItem = { path: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: Settings };
 
+/**
+ * The office's own THINNR account and billing page. Not a menu row in the
+ * normal workspace (the header gear and the Payments area cover it), but it
+ * is the first destination while the office is narrowed for nonpayment — so
+ * the restricted menu leads with it.
+ */
+export const OFFICE_ACCESS_NAV_ITEM: OfficeNavItem = { path: '/account', label: 'Account & billing', mobileLabel: 'Account', icon: CreditCard };
+
+/**
+ * The menu a narrowed-for-nonpayment office sees: pay the bill, manage the
+ * patient subscriptions that fund it, keep the money moving, and take the
+ * patient data. Everything else is refused server-side, so offering it here
+ * would only lead staff into a wall.
+ */
+export function restrictedOfficeNavItems(): OfficeNavItem[] {
+  const subscriptions = OFFICE_NAV_ITEMS.find((item) => item.path === '/subscriptions');
+  const payments = OFFICE_NAV_ITEMS.find((item) => item.path === '/payments');
+  const security = OFFICE_NAV_ITEMS.find((item) => item.path === '/security');
+  const items: OfficeNavItem[] = [OFFICE_ACCESS_NAV_ITEM];
+  if (subscriptions) items.push(subscriptions);
+  if (payments) {
+    items.push({
+      ...payments,
+      children: payments.children?.filter((child) =>
+        ['/payments/subscriptions', '/payments/payouts', '/payments/settings'].includes(child.path)),
+    });
+  }
+  if (security) items.push(security);
+  return items;
+}
+
+/** Section grouping for the narrowed menu (the full defs name blocked areas). */
+export const RESTRICTED_OFFICE_NAV_SECTION_DEFS = [
+  { label: 'Account', paths: ['/account'] },
+  { label: 'Operations', paths: ['/subscriptions', '/payments'] },
+  { label: 'Administration', paths: ['/security'] },
+];
+
 /** The Porcelain menu's section grouping, shared by the live Shell and the lab. */
 export const OFFICE_NAV_SECTION_DEFS = [
   { label: 'Dashboard', paths: ['/'] },
@@ -108,6 +146,7 @@ export function isOfficeMenuPathActive(path: string, location: string): boolean 
 }
 
 export function findActiveOfficeNavItem(location: string): OfficeNavItem {
+  if (isOfficeNavItemActive(OFFICE_ACCESS_NAV_ITEM.path, location)) return OFFICE_ACCESS_NAV_ITEM;
   return (
     OFFICE_NAV_ITEMS.find((item) => isOfficeNavItemActive(item.path, location)) ??
     (isOfficeNavItemActive(OFFICE_SETTINGS_NAV_ITEM.path, location) ? OFFICE_SETTINGS_NAV_ITEM : OFFICE_NAV_ITEMS[0])

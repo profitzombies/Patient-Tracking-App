@@ -24,6 +24,7 @@ export default function PaymentsLayout() {
       <Stack.Screen name="links" options={{ title: 'Payment links' }} />
       <Stack.Screen name="prices" options={{ title: 'Prices' }} />
       <Stack.Screen name="get-paid" options={{ title: 'Get paid' }} />
+      <Stack.Screen name="payment-methods" options={{ title: 'Office payment methods' }} />
       <Stack.Screen name="settings" options={{ title: 'Payment settings' }} />
     </Stack>
     </PaymentsRangeProvider>

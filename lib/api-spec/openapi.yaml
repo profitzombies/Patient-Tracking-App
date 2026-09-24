@@ -4510,6 +4510,7 @@ components:
         - gracePeriodDays
         - normalSharePercent
         - restrictedSharePercent
+        - disclosureText
       properties:
         monthlyPriceCents: { type: number, minimum: 0, maximum: 10000000 }
         yearlyPriceCents: { type: number, minimum: 0, maximum: 100000000 }
@@ -4533,6 +4534,14 @@ components:
           minimum: 0
           maximum: 100
           description: THINNR's share of a patient payment while the office is restricted for nonpayment.
+        disclosureText:
+          type: string
+          minLength: 40
+          maxLength: 4000
+          description: >-
+            Plain-language access-fee terms, including the revenue-share change
+            if payment lapses, shown to an office during payment setup. The
+            setup gate renders this wording and never carries its own copy.
     HqOrganizationSettingsInput:
       type: object
       additionalProperties: false

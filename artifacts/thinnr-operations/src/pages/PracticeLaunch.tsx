@@ -7,7 +7,7 @@ import { LaunchScreen } from '@/pages/LaunchScreen';
 import { BTN_PRIMARY, BTN_SECONDARY, SectionCard } from '@/components/patient/heritage';
 
 export function launchRecoveryPath(path: string) {
-  return path === '/security' || path === '/payments/get-paid' || path === '/help' || path === '/ai-support';
+  return path === '/security' || path === '/help' || path === '/ai-support';
 }
 export function PracticeLaunchGuard({ children }: { children: ReactNode }) {
   const scope = useLiveOfficeScope();

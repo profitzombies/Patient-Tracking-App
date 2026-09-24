@@ -3994,6 +3994,9 @@ export const getHqSettingsResponseAccessBillingNormalSharePercentMax = 100;
 export const getHqSettingsResponseAccessBillingRestrictedSharePercentMin = 0;
 export const getHqSettingsResponseAccessBillingRestrictedSharePercentMax = 100;
 
+export const getHqSettingsResponseAccessBillingDisclosureTextMin = 40;
+export const getHqSettingsResponseAccessBillingDisclosureTextMax = 4000;
+
 
 
 export const GetHqSettingsResponse = zod.object({
@@ -4042,7 +4045,8 @@ export const GetHqSettingsResponse = zod.object({
   "includedPeriodDays": zod.number().min(getHqSettingsResponseAccessBillingIncludedPeriodDaysMin).max(getHqSettingsResponseAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
   "gracePeriodDays": zod.number().min(1).max(getHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(getHqSettingsResponseAccessBillingNormalSharePercentMin).max(getHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
-  "restrictedSharePercent": zod.number().min(getHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(getHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+  "restrictedSharePercent": zod.number().min(getHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(getHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
+  "disclosureText": zod.string().min(getHqSettingsResponseAccessBillingDisclosureTextMin).max(getHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -4172,6 +4176,9 @@ export const updateHqSettingsBodyAccessBillingNormalSharePercentMax = 100;
 export const updateHqSettingsBodyAccessBillingRestrictedSharePercentMin = 0;
 export const updateHqSettingsBodyAccessBillingRestrictedSharePercentMax = 100;
 
+export const updateHqSettingsBodyAccessBillingDisclosureTextMin = 40;
+export const updateHqSettingsBodyAccessBillingDisclosureTextMax = 4000;
+
 
 
 export const UpdateHqSettingsBody = zod.object({
@@ -4221,7 +4228,8 @@ export const UpdateHqSettingsBody = zod.object({
   "includedPeriodDays": zod.number().min(updateHqSettingsBodyAccessBillingIncludedPeriodDaysMin).max(updateHqSettingsBodyAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
   "gracePeriodDays": zod.number().min(1).max(updateHqSettingsBodyAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingNormalSharePercentMin).max(updateHqSettingsBodyAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
-  "restrictedSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingRestrictedSharePercentMin).max(updateHqSettingsBodyAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+  "restrictedSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingRestrictedSharePercentMin).max(updateHqSettingsBodyAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
+  "disclosureText": zod.string().min(updateHqSettingsBodyAccessBillingDisclosureTextMin).max(updateHqSettingsBodyAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
 }).optional().describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.')
 })
 
@@ -4267,6 +4275,9 @@ export const updateHqSettingsResponseAccessBillingNormalSharePercentMax = 100;
 
 export const updateHqSettingsResponseAccessBillingRestrictedSharePercentMin = 0;
 export const updateHqSettingsResponseAccessBillingRestrictedSharePercentMax = 100;
+
+export const updateHqSettingsResponseAccessBillingDisclosureTextMin = 40;
+export const updateHqSettingsResponseAccessBillingDisclosureTextMax = 4000;
 
 
 
@@ -4316,7 +4327,8 @@ export const UpdateHqSettingsResponse = zod.object({
   "includedPeriodDays": zod.number().min(updateHqSettingsResponseAccessBillingIncludedPeriodDaysMin).max(updateHqSettingsResponseAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
   "gracePeriodDays": zod.number().min(1).max(updateHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingNormalSharePercentMin).max(updateHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
-  "restrictedSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(updateHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+  "restrictedSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(updateHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
+  "disclosureText": zod.string().min(updateHqSettingsResponseAccessBillingDisclosureTextMin).max(updateHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -4420,6 +4432,9 @@ export const getOfficeSettingsResponseHqAccessBillingNormalSharePercentMax = 100
 export const getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin = 0;
 export const getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax = 100;
 
+export const getOfficeSettingsResponseHqAccessBillingDisclosureTextMin = 40;
+export const getOfficeSettingsResponseHqAccessBillingDisclosureTextMax = 4000;
+
 export const getOfficeSettingsResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4477,7 +4492,8 @@ export const GetOfficeSettingsResponse = zod.object({
   "includedPeriodDays": zod.number().min(getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMin).max(getOfficeSettingsResponseHqAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
   "gracePeriodDays": zod.number().min(1).max(getOfficeSettingsResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
-  "restrictedSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+  "restrictedSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
+  "disclosureText": zod.string().min(getOfficeSettingsResponseHqAccessBillingDisclosureTextMin).max(getOfficeSettingsResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -4755,6 +4771,9 @@ export const updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePerc
 export const updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin = 0;
 export const updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax = 100;
 
+export const updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMin = 40;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMax = 4000;
+
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -4812,7 +4831,8 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "includedPeriodDays": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingIncludedPeriodDaysMax).describe('Free access window from the office owner\'s first dashboard sign-in (default one year, up to three).'),
   "gracePeriodDays": zod.number().min(1).max(updateOfficeSettingsOverridesResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
-  "restrictedSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.')
+  "restrictedSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
+  "disclosureText": zod.string().min(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),

@@ -64,6 +64,8 @@ import { reminderDoseFromResponse, type ReminderDoseIntent } from '@/lib/reminde
 import { BloodworkDraftLifecycle, useBloodworkRecoveryRoute } from '@/lib/bloodwork-recovery';
 import { bloodworkRecoveryEntryDecision } from '@/lib/bloodwork-entry-policy';
 import { useSupabaseSession } from '@/lib/supabase';
+import { useOfficeAccess } from '@/hooks/useOfficeBilling';
+import { isProviderArea, officeAccessGateDecision } from '@/lib/office-access-gate';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -472,6 +474,45 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Office setup is deliberately desktop-only. Signed-in staff are admitted
+ * centrally only after the office-access snapshot says the office is ready;
+ * patient routes and the signed-out provider demo never make this request.
+ */
+function OfficeAccessGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const colors = useColors();
+  const { mode, hydrated } = useAppMode();
+  const { session, sessionLoading } = useSupabaseSession();
+  const shouldRead = hydrated && mode === 'staff' && !sessionLoading &&
+    Boolean(session?.user) && isProviderArea(pathname);
+  const access = useOfficeAccess(session?.user.id ?? 'signed-out', { enabled: shouldRead });
+  const decision = officeAccessGateDecision({
+    modeHydrated: hydrated,
+    mode,
+    sessionLoading,
+    signedIn: Boolean(session?.user),
+    pathname,
+    pending: shouldRead && access.isPending,
+    failed: shouldRead && access.isError,
+    snapshot: access.data,
+  });
+  if (decision.kind === 'allow') return <>{children}</>;
+  if (decision.kind === 'hold') {
+    return (
+      <View style={[gateStyles.container, { backgroundColor: colors.background }]} testID="office-access-hold">
+        <ActivityIndicator accessibilityLabel="Checking office setup" />
+      </View>
+    );
+  }
+  return (
+    <OfficeAccessState
+      error={decision.kind === 'error'}
+      missing={decision.kind === 'handoff' ? decision.missing : []}
+      retry={() => void access.refetch()}
+    />
+  );
+}
 function PushResponseBridge() {
   const router = useRouter();
   const { mode, hydrated: modeHydrated } = useAppMode();
@@ -643,9 +684,15 @@ export default function RootLayout() {
                           <CoachChatProvider>
                           <CareTeamChatProvider>
                             <LivePatientEntryGuard>
-                              <StaffRestrictionGuard>
-                                <RootLayoutNav />
-                              </StaffRestrictionGuard>
+                              {/* Unfinished setup sends provider staff to the
+                                  desktop before anything else has a say; a
+                                  narrowed office is a workspace that IS set
+                                  up, so that notice sits inside it. */}
+                              <OfficeAccessGuard>
+                                <StaffRestrictionGuard>
+                                  <RootLayoutNav />
+                                </StaffRestrictionGuard>
+                              </OfficeAccessGuard>
                             </LivePatientEntryGuard>
                             <PushResponseBridge />
                             <PatientSyncNotice />
@@ -715,3 +762,46 @@ const gateStyles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+function OfficeAccessState({ error, missing, retry }: {
+  error: boolean;
+  missing: string[];
+  retry: () => void;
+}) {
+  const colors = useColors();
+  const signOut = () => { void supabase?.auth.signOut(); };
+  return (
+    <View style={[gateStyles.container, { backgroundColor: colors.background }]} testID={error ? 'office-access-gate-error' : 'office-access-handoff'}>
+      <View style={[gateStyles.card, { borderColor: colors.border, backgroundColor: colors.card }]}>
+        <Text style={[gateStyles.brand, { color: colors.navy }]}>THINNR</Text>
+        <Text style={[gateStyles.title, { color: colors.navy }]}>
+          {error ? 'We couldn’t check your office setup' : 'Finish office setup on desktop'}
+        </Text>
+        <Text style={[gateStyles.body, { color: colors.subtleText }]}>
+          {error
+            ? 'For security, the provider app stays locked until we can confirm your office payment setup. Check your connection and retry.'
+            : 'Sign in to the THINNR desktop dashboard to finish these required steps:'}
+        </Text>
+        {!error ? missing.map((item) => (
+          <Text key={item} style={[gateStyles.body, { color: colors.bodyText }]}>• {item}</Text>
+        )) : null}
+        <Pressable
+          testID="office-access-retry"
+          accessibilityRole="button"
+          onPress={retry}
+          style={[gateStyles.button, { backgroundColor: colors.cobalt }]}
+        >
+          <Text style={[gateStyles.buttonText, { color: colors.primaryForeground }]}>Refresh setup status</Text>
+        </Pressable>
+        <Pressable
+          testID="office-access-sign-out"
+          accessibilityRole="button"
+          onPress={signOut}
+          style={[gateStyles.button, { borderWidth: 1, borderColor: colors.border }]}
+        >
+          <Text style={[gateStyles.buttonText, { color: colors.navy }]}>Sign out</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}

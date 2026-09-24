@@ -44,4 +44,10 @@ export interface OfficeAccessBillingPolicy {
      * @maximum 100
      */
   restrictedSharePercent: number;
+  /**
+     * Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.
+     * @minLength 40
+     * @maxLength 4000
+     */
+  disclosureText: string;
 }

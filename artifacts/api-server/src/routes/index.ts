@@ -64,6 +64,7 @@ import hqStaffAlertsRouter from "./hq-staff-alerts";
 import hqLegalHoldsRouter from "./hq-legal-holds";
 import officePatientHistoryRouter from "./office-patient-history";
 import hqOfficeAccessRouter from "./hq-office-access";
+import billingOfficeAccessRouter from "./billing-office-access";
 
 const router: IRouter = Router();
 
@@ -126,6 +127,7 @@ router.use(exportsRouter);
 // Provider payments (Stripe Connect). Webhooks mount separately in app.ts
 // (raw body, before the JSON parser).
 router.use(billingOfficeRouter);
+router.use(billingOfficeAccessRouter);
 router.use(billingOfficeSalesRouter);
 router.use(billingOfficeOrdersRouter);
 router.use(billingHqRouter);

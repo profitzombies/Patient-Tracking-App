@@ -715,7 +715,9 @@ export function LivePolicySettings() {
             draft.gracePeriodDays,
             draft.normalSharePercent,
             draft.restrictedSharePercent,
-          ])
+          ]) ?? (draft.disclosureText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
+            ? `The disclosure needs at least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
+            : null)
         }
       >
         {(draft, setDraft) => (
@@ -770,7 +772,7 @@ export function LivePolicySettings() {
                 onChange={(normalSharePercent) => setDraft({ normalSharePercent })}
               />
             </FieldRow>
-            <FieldRow label="THINNR share, restricted" help="THINNR's percentage of a patient payment while an office is restricted for non-payment. The office keeps its data and its patients keep buying; the split changes until it pays." last>
+            <FieldRow label="THINNR share, restricted" help="THINNR's percentage of a patient payment while an office is restricted for non-payment. The office keeps its data and its patients keep buying; the split changes until it pays.">
               <NumberField
                 id="input-policy-access-share-restricted"
                 label="THINNR share percent while restricted"
@@ -779,6 +781,24 @@ export function LivePolicySettings() {
                 unit="percent"
                 onChange={(restrictedSharePercent) => setDraft({ restrictedSharePercent })}
               />
+            </FieldRow>
+            <FieldRow label="Access fee disclosure" help="The plain-language terms an office reads and acknowledges while it puts its payment methods in place. The setup screen shows this wording exactly; it carries no copy of its own." last>
+              <div className="w-full">
+                <textarea
+                  id="input-policy-access-disclosure"
+                  aria-label="Access fee disclosure shown during office payment setup"
+                  data-testid="input-policy-access-disclosure"
+                  className={`${INPUT_CLASS} min-h-[9rem] w-full resize-y leading-relaxed`}
+                  value={draft.disclosureText}
+                  maxLength={POLICY_BOUNDS.accessDisclosureText.max}
+                  onChange={(event) => setDraft({ disclosureText: event.target.value })}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {draft.disclosureText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
+                    ? `At least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
+                    : `${draft.disclosureText.trim().length} of ${POLICY_BOUNDS.accessDisclosureText.max} characters.`}
+                </p>
+              </div>
             </FieldRow>
           </>
         )}
@@ -841,6 +861,7 @@ interface AccessBillingDraft {
   gracePeriodDays: number;
   normalSharePercent: number;
   restrictedSharePercent: number;
+  disclosureText: string;
 }
 
 const accessBillingFrom = (s: HqOrganizationSettings): AccessBillingDraft => ({
@@ -850,6 +871,7 @@ const accessBillingFrom = (s: HqOrganizationSettings): AccessBillingDraft => ({
   gracePeriodDays: s.accessBilling.gracePeriodDays,
   normalSharePercent: s.accessBilling.normalSharePercent,
   restrictedSharePercent: s.accessBilling.restrictedSharePercent,
+  disclosureText: s.accessBilling.disclosureText,
 });
 
 const accessBillingPayload = (d: AccessBillingDraft): HqOrganizationSettingsInput => ({
@@ -860,5 +882,6 @@ const accessBillingPayload = (d: AccessBillingDraft): HqOrganizationSettingsInpu
     gracePeriodDays: d.gracePeriodDays,
     normalSharePercent: d.normalSharePercent,
     restrictedSharePercent: d.restrictedSharePercent,
+    disclosureText: d.disclosureText.trim(),
   },
 });

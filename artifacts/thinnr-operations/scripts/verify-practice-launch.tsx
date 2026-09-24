@@ -25,6 +25,22 @@ const state: LaunchState = {
   products: [{ productId: 'sample', name: 'Sample Product', enabled: true, sellPriceCents: 9000, suggestedPriceCents: 7198, minimumPriceCents: 4000, subscriptionEnabled: false, subscriptionEligible: true, existingPrice: true, available: true }],
 };
 let snapshot = structuredClone(state);
+
+const accessSnapshot = {
+  office: state.office, complete: true, connectAlreadyDone: true,
+  steps: ['connect', 'bank', 'card_primary', 'card_backup', 'plan', 'disclosure'].map((id) => ({ id, status: 'done', detail: null })),
+  connect: { state: 'ready', sandbox: true },
+  instruments: [
+    { slot: 'bank', kind: 'bank', brand: null, last4: '6789', expMonth: null, expYear: null, bankName: 'Sample Bank', verificationStatus: 'verified', verificationDeadline: null, addedAt: '2025-01-01T00:00:00Z' },
+    { slot: 'card_primary', kind: 'card', brand: 'visa', last4: '4242', expMonth: 4, expYear: 2030, bankName: null, verificationStatus: 'verified', verificationDeadline: null, addedAt: '2025-01-01T00:00:00Z' },
+    { slot: 'card_backup', kind: 'card', brand: 'mastercard', last4: '4444', expMonth: 5, expYear: 2031, bankName: null, verificationStatus: 'verified', verificationDeadline: null, addedAt: '2025-01-01T00:00:00Z' },
+  ],
+  plan: { selected: 'monthly', monthlyPriceCents: 20000, yearlyPriceCents: 200000, priceCents: 20000, firstChargeAt: '2026-01-01T00:00:00Z', includedPeriodDays: 365, nextPeriodEndsAt: null },
+  disclosure: { text: 'Sample disclosure.', version: 1, acknowledgedAt: '2025-01-01T00:00:00Z' },
+  bank: { verificationPending: false, deadline: null, overdue: false, windowHours: 48, verificationUrl: null },
+  balance: { state: 'included_period', outstanding: false, amountCents: 0, graceEndsAt: null },
+  canManage: false, canChoosePlan: false,
+};
 let failed = false;
 let restartFailed = false;
 const calls: { url: string; method: string; body: any; headers: any }[] = [];
@@ -47,6 +63,8 @@ globalThis.fetch = async (input, init) => {
     history: [],
     policy: { monthlyPriceCents: 20000, yearlyPriceCents: 200000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100, maxIncludedPeriodDays: 1095 },
   }), { status: 200 });
+
+  if (call.url.startsWith('/api/billing/office/access')) return new Response(JSON.stringify(accessSnapshot), { status: 200 });
 
   if (call.method !== 'GET') {
     snapshot.version++;
@@ -71,7 +89,7 @@ async function render(path = '/patients') {
 }
 async function dispose(root: ReactTestRenderer, client?: QueryClient) { await act(async () => root.unmount()); client?.clear(); }
 
-assert.equal(launchRecoveryPath('/payments/get-paid'), true);
+assert.equal(launchRecoveryPath('/payments/get-paid'), false);
 assert.equal(launchRecoveryPath('/payments/orders'), false);
 assert.equal(launchRecoveryPath('/security-bypass'), false);
 assert.notDeepEqual(launchKey('a', null), launchKey('b', null));

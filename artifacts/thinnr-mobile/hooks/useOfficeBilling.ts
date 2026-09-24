@@ -49,6 +49,17 @@ export function useOfficeBillingStatus(userId: string, options?: Opts<Awaited<Re
   return scoped(userId, ['status'], (scope) => officeBilling.status(scope), { staleTime: 30_000, ...options });
 }
 
+/** Shared by the provider admission gate and the payment-method manager. */
+export function useOfficeAccess(
+  userId: string,
+  options?: Opts<Awaited<ReturnType<typeof officeBilling.access>>>,
+) {
+  return scoped(userId, ['access'], (scope) => officeBilling.access(scope), {
+    staleTime: 30_000,
+    ...options,
+  });
+}
+
 export function useOfficeDashboard(userId: string, range: { from?: string; to?: string }) {
   return scoped(userId, ['dashboard', range.from ?? null, range.to ?? null], (scope) => officeBilling.dashboard(range, scope));
 }

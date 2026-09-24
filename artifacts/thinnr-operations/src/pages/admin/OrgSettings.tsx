@@ -179,8 +179,12 @@ function NotificationSoundCard() {
 }
 
 export default function OrgSettings() {
-  const { authStatus } = useSession();
+  const { authStatus, hqRole } = useSession();
   const isLive = authStatus === 'signed-in';
+  // Payment mode is an Admin/Super Admin control, and the policy cards below
+  // already tell everyone else they lack access — a Support user must not even
+  // ask the server for this page's settings.
+  const canEdit = hqRole === 'Admin' || hqRole === 'Super Admin';
 
   return (
     <AdminPage>
@@ -196,7 +200,7 @@ export default function OrgSettings() {
       <div className="space-y-5">
         {isLive ? (
           <>
-            <BillingModeSettings />
+            {canEdit && <BillingModeSettings />}
             <LivePolicySettings />
           </>
         ) : (

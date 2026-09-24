@@ -36,6 +36,9 @@ import type {
   OfficePricesResponse,
   OfficeRefundRow,
   OfficeShippingSettings,
+  OfficeAccessSnapshot,
+  OfficeAccessSetupIntent,
+  OfficeAccessSlot,
   NotificationContactChange,
   NotificationContactsResponse,
   OfficeAccessBoard,
@@ -137,6 +140,20 @@ export const officeBilling = {
   ...emailLedger(OFFICE),
   status: (office?: string | null) =>
     officeRequest<OfficeBillingStatus>(`${OFFICE}/status${qs({}, office)}`, MESSAGES),
+  access: (office?: string | null) =>
+    officeRequest<OfficeAccessSnapshot>(`${OFFICE}/access${qs({}, office)}`, MESSAGES),
+  accessSetupIntent: (slot: OfficeAccessSlot, office?: string | null) =>
+    officeRequest<OfficeAccessSetupIntent>(`${OFFICE}/access/setup-intent${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify({ slot }) }),
+  accessInstrument: (body: { slot: OfficeAccessSlot; paymentMethodId: string; setupIntentId?: string }, office?: string | null) =>
+    officeRequest<OfficeAccessSnapshot>(`${OFFICE}/access/instruments${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify(body) }),
+  accessPlan: (plan: 'monthly' | 'yearly', office?: string | null) =>
+    officeRequest<OfficeAccessSnapshot>(`${OFFICE}/access/plan${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify({ plan }) }),
+  accessDisclosure: (version: number, office?: string | null) =>
+    officeRequest<OfficeAccessSnapshot>(`${OFFICE}/access/disclosure${qs({}, office)}`, MESSAGES, { method: 'POST', body: JSON.stringify({ version }) }),
+  accessBankVerify: (office?: string | null) =>
+    officeRequest<{ verified: boolean; setup: OfficeAccessSnapshot }>(`${OFFICE}/access/bank/verify${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
+  accessPay: (office?: string | null) =>
+    officeRequest<{ status: string; setup: OfficeAccessSnapshot }>(`${OFFICE}/access/pay${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
   createAccount: (billingScope: string, office?: string | null) =>
     officeRequest<{ account: ConnectedAccount }>(`${OFFICE}/connect/create${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}', headers: { 'X-Billing-Scope': billingScope } }),
   oauthStart: (billingScope: string, office?: string | null) =>

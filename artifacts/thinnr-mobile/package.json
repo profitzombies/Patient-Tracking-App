@@ -69,6 +69,7 @@
     "test:bloodwork-recovery": "tsx --tsconfig tsconfig.bloodwork-recovery.json scripts/verify-bloodwork-recovery.ts",
     "test:office-restricted": "tsx scripts/verify-office-restricted.ts",
     "test:payments-overview": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-overview.tsx",
+    "test:office-access": "tsx --tsconfig tsconfig.payments.json scripts/verify-office-access.tsx",
     "test:payments-demo-parity": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-demo-parity.ts",
     "test:payments-activity": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-activity.tsx",
     "test:payments-transactions": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-transactions.tsx",

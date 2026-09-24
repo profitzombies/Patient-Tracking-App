@@ -140,3 +140,4 @@
 - [Web UI & Tailwind topic directory](web-ui-layout-topic-directory.md) — grouped Tailwind v4 syntax/token, flex-height, table-width, clickable-surface, toast and scoped-style lessons; see the named topic pages.
 - [Office restricted for nonpayment](office-nonpayment-restriction.md) — narrowed ≠ locked: state derived from dates at one path-keyed gate, unknown reads never narrow, share percent snapshotted per order.
 - [Office access subscriptions](office-access-subscriptions.md) — offices pay THINNR on the PLATFORM account via direct PaymentIntents (no Stripe dunning); state derives from dates, charges claim in SQL first.
+- [Office access gate live proof](office-access-gate-live-proof.md) — prove the setup gate by state transitions on one throwaway office; snapshot reads create the row, attach needs NOT NULL columns, teardown needs replica role.

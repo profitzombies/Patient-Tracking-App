@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { officeRequest } from '@/lib/office-api';
 import { useSession } from '@/contexts/session';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { OfficeAccessSetup } from '@/components/billing/OfficeAccessSetup';
 
 const labels: Record<keyof LaunchState['details'], string> = {
   officeName: 'Practice name', providerName: 'Provider name', email: 'Contact email', phone: 'Office phone',
@@ -73,7 +74,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
         <p>{launchData.payments.sandbox ? 'This is Test mode. Test readiness does not confirm Live readiness.' : 'This is Live mode. Review your real business information carefully.'}</p>
         {launchData.payments.state === 'pending' && <p>Currently actionable steps are submitted, but Stripe is still verifying your account. <strong className="font-semibold text-navy">Your account remains gated</strong> — you cannot charge patients or use operational features until payments are ready.</p>}
         {launchData.canEdit && <div className="flex flex-wrap items-center gap-3">
-          <Link href="/payments/get-paid" className={`${BTN_PRIMARY} h-10 px-4`}>{launchData.payments.state === 'not_started' ? 'Connect payments' : 'Review Stripe setup'}</Link>
+          <button type="button" className={`${BTN_PRIMARY} h-10 px-4`} onClick={() => document.querySelector('[data-testid="office-access-setup"]')?.scrollIntoView({ behavior: 'smooth' })}>{launchData.payments.state === 'not_started' ? 'Connect payments below' : 'Review Stripe setup below'}</button>
           {canRestart && <button type="button" className={`${BTN_SECONDARY} h-10 px-4`} onClick={() => setRestartOpen(true)}>Restart Stripe setup</button>}
         </div>}
         <p className="text-muted-foreground">Return to Practice setup after completing Stripe’s steps. Use Refresh status there to check the latest requirements.</p>
@@ -82,6 +83,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     {fullSetupRequired && <SectionCard title={`4. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
       <ProductsForm launchData={launchData} />
     </SectionCard>}
+    <OfficeAccessSetup />
     {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
     <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
       {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : launchData.completedAt ? 'Setup complete' : 'Finish setup'}</button>}

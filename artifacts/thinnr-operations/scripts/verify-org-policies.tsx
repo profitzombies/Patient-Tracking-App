@@ -180,7 +180,7 @@ function hqFixture(): HqOrganizationSettings {
       security: null,
       archive: null,
     },
-    accessBilling: { monthlyPriceCents: 20_000, yearlyPriceCents: 200_000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100 },
+    accessBilling: { monthlyPriceCents: 20_000, yearlyPriceCents: 200_000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100, disclosureText: 'THINNR charges your practice an access fee for the dashboard and the provider app, taken from the bank account and cards you keep on file. If a payment lapses, THINNR keeps a larger share of each patient payment until the balance is settled.' },
     coldArchive: { storageConfigured: true, lastArchivedDay: '2026-09-05', daysPending: 1 },
   };
 }

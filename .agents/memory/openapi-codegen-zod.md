@@ -23,6 +23,12 @@ Using `type: integer` in the OpenAPI spec makes orval v8 emit `zod.int()` — a 
 
 **The collision fix is an allow-list, not automatic.** Every NEW operation that has both a path parameter and query parameters must be added to the rename list in `lib/api-spec/fix-zod-parameter-type.mjs`, or codegen fails on the duplicate export. Also: a YAML flow-mapping `description` containing `:` or `|` must be quoted, or the spec silently loses the mapping.
 
+**Committed codegen output can drift from a fresh run, and the drift is a runtime break.** Orval hoists the `...Min`/`...Max` constants it derives from `minLength`/`maxLength`; a hand-touched or partially regenerated `lib/api-zod/src/generated/api.ts` can end up referencing one of those constants hundreds of lines before its `export const`. TypeScript reports it only when the lib itself is built (`tsc -b lib/api-zod`), which no per-artifact typecheck does, so the tree looks green while `import('@workspace/api-zod')` throws "Cannot access ... before initialization" at module load.
+
+**Why:** consumers typecheck against built declarations and most suites import narrow submodules, so nothing exercises the barrel; the TDZ error only surfaces when something imports the package as a whole.
+
+**How to apply:** after ANY spec change, run `pnpm --filter @workspace/api-spec run codegen` and commit its full output rather than editing generated files; when a const-ordering error appears, re-run codegen instead of moving declarations by hand. A one-line `tsx -e "import('@workspace/api-zod')"` probe proves the barrel actually loads.
+
 ## Also: `format: uri` and inline bodies/params
 - `format: uri` makes orval emit zod-4 `zod.url()` (same break as `type: integer`); use a plain `type: string` for URL fields.
 - Any new operation with an inline request body or query params must be added to `lib/api-spec/fix-zod-parameter-type.mjs` (Params → QueryInput, Body → BodyInput) or the api-zod barrel double-exports the name.

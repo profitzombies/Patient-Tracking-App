@@ -18,6 +18,7 @@
       "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
       "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
       "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/components/billing/ConnectEmbed": ["./scripts/a11y-stubs/connect-embed.tsx"],
       "@/*": ["./src/*"]
     }
   }

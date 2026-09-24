@@ -61,10 +61,14 @@ export interface PaymentsScreenProps {
   demo: ReactNode;
   /** Live body for a signed-in staff member whose office status resolved. */
   live: (ctx: PaymentsLive) => ReactNode;
+  /** A live body backed only by office-access, which every staff role may use. */
+  accessLive?: (userId: string) => ReactNode;
   /** Header action slot; receives the live context (undefined in demo). */
   action?: (ctx: PaymentsLive | undefined) => ReactNode;
   /** Get paid shows even before an account exists. */
   allowNoAccount?: boolean;
+  /** Office-owned billing methods are available to every authenticated staff member. */
+  allowAnyStaff?: boolean;
   /** Detail pages hide the section strip and show a back link. */
   back?: { href: Href; label: string };
   /** Demo title suffix override (defaults to the shared demo subtitle). */
@@ -207,15 +211,19 @@ function DemoOrResolving({ showDemo: demo, bottomPad, ...props }: PaymentsScreen
 
 function LiveGate({ userId, bottomPad, ...props }: PaymentsScreenProps & { userId: string; bottomPad: number }) {
   const colors = useColors();
-  const status = useOfficeBillingStatus(userId);
+  const status = useOfficeBillingStatus(userId, { enabled: !props.accessLive });
   const pathname = usePathname();
   const read = useRefreshOfficeBilling(userId);
   const refresh = useScreenRefresh(props.refresh, read);
-  const forbidden = (status.error instanceof OfficeBillingError && status.error.status === 403) || status.data?.viewer.can_manage === false;
+  const forbidden = !props.allowAnyStaff &&
+    ((status.error instanceof OfficeBillingError && status.error.status === 403) ||
+      status.data?.viewer.can_manage === false);
 
   let body: ReactNode;
   let ctx: PaymentsLive | undefined;
-  if (status.isPending) {
+  if (props.accessLive) {
+    body = props.accessLive(userId);
+  } else if (status.isPending) {
     body = <LoadingBox testID="billing-status-loading" />;
   } else if (forbidden) {
     body = <PermissionState />;

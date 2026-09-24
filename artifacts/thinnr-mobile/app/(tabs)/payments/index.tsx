@@ -7,10 +7,10 @@
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { PaymentsScreen, type PaymentsLive } from '@/components/payments/PaymentsScreen';
 import { ActivityList } from '@/components/payments/ActivityList';
-import { Button, ErrorBox, LoadingBox, MetricTile, MicroLabel, Panel } from '@/components/payments/primitives';
+import { Body, Button, ErrorBox, LoadingBox, MetricTile, MicroLabel, Panel } from '@/components/payments/primitives';
 import { RangePicker, usePaymentsRange } from '@/components/payments/range';
 import {
   AreaChart,
@@ -78,6 +78,13 @@ function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; d
   const netCollected = data.collected_cents - data.refunded_cents;
   return (
     <>
+      <Panel
+        title="Office payment methods"
+        sub="View or replace the bank account and cards your office uses to pay THINNR."
+        action={<Button small label="Manage" testID="link-payment-methods" onPress={() => router.navigate('/payments/payment-methods' as Href)} />}
+      >
+        <Body>Manage both cards, bank verification, and any outstanding office balance.</Body>
+      </Panel>
       <View style={styles.tiles} testID="office-overview-tiles">
         <MetricTile label="Available balance" value={formatCents(data.balance.available_cents)} hint={`${formatCents(data.balance.pending_cents)} pending`} testID="tile-available" />
         <MetricTile

@@ -12,6 +12,7 @@ export class OfficeApiError extends Error {
     message: string,
     readonly status: number,
     readonly field: string | null = null,
+    readonly code: string | null = null,
   ) {
     super(message);
     this.name = 'OfficeApiError';
@@ -66,7 +67,7 @@ export async function officeRequest<T>(path: string, messages: OfficeRequestMess
     if (error instanceof ReauthRequiredError) throw error;
     throw new OfficeApiError(messages.unreachable, 0);
   }
-  let body: { error?: unknown; field?: unknown } & Partial<T> = {};
+  let body: { error?: unknown; field?: unknown; code?: unknown } & Partial<T> = {};
   try {
     body = (await response.json()) as typeof body;
   } catch {
@@ -77,6 +78,7 @@ export async function officeRequest<T>(path: string, messages: OfficeRequestMess
       typeof body.error === 'string' ? body.error : `${messages.failed} (${response.status}).`,
       response.status,
       typeof body.field === 'string' ? body.field : null,
+      typeof body.code === 'string' ? body.code : null,
     );
   }
   const billingScope = response.headers.get('X-Billing-Scope');

@@ -23,6 +23,8 @@ export class OfficeRosterError extends Error {
     readonly field: string | null = null,
     /** Machine-readable cause from the server (`reason` on the error body) when it sent one. */
     readonly reason: string | null = null,
+    /** Billing routes use `code` for machine-readable conflicts. */
+    readonly code: string | null = null,
   ) {
     super(message);
     this.name = 'OfficeRosterError';
@@ -125,7 +127,7 @@ export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: 
     if (scope?.signal?.aborted) throw new OfficeRosterError(SESSION_CHANGED, 401);
     throw new OfficeRosterError(NETWORK_ERROR, 0);
   }
-  let json: { error?: unknown; field?: unknown; reason?: unknown } & Partial<T> = {};
+  let json: { error?: unknown; field?: unknown; reason?: unknown; code?: unknown } & Partial<T> = {};
   try {
     json = (await response.json()) as typeof json;
   } catch {
@@ -137,6 +139,7 @@ export async function officeBearerRequest<T>(method: OfficeRequestMethod, path: 
       response.status,
       typeof json.field === 'string' ? json.field : null,
       typeof json.reason === 'string' ? json.reason : null,
+      typeof json.code === 'string' ? json.code : null,
     );
   }
   const billingScope = response.headers.get('X-Billing-Scope');

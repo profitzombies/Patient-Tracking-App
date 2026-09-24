@@ -287,10 +287,15 @@ export interface BillingOfficeAccessSubscriptionRow extends TimestampedRow {
   grace_started_at: string | null; grace_ends_at: string | null; restricted_at: string | null;
   stripe_customer_id: string | null; setup_completed_at: string | null;
   bank_verification_deadline: string | null; last_attempt_at: string | null; version: number;
+  /** Null while `plan` is still its schema default — the office has not chosen. */
+  plan_selected_at: string | null;
+  disclosure_acknowledged_at: string | null; disclosure_acknowledged_by: string | null;
+  disclosure_version: number | null;
 }
 export interface BillingOfficeAccessInstrumentRow extends TimestampedRow {
   id: string; subscription_id: string; provider_id: string; slot: OfficeAccessSlot; kind: "bank" | "card";
-  stripe_payment_method_id: string; fingerprint: string | null; brand: string | null; last4: string | null;
+  stripe_payment_method_id: string; setup_intent_id: string | null;
+  fingerprint: string | null; brand: string | null; last4: string | null;
   exp_month: number | null; exp_year: number | null; bank_name: string | null;
   verification_status: "verified" | "pending" | "failed"; verification_deadline: string | null;
   removed_at: string | null;

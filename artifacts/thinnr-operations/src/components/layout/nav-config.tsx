@@ -52,6 +52,7 @@ export const OFFICE_PAYMENTS_SECTIONS = [
   { path: '/payments/subscriptions', label: 'Subscriptions' },
   { path: '/payments/payouts', label: 'Payouts' },
   { path: '/payments/links', label: 'Payment links' },
+  { path: '/payments/methods', label: 'Payment methods' },
   { path: '/payments/prices', label: 'Prices' },
   { path: '/payments/settings', label: 'Settings' },
 ] as const;

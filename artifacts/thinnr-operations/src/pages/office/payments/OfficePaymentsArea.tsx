@@ -79,6 +79,7 @@ import {
 import type { OfficeBillingStatus, OfficePrice, OfficeShippingSettings, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
 import NotFound from '@/pages/not-found';
+import PaymentMethods from '@/pages/PaymentMethods';
 
 import { Boundary, DemoNotice, demoPage, ErrorBox, Header, PAGE } from './shared';
 import { OfficeOverview } from './OfficeOverview';
@@ -1796,6 +1797,7 @@ export default function OfficePaymentsArea() {
   return (
     <Switch>
       <Route path="/get-paid" component={GetPaid} />
+      <Route path="/methods" component={PaymentMethods} />
       <Route path="/" component={OfficeOverview} />
       <Route path="/activity" component={OfficeActivity} />
       <Route path="/refunds" component={OfficeRefunds} />

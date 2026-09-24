@@ -2,6 +2,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { getBillingModeStatus } from "../billing/mode-state";
 import { currentBillingIdentity, type BillingIdentity, runWithBillingIdentity } from "../billing/stripe-environment";
 import { selectOne } from "../billing/store";
+import { accessGateSatisfied } from "../billing/office-access/setup";
 
 export async function readModeCompletion(providerId:string,identity:BillingIdentity) {
   const result=await supabaseAdmin("GET",`/rest/v1/practice_launch_completions?provider_id=eq.${encodeURIComponent(providerId)}&stripe_mode=eq.${identity.mode}&platform_account_id=eq.${encodeURIComponent(identity.platformAccountId)}&select=completed_at&limit=1`);
@@ -9,12 +10,22 @@ export async function readModeCompletion(providerId:string,identity:BillingIdent
   return result.json[0]?.completed_at as string|undefined;
 }
 
+/**
+ * Whether the office may use the workspace at all.
+ *
+ * Two independent arrangements must both be in place: the office can take
+ * money from its patients (its connected Stripe account, confirmed in the
+ * current billing identity) AND it has put its own money arrangements with
+ * THINNR on file (bank account, two distinct cards, plan, disclosure). Either
+ * one missing keeps the office on the setup screen.
+ */
 export async function operationalLaunchComplete(providerId:string) {
   const identity=currentBillingIdentity()??await getBillingModeStatus();
   const completed=await readModeCompletion(providerId,identity);
   if(!completed) return false;
   const account=await runWithBillingIdentity(identity,()=>selectOne("billing_connected_accounts",`provider_id=eq.${encodeURIComponent(providerId)}`));
-  return paymentLaunchState(account) === "ready";
+  if (paymentLaunchState(account) !== "ready") return false;
+  return runWithBillingIdentity(identity,()=>accessGateSatisfied(providerId));
 }
 
 export async function readLaunch(providerId: string) {
@@ -25,12 +36,16 @@ export async function readLaunch(providerId: string) {
   return result.json[0] as {required:boolean;version:number;details_confirmed:boolean;products_confirmed:boolean;completed_at:string|null};
 }
 
-/** Setup/security/help remain reachable while operational deep links fail closed. */
+/**
+ * Setup/security/help remain reachable while operational deep links fail
+ * closed. `/billing/office/access` is how an office gets THROUGH the gate — it
+ * carries the bank account, cards, plan and disclosure — so it is open too.
+ */
 export function isLaunchAllowedPath(url: string) {
   const path = url.split("?")[0].replace(/^\/api/, "");
   return /^\/office\/launch(?:\/|$)/.test(path)
     || /^\/(?:security|staff-session|auth|claim)(?:\/|$)/.test(path)
-    || /^\/billing\/office\/(?:status|connect)(?:\/|$)/.test(path);
+    || /^\/billing\/office\/(?:status|connect|access)(?:\/|$)/.test(path);
 }
 
 export function paymentLaunchState(account: {details_submitted:boolean;charges_enabled:boolean;payouts_enabled:boolean;requirements:Record<string,unknown>;disconnected_at?:string|null} | null) {

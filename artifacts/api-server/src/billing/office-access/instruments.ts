@@ -134,6 +134,7 @@ export async function attachAccessInstrument(input: AttachInput): Promise<Instru
     slot: input.slot,
     kind,
     stripe_payment_method_id: input.paymentMethodId,
+    setup_intent_id: input.setupIntentId ?? null,
     fingerprint,
     brand: kind === "card" ? method.card?.brand ?? null : null,
     last4: kind === "card" ? method.card?.last4 ?? null : method.us_bank_account?.last4 ?? null,

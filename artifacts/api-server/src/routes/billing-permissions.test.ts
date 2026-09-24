@@ -221,11 +221,25 @@ function officeRow(id: string, authUserId: string | null = null) {
     onboarding_code: null, access_disabled: false, auth_user_id: authUserId, email: "office@example.test", phone: null };
 }
 
+const ACCESS_SUBSCRIPTION = "access-sub-fixture";
+
 function serviceRows(url: URL): unknown[] {
   const table = url.pathname.split("/").at(-1);
   if (table === "practice_launch") return [{required:false,version:0,completed_at:null}];
   if (table === "practice_launch_completions") return launchConfirmed?[{completed_at:"2026-01-01"}]:[];
   if (table === "billing_connected_accounts") return [{charges_enabled:stripeReady,payouts_enabled:stripeReady,details_submitted:true,requirements:{}}];
+  // The office's own payment setup with THINNR is finished for this matrix:
+  // the permission outcomes below are about roles, not about the setup gate.
+  if (table === "billing_office_access_subscriptions") return [{
+    id: ACCESS_SUBSCRIPTION, provider_id: OFFICE_A, plan: "monthly", state: "included_period",
+    plan_selected_at: "2026-01-01T00:00:00.000Z", disclosure_acknowledged_at: "2026-01-01T00:00:00.000Z",
+    bank_verification_deadline: null, setup_completed_at: "2026-01-01T00:00:00.000Z",
+  }];
+  if (table === "billing_office_access_instruments") return ["bank","card_primary","card_backup"].map((slot) => ({
+    id: `instrument-${slot}`, subscription_id: ACCESS_SUBSCRIPTION, slot,
+    kind: slot === "bank" ? "bank" : "card", verification_status: "verified",
+    verification_deadline: null, removed_at: null,
+  }));
   if (table === "provider_account_locks" || table === "profiles") return [];
   if (table === "hq_memberships") {
     const user = url.searchParams.get("auth_user_id")?.replace("eq.", "");

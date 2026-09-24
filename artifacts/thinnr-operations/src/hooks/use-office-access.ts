@@ -9,6 +9,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { officeRequest } from '@/lib/office-api';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
+import { officeBilling } from '@/lib/billing-api';
+import type { OfficeAccessSlot } from '@/lib/billing-types';
 
 export interface OfficeAccessState {
   restricted: boolean;
@@ -42,6 +44,15 @@ export function officeAccessKey(user: string | null) {
   return ['office', 'access', user] as const;
 }
 
+/**
+ * The setup snapshot is a different question from the narrowed state: what the
+ * office still owes THINNR before it may use the workspace at all. HQ drill-ins
+ * name an office, so the key carries it.
+ */
+export function officeAccessSetupKey(user: string | null, office: string | null) {
+  return ['billing', 'office', 'access', 'setup', user, office] as const;
+}
+
 export function useOfficeAccess() {
   const scope = useLiveOfficeScope();
   return useQuery({
@@ -52,6 +63,40 @@ export function useOfficeAccess() {
     staleTime: 0,
     refetchInterval: 60_000,
   });
+}
+
+/** What the office still has to put in place before the workspace opens. */
+export function useOfficeAccessSetup() {
+  const scope = useLiveOfficeScope();
+  return useQuery({
+    queryKey: officeAccessSetupKey(scope.authUserId, scope.liveOffice),
+    queryFn: () => officeBilling.access(scope.liveOffice),
+    enabled: scope.liveEnabled,
+    staleTime: 0,
+  });
+}
+
+export function useOfficeAccessMutations() {
+  const scope = useLiveOfficeScope();
+  const client = useQueryClient();
+  const key = officeAccessSetupKey(scope.authUserId, scope.liveOffice);
+  const refresh = (data?: unknown) => {
+    const snapshot = data && typeof data === 'object' && 'setup' in data
+      ? (data as { setup: unknown }).setup : data;
+    if (snapshot) client.setQueryData(key, snapshot);
+    void client.invalidateQueries({ queryKey: key });
+    // Settling a balance can also lift a narrowed workspace.
+    void client.invalidateQueries({ queryKey: officeAccessKey(scope.authUserId) });
+    void client.invalidateQueries({ predicate: (query) => query.queryKey.includes('launch') });
+  };
+  return {
+    setupIntent: useMutation({ mutationFn: (slot: OfficeAccessSlot) => officeBilling.accessSetupIntent(slot, scope.liveOffice) }),
+    instrument: useMutation({ mutationFn: (body: { slot: OfficeAccessSlot; paymentMethodId: string; setupIntentId?: string }) => officeBilling.accessInstrument(body, scope.liveOffice), onSuccess: refresh }),
+    plan: useMutation({ mutationFn: (plan: 'monthly' | 'yearly') => officeBilling.accessPlan(plan, scope.liveOffice), onSuccess: refresh }),
+    disclosure: useMutation({ mutationFn: (version: number) => officeBilling.accessDisclosure(version, scope.liveOffice), onSuccess: refresh }),
+    bankVerify: useMutation({ mutationFn: () => officeBilling.accessBankVerify(scope.liveOffice), onSuccess: refresh }),
+    pay: useMutation({ mutationFn: () => officeBilling.accessPay(scope.liveOffice), onSuccess: refresh }),
+  };
 }
 
 /** Pay now. Any staff member may do this — nonpayment is not an owner-only problem. */

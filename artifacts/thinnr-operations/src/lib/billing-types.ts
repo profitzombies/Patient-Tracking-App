@@ -20,6 +20,53 @@ export type AccountOrigin = 'created' | 'oauth';
 export type DashboardType = 'none' | 'full' | 'express';
 export type OfficeRole = 'owner' | 'admin' | 'staff';
 
+export type OfficeAccessSlot = 'bank' | 'card_primary' | 'card_backup';
+export type OfficeAccessStepId = 'connect' | OfficeAccessSlot | 'plan' | 'disclosure';
+export type OfficeAccessStepStatus = 'done' | 'pending' | 'todo' | 'blocked';
+
+export interface OfficeAccessInstrument {
+  slot: OfficeAccessSlot;
+  kind: 'bank' | 'card';
+  brand: string | null;
+  last4: string;
+  expMonth: number | null;
+  expYear: number | null;
+  bankName: string | null;
+  verificationStatus: 'verified' | 'pending' | 'failed';
+  verificationDeadline: string | null;
+  addedAt: string;
+}
+
+export interface OfficeAccessSnapshot {
+  office: { providerId: string; officeName: string };
+  complete: boolean;
+  connectAlreadyDone: boolean;
+  steps: Array<{ id: OfficeAccessStepId; status: OfficeAccessStepStatus; detail: string | null }>;
+  connect: { state: 'not_started' | 'action_required' | 'pending' | 'ready'; sandbox: boolean };
+  instruments: OfficeAccessInstrument[];
+  plan: {
+    selected: 'monthly' | 'yearly' | null;
+    monthlyPriceCents: number;
+    yearlyPriceCents: number;
+    priceCents: number;
+    firstChargeAt: string | null;
+    includedPeriodDays: number;
+    nextPeriodEndsAt: string | null;
+  };
+  disclosure: { text: string; version: number; acknowledgedAt: string | null };
+  bank: { verificationPending: boolean; deadline: string | null; overdue: boolean; windowHours: number; verificationUrl: string | null };
+  balance: { state: 'setup_incomplete' | 'included_period' | 'paid_current' | 'past_due' | 'restricted'; outstanding: boolean; amountCents: number; graceEndsAt: string | null };
+  canManage: boolean;
+  canChoosePlan: boolean;
+}
+
+export interface OfficeAccessSetupIntent {
+  clientSecret: string;
+  setupIntentId: string;
+  publishableKey: string;
+  slot: OfficeAccessSlot;
+}
+
 export interface AiCostTotals {
   calls: number;
   ok_calls: number;
@@ -790,7 +837,6 @@ export interface HqProviderDetail {
 
 export type OfficeAccessState = 'setup_incomplete' | 'included_period' | 'paid_current' | 'past_due' | 'restricted';
 export type OfficeAccessPlan = 'monthly' | 'yearly';
-export type OfficeAccessSlot = 'bank' | 'card_primary' | 'card_backup';
 export type PaidThroughSource = 'stripe' | 'offline' | 'hq_migration';
 
 /**
@@ -851,7 +897,7 @@ export interface OfficeAccessBoard {
   trialEndingSoonDays: number;
 }
 
-export interface OfficeAccessInstrument {
+export interface OfficeAccessInstrumentRow {
   id: string;
   slot: OfficeAccessSlot;
   kind: 'bank' | 'card';
@@ -903,7 +949,7 @@ export interface OfficeAccessDetail {
     bankVerificationDeadline: string | null;
     bankVerificationOverdue: boolean;
   } | null;
-  instruments: OfficeAccessInstrument[];
+  instruments: OfficeAccessInstrumentRow[];
   attempts: OfficeAccessAttempt[];
   history: OfficeAccessHistoryEntry[];
   policy: OfficeAccessPolicy;

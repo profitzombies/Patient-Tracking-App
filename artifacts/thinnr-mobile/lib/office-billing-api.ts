@@ -44,6 +44,11 @@ import type {
   SubscriptionChangeQuote,
   SubscriptionRow,
 } from '@/lib/office-billing-types';
+import type {
+  OfficeAccessSetupIntent,
+  OfficeAccessSlot,
+  OfficeAccessSnapshot,
+} from '@/lib/office-access-types';
 
 export { OfficeRosterError as OfficeBillingError };
 
@@ -85,6 +90,18 @@ function request<T>(
 const enc = encodeURIComponent;
 
 export const officeBilling = {
+  access: (scope: BillingScope) =>
+    request<OfficeAccessSnapshot>('GET', `${OFFICE}/access`, scope),
+  accessSetupIntent: (slot: OfficeAccessSlot, scope: BillingScope) =>
+    request<OfficeAccessSetupIntent>('POST', `${OFFICE}/access/setup-intent`, scope, { slot }),
+  accessInstrument: (
+    body: { slot: OfficeAccessSlot; paymentMethodId: string; setupIntentId?: string },
+    scope: BillingScope,
+  ) => request<OfficeAccessSnapshot>('POST', `${OFFICE}/access/instruments`, scope, body),
+  accessVerifyBank: (scope: BillingScope) =>
+    request<{ verified: boolean; setup: OfficeAccessSnapshot }>('POST', `${OFFICE}/access/bank/verify`, scope, {}),
+  accessPay: (scope: BillingScope) =>
+    request<{ status: string; setup: OfficeAccessSnapshot }>('POST', `${OFFICE}/access/pay`, scope, {}),
   status: (scope: BillingScope) => request<OfficeBillingStatus>('GET', `${OFFICE}/status`, scope),
   createAccount: (scope: BillingScope) => request<{ account: ConnectedAccount }>('POST', `${OFFICE}/connect/create`, scope, {}),
   oauthStart: (scope: BillingScope) => request<{ url: string }>('GET', `${OFFICE}/connect/oauth/start`, scope),

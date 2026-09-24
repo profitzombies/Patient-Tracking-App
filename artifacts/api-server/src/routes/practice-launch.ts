@@ -9,6 +9,7 @@ import { syncAccount } from "../billing/accounts";
 import { AccountInput } from "./provider-accounts";
 import { getLaunchProducts, saveLaunchProducts, LaunchProductsError } from "../practice-launch/products";
 import { paymentLaunchState, readLaunch, readModeCompletion } from "../practice-launch/state";
+import { accessGateFacts } from "../billing/office-access/setup";
 import { currentSecondFactorPolicy, loadStaffSecondFactor, secondFactorRequiredByPolicy } from "../auth/second-factor";
 
 const router: IRouter = Router();
@@ -21,7 +22,7 @@ async function rpc(name:string, body:Record<string,unknown>) {
 }
 async function snapshot(scope:OfficeScope) {
   const identity=currentBillingIdentity()!;
-  const [launch,provider,account,products,receipts,policy,factor,modeCompletion] = await Promise.all([
+  const [launch,provider,account,products,receipts,policy,factor,modeCompletion,access] = await Promise.all([
     readLaunch(scope.providerId),
     supabaseAdmin("GET", `/rest/v1/providers?provider_id=eq.${enc(scope.providerId)}&select=office_name,provider_name,email,phone,address_line_1,address_line_2,city,state,postal_code&limit=1`),
     selectOne("billing_connected_accounts", `provider_id=eq.${enc(scope.providerId)}`),
@@ -30,6 +31,7 @@ async function snapshot(scope:OfficeScope) {
     currentSecondFactorPolicy(),
     scope.actorKind==="hq" ? Promise.resolve(null) : loadStaffSecondFactor(scope.actorKind,scope.teamMemberId??scope.providerId),
     readModeCompletion(scope.providerId,identity),
+    accessGateFacts(scope.providerId),
   ]);
   if (provider.status >= 300 || receipts.status>=300 || !provider.json?.[0]) throw new Error("Practice details unavailable.");
   const securityReady=scope.actorKind==="hq" || !secondFactorRequiredByPolicy(policy,{class:scope.actorKind,officeRole:scope.officeRole}) || Boolean(factor?.verifiedAt);
@@ -39,7 +41,19 @@ async function snapshot(scope:OfficeScope) {
     billingScope:`${identity.mode}:${identity.platformAccountId}`,
     required:true,fullSetupRequired:launch.required,version:launch.version,detailsConfirmed:launch.details_confirmed,
     productsConfirmed:launch.products_confirmed&&receipts.json.length>0,
-    completedAt:paymentLaunchState(account)==="ready" ? modeCompletion??null : null,
+    // Setup is only complete when BOTH directions of money are arranged: the
+    // office can charge its patients (connected account) and THINNR can charge
+    // the office (bank account, two cards, plan, disclosure).
+    completedAt:paymentLaunchState(account)==="ready" && access.satisfied ? modeCompletion??null : null,
+    accessSetup:{
+      complete:access.satisfied,
+      missing:access.status.missing,
+      planSelected:access.planSelected,
+      disclosureAcknowledged:access.disclosureAcknowledged,
+      bankVerificationPending:access.status.bankVerificationPending,
+      bankVerificationDeadline:access.status.bankVerificationDeadline,
+      bankVerificationOverdue:access.status.bankVerificationOverdue,
+    },
     details:{officeName:row.office_name??"",providerName:row.provider_name??"",email:row.email??"",phone:row.phone??"",address1:row.address_line_1??"",address2:row.address_line_2??"",city:row.city??"",state:row.state??"",postalCode:row.postal_code??""},
     security:{ready:securityReady},payments:{state:paymentLaunchState(account),sandbox:identity.mode !== "live"},
     products,
@@ -82,6 +96,9 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
        if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
        if (state.payments.state!=="ready") throw new LaunchProductsError("Stripe must enable both charges and payouts before setup can be confirmed.");
+       if (!state.accessSetup.complete) throw new LaunchProductsError(state.accessSetup.bankVerificationOverdue
+         ? "Your bank account was not verified in time. Verify it or add a different account before finishing setup."
+         : "Add your bank account, both credit cards, a billing plan and accept the access terms before finishing setup.");
       const identity=currentBillingIdentity()!;
       await rpc("complete_practice_launch",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_stripe_mode:identity.mode,p_platform_account_id:identity.platformAccountId});
     }

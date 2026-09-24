@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.system-health.json",
+  "compilerOptions": {
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/contexts/provider-scope": ["./scripts/a11y-stubs/provider-scope.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/billing/ConnectEmbed": ["./scripts/a11y-stubs/connect-embed.tsx"],
+      "@stripe/react-stripe-js": ["./scripts/a11y-stubs/stripe-react.tsx"],
+      "@stripe/stripe-js": ["./scripts/a11y-stubs/stripe-js.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

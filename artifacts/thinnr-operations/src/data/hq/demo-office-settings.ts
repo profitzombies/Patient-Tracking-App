@@ -38,6 +38,12 @@ export function demoOfficeSettings(): OfficeSettingsDto {
       gracePeriodDays: 7,
       normalSharePercent: 60,
       restrictedSharePercent: 80,
+      disclosureText:
+        'THINNR charges your practice an access fee for the provider dashboard and the provider mobile app. ' +
+        'We keep a bank account and two credit cards on file and charge the bank account first; if it fails we try your cards. ' +
+        'Your included period is free — the first access charge lands the day it ends, at the price shown above. ' +
+        'If an access payment lapses and stays unpaid through the recovery window, your practice keeps operating but THINNR’s share of each patient payment increases until the balance is settled. ' +
+        'You can change cards, re-verify your bank account, or pay a balance at any time from Payment methods.',
     },
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',

@@ -41,6 +41,8 @@ export const POLICY_BOUNDS = {
   accessIncludedPeriodDays: { min: 0, max: 1095 },
   accessGracePeriodDays: { min: 1, max: 30 },
   accessSharePercent: { min: 0, max: 100 },
+  /** The access-fee disclosure an office acknowledges during payment setup. */
+  accessDisclosureText: { min: 40, max: 4000 },
 } as const;
 
 export type PolicySectionKey = keyof HqOrganizationSettings['sections'];

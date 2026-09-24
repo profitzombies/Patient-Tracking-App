@@ -2,7 +2,10 @@ import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { beforeAll,afterAll,beforeEach,describe,it,expect,vi } from "vitest";
-const m=vi.hoisted(()=>({scope:vi.fn(),admin:vi.fn(),account:vi.fn(),sync:vi.fn(),products:vi.fn(),save:vi.fn(),launch:vi.fn(),completion:vi.fn(),factor:vi.fn(),policy:vi.fn(),mode:vi.fn()}));
+const m=vi.hoisted(()=>({scope:vi.fn(),admin:vi.fn(),account:vi.fn(),sync:vi.fn(),products:vi.fn(),save:vi.fn(),launch:vi.fn(),completion:vi.fn(),factor:vi.fn(),policy:vi.fn(),mode:vi.fn(),access:vi.fn()}));
+// The office's OWN payment setup with THINNR is a separate surface; this
+// suite only cares that the launch snapshot reflects its verdict.
+vi.mock("../billing/office-access/setup",()=>({accessGateFacts:m.access}));
 vi.mock("../auth/office-scope",()=>({resolveOfficeScope:m.scope}));
 vi.mock("../lib/supabase-admin",()=>({supabaseAdmin:m.admin}));
 vi.mock("../billing/mode-state",()=>({getBillingModeStatus:m.mode}));
@@ -35,6 +38,7 @@ beforeEach(()=>{
  m.sync.mockResolvedValue({});
  m.products.mockResolvedValue([product]);m.save.mockResolvedValue({version:3});
  m.policy.mockResolvedValue({allStaff:false});m.factor.mockResolvedValue(null);
+ m.access.mockResolvedValue({satisfied:true,planSelected:true,disclosureAcknowledged:true,status:{missing:[],bankVerificationPending:false,bankVerificationDeadline:null,bankVerificationOverdue:false}});
  m.admin.mockImplementation(async(method:string,path:string)=>{
    if(path.includes("practice_launch_product_receipts")) return {status:200,json:[{expected_version:1}]};
    if(path.includes("/providers?")) return {status:200,json:[{office_name:"A",provider_name:"Owner",email:"owner@example.com"}]};

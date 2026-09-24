@@ -30,7 +30,7 @@ import type {
   OfficeAccessAttempt,
   OfficeAccessDetail,
   OfficeAccessHistoryEntry,
-  OfficeAccessInstrument,
+  OfficeAccessInstrumentRow,
 } from '@/lib/billing-types';
 import { AccessActionDialog, type AccessActionKind } from './AccessActions';
 
@@ -82,7 +82,7 @@ function ActionButton({ label, testId, onClick }: { label: string; testId: strin
   );
 }
 
-function Instruments({ instruments, setup }: { instruments: OfficeAccessInstrument[]; setup: OfficeAccessDetail['setup'] }) {
+function Instruments({ instruments, setup }: { instruments: OfficeAccessInstrumentRow[]; setup: OfficeAccessDetail['setup'] }) {
   const live = instruments.filter((instrument) => !instrument.removedAt);
   if (!live.length) {
     return (

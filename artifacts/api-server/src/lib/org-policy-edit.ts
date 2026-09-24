@@ -8,6 +8,7 @@ import type { z } from "zod";
 import { COLD_ARCHIVE_NOT_CONFIGURED, coldArchiveConfigured } from "./cold-archive";
 import { supabaseAdmin } from "./supabase-admin";
 import {
+  ACCESS_DISCLOSURE_BOUNDS,
   APP_STORE_URL_RE,
   CLOCK_RE,
   EMAIL_RE,
@@ -132,6 +133,13 @@ export function mergePolicyInput(
     next.escalationEmail = email.value;
   }
   if (input.defaultCategories !== undefined) next.defaultCategories = { ...input.defaultCategories };
+  if (input.accessBilling?.disclosureText !== undefined) {
+    const disclosure = input.accessBilling.disclosureText.trim();
+    if (disclosure.length < ACCESS_DISCLOSURE_BOUNDS.min || disclosure.length > ACCESS_DISCLOSURE_BOUNDS.max) {
+      return fail(`The access disclosure must be between ${ACCESS_DISCLOSURE_BOUNDS.min} and ${ACCESS_DISCLOSURE_BOUNDS.max} characters.`);
+    }
+    next.accessBilling.disclosureText = disclosure;
+  }
   if (input.coldArchiveEnabled !== undefined) {
     // Turning the archive on needs somewhere to write: the storage prefix is
     // an environment knob, so the toggle refuses until it is set. Turning it

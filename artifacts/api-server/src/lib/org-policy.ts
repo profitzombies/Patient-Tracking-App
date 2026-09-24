@@ -82,6 +82,12 @@ export interface AccessBillingPolicy {
   normalSharePercent: number;
   /** THINNR's share of a patient payment while the office is restricted. */
   restrictedSharePercent: number;
+  /**
+   * The plain-language access-fee terms an office acknowledges during setup.
+   * HQ owns this wording; the setup gate renders whatever is stored here and
+   * never carries its own copy of it.
+   */
+  disclosureText: string;
 }
 export interface OrgPolicy {
   organizationName: string;
@@ -204,6 +210,21 @@ export const POLICY_BOUNDS = {
 
 /** Idle-timeout bounds shared by both HQ values and the office override. */
 export const IDLE_TIMEOUT_BOUNDS = POLICY_BOUNDS.staffIdleTimeoutMinutes;
+
+/** Inclusive length bounds for the HQ-authored access-fee disclosure. */
+export const ACCESS_DISCLOSURE_BOUNDS = { min: 40, max: 4000 } as const;
+/**
+ * The wording an office is shown during setup when HQ has not replaced it.
+ * It must stay in step with the schema default in
+ * supabase/migrations/20261126000000_office_access_setup_gate.sql.
+ */
+export const DEFAULT_ACCESS_DISCLOSURE =
+  "THINNR charges your practice an access fee for the provider dashboard and the provider mobile app. " +
+  "We keep a bank account and two credit cards on file and charge the bank account first; if it fails we try your cards. " +
+  "Your included period is free — the first access charge lands the day it ends, at the price shown above. " +
+  "If an access payment lapses and stays unpaid through the recovery window, your practice keeps operating but THINNR's share of each patient payment increases until the balance is settled. " +
+  "You can change cards, re-verify your bank account, or pay a balance at any time from Payment methods.";
+
 export const DEFAULT_ORG_POLICY: OrgPolicy = {
   organizationName: "THINNR",
   supportEmail: null,
@@ -240,6 +261,7 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
     gracePeriodDays: 7,
     normalSharePercent: 60,
     restrictedSharePercent: 80,
+    disclosureText: DEFAULT_ACCESS_DISCLOSURE,
   },
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
@@ -262,7 +284,7 @@ export const SETTINGS_SELECT =
   "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled," +
   "second_factor_hq_users,second_factor_office_managers,second_factor_all_staff,section_changes," +
   "access_monthly_price_cents,access_yearly_price_cents,access_included_period_days,access_grace_period_days," +
-  "access_share_normal_percent,access_share_restricted_percent";
+  "access_share_normal_percent,access_share_restricted_percent,access_disclosure_text";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -327,6 +349,7 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       gracePeriodDays: int(row.access_grace_period_days, d.accessBilling.gracePeriodDays),
       normalSharePercent: int(row.access_share_normal_percent, d.accessBilling.normalSharePercent),
       restrictedSharePercent: int(row.access_share_restricted_percent, d.accessBilling.restrictedSharePercent),
+      disclosureText: text(row.access_disclosure_text) ?? d.accessBilling.disclosureText,
     },
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
@@ -392,6 +415,7 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     access_grace_period_days: policy.accessBilling.gracePeriodDays,
     access_share_normal_percent: policy.accessBilling.normalSharePercent,
     access_share_restricted_percent: policy.accessBilling.restrictedSharePercent,
+    access_disclosure_text: policy.accessBilling.disclosureText,
   };
 }
 
@@ -573,3 +597,5 @@ export async function loadAllOfficeOverrides(): Promise<Map<string, OfficeOverri
 export const GOOGLE_PLAY_URL_RE = /^https:\/\/play\.google\.com\/store\/apps\/details\?/;
 
 export const STORE_URL_MAX = 500;
+
+

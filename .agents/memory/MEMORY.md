@@ -89,6 +89,7 @@
 - [Private document platforms](private-document-platforms.md) — native image requests need absolute URLs; Expo legacy filesystem types do not imply web support; test each platform's real boundary.
 - [Untrusted PDF processing](untrusted-pdf-processing.md) — raster dimensions do not bound embedded decoding; isolate native parsing and verify the emitted production worker, not only source tests.
 - [FatSecret permission gates](fatsecret-evaluation-permissions.md) — Basic caching and advice rights cannot be inferred from keys or the 24-hour rule; verify actual standard-method access without extra scopes.
+- [Synthetic billing sample data](synthetic-billing-seed.md) — hand-written sandbox rows must copy the fee module (not old rows), scope identity, ship closed subscriptions and a null-safe removal script.
 - [Billing topic directory](billing-topic-directory.md) — grouped Stripe, payments, checkout, sales, email, and billing-state lessons; see original topic pages for details.
 - [xmldom security overrides](xmldom-security-overrides.md) — pin patched xmldom releases by parent major; a global latest override breaks consumers that rely on the 0.8 parser contract.
 - [UTC instants on staff screens](utc-instant-display.md) — never slice server ISO timestamps for the date on live screens; format in device tz; live greetings follow the local hour, demo stays anchored.

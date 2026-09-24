@@ -148,6 +148,21 @@ assert.match(text(result.root.toJSON()), /Your practice owner completes setup/);
 assert.equal(button(result.root, 'Use suggested setup'), undefined);
 await dispose(result.root, result.client);
 
+// HQ inspecting an office reads the workspace it came to see; only the office
+// itself is held at the setup screen.
+snapshot = { ...structuredClone(state), canEdit: false, hqInspection: true } as LaunchState;
+result = await render('/patients');
+assert.equal(mounted, 1, 'HQ inspection is never forced through the office setup');
+await dispose(result.root, result.client);
+mounted = 0;
+
+// An HQ setup override opens the workspace for the office itself.
+snapshot = { ...structuredClone(state), completedAt: '2026-02-01T00:00:00Z', setupOverride: { active: true, at: '2026-02-01T00:00:00Z', note: 'Demo account' } } as LaunchState;
+result = await render('/patients');
+assert.equal(mounted, 1, 'an overridden office reaches the workspace');
+await dispose(result.root, result.client);
+mounted = 0;
+
 // Same-tick duplicate submits are serialized, not merely visually disabled.
 let write: ReturnType<typeof useLaunchWrite>;
 function Probe() { write = useLaunchWrite('complete'); return null; }
@@ -179,6 +194,17 @@ await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20));
 const regateCall = calls.find(c => c.url.includes('/regate'))!;
 assert.equal(regateCall.method, 'POST');
 assert.equal(regateCall.body.expectedVersion, snapshot.version - 1);
+
+// HQ setup override: one office is waived deliberately, with its own version check.
+await act(async () => { button(hqRoot, 'Override setup').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+await act(async () => { button(hqRoot, 'Turn on override').props.onClick(); });
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+const overrideCall = calls.find(c => c.url.includes('/override'))!;
+assert.equal(overrideCall.method, 'POST');
+assert.match(overrideCall.url, /office=fixture/);
+assert.equal(overrideCall.body.enabled, true);
+assert.equal(overrideCall.body.expectedVersion, snapshot.version - 1);
 await dispose(hqRoot, hqClient);
 
 

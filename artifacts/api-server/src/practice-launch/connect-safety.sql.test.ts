@@ -35,6 +35,7 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
       insert into billing_connected_accounts(provider_id,stripe_account_id,stripe_mode,stripe_platform_account_id) select provider_id,'acct_'||provider_id,'test','acct_platform' from providers where provider_id<>'mode';`);
     sql(readFileSync(new URL("../../../../supabase/migrations/20261114000000_mandatory_connect_safe_restart.sql",import.meta.url),"utf8"));
     sql(readFileSync(new URL("../../../../supabase/migrations/20261116010000_connect_guard_implicit_mode_default.sql",import.meta.url),"utf8"));
+    sql(readFileSync(new URL("../../../../supabase/migrations/20261127000000_practice_launch_hq_override.sql",import.meta.url),"utf8"));
   },60000);
   afterAll(()=>{if(dir){spawnSync("pg_ctl",["-D",`${dir}/data`,"-m","immediate","stop"],{stdio:"ignore"});rmSync(dir,{recursive:true,force:true});}});
   it("legacy cannot complete pending Stripe, but can complete ready without product review",()=>{
@@ -51,6 +52,22 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
     sql("update billing_connected_accounts set last_synced_at=clock_timestamp() where provider_id='legacy'");
     expect(()=>sql("select complete_practice_launch('legacy',1,'test','acct_platform')")).toThrow();
     sql("select complete_practice_launch('legacy',2,'test','acct_platform')");
+  });
+  it("HQ waiver opens the gate, refuses stale callers, and dies when setup is required again",()=>{
+    sql("insert into providers values('waived');insert into practice_launch(provider_id,required) values('waived',true)");
+    const row=()=>sql("select version||':'||coalesce(setup_override_note,'-')||':'||(setup_override_at is not null) from practice_launch where provider_id='waived'");
+    // A caller working from an out-of-date snapshot never lands, even when it
+    // asks for the state the row is already in.
+    expect(()=>sql(`select set_practice_launch_override('waived',7,'${token}',false,null)`)).toThrow();
+    sql(`select set_practice_launch_override('waived',0,'${token}',true,'  Demo account ')`);
+    expect(row()).toBe("1:Demo account:true");
+    // Repeating the same request from a current snapshot changes nothing.
+    sql(`select set_practice_launch_override('waived',1,'${token}',true,'Demo account')`);
+    expect(row()).toBe("1:Demo account:true");
+    // Requiring setup again must actually close the gate.
+    sql(`select regate_practice_launch('waived',1,'${token}')`);
+    expect(row()).toBe("2:-:false");
+    expect(()=>sql(`set role authenticated;select set_practice_launch_override('waived',2,'${token}',true,null)`)).toThrow();
   });
   it("restart archives identity and invalidates stale callback generations",()=>{
     sql(guard("restart","restart_claim",`,null,'${token}'`));

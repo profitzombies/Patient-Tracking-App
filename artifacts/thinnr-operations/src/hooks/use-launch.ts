@@ -11,9 +11,13 @@ export interface LaunchProduct {
 export interface LaunchState {
   billingScope: string;
   office: { providerId: string; officeName: string }; canEdit: boolean; required: boolean; fullSetupRequired: boolean;
+  /** HQ is inspecting this office; it reads the setup screen but is never held at it. */
+  hqInspection?: boolean;
   version: number; detailsConfirmed: boolean; productsConfirmed: boolean; completedAt: string | null;
   details: { officeName: string; providerName: string; email: string; phone: string; address1: string; address2: string; city: string; state: string; postalCode: string };
   security: { ready: boolean };
+  /** HQ waived the gate for this office; the fields above still report reality. */
+  setupOverride?: { active: boolean; at: string | null; note: string | null };
   payments: { state: 'not_started' | 'action_required' | 'pending' | 'ready'; sandbox: boolean };
   products: LaunchProduct[];
 }

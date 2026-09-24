@@ -20,6 +20,10 @@ export async function readModeCompletion(providerId:string,identity:BillingIdent
  * one missing keeps the office on the setup screen.
  */
 export async function operationalLaunchComplete(providerId:string) {
+  // HQ can deliberately waive the gate for one office (demonstration and
+  // support accounts can never connect real money). The waiver lives on the
+  // launch row; removing it puts the real gate straight back.
+  if ((await readLaunch(providerId)).setup_override_at) return true;
   const identity=currentBillingIdentity()??await getBillingModeStatus();
   const completed=await readModeCompletion(providerId,identity);
   if(!completed) return false;
@@ -33,7 +37,7 @@ export async function readLaunch(providerId: string) {
   if (result.status >= 300 || !Array.isArray(result.json) || !result.json[0]) {
     throw new Error("Practice setup is unavailable.");
   }
-  return result.json[0] as {required:boolean;version:number;details_confirmed:boolean;products_confirmed:boolean;completed_at:string|null};
+  return result.json[0] as {required:boolean;version:number;details_confirmed:boolean;products_confirmed:boolean;completed_at:string|null;setup_override_at?:string|null;setup_override_note?:string|null};
 }
 
 /**

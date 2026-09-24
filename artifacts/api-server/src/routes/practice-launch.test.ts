@@ -124,6 +124,26 @@ describe("practice launch HTTP boundary",()=>{
    expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/regate_practice_launch",expect.objectContaining({p_expected_version:2,p_provider_id:"office-a"}));
    expect(m.sync).not.toHaveBeenCalled();
  });
+ it.each(["provider","team_member"])("does not let %s waive its own setup gate",async actorKind=>{
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind}});
+   expect((await call("POST","/override",{expectedVersion:2,enabled:true})).status).toBe(403);
+   expect(m.admin).not.toHaveBeenCalled();
+ });
+ it("HQ waives the gate with provider_manage and the snapshot keeps reporting reality",async()=>{
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"hq"}});
+   m.launch.mockResolvedValue({required:true,version:2,details_confirmed:true,products_confirmed:true,completed_at:null,setup_override_at:"2026-02-01T00:00:00Z",setup_override_note:"Demo account"});
+   const res=await call("POST","/override?office=office-a",{expectedVersion:2,enabled:true,note:"Demo account"});
+   expect(res.status).toBe(200);
+   expect(m.scope).toHaveBeenCalledWith(expect.objectContaining({hqPermission:"provider_manage"}));
+   expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/set_practice_launch_override",{p_provider_id:"office-a",p_expected_version:2,p_actor:"owner-a",p_enabled:true,p_note:"Demo account"});
+   // Waiving opens the workspace; it never claims Stripe or the office's own
+   // payment setup is done.
+   expect(await res.json()).toMatchObject({completedAt:"2026-02-01T00:00:00Z",setupOverride:{active:true,note:"Demo account"},payments:{state:"pending"}});
+   expect(m.sync).not.toHaveBeenCalled();
+ });
+ it("reports no waiver when HQ has not granted one",async()=>{
+   expect(await(await call("GET")).json()).toMatchObject({setupOverride:{active:false,at:null,note:null},completedAt:null});
+ });
  it("does not accept another mode's product confirmation or conceal storage failures",async()=>{
    const original=m.admin.getMockImplementation()!;
    m.admin.mockImplementation(async(method:string,path:string,...args:unknown[])=>path.includes("practice_launch_product_receipts") ? {status:200,json:[]} : original(method,path,...args));

@@ -22,7 +22,10 @@ Owner-only:
 
 Products and complete MUST send `X-Billing-Scope` matching snapshot; absent/mismatched header returns 409. All launch writes return full snapshot.
 
+`setupOverride:{active,at,note}` reports an HQ waiver of the gate. While active, `completedAt` is the waiver timestamp and the office reaches the workspace; every other field still reports what is actually missing, and no payment action becomes possible without real Stripe credentials. HQ inspecting another office reports `hqInspection:true`; it reads this screen but is never held behind the gate. Office staff are.
+
 HQ only (`provider_manage`):
+- POST `/office/launch/override?office=<id>`: `{expectedVersion,enabled,note?}`. Grants or removes the waiver; office callers are refused. Repeating the current state is a no-op; a stale version returns 409. Confirmations, Stripe state, and financial history are untouched, so removing the waiver restores the real gate exactly.
 - POST `/office/launch/regate?office=<id>`: `{expectedVersion}`. Invalidates ALL identity confirmations; returns snapshot. Preserves Stripe account, details/products, and financial history. Owner must reconfirm after fresh Stripe sync. This is NOT a connection replacement.
 
 Owner only:

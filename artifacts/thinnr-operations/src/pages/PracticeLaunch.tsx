@@ -28,7 +28,11 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
     {query.isError && <p role="alert" className="text-sm text-destructive">{query.error instanceof Error ? query.error.message : 'Try again to continue safely.'}</p>}
     <div className="flex gap-3"><button className={`${BTN_SECONDARY} h-10 px-4`} onClick={refresh}>Try again</button><button className={`${BTN_SECONDARY} h-10 px-4`} onClick={signOut}>Sign out</button></div>
   </div>;
-  const incomplete = data.required && !data.completedAt;
+  // HQ looking into an office is never held at that office's setup screen: it
+  // cannot confirm anything here (every write is owner-only), so the gate would
+  // only hide the account it came to inspect. Office staff stay behind it —
+  // `hqInspection` is the server's word for the caller, not a client guess.
+  const incomplete = data.required && !data.completedAt && !data.hqInspection;
   const isSetup = location === '/setup';
   const isHelp = location === '/help';
   const showTools = isSetup || isHelp || location === '/settings' || incomplete;

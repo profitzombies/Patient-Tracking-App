@@ -121,6 +121,125 @@ function RegateAccount({ account }: { account: ProviderAccount }) {
   );
 }
 
+/**
+ * HQ waiver of an office's setup gate.
+ *
+ * Demonstration and support offices can never finish the real arrangement
+ * (a live Stripe connection plus their own bank/cards/plan with THINNR), so
+ * HQ can open the workspace for one office deliberately. Nothing the office
+ * already confirmed is touched: removing the waiver restores the real gate,
+ * and the setup screen keeps reporting exactly what is still missing.
+ */
+function SetupOverride({ account }: { account: ProviderAccount }) {
+  const { toast } = useToast();
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState('');
+
+  const launchQuery = useQuery({
+    queryKey: ['office', 'launch', null, account.id],
+    queryFn: () => officeRequest<{ version: number; setupOverride?: { active: boolean; at: string | null; note: string | null } }>(
+      `/api/office/launch?office=${account.id}`,
+      { unconfigured: '', signedOut: '', unreachable: 'Could not load setup status.', failed: '' },
+    ),
+  });
+  const active = launchQuery.data?.setupOverride?.active ?? false;
+  const since = launchQuery.data?.setupOverride?.at;
+
+  const override = useMutation({
+    mutationFn: (input: { version: number; enabled: boolean; note?: string }) => officeRequest(
+      `/api/office/launch/override?office=${account.id}`,
+      { unconfigured: '', signedOut: '', unreachable: 'Could not reach server.', failed: 'Could not change the setup override.' },
+      { method: 'POST', body: JSON.stringify({ expectedVersion: input.version, enabled: input.enabled, ...(input.note ? { note: input.note } : {}) }) },
+    ),
+    onSuccess: (_result, input) => {
+      setOpen(false);
+      setNote('');
+      void client.invalidateQueries({ queryKey: ['office', 'launch'] });
+      toast({
+        variant: 'success',
+        title: input.enabled ? 'Setup override on' : 'Setup override removed',
+        description: input.enabled
+          ? 'This office can use the workspace without finishing payment setup.'
+          : 'This office must finish payment setup again before using the workspace.',
+      });
+    },
+    onError: (error) => {
+      toast({ variant: 'destructive', title: 'Could not change the setup override', description: error instanceof Error ? error.message : 'Please try again.' });
+    },
+  });
+
+  const version = launchQuery.data?.version;
+  const busy = override.isPending || launchQuery.isPending || launchQuery.isError;
+
+  return (
+    <div className="border-t border-border pt-4">
+      <h4 className="mb-2 text-xs font-semibold text-navy">Setup override</h4>
+      <p className="mb-4 max-w-[68ch] text-xs leading-relaxed text-muted-foreground">
+        Lets this office into the workspace without a finished Stripe connection or THINNR payment setup — for
+        demonstration and support accounts. Charges still need real Stripe credentials; nothing already confirmed
+        is changed, and removing the override puts the normal gate straight back.
+      </p>
+      {launchQuery.isError && (
+        <p role="alert" className="mb-3 text-xs text-destructive">Setup status could not be loaded, so the override cannot be changed right now.</p>
+      )}
+      {active && (
+        <p className="mb-3 text-xs text-foreground" data-testid="text-setup-override-active">
+          Override active{since ? ` since ${new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
+          {launchQuery.data?.setupOverride?.note ? ` — ${launchQuery.data.setupOverride.note}` : ''}
+        </p>
+      )}
+      <button
+        type="button"
+        className={`${BTN_SECONDARY} h-8 px-3 text-[11px]`}
+        data-testid="button-setup-override"
+        onClick={() => (active ? version !== undefined && override.mutate({ version, enabled: false }) : setOpen(true))}
+        disabled={busy}
+      >
+        {active ? 'Remove override' : 'Override setup'}
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-navy">Override setup for {account.officeName}?</DialogTitle>
+            <DialogDescription>
+              {account.officeName} will reach the full office workspace immediately, with payment setup still unfinished.
+              Their setup screen keeps showing what is missing, and any payment action still needs real Stripe credentials.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <label className={MICRO_LABEL} htmlFor="setup-override-note">Reason (optional)</label>
+            <input
+              id="setup-override-note"
+              className={`${INPUT_CLASS} mt-1`}
+              value={note}
+              maxLength={280}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="Demo account"
+              data-testid="input-setup-override-note"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button type="button" className={`${BTN_SECONDARY} h-9 px-3.5`} onClick={() => setOpen(false)} disabled={override.isPending}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className={`${BTN_PRIMARY} h-9 px-4`}
+              data-testid="button-setup-override-confirm"
+              onClick={() => version !== undefined && override.mutate({ version, enabled: true, note: note.trim() })}
+              disabled={busy}
+            >
+              {override.isPending ? 'Saving…' : 'Turn on override'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
 
 const fmt = (value: number) => value.toLocaleString('en-US');
@@ -565,6 +684,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
         <OfficeOffboarding officeId={account.id} />
         <OfficeBundleExport officeId={account.id} officeName={account.officeName} />
         <LegalHoldControls targetKind="provider" targetId={account.id} providerId={account.id} label={account.officeName} />
+        {canManageProviderAccounts && <SetupOverride account={account} />}
         {canManageProviderAccounts && <RegateAccount account={account} />}
         <div className="border-t border-border pt-4">
           <h4 className="mb-2 text-xs font-semibold text-destructive">Account access</h4>

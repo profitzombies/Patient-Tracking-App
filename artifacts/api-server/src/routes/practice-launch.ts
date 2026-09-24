@@ -38,13 +38,20 @@ async function snapshot(scope:OfficeScope) {
   const row = provider.json[0];
   return {
     office:{providerId:scope.providerId,officeName:scope.officeName},canEdit:scope.actorKind === "provider",
+    // HQ is inspecting someone else's office: it can read this screen but can
+    // never confirm anything on it, so it is not held behind the gate.
+    hqInspection:scope.actorKind === "hq",
     billingScope:`${identity.mode}:${identity.platformAccountId}`,
     required:true,fullSetupRequired:launch.required,version:launch.version,detailsConfirmed:launch.details_confirmed,
     productsConfirmed:launch.products_confirmed&&receipts.json.length>0,
     // Setup is only complete when BOTH directions of money are arranged: the
     // office can charge its patients (connected account) and THINNR can charge
-    // the office (bank account, two cards, plan, disclosure).
-    completedAt:paymentLaunchState(account)==="ready" && access.satisfied ? modeCompletion??null : null,
+    // the office (bank account, two cards, plan, disclosure). An HQ waiver
+    // opens the workspace without pretending any of that is in place: every
+    // other field below still reports what is actually missing.
+    completedAt:launch.setup_override_at
+      ?? (paymentLaunchState(account)==="ready" && access.satisfied ? modeCompletion??null : null),
+    setupOverride:{active:Boolean(launch.setup_override_at),at:launch.setup_override_at??null,note:launch.setup_override_note??null},
     accessSetup:{
       complete:access.satisfied,
       missing:access.status.missing,
@@ -66,12 +73,13 @@ router.use("/office/launch", async (req,res,next) => {
     runWithBillingIdentity(mode,next);
   } catch { res.status(503).json({error:"Payment configuration is unavailable. Setup was not changed."}); }
 });
-async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|"complete"|"regate") {
+const HQ_ONLY = new Set(["regate","override"]);
+async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|"complete"|"regate"|"override") {
   try {
-    const resolved = await resolveOfficeScope({authorization:req.headers.authorization,request:req,explicitOfficeId:typeof req.query.office === "string" ? req.query.office : null,hqPermission:kind==="regate"?"provider_manage":"provider_read",requireUnlocked:kind!=="read"});
+    const resolved = await resolveOfficeScope({authorization:req.headers.authorization,request:req,explicitOfficeId:typeof req.query.office === "string" ? req.query.office : null,hqPermission:HQ_ONLY.has(kind)?"provider_manage":"provider_read",requireUnlocked:kind!=="read"});
     if (resolved.kind!=="ok") { res.status(resolved.status).json({error:resolved.message});return; }
     const scope = resolved.scope;
-    if (kind==="regate" ? scope.actorKind!=="hq" : kind!=="read" && scope.actorKind!=="provider") {
+    if (HQ_ONLY.has(kind) ? scope.actorKind!=="hq" : kind!=="read" && scope.actorKind!=="provider") {
       res.status(403).json({error:"Only the practice owner can confirm setup. HQ inspection is read-only."});return;
     }
     if (kind==="products" || kind==="complete") {
@@ -106,6 +114,12 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       const input=z.object({expectedVersion:Version}).strict().parse(req.body);
       await rpc("regate_practice_launch",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_actor:scope.actorUserId});
     }
+    if (kind==="override") {
+      // HQ waives the gate for one office; the office itself can never ask for
+      // this, and nothing the office already confirmed is changed or lost.
+      const input=z.object({expectedVersion:Version,enabled:z.boolean(),note:z.string().max(280).optional()}).strict().parse(req.body);
+      await rpc("set_practice_launch_override",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_actor:scope.actorUserId,p_enabled:input.enabled,p_note:input.note??null});
+    }
     res.json(await snapshot(scope));
   } catch(error) {
     if(error instanceof z.ZodError) {res.status(400).json({error:error.issues[0]?.message??"Check the form."});return;}
@@ -119,4 +133,5 @@ router.put("/office/launch/details",(req,res)=>handle(req,res,"details"));
 router.post("/office/launch/products",(req,res)=>handle(req,res,"products"));
 router.post("/office/launch/complete",(req,res)=>handle(req,res,"complete"));
 router.post("/office/launch/regate",(req,res)=>handle(req,res,"regate"));
+router.post("/office/launch/override",(req,res)=>handle(req,res,"override"));
 export default router;

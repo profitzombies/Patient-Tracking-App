@@ -15,9 +15,11 @@ import {
 import type { HqRole, HqTeamMember } from '@/data/hq/team';
 import { canHq } from '@/data/hq/team';
 import {
+  cancelHqTeamInvitation as cancelHqTeamInvitationRequest,
   fetchHqTeam,
   inviteHqTeamMember as inviteHqTeamMemberRequest,
   removeHqTeamMember as removeHqTeamMemberRequest,
+  resendHqTeamInvitation as resendHqTeamInvitationRequest,
   updateHqTeamMember as updateHqTeamMemberRequest,
   type InviteHqTeamMemberInput,
 } from '@/lib/hq-team';
@@ -59,7 +61,9 @@ interface HqDataValue {
   teamError: string | null;
   inviteTeamMember: (input: InviteHqTeamMemberInput) => ReturnType<typeof inviteHqTeamMemberRequest>;
   updateTeamMember: (id: string, patch: { role: Exclude<HqRole, 'Super Admin'>; title: string }) => Promise<HqTeamMember>;
-  removeTeamMember: (id: string) => Promise<void>;
+  resendTeamInvitation: (id: string) => ReturnType<typeof resendHqTeamInvitationRequest>;
+  cancelTeamInvitation: (id: string) => Promise<void>;
+  removeTeamMember: (id: string) => ReturnType<typeof removeHqTeamMemberRequest>;
   teamMutationPending: boolean;
   settingsValues: Record<string, HqSettingValue>;
   saveSettings: (patch: Record<string, HqSettingValue>) => void;
@@ -105,6 +109,16 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
       updateHqTeamMemberRequest(id, patch),
     onSuccess: (member) => queryClient.setQueryData<HqTeamMember[]>(HQ_TEAM_QUERY_KEY, (current = []) =>
       current.map((row) => row.id === member.id ? member : row)),
+  });
+  const resendMutation = useMutation({
+    mutationFn: resendHqTeamInvitationRequest,
+    onSuccess: ({ member }) => queryClient.setQueryData<HqTeamMember[]>(HQ_TEAM_QUERY_KEY, (current = []) =>
+      current.map((row) => row.id === member.id ? member : row)),
+  });
+  const cancelInvitationMutation = useMutation({
+    mutationFn: cancelHqTeamInvitationRequest,
+    onSuccess: (_result, id) => queryClient.setQueryData<HqTeamMember[]>(HQ_TEAM_QUERY_KEY, (current = []) =>
+      current.filter((row) => row.id !== id)),
   });
   const removeMutation = useMutation({
     mutationFn: removeHqTeamMemberRequest,
@@ -161,6 +175,11 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
       updateMutation.mutateAsync({ id, patch }),
     [updateMutation],
   );
+  const resendTeamInvitation = useCallback((id: string) => resendMutation.mutateAsync(id), [resendMutation]);
+  const cancelTeamInvitation = useCallback(
+    async (id: string) => { await cancelInvitationMutation.mutateAsync(id); },
+    [cancelInvitationMutation],
+  );
   const removeTeamMember = useCallback((id: string) => removeMutation.mutateAsync(id), [removeMutation]);
   const saveSettings = useCallback((patch: Record<string, HqSettingValue>) =>
     setStored((current) => ({ ...current, settingsValues: { ...current.settingsValues, ...patch } })), []);
@@ -179,11 +198,14 @@ export function HqDataProvider({ children }: { children: ReactNode }) {
     teamError: teamQuery.error instanceof Error ? teamQuery.error.message : null,
     inviteTeamMember,
     updateTeamMember,
+    resendTeamInvitation,
+    cancelTeamInvitation,
     removeTeamMember,
-    teamMutationPending: inviteMutation.isPending || updateMutation.isPending || removeMutation.isPending,
+    teamMutationPending: inviteMutation.isPending || updateMutation.isPending || removeMutation.isPending ||
+      resendMutation.isPending || cancelInvitationMutation.isPending,
     settingsValues: stored.settingsValues,
     saveSettings,
-  }), [accounts, canReadLiveAccounts, query.isPending, query.isError, query.error, refreshAccounts, findAccount, addAccount, updateAccount, canManageProviderAccounts, teamQuery.data, teamQuery.isPending, teamQuery.isError, teamQuery.error, canManageTeam, inviteTeamMember, updateTeamMember, removeTeamMember, inviteMutation.isPending, updateMutation.isPending, removeMutation.isPending, stored.settingsValues, saveSettings]);
+  }), [accounts, canReadLiveAccounts, query.isPending, query.isError, query.error, refreshAccounts, findAccount, addAccount, updateAccount, canManageProviderAccounts, teamQuery.data, teamQuery.isPending, teamQuery.isError, teamQuery.error, canManageTeam, inviteTeamMember, updateTeamMember, resendTeamInvitation, cancelTeamInvitation, removeTeamMember, inviteMutation.isPending, updateMutation.isPending, removeMutation.isPending, resendMutation.isPending, cancelInvitationMutation.isPending, stored.settingsValues, saveSettings]);
 
   return <HqDataContext.Provider value={value}>{children}</HqDataContext.Provider>;
 }

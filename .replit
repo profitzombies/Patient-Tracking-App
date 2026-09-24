@@ -568,6 +568,14 @@ args = "office-restricted-mobile"
 task = "workflow.run"
 args = "office-access-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "hq-team-invites-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "hq-team-invites-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3282,6 +3290,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:office-access && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "hq-team-invites-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/hq-team.test.ts src/claim/delivery.test.ts src/email src/routes/auth.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "hq-team-invites-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:hq-team && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

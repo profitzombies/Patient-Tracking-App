@@ -15,6 +15,8 @@ import { DeliveryNotConfiguredError, sendHqTeamInvitation } from "../claim/deliv
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { adminLogoutAll, markRevoked, securityOverview, type RevokeReason } from "../security/ledger";
 import { clearStaffSecondFactor, loadStaffSecondFactors, maskPhone } from "../auth/second-factor";
+import { appBaseUrl } from "../security/alerts";
+import { createLimiter } from "../coach/limits";
 
 const router: IRouter = Router();
 const ROLES = ["super_admin", "admin", "clinical", "support", "content"] as const;
@@ -45,8 +47,70 @@ interface HqMember {
   status: string;
   invitedAt: string | null;
   joinedAt: string | null;
+  /** Expiry of this member's live setup invitation; null when none is open. */
+  invitationExpiresAt: string | null;
   /** Masked verified sign-in phone (texted-code step); null when none is enrolled. */
   secondFactorPhone: string | null;
+}
+
+/**
+ * How long a setup link lives. The invitation function refuses anything past
+ * seven days, so the window stops just short of it: the few minutes of slack
+ * absorb clock skew between this process and the database.
+ */
+const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000 - 5 * 60 * 1000;
+
+/** Where the emailed "Set up your THINNR account" button lands. */
+export function setupLinkFor(token: string): string | null {
+  const base = appBaseUrl("staff");
+  return base ? `${base}/hq-setup?token=${encodeURIComponent(token)}` : null;
+}
+
+/** Human expiry for the invitation email; the stored timestamp stays authoritative. */
+export function expiryLabel(iso: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "long", month: "long", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short",
+    }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toUTCString();
+  }
+}
+
+const ROLE_LABELS: Record<HqRole, string> = {
+  super_admin: "Super Admin",
+  admin: "Admin",
+  clinical: "Clinical",
+  support: "Support",
+  content: "Content",
+};
+
+/**
+ * Deliver the branded invitation. Returns how it went so the caller can tell
+ * the administrator the truth: the membership is already committed either way.
+ */
+async function deliverInvitation(
+  req: Request,
+  input: { email: string; name: string; role: HqRole; token: string; expiresAt: string },
+): Promise<"sent" | "not_configured" | "failed" | "no_link"> {
+  const setupUrl = setupLinkFor(input.token);
+  if (!setupUrl) {
+    req.log?.error({}, "HQ invitation has no operations base URL to link to");
+    return "no_link";
+  }
+  try {
+    await sendHqTeamInvitation(input.email, {
+      name: input.name,
+      role: ROLE_LABELS[input.role],
+      setupUrl,
+      expiresLabel: expiryLabel(input.expiresAt),
+    });
+    return "sent";
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ team invitation delivery failed");
+    return error instanceof DeliveryNotConfiguredError ? "not_configured" : "failed";
+  }
 }
 
 function encode(value: string): string {
@@ -55,9 +119,10 @@ function encode(value: string): string {
 
 /**
  * 32 random bytes encoded URL-safe; only its SHA-256 digest reaches the DB.
- * The invitation RPC requires a token pair, but with passwordless login the
- * plain token never leaves this process — invited members simply sign in
- * with their email and the pending invitation is accepted at that moment.
+ * The plain token leaves this process exactly once, inside the invitation
+ * email, and comes back through the setup-link lookup. Sign-in itself stays
+ * passwordless: the token names the invitation, the emailed code proves the
+ * person, and the pending invitation is accepted at that moment.
  */
 export function createSetupToken(): { token: string; tokenHash: string } {
   const token = crypto.randomBytes(32).toString("base64url");
@@ -83,8 +148,26 @@ function mapMember(row: Record<string, unknown>): HqMember {
     status: String(row.status ?? (row.auth_user_id ? "active" : "invited")),
     invitedAt: row.invited_at ? String(row.invited_at) : null,
     joinedAt: row.joined_at ? String(row.joined_at) : null,
+    invitationExpiresAt: null,
     secondFactorPhone: null,
   };
+}
+
+/** Live setup-link expiry per membership, so the roster can date pending invitations. */
+async function loadPendingInvitationExpiries(): Promise<Map<string, string>> {
+  const result = await supabaseAdmin(
+    "GET",
+    "/rest/v1/hq_invitations?status=eq.pending&select=membership_id,expires_at&order=created_at.desc&limit=1000",
+  );
+  if (result.status >= 300 || !Array.isArray(result.json)) {
+    throw new Error(`HQ invitation list failed (${result.status})`);
+  }
+  const expiries = new Map<string, string>();
+  for (const row of result.json as Array<{ membership_id?: unknown; expires_at?: unknown }>) {
+    const id = String(row.membership_id ?? "");
+    if (id && !expiries.has(id)) expiries.set(id, String(row.expires_at ?? ""));
+  }
+  return expiries;
 }
 
 async function loadMembers(): Promise<HqMember[]> {
@@ -96,10 +179,14 @@ async function loadMembers(): Promise<HqMember[]> {
     throw new Error(`HQ team list failed (${result.status})`);
   }
   const members = result.json.map((row: Record<string, unknown>) => mapMember(row));
-  const factors = await loadStaffSecondFactors("hq", members.map((member: HqMember) => member.id));
+  const [factors, expiries] = await Promise.all([
+    loadStaffSecondFactors("hq", members.map((member: HqMember) => member.id)),
+    loadPendingInvitationExpiries(),
+  ]);
   for (const member of members) {
     const factor = factors.get(member.id);
     member.secondFactorPhone = factor ? maskPhone(factor.phone) : null;
+    member.invitationExpiresAt = expiries.get(member.id) ?? null;
   }
   return members;
 }
@@ -160,35 +247,72 @@ export function safeguardMutation(
   return null;
 }
 
-async function duplicateSource(email: string): Promise<string | null> {
+/**
+ * What already holds an email. A stalled HQ row (an invitation never taken
+ * up, or one that was cancelled before anybody signed in) is reported
+ * separately: that one is recoverable by re-sending, everything else is not.
+ */
+export type DuplicateHit =
+  | { kind: "record"; label: string }
+  | { kind: "hq_stalled"; memberId: string; name: string; state: "pending" | "cancelled" };
+
+interface HqMembershipRow {
+  id: string;
+  display_name?: unknown;
+  status?: unknown;
+  auth_user_id?: unknown;
+  activated_at?: unknown;
+}
+
+async function findDuplicate(email: string): Promise<DuplicateHit | null> {
   const queries: Array<[string, string]> = [
     ["provider", `/rest/v1/providers?email=ilike.${encode(email)}&select=provider_id&limit=1`],
     ["patient", `/rest/v1/patients?email=ilike.${encode(email)}&select=id&limit=1`],
     ["provider team", `/rest/v1/team_members?email=ilike.${encode(email)}&select=id&limit=1`],
     ["profile", `/rest/v1/profiles?email=ilike.${encode(email)}&select=id&limit=1`],
     ["staff assignment", `/rest/v1/staff_role_assignments?email=ilike.${encode(email)}&select=email&limit=1`],
-    ["HQ team", `/rest/v1/hq_team_members?email=ilike.${encode(email)}&select=id&limit=1`],
   ];
-  const results = await Promise.all(queries.map(([, path]) => supabaseAdmin("GET", path)));
+  const [results, hqResult, authResult] = await Promise.all([
+    Promise.all(queries.map(([, path]) => supabaseAdmin("GET", path))),
+    supabaseAdmin(
+      "GET",
+      `/rest/v1/hq_memberships?email=ilike.${encode(email)}&select=id,display_name,status,auth_user_id,activated_at&limit=2`,
+    ),
+    // GoTrue's admin filter is an ILIKE across the directory; the exact
+    // re-check below is what decides. Targeting the one address keeps this
+    // constant-time as the directory grows.
+    supabaseAdmin("GET", `/auth/v1/admin/users?page=1&per_page=50&filter=${encode(email)}`),
+  ]);
   for (let index = 0; index < results.length; index += 1) {
     const result = results[index];
     if (result.status >= 300 || !Array.isArray(result.json)) {
       throw new Error(`duplicate lookup failed for ${queries[index][0]} (${result.status})`);
     }
-    if (result.json.length > 0) return queries[index][0];
+    if (result.json.length > 0) return { kind: "record", label: queries[index][0] };
   }
-  // GoTrue has no exact-email admin endpoint. Page through it rather than
-  // checking only the first page (which would become a security hole at scale).
-  for (let page = 1; page <= 100; page += 1) {
-    const result = await supabaseAdmin("GET", `/auth/v1/admin/users?page=${page}&per_page=1000`);
-    if (result.status >= 300 || !Array.isArray(result.json?.users)) {
-      throw new Error(`Auth duplicate lookup failed (${result.status})`);
-    }
-    if (result.json.users.some((user: { email?: unknown }) =>
-      String(user.email ?? "").trim().toLowerCase() === email)) return "login";
-    if (result.json.users.length < 1000) return null;
+  if (authResult.status >= 300 || !Array.isArray(authResult.json?.users)) {
+    throw new Error(`Auth duplicate lookup failed (${authResult.status})`);
   }
-  throw new Error("Auth duplicate lookup exceeded the supported directory size");
+  if ((authResult.json.users as Array<{ email?: unknown }>).some(
+    (user) => String(user.email ?? "").trim().toLowerCase() === email,
+  )) return { kind: "record", label: "login" };
+
+  if (hqResult.status >= 300 || !Array.isArray(hqResult.json)) {
+    throw new Error(`duplicate lookup failed for HQ team (${hqResult.status})`);
+  }
+  const rows = hqResult.json as HqMembershipRow[];
+  if (rows.length > 1) return { kind: "record", label: "HQ team" };
+  const row = rows[0];
+  if (!row) return null;
+  const status = String(row.status ?? "");
+  const neverSignedIn = !row.auth_user_id && !row.activated_at;
+  if (status === "invited" && neverSignedIn) {
+    return { kind: "hq_stalled", memberId: String(row.id), name: String(row.display_name ?? ""), state: "pending" };
+  }
+  if (status === "revoked" && neverSignedIn) {
+    return { kind: "hq_stalled", memberId: String(row.id), name: String(row.display_name ?? ""), state: "cancelled" };
+  }
+  return { kind: "record", label: status === "revoked" ? "former HQ team" : "HQ team" };
 }
 
 function rpcError(json: unknown, fallback: string): string {
@@ -241,45 +365,203 @@ router.post(
     }
     const email = parsed.data.email.toLowerCase();
     try {
-      const source = await duplicateSource(email);
-      if (source) {
+      const duplicate = await findDuplicate(email);
+      if (duplicate?.kind === "hq_stalled") {
+        // Recoverable: the email is held only by an HQ invitation nobody took
+        // up. Name it and let the caller re-send instead of demanding
+        // database surgery.
         res.status(409).json({
-          error: `That email already belongs to a ${source} record. Use a unique work email.`,
+          error: duplicate.state === "cancelled"
+            ? `A cancelled HQ invitation for ${duplicate.name || email} still holds that email. Re-send it to try again.`
+            : `${duplicate.name || email} already has a pending HQ invitation. Re-send it to issue a new link.`,
+          field: "email",
+          resendable: { memberId: duplicate.memberId, name: duplicate.name, state: duplicate.state },
+        });
+        return;
+      }
+      if (duplicate) {
+        res.status(409).json({
+          error: `That email already belongs to a ${duplicate.label} record. Use a unique work email.`,
           field: "email",
         });
         return;
       }
       const actor = res.locals.staff as StaffIdentity;
       const setup = createSetupToken();
+      const expiresAt = new Date(Date.now() + INVITATION_TTL_MS).toISOString();
       const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_invite_team_member_v2", {
         p_actor_id: actor.userId,
         p_name: parsed.data.name,
         p_email: email,
         p_title: parsed.data.title,
         p_role: parsed.data.role,
-        p_setup_token_hash: setup.tokenHash,
+        p_token_hash: setup.tokenHash,
+        p_expires_at: expiresAt,
       });
       if ([400, 409, 422].includes(result.status)) {
-        res.status(409).json({ error: rpcError(result.json, "That person cannot be invited.") });
+        // The function's own refusal is the most precise thing anyone has;
+        // pass it through rather than replacing it with a house message.
+        res.status(409).json({ error: rpcError(result.json, "That person cannot be invited."), source: "database" });
         return;
       }
       if (result.status >= 300 || !result.json) throw new Error(`HQ invitation commit failed (${result.status})`);
       const row = Array.isArray(result.json) ? result.json[0] : result.json;
-      let invitation: "sent" | "not_configured" | "failed" = "sent";
-      try {
-        await sendHqTeamInvitation(email, { name: parsed.data.name, role: parsed.data.role });
-      } catch (error) {
-        invitation = error instanceof DeliveryNotConfiguredError ? "not_configured" : "failed";
-        req.log?.error({ err: error }, "HQ team invitation delivery failed");
-      }
-      await recordAdminAuditEvent({ action: "hq_team_invited", actorUserId: actor.userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: String(row.id), requestId: req.headers["x-request-id"]?.toString() ?? null, metadata: { role: parsed.data.role } }).catch(error => req.log?.error({ err: error }, "HQ invitation audit failed"));
-      res.status(201).json({ member: mapMember(row), invitation });
+      const invitation = await deliverInvitation(req, {
+        email, name: parsed.data.name, role: parsed.data.role, token: setup.token, expiresAt,
+      });
+      await recordAdminAuditEvent({ action: "hq_team_invited", actorUserId: actor.userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: String(row.id), requestId: req.headers["x-request-id"]?.toString() ?? null, metadata: { role: parsed.data.role, invitation } }).catch(error => req.log?.error({ err: error }, "HQ invitation audit failed"));
+      res.status(201).json({
+        member: { ...mapMember(row), invitationExpiresAt: expiresAt },
+        invitation,
+      });
     } catch (error) {
       req.log?.error({ err: error }, "HQ team invitation failed");
-      res.status(502).json({ error: "Could not finish the HQ invitation." });
+      res.status(502).json({
+        error: "Could not finish the HQ invitation. The team service did not accept the request — try again, and tell an administrator if it keeps failing.",
+      });
     }
   },
 );
+
+/**
+ * Re-send a stalled invitation: a new token, a new expiry, a fresh email.
+ * Cancelled-but-never-used invitations are revived here too, which is the
+ * recovery path for an invite that was withdrawn by mistake.
+ */
+router.post(
+  "/hq-team/:id/invitations/resend",
+  requireHqPermission("team_manage"),
+  requireTeamManager,
+  async (req, res): Promise<void> => {
+    try {
+      const actor = res.locals.staff as StaffIdentity;
+      const setup = createSetupToken();
+      const expiresAt = new Date(Date.now() + INVITATION_TTL_MS).toISOString();
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_resend_team_invitation", {
+        p_actor_id: actor.userId,
+        p_member_id: String(req.params.id),
+        p_token_hash: setup.tokenHash,
+        p_expires_at: expiresAt,
+      });
+      if ([400, 409, 422].includes(result.status)) {
+        res.status(409).json({ error: rpcError(result.json, "That invitation cannot be re-sent."), source: "database" });
+        return;
+      }
+      if (result.status === 404) {
+        res.status(404).json({ error: "HQ team member not found." });
+        return;
+      }
+      if (result.status >= 300 || !result.json) throw new Error(`HQ invitation resend failed (${result.status})`);
+      const row = Array.isArray(result.json) ? result.json[0] : result.json;
+      const member = mapMember(row);
+      const invitation = await deliverInvitation(req, {
+        email: member.email, name: member.name, role: member.role, token: setup.token, expiresAt,
+      });
+      await recordAdminAuditEvent({ action: "hq_team_invite_resent", actorUserId: actor.userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: member.id, requestId: req.headers["x-request-id"]?.toString() ?? null, metadata: { role: member.role, invitation } }).catch(error => req.log?.error({ err: error }, "HQ invitation resend audit failed"));
+      res.json({ member: { ...member, invitationExpiresAt: expiresAt }, invitation });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ team invitation resend failed");
+      res.status(502).json({
+        error: "Could not re-send that invitation. The team service did not accept the request — try again in a moment.",
+      });
+    }
+  },
+);
+
+/**
+ * Cancel a pending invitation. Revoking the membership is what frees the
+ * roster row; the lifecycle trigger withdraws the open invitation with it.
+ * Unlike removing a teammate this needs no fresh code — nobody has access yet.
+ */
+router.post(
+  "/hq-team/:id/invitations/cancel",
+  requireHqPermission("team_manage"),
+  requireTeamManager,
+  async (req, res): Promise<void> => {
+    try {
+      const members = await loadMembers();
+      const target = members.find((member) => member.id === String(req.params.id));
+      if (!target) {
+        res.status(404).json({ error: "HQ team member not found." });
+        return;
+      }
+      if (target.status !== "invited") {
+        res.status(409).json({ error: `${target.name} has already joined the team. Remove them instead of cancelling an invitation.` });
+        return;
+      }
+      const actor = res.locals.staff as StaffIdentity;
+      const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_revoke_team_member", {
+        p_actor_id: actor.userId,
+        p_member_id: target.id,
+      });
+      if ([400, 409, 422].includes(result.status)) {
+        res.status(409).json({ error: rpcError(result.json, "That invitation cannot be cancelled."), source: "database" });
+        return;
+      }
+      if (result.status >= 300) throw new Error(`HQ invitation cancel failed (${result.status})`);
+      await recordAdminAuditEvent({ action: "hq_team_invite_cancelled", actorUserId: actor.userId, actorKind: "hq", providerId: null, targetKind: "hq_member", targetId: target.id, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "HQ invitation cancel audit failed"));
+      res.json({ cancelled: true });
+    } catch (error) {
+      req.log?.error({ err: error }, "HQ team invitation cancel failed");
+      res.status(502).json({ error: "Could not cancel that invitation right now." });
+    }
+  },
+);
+
+/**
+ * Unauthenticated token exchange behind the emailed setup link. Every dead
+ * token — used, cancelled, expired, never issued — answers 200 with its own
+ * state and no identity, so the page can explain itself without the endpoint
+ * ever confirming whether an unknown token belongs to anyone.
+ */
+const invitationLookupLimit = createLimiter({
+  burst: 12, refillPerMinute: 4, maxConcurrent: 10, dailyBudget: 20_000,
+  dailyMessage: "Too many invitation lookups today. Please try again tomorrow.",
+  busyMessage: "The invitation service is busy. Please try again in a moment.",
+  rapidMessage: "Too many invitation attempts. Please wait a moment and try again.",
+});
+const LookupBody = z.object({ token: z.string().trim().min(1).max(512) });
+
+router.post("/hq-team/invitation/lookup", async (req, res): Promise<void> => {
+  const slot = invitationLookupLimit(req.ip || req.socket.remoteAddress || "unknown");
+  if (!slot.ok) {
+    res.status(429).json({ error: slot.message });
+    return;
+  }
+  try {
+    res.set("Cache-Control", "no-store");
+    const parsed = LookupBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.json({ state: "unknown" });
+      return;
+    }
+    const tokenHash = crypto.createHash("sha256").update(parsed.data.token).digest("hex");
+    const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_lookup_team_invitation", {
+      p_token_hash: tokenHash,
+    });
+    if (result.status >= 300 || !result.json) throw new Error(`HQ invitation lookup failed (${result.status})`);
+    const row = (Array.isArray(result.json) ? result.json[0] : result.json) as Record<string, unknown>;
+    const state = String(row?.state ?? "unknown");
+    if (state !== "pending") {
+      res.json({ state: ["used", "cancelled", "expired"].includes(state) ? state : "unknown" });
+      return;
+    }
+    const role = parseRole(row.role);
+    res.json({
+      state: "pending",
+      name: String(row.name ?? ""),
+      email: String(row.email ?? ""),
+      role: role ? ROLE_LABELS[role] : "",
+      title: row.title ? String(row.title) : null,
+      expiresAt: String(row.expiresAt ?? ""),
+    });
+  } catch (error) {
+    req.log?.error({ err: error }, "HQ invitation lookup failed");
+    res.status(503).json({ error: "Could not check that invitation right now. Please try again in a moment." });
+  } finally {
+    slot.release();
+  }
+});
 
 router.patch(
   "/hq-team/:id",
@@ -370,7 +652,9 @@ router.delete(
       res.json({ revoked: true, sessionInvalidation });
     } catch (error) {
       req.log?.error({ err: error }, "HQ team revocation failed");
-      res.status(502).json({ error: "Could not revoke that HQ team member." });
+      res.status(502).json({
+        error: "Could not remove that HQ team member. The team service did not accept the request — their access is unchanged.",
+      });
     }
   },
 );

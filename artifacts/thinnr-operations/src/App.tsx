@@ -26,6 +26,7 @@ import {
 
 import { OfficeApp, RoutedErrorBoundary } from '@/OfficeApp';
 import SignIn from '@/pages/SignIn';
+import HqSetup from '@/pages/HqSetup';
 import {
   AccountLockedScreen,
   BootScreen,
@@ -218,6 +219,8 @@ function PersonaRouter() {
   if (persona === null) {
     return (
       <Switch>
+        {/* The emailed HQ invitation link: no session yet, but it signs one in. */}
+        <Route path="/hq-setup" component={HqSetup} />
         <Route component={SignIn} />
       </Switch>
     );

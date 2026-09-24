@@ -1,0 +1,22 @@
+{
+  // tsx config for scripts/verify-hq-team.tsx ONLY (not part of typecheck —
+  // tsconfig.json includes src/**/* alone).
+  //
+  // The suite renders the REAL HQ Team page and the REAL HQ setup page under
+  // react-test-renderer against a scripted global fetch, with the real
+  // hq-data context and the real lib/hq-team client in the loop. Only the
+  // session context, lib/supabase (which reads import.meta.env at load) and
+  // the three Radix primitives that need a document are stood in for.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/components/ui/alert-dialog": ["./scripts/office-admin-stubs/alert-dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

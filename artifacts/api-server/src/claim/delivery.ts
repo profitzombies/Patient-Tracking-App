@@ -184,7 +184,7 @@ export async function sendProviderClaimInvitation(
 /** Sent only after the durable HQ invitation transaction has committed. */
 export async function sendHqTeamInvitation(
   to: string,
-  input: { name: string; role: string },
+  input: { name: string; role: string; setupUrl: string; expiresLabel: string },
 ): Promise<void> {
   await sendTransactionalEmail(to, "hq-team-invitation", input);
 }

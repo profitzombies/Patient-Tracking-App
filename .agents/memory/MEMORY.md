@@ -47,6 +47,7 @@
 - [Recorded voice lines](recorded-voice-lines.md) — pre-recorded clips replace platform TTS: transcript/builder lockstep, guards sized to clip length, camera teardown steals the audio session.
 - [Patient floating bottom row](corner-launcher-shelf.md) — shared ui/FabMenu + a hand-rolled pill bar (owes its own tablist/tab a11y); all bottom stacking lives in constants/layout — new floating UI must join that shelf math.
 - [Account claiming](account-claiming.md) — neutral identify, one-shot DOB, two-column link writes; GoTrue merges app_metadata AFTER insert → deferred constraint triggers; claimed logins have NO profile row (whoami fallback).
+- [HQ team invitations](hq-team-invitations.md) — membership unique per email (re-invite revives), invitation rows identity-immutable, plain setup token only in the email; live-proof + baseline-diff recipes.
 - [HQ department access](hq-department-access.md) — active HQ membership is authoritative across client, API, and RLS; the coarse profile role must never grant or classify department access alone.
 - [Legacy DB archive-and-reset](legacy-db-reset.md) — CTAS archive + checksum gate + gated wipe; audit manifests must be write-once (mgmt-API applies skip migration history); TRUNCATE fires no triggers.
 - [Passwordless code login](passwordless-login.md) — one shared send-cap pot; atomic claim between proof and reward; ids resolve by id; every staff login provisions a usable workspace atomically.

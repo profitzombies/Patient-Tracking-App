@@ -8,7 +8,7 @@
  * or unknown address gets the same neutral "code is on its way" reply, so
  * the screen never confirms whether an account exists.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { INACTIVITY_SIGN_OUT_REASON_KEY } from '@/hooks/useIdleTimeout';
 import { useLocation } from 'wouter';
 import { ArrowRight, Building2, ChevronDown, Stethoscope, Utensils } from 'lucide-react';
@@ -16,11 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
+import { useStaffPasswordlessSignIn } from '@/hooks/useStaffPasswordlessSignIn';
 import { timeOfDayGreeting } from '@/lib/local-time';
 
-type Phase = 'email' | 'code' | 'phone';
-
-type PhoneStep = { stepToken: string; mode: 'sms' | 'enroll'; destination: string | null };
 const DEMO_OPTIONS: Array<{
   persona: Persona;
   icon: React.ReactNode;
@@ -48,29 +46,15 @@ const DEMO_OPTIONS: Array<{
 ];
 
 export default function SignIn() {
-  const {
-    signIn,
-    requestStaffCode,
-    verifyStaffCode,
-    startStaffPhoneStep,
-    verifyStaffPhoneCode,
-    supabaseEnabled,
-  } = useSession();
+  const { signIn } = useSession();
   const [, navigate] = useLocation();
 
-  const [phase, setPhase] = useState<Phase>('email');
-  const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [requestId, setRequestId] = useState<string | null>(null);
-  const [pendingEmail, setPendingEmail] = useState('');
-  const [devCode, setDevCode] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [phoneStep, setPhoneStep] = useState<PhoneStep | null>(null);
-  const [phone, setPhone] = useState('');
-  const [smsRequestId, setSmsRequestId] = useState<string | null>(null);
-  const [smsCode, setSmsCode] = useState('');
-  const [busy, setBusy] = useState(false);
+  const {
+    phase, email, setEmail, otp, setOtp, phone, setPhone, smsCode, setSmsCode,
+    smsRequestId, phoneStep, pendingEmail, devCode, error, notice, setNotice, busy,
+    submitEmail, submitCode, submitPhone, resendCode, sendPhoneCode,
+    changePhoneNumber, backToEmail, supabaseEnabled,
+  } = useStaffPasswordlessSignIn();
   const [showDemo, setShowDemo] = useState(false);
 
   useEffect(() => {
@@ -88,160 +72,6 @@ export default function SignIn() {
   const chooseDemo = (persona: Persona) => {
     signIn(persona);
     navigate(persona === 'hq-admin' ? '/admin' : '/', { replace: true });
-  };
-
-  const sendCode = async (address: string) => {
-    const result = await requestStaffCode(address);
-    if (result.error || !result.requestId) {
-      setError(result.error ?? 'Could not send a code right now. Try again in a moment.');
-      return false;
-    }
-    setRequestId(result.requestId);
-    setPendingEmail(address);
-    setDevCode(result.devCode);
-    setNotice(result.message ?? 'If that address has an account, a sign-in code is on its way.');
-    return true;
-  };
-
-  const submitEmail = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || !supabaseEnabled) return;
-    setError(null);
-    setNotice(null);
-    const trimmed = email.trim();
-    if (!trimmed || !trimmed.includes('@')) {
-      setError('Enter your work email address.');
-      return;
-    }
-    setBusy(true);
-    try {
-      if (await sendCode(trimmed)) {
-        setOtp('');
-        setPhase('code');
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitCode = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || !requestId) return;
-    setError(null);
-    if (otp.trim().length < 6) {
-      setError('Enter the 6-digit code from the email.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await verifyStaffCode({ requestId, code: otp.trim() });
-      if (result.error) setError(result.error);
-      else if (result.secondFactor) {
-        setPhoneStep(result.secondFactor);
-        setSmsRequestId(null);
-        setSmsCode('');
-        setDevCode(null);
-        setNotice(null);
-        setPhase('phone');
-      }
-      // Success: the session listener re-routes to the right workspace.
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const resendCode = async () => {
-    if (busy || !pendingEmail) return;
-    setError(null);
-    setNotice(null);
-    setBusy(true);
-    try {
-      setOtp('');
-      await sendCode(pendingEmail);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const backToEmail = () => {
-    setPhase('email');
-    setOtp('');
-    setRequestId(null);
-    setDevCode(null);
-    setError(null);
-    setNotice(null);
-    setPhoneStep(null);
-    setSmsRequestId(null);
-    setSmsCode('');
-    setPhone('');
-  };
-
-  const expiredPhoneStep = () => {
-    backToEmail();
-    setError('That sign-in step expired. Start again with your email.');
-  };
-
-  const sendPhoneCode = async (enteredPhone?: string) => {
-    if (!phoneStep || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await startStaffPhoneStep({
-        stepToken: phoneStep.stepToken,
-        ...(enteredPhone ? { phone: enteredPhone } : {}),
-      });
-      if (result.code === 'STEP_EXPIRED') {
-        expiredPhoneStep();
-        return;
-      }
-      if (result.error || !result.requestId) {
-        setError(result.error ?? 'Could not send a text right now. Try again.');
-        return;
-      }
-      setSmsRequestId(result.requestId);
-      setDevCode(result.devCode ?? null);
-      setPhoneStep({ ...phoneStep, destination: result.destination ?? phoneStep.destination });
-      setSmsCode('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (phase === 'phone' && phoneStep?.mode === 'sms' && !smsRequestId) {
-      void sendPhoneCode();
-    }
-  }, [phase, phoneStep?.mode, phoneStep?.stepToken]);
-
-  const submitPhone = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!phoneStep) return;
-    if (!smsRequestId) {
-      const trimmed = phone.trim();
-      if (!trimmed) {
-        setError('Enter a mobile number.');
-        return;
-      }
-      await sendPhoneCode(trimmed);
-      return;
-    }
-    if (smsCode.length !== 6) {
-      setError('Enter the 6-digit code from the text.');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await verifyStaffPhoneCode({
-        stepToken: phoneStep.stepToken,
-        requestId: smsRequestId,
-        code: smsCode,
-      });
-      if (result.code === 'STEP_EXPIRED') expiredPhoneStep();
-      else if (result.error) setError(result.error);
-    } finally {
-      setBusy(false);
-    }
   };
 
   return (
@@ -502,7 +332,7 @@ export default function SignIn() {
                     <button
                       type="button"
                       data-testid="button-staff-phone-change"
-                      onClick={() => { setSmsRequestId(null); setSmsCode(''); setDevCode(null); setError(null); }}
+                      onClick={changePhoneNumber}
                       disabled={busy}
                       className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:underline"
                     >

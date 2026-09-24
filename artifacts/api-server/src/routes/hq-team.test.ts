@@ -36,6 +36,9 @@ let logoutCalls: string[] = [];
 let resendFails = false;
 let logoutFails = false;
 let setupInvites = new Map<string, Row>();
+let pendingInvitations: Row[] = [];
+let lookupState: Row | null = null;
+let resendResult: { status: number; body: unknown } = { status: 200, body: null };
 
 function response(json: unknown, status = 200): Response {
   return new Response(json == null ? "" : JSON.stringify(json), {
@@ -50,6 +53,7 @@ beforeAll(async () => {
   process.env.CLAIM_EMAIL_DELIVERY_MODE = "live";
   process.env.RESEND_API_KEY = "resend";
   process.env.CLAIM_EMAIL_FROM = "THINNR <test@thinnr.test>";
+  process.env.OPERATIONS_APP_URL = "https://operations.test";
   const app = express();
   app.use(express.json());
   app.use(router);
@@ -83,6 +87,9 @@ beforeEach(() => {
   resendFails = false;
   logoutFails = false;
   setupInvites = new Map();
+  pendingInvitations = [];
+  lookupState = null;
+  resendResult = { status: 200, body: null };
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.hostname === "api.resend.com") return response({}, resendFails ? 500 : 200);
@@ -91,9 +98,14 @@ beforeEach(() => {
       return response(profiles);
     }
     if (url.pathname === "/rest/v1/hq_memberships") {
+      // The invite duplicate check asks by email; the permission check asks by actor.
+      if (url.searchParams.has("email")) return response(duplicates.hq_memberships ?? []);
       return response(members
         .filter((row) => row.auth_user_id === "owner-user")
         .map((row) => ({ department_role: row.role, status: row.status })));
+    }
+    if (url.pathname === "/rest/v1/hq_invitations") {
+      return response(pendingInvitations);
     }
     if (url.pathname === "/rest/v1/hq_team_members") {
       if (url.searchParams.has("auth_user_id")) {
@@ -109,7 +121,11 @@ beforeEach(() => {
     // Verified sign-in phones (covered end to end in security.test.ts).
     if (table === "staff_second_factors") return response([]);
     if (url.pathname === "/auth/v1/admin/users" && (!init?.method || init.method === "GET")) {
-      return response({ users: duplicates.auth ?? [] });
+      // GoTrue's targeted filter: only the asked-for address may come back.
+      const filter = (url.searchParams.get("filter") ?? "").toLowerCase();
+      const users = (duplicates.auth ?? []).filter((row) =>
+        !filter || String(row.email ?? "").toLowerCase().includes(filter));
+      return response({ users });
     }
     if (url.pathname.endsWith("/rpc/hq_invite_team_member_v2")) {
       rpcCalls.push(url.pathname);
@@ -118,9 +134,23 @@ beforeEach(() => {
         id: "new-member", name: body.p_name, email: body.p_email, title: body.p_title,
         role: body.p_role, status: "invited", auth_user_id: null, invited_at: "2026-02-01",
       };
-      setupInvites.set(String(body.p_setup_token_hash), row);
+      setupInvites.set(String(body.p_token_hash), row);
       members.push(row);
       return response(row, 201);
+    }
+    if (url.pathname.endsWith("/rpc/hq_resend_team_invitation")) {
+      rpcCalls.push(url.pathname);
+      if (resendResult.status >= 300) return response(resendResult.body, resendResult.status);
+      const body = JSON.parse(String(init?.body)) as Row;
+      const target = members.find((row) => row.id === body.p_member_id);
+      if (!target) return response({ message: "HQ teammate not found." }, 400);
+      target.status = "invited";
+      setupInvites.set(String(body.p_token_hash), target);
+      return response(target);
+    }
+    if (url.pathname.endsWith("/rpc/hq_lookup_team_invitation")) {
+      rpcCalls.push(url.pathname);
+      return response(lookupState ?? { state: "unknown" });
     }
     if (url.pathname.endsWith("/rpc/hq_revoke_team_member")) {
       rpcCalls.push(url.pathname);
@@ -155,7 +185,8 @@ async function api(path: string, init?: RequestInit) {
 describe("HQ mutation safeguards", () => {
   const owner = {
     id: "owner", authUserId: "u1", name: "Owner", email: "o@x.test", title: "",
-    role: "super_admin" as const, status: "active", invitedAt: null, joinedAt: null, secondFactorPhone: null,
+    role: "super_admin" as const, status: "active", invitedAt: null, joinedAt: null,
+    invitationExpiresAt: null, secondFactorPhone: null,
   };
   const admin = {
     ...owner, id: "admin", authUserId: "u2", email: "a@x.test", role: "admin" as const,
@@ -204,14 +235,77 @@ describe("HQ team API", () => {
     expect(revoked.status).toBe(401);
   });
 
-  it("rejects duplicates before durable work, including Auth", async () => {
+  it("rejects duplicates before durable work, naming the record that holds the email", async () => {
     duplicates.auth = [{ id: "existing", email: "taken@example.com" }];
     const result = await api("/hq-team", {
       method: "POST",
       body: JSON.stringify({ name: "Taken", email: "TAKEN@example.com", title: "", role: "Support" }),
     });
     expect(result.status).toBe(409);
+    expect((await result.json() as Row).error).toMatch(/login record/i);
     expect(rpcCalls).toEqual([]);
+
+    duplicates.auth = [];
+    duplicates.patients = [{ id: "p1" }];
+    const patient = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "Taken", email: "taken@example.com", title: "", role: "Support" }),
+    });
+    expect((await patient.json() as Row).error).toMatch(/patient record/i);
+  });
+
+  it("asks GoTrue for the one invited address instead of walking the directory", async () => {
+    duplicates.auth = [{ id: "other", email: "someone-else@example.com" }];
+    const result = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "New Person", email: "new@example.com", title: "", role: "Support" }),
+    });
+    expect(result.status).toBe(201);
+    const authCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([input]) => String(input).includes("/auth/v1/admin/users"));
+    expect(authCalls).toHaveLength(1);
+    expect(String(authCalls[0][0])).toContain("filter=new%40example.com");
+  });
+
+  it("offers a re-send when only a stalled HQ invitation holds the email", async () => {
+    duplicates.hq_memberships = [{
+      id: "stalled-member", display_name: "Stalled Person", status: "invited",
+      auth_user_id: null, activated_at: null,
+    }];
+    const pending = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "Stalled Person", email: "stalled@example.com", title: "", role: "Support" }),
+    });
+    expect(pending.status).toBe(409);
+    expect(await pending.json()).toMatchObject({
+      resendable: { memberId: "stalled-member", state: "pending" },
+    });
+    expect(rpcCalls).toEqual([]);
+
+    duplicates.hq_memberships[0].status = "revoked";
+    const cancelled = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "Stalled Person", email: "stalled@example.com", title: "", role: "Support" }),
+    });
+    expect(await cancelled.json()).toMatchObject({ resendable: { state: "cancelled" } });
+
+    // A membership that once signed in is not recoverable by re-sending.
+    duplicates.hq_memberships[0].auth_user_id = "old-user";
+    const former = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "Stalled Person", email: "stalled@example.com", title: "", role: "Support" }),
+    });
+    const body = await former.json() as Row;
+    expect(body.resendable).toBeUndefined();
+    expect(body.error).toMatch(/former HQ team/i);
+  });
+
+  it("passes a database refusal through instead of a house message", async () => {
+    duplicates.hq_memberships = [];
+    resendResult = { status: 400, body: { message: "Choose an inviteable HQ role." } };
+    const result = await api("/hq-team/admin-member/invitations/resend", { method: "POST" });
+    expect(result.status).toBe(409);
+    expect(await result.json()).toEqual({ error: "Choose an inviteable HQ role.", source: "database" });
   });
 
   it("commits first and reports invitation delivery failure honestly", async () => {
@@ -226,8 +320,115 @@ describe("HQ team API", () => {
     const inviteCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
       .find(([input]) => String(input).endsWith("/rpc/hq_invite_team_member_v2"));
     const inviteBody = JSON.parse(String(inviteCall?.[1]?.body)) as Row;
-    expect(inviteBody.p_setup_token_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(inviteBody.p_token_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(inviteBody).not.toHaveProperty("p_setup_token");
+    expect(Date.parse(String(inviteBody.p_expires_at))).toBeGreaterThan(Date.now());
+  });
+
+  it("emails a working setup link carrying the plaintext token and the stored expiry", async () => {
+    const result = await api("/hq-team", {
+      method: "POST",
+      body: JSON.stringify({ name: "New Person", email: "new@example.com", title: "Support", role: "Support" }),
+    });
+    expect(await result.json()).toMatchObject({ invitation: "sent" });
+    const emailCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .find(([input]) => String(input).includes("api.resend.com"));
+    const email = JSON.parse(String(emailCall?.[1]?.body)) as { html: string; text: string; subject: string };
+    const link = email.text.match(/https:\/\/operations\.test\/hq-setup\?token=([A-Za-z0-9_-]+)/);
+    expect(link).not.toBeNull();
+    // The stored digest is what the database holds; the emailed token is its preimage.
+    const hash = crypto.createHash("sha256").update(decodeURIComponent(link![1])).digest("hex");
+    expect(setupInvites.has(hash)).toBe(true);
+    expect(email.html).toContain("Set up your THINNR account");
+    expect(email.html).toContain("This link expires on");
+  });
+
+  it("re-sends a stalled invitation with a new token and a fresh email", async () => {
+    members.push({
+      id: "stalled-member", auth_user_id: null, name: "Stalled Person",
+      email: "stalled@example.com", role: "support", status: "invited", title: "",
+    });
+    const result = await api("/hq-team/stalled-member/invitations/resend", { method: "POST" });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ invitation: "sent", member: { id: "stalled-member" } });
+    expect(rpcCalls).toEqual(["/rest/v1/rpc/hq_resend_team_invitation"]);
+    expect(setupInvites.size).toBe(1);
+  });
+
+  it("cancels a pending invitation but refuses to cancel a joined teammate", async () => {
+    members.push({
+      id: "stalled-member", auth_user_id: null, name: "Stalled Person",
+      email: "stalled@example.com", role: "support", status: "invited", title: "",
+    });
+    const joined = await api("/hq-team/admin-member/invitations/cancel", { method: "POST" });
+    expect(joined.status).toBe(409);
+    expect((await joined.json() as Row).error).toMatch(/already joined/i);
+    expect(rpcCalls).toEqual([]);
+
+    const cancelled = await api("/hq-team/stalled-member/invitations/cancel", { method: "POST" });
+    expect(cancelled.status).toBe(200);
+    expect(rpcCalls).toEqual(["/rest/v1/rpc/hq_revoke_team_member"]);
+  });
+
+  it("dates pending invitations on the roster", async () => {
+    members.push({
+      id: "stalled-member", auth_user_id: null, name: "Stalled Person",
+      email: "stalled@example.com", role: "support", status: "invited", title: "",
+    });
+    pendingInvitations = [{ membership_id: "stalled-member", expires_at: "2026-10-01T12:00:00Z" }];
+    const result = await api("/hq-team");
+    const roster = (await result.json() as { members: Row[] }).members;
+    expect(roster.find((row) => row.id === "stalled-member")?.invitationExpiresAt).toBe("2026-10-01T12:00:00Z");
+    expect(roster.find((row) => row.id === "admin-member")?.invitationExpiresAt).toBeNull();
+  });
+
+  async function lookup(token: string) {
+    return originalFetch(`${baseUrl}/hq-team/invitation/lookup`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  }
+
+  it("returns the invitee's identity for a live token", async () => {
+    lookupState = {
+      state: "pending", name: "Stalled Person", email: "stalled@example.com",
+      role: "support", title: "Support", expiresAt: "2026-10-01T12:00:00Z",
+    };
+    const result = await lookup("a-token");
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({
+      state: "pending", name: "Stalled Person", email: "stalled@example.com",
+      role: "Support", title: "Support", expiresAt: "2026-10-01T12:00:00Z",
+    });
+  });
+
+  it("gives every dead token its own state and no identity", async () => {
+    for (const state of ["used", "cancelled", "expired", "unknown"]) {
+      lookupState = { state, name: "Leaked", email: "leaked@example.com" };
+      const result = await lookup("a-token");
+      expect(result.status).toBe(200);
+      expect(await result.json()).toEqual({ state });
+    }
+  });
+
+  it("needs no session and never reveals whether an unknown token exists", async () => {
+    lookupState = { state: "unknown" };
+    const blank = await originalFetch(`${baseUrl}/hq-team/invitation/lookup`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    expect(blank.status).toBe(200);
+    expect(await blank.json()).toEqual({ state: "unknown" });
+  });
+
+  it("rate-limits repeated token guesses", async () => {
+    lookupState = { state: "unknown" };
+    let limited = 0;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const result = await lookup(`guess-${attempt}`);
+      if (result.status === 429) limited += 1;
+      await result.json();
+    }
+    expect(limited).toBeGreaterThan(0);
   });
 
   it("no longer exposes the retired password-setup endpoints", async () => {

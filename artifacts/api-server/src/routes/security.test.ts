@@ -66,6 +66,8 @@ class FakeBackend {
       team_members: [],
       hq_memberships: [],
       hq_team_members: [],
+      // The HQ roster dates pending setup links from this table.
+      hq_invitations: [],
       profiles: [],
       provider_account_locks: [],
       claim_verifications: [],

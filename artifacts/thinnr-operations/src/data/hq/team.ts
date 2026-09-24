@@ -10,6 +10,9 @@ export interface HqTeamMember {
   email: string;
   status: 'active' | 'pending';
   joinedLabel: string;
+  /** Pending invitations only: when the emailed setup link stops working. */
+  invitationExpiresAt?: string | null;
+  invitationExpiresLabel?: string | null;
   secondFactorPhone?: string | null;
 }
 

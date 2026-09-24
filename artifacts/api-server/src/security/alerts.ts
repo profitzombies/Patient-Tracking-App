@@ -23,7 +23,12 @@ export const SECURITY_NOTIFICATION_KIND = "security_new_sign_in";
 export const SECURITY_ROUTE = "/security";
 export const PASSWORD_CHANGED_NOTIFICATION_KIND = "security_password_changed";
 
-function baseUrl(kind: "patient" | "staff"): string | null {
+/**
+ * Where the recipient's app lives. Exported so every emailed deep link (the
+ * security report link, the HQ setup link) resolves the same way in dev and
+ * production instead of each caller re-deriving a base URL.
+ */
+export function appBaseUrl(kind: "patient" | "staff"): string | null {
   if (kind === "patient") {
     const configured = process.env.PATIENT_APP_URL?.trim();
     if (configured) return configured.replace(/\/$/, "");
@@ -38,7 +43,7 @@ function baseUrl(kind: "patient" | "staff"): string | null {
 
 /** Link the email's "this wasn't me" button opens. */
 export function reportLinkFor(kind: "patient" | "staff", token: string): string | null {
-  const base = baseUrl(kind);
+  const base = appBaseUrl(kind);
   if (!base) return null;
   const path = kind === "patient" ? "/security-report" : "/security/report";
   return `${base}${path}?token=${encodeURIComponent(token)}`;

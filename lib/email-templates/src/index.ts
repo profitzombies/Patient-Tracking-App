@@ -83,8 +83,18 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
     purpose: "Introduces a new HQ teammate to their role and passwordless sign-in.",
     trigger: "An authorized HQ administrator commits a new team invitation.",
     audience: "A newly invited THINNR HQ team member.",
-    sampleVariables: { name: "Jordan Fiction", role: "Content Specialist" },
-    variableLabels: { name: "Invitee name", role: "HQ role" },
+    sampleVariables: {
+      name: "Jordan Fiction",
+      role: "Content Specialist",
+      setupUrl: "https://operations.example.com/hq-setup?token=sample-token",
+      expiresLabel: "Friday, September 25, 2026 at 4:00 PM UTC",
+    },
+    variableLabels: {
+      name: "Invitee name",
+      role: "HQ role",
+      setupUrl: "Account setup link",
+      expiresLabel: "Invitation expiry",
+    },
   },
   {
     id: "provider-staff-invitation",
@@ -410,15 +420,19 @@ export function renderEmailTemplate(
   if (id === "hq-team-invitation") {
     const name = requireVariable(variables, "name");
     const role = requireVariable(variables, "role");
+    const setupUrl = requireVariable(variables, "setupUrl");
+    const expiresLabel = requireVariable(variables, "expiresLabel");
     const subject = "You’re invited to join the THINNR HQ team";
     const previewText = `Your THINNR HQ invitation is ready. You’ll join as ${role}.`;
     const text = [
       `Hello ${name},`,
       "",
       `You have been invited to the THINNR HQ team as ${role}.`,
-      "To sign in, open THINNR operations and enter this email address. We will send you a one-time sign-in code, so no password is needed.",
+      "Set up your THINNR account here:",
+      setupUrl,
       "",
-      "This invitation expires in 7 days.",
+      "The page confirms who you are and emails you a one-time sign-in code, so there is no password to create.",
+      `This link expires on ${expiresLabel}.`,
       "If you did not expect this invitation, contact THINNR support.",
     ].join("\n");
     return {
@@ -432,8 +446,10 @@ export function renderEmailTemplate(
         greeting: name,
         bodyHtml: `${paragraph(`You’ve been invited to join the THINNR HQ team as <strong>${escapeHtml(role)}</strong>.`)}
           ${infoPanel("Your role", role)}
-          ${paragraph("Open THINNR operations and enter this email address to sign in. We’ll send a one-time code, so there’s no password to create.")}
-          ${paragraph("<strong>This invitation expires in 7 days.</strong>")}`,
+          ${button(setupUrl, "Set up your THINNR account")}
+          ${paragraph("The page confirms who you are and emails you a one-time sign-in code, so there’s no password to create.")}
+          ${paragraph(`If the button doesn’t work, copy this link into your browser:<br><a href="${escapeHtml(setupUrl)}" style="color:#315eae;word-break:break-all;">${escapeHtml(setupUrl)}</a>`)}
+          ${paragraph(`<strong>This link expires on ${escapeHtml(expiresLabel)}.</strong>`)}`,
         closing: "If you did not expect this invitation, contact THINNR support.",
       }),
     };

@@ -64,7 +64,7 @@ describe("transactional email delivery parity", () => {
   });
 
   it("sends the shared HQ invitation output", async () => {
-    const variables = { name: "Jordan Fiction", role: "Content Specialist" };
+    const variables = { name: "Jordan Fiction", role: "Content Specialist", setupUrl: "https://operations.test/hq-setup?token=abc", expiresLabel: "Friday, October 2, 2026 at 4:00 PM UTC" };
     await expectSharedPayload(
       "hq-team-invitation",
       variables,

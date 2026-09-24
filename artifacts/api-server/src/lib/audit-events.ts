@@ -133,6 +133,12 @@ export const AUDIT_ACTIONS = [
   "billing_product_updated",
   "billing_product_archived",
   "billing_product_floor_updated",
+  // Office access subscriptions (what an office pays THINNR) — HQ overrides
+  "office_access_included_period_set",
+  "office_access_trial_reset",
+  "office_access_terms_set",
+  "office_access_paid_through_recorded",
+  "office_access_offline_payment_recorded",
   // Record access (reads, deduped per actor + target — see lib/record-access-audit.ts)
   "patient_record_viewed",
   "patient_photos_viewed",
@@ -163,6 +169,7 @@ export const AUDIT_METADATA_KEYS = [
   "holdId", "targetKind",
   "reportId", "conversationId", "photos",
   "choice", "patients", "sessions", "sealed", "held", "destroyed", "retainUntil",
+  "lifetime", "endsAt", "restart", "plan", "priceCentsOverride", "paidThrough", "amountCents",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 

@@ -26,6 +26,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "subscription-cancelled",
   "staff-attention-digest",
   "system-threshold-alert",
+  "office-access-restricted",
   ...SHOP_EMAIL_TEMPLATE_IDS,
 ] as const;
 
@@ -309,6 +310,27 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       healthLink: "System health page link",
     },
   },
+  {
+    id: "office-access-restricted",
+    name: "Office access restricted",
+    purpose: "Tells HQ that an office's access subscription reached the end of its recovery window and the office is now restricted.",
+    trigger: "The office access billing job restricts an office because the grace window elapsed with nothing collected.",
+    audience: "Active HQ administrators (super admin and admin roles).",
+    sampleVariables: {
+      name: "Jordan",
+      officeName: "Lakeside Wellness",
+      restrictedOn: "Friday, September 18, 2026",
+      amountDue: "$200.00",
+      billingLink: "https://operations.example.com/admin/payments/office-access",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      officeName: "Office name",
+      restrictedOn: "Day the office was restricted",
+      amountDue: "Amount the office owes for the period",
+      billingLink: "Office access board link",
+    },
+  },
   ...SHOP_EMAIL_TEMPLATE_CATALOG,
 ] as const;
 
@@ -556,6 +578,7 @@ export function renderEmailTemplate(
   if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
   if (id === "staff-attention-digest") return renderStaffAttentionDigest(variables);
   if (id === "system-threshold-alert") return renderSystemThresholdAlert(variables);
+  if (id === "office-access-restricted") return renderOfficeAccessRestricted(variables);
   const shop = renderShopEmail(id, variables);
   if (shop) return shop;
 
@@ -872,6 +895,50 @@ function renderSystemThresholdAlert(variables: EmailVariables): RenderedEmail {
         ${button(healthLink, "Open System health", level === "red" ? "#a8322a" : "#315eae")}
         ${paragraph(guidance)}`,
       closing: "You receive this because you are an HQ administrator. Sent once per metric, level, and day.",
+    }),
+  };
+}
+
+/**
+ * HQ's notice that an office's recovery window closed with nothing collected.
+ * Operational only: the office's name, the day, and what it owes — never
+ * anything about the office's patients.
+ */
+function renderOfficeAccessRestricted(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const officeName = requireVariable(variables, "officeName");
+  const restrictedOn = requireVariable(variables, "restrictedOn");
+  const amountDue = variables.amountDue?.trim() || "";
+  const billingLink = requireVariable(variables, "billingLink");
+  const subject = `Restricted: ${officeName}`;
+  const previewText = `${officeName} was restricted on ${restrictedOn} after its recovery window closed.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `${officeName} is now restricted.`,
+    `Every stored payment instrument failed and the recovery window closed on ${restrictedOn}.`,
+    ...(amountDue ? [`Amount outstanding: ${amountDue}`] : []),
+    "",
+    "The office keeps its data and its patient payments, at the restricted revenue share, until it pays.",
+    "",
+    `Open the office access board: ${billingLink}`,
+    "",
+    "You receive this once per office, on the day it is restricted.",
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Office access · Restricted",
+      heading: `${officeName} is restricted`,
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`Every stored payment instrument failed and the recovery window closed on <strong>${escapeHtml(restrictedOn)}</strong>.`)}
+        ${infoPanel("Office", officeName)}
+        ${amountDue ? paragraph(`<strong>Amount outstanding:</strong> ${escapeHtml(amountDue)}`) : ""}
+        ${paragraph("The office keeps its data and its patient payments, at the restricted revenue share, until it pays.")}
+        ${button(billingLink, "Open office access", "#a8322a")}`,
+      closing: "You receive this because you are an HQ administrator. Sent once per office, on the day it is restricted.",
     }),
   };
 }

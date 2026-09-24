@@ -542,6 +542,14 @@ args = "office-access-clients"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
+args = "office-access-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-access-live"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "office-restricted-api"
 
 [[workflows.workflow.tasks]]
@@ -3181,7 +3189,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/routes/hq-org-policy.test.ts src/routes/billing-webhooks.test.ts src/routes/system-jobs.test.ts src/jobs/scheduler.test.ts src/routes/auth.test.ts && pnpm --filter @workspace/api-server run typecheck"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/routes/hq-office-access.test.ts src/routes/hq-org-policy.test.ts src/routes/billing-webhooks.test.ts src/routes/system-jobs.test.ts src/jobs/scheduler.test.ts src/routes/auth.test.ts src/lib/audit-events.test.ts src/alerts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -3237,6 +3245,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:office-restricted && pnpm --filter @workspace/thinnr-mobile run test:care-team-chat && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-access-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run test:office-bundle && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-access-live"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-access-live"
 
 [workflows.workflow.metadata]
 isValidation = true

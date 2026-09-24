@@ -38,6 +38,11 @@ import type {
   OfficeShippingSettings,
   NotificationContactChange,
   NotificationContactsResponse,
+  OfficeAccessBoard,
+  OfficeAccessChange,
+  OfficeAccessDetail,
+  OfficeAccessPlan,
+  PaidThroughSource,
   OrderDetail,
   OrderSummary,
   Paged,
@@ -87,6 +92,7 @@ function qs(params: Record<string, string | number | null | undefined>, office?:
 
 const OFFICE = '/api/billing/office';
 const HQ = '/api/billing/hq';
+const HQ_ACCESS = '/api/hq/office-access';
 const PUBLIC = '/api/billing/public';
 
 export type ListFilters = Record<string, string | number | null | undefined>;
@@ -115,6 +121,14 @@ function emailLedger(root: string) {
     removeContact: (payerId: string, contactId: string, office?: string | null) =>
       officeRequest<NotificationContactChange>(`${contacts(payerId)}/${encodeURIComponent(contactId)}${qs({}, office)}`, MESSAGES, { method: 'DELETE' }),
   };
+}
+
+/** Every HQ office-access write answers with the refreshed terms, so they share one shape. */
+function accessAction(providerId: string, action: string, body: Record<string, unknown>) {
+  return officeRequest<OfficeAccessChange>(`${HQ_ACCESS}/${encodeURIComponent(providerId)}/${action}`, MESSAGES, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 }
 
 // ---------------- office ----------------
@@ -269,6 +283,20 @@ export const hqBilling = {
       method: 'PUT',
       body: JSON.stringify({ state }),
     }),
+  // Office access subscriptions: what an office pays THINNR. These routes sit
+  // under /api/hq/office-access, not the Connect-program /api/billing/hq tree.
+  officeAccessBoard: () => officeRequest<OfficeAccessBoard>(`${HQ_ACCESS}`, MESSAGES),
+  officeAccess: (providerId: string) =>
+    officeRequest<OfficeAccessDetail>(`${HQ_ACCESS}/${encodeURIComponent(providerId)}`, MESSAGES),
+  setIncludedPeriod: (providerId: string, body: { lifetime?: boolean; days?: number; endsAt?: string | null }) =>
+    accessAction(providerId, 'included-period', body),
+  resetAccessTrial: (providerId: string, body: { days?: number }) => accessAction(providerId, 'reset-trial', body),
+  setAccessTerms: (providerId: string, body: { plan?: OfficeAccessPlan; priceCentsOverride?: number | null }) =>
+    accessAction(providerId, 'terms', body),
+  recordAccessPaidThrough: (providerId: string, body: { paidThrough: string; source: PaidThroughSource; note?: string }) =>
+    accessAction(providerId, 'paid-through', body),
+  recordAccessOfflinePayment: (providerId: string, body: { paidThrough: string; amountCents?: number; note?: string }) =>
+    accessAction(providerId, 'offline-payment', body),
   transactions: (filters: ListFilters) => officeRequest<Paged<OrderSummary>>(`${HQ}/transactions${qs(filters)}`, MESSAGES),
   transaction: (orderId: string) => officeRequest<OrderDetail>(`${HQ}/transactions/${encodeURIComponent(orderId)}`, MESSAGES),
   refund: (orderId: string, body: { amount_cents?: number; reason: string }) =>

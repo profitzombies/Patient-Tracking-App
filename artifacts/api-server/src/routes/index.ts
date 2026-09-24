@@ -63,6 +63,7 @@ import staffNotificationsRouter from "./staff-notifications";
 import hqStaffAlertsRouter from "./hq-staff-alerts";
 import hqLegalHoldsRouter from "./hq-legal-holds";
 import officePatientHistoryRouter from "./office-patient-history";
+import hqOfficeAccessRouter from "./hq-office-access";
 
 const router: IRouter = Router();
 
@@ -128,6 +129,7 @@ router.use(billingOfficeRouter);
 router.use(billingOfficeSalesRouter);
 router.use(billingOfficeOrdersRouter);
 router.use(billingHqRouter);
+router.use(hqOfficeAccessRouter);
 router.use(billingHqOrdersRouter);
 router.use(billingCustomerEmailsRouter);
 router.use(billingPublicRouter);

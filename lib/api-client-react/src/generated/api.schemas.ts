@@ -1720,6 +1720,7 @@ export interface PolicySectionChanges {
   retention: PolicySectionChange | null;
   security: PolicySectionChange | null;
   archive: PolicySectionChange | null;
+  accessBilling: PolicySectionChange | null;
 }
 
 /**
@@ -6003,4 +6004,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

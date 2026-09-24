@@ -4316,7 +4316,7 @@ components:
         allStaff: { type: boolean, description: Every office teammate, including staff-role members }
     PolicySectionChanges:
       type: object
-      required: [organization, coach, notifications, conversations, retention, security, archive]
+      required: [organization, coach, notifications, conversations, retention, security, archive, accessBilling]
       properties:
         organization: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         coach: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
@@ -4325,6 +4325,7 @@ components:
         retention: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         security: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
         archive: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
+        accessBilling: { oneOf: [{ $ref: "#/components/schemas/PolicySectionChange" }, { type: "null" }] }
     ColdArchiveSettingsStatus:
       type: object
       description: Read-only cold archive facts shown next to the toggle.

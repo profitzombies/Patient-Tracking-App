@@ -34,6 +34,13 @@ export const POLICY_BOUNDS = {
   exportLinkHours: { min: 1, max: 168 },
   staffIdleTimeoutMinutes: { min: 5, max: 120, default: 15 },
   hqIdleTimeoutMinutes: { min: 5, max: 120, default: 15 },
+  /** Office access prices are entered in whole dollars; the API stores cents. */
+  accessMonthlyPriceDollars: { min: 0, max: 100_000 },
+  accessYearlyPriceDollars: { min: 0, max: 1_000_000 },
+  /** HQ may include up to three years of access by default. */
+  accessIncludedPeriodDays: { min: 0, max: 1095 },
+  accessGracePeriodDays: { min: 1, max: 30 },
+  accessSharePercent: { min: 0, max: 100 },
 } as const;
 
 export type PolicySectionKey = keyof HqOrganizationSettings['sections'];

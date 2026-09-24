@@ -61,6 +61,11 @@ describe("billing HTTP identity", () => {
     expect(res.status).toHaveBeenCalledWith(503);
     expect(next).not.toHaveBeenCalled();
   });
+  it("scopes HQ office access, which lives outside the /api/billing tree", async () => {
+    let identity: unknown = null;
+    await billingRequestIdentity(request("/api/hq/office-access/office-1"), response(), () => { identity = currentBillingIdentity(); });
+    expect(identity).toEqual({ mode: "live", platformAccountId: "acct_live" });
+  });
   it.each(["/api/billing/hq/mode", "/api/billing/hq/health", "/api/billing/oauth/callback", "/api/healthz"])("leaves configuration and nonbilling routes available: %s", async (path) => {
     const next = vi.fn();
     await billingRequestIdentity(request(path), response(), next);

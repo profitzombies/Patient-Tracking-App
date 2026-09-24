@@ -30,6 +30,7 @@ import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
 import { OfficeOffboarding } from '@/components/admin/OfficeOffboarding';
 import { AccountDangerZone } from '@/components/admin/AccountDangerZone';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
+import { AccountAccessBillingCard } from '@/components/admin/office-access/AccessBillingCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
 import { Sparkline } from '@/components/admin/Sparkline';
 import { DateRangeControl } from '@/components/layout/DateRangeControl';
@@ -494,6 +495,11 @@ function ProviderAccountDetail({ id }: { id: string }) {
       {/* Payments: what this office has collected through Stripe and what THINNR earned. */}
       <div className="mt-5">
         <AccountPaymentsCard providerId={account.id} />
+      </div>
+
+      {/* Office access: what this office pays THINNR for the platform itself. */}
+      <div className="mt-5">
+        <AccountAccessBillingCard providerId={account.id} />
       </div>
 
       {/* Office profile spans the full measure beneath the two columns. */}

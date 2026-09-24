@@ -40,7 +40,10 @@ export async function identityForReference(reference: { table: string; field: st
 
 /** A mode switch never changes the identity partway through a request. */
 export async function billingRequestIdentity(req: Request, res: Response, next: NextFunction): Promise<void> {
-  if (!/^\/api\/(?:billing\/|patient-data\/billing(?:\/|$))/.test(req.path) ||
+  // HQ office access sits outside the Connect-program /api/billing tree, but
+  // its rows are Stripe-scoped like every other billing table, so it needs the
+  // same identity or every store read fails closed.
+  if (!/^\/api\/(?:billing\/|patient-data\/billing(?:\/|$)|hq\/office-access(?:\/|$))/.test(req.path) ||
       /^\/api\/billing\/(?:webhooks\/|hq\/(?:health|mode)(?:\/|$)|oauth\/callback)/.test(req.path) ||
       req.path.includes("/product-images/")) { next(); return; }
   try {

@@ -14,6 +14,7 @@
  */
 import { selectMany, type BillingOfficeAccessSubscriptionRow as Row } from "../store";
 import { chargeAccessPeriod } from "./charge";
+import { queueRestrictionAlert } from "./restriction-alert";
 import { loadAccessBillingSettings } from "./settings";
 import { dueBillingPeriod, isLifetime } from "./state";
 import { applyAccessInput, recordAccessEvent, refreshAccessState, SYSTEM_ACTOR } from "./subscription";
@@ -77,6 +78,16 @@ export async function runDunningStep(row: Row, now: Date): Promise<DunningStep> 
       row: result.row, event: "dunning_notice", actor: SYSTEM_ACTOR,
       toState: result.to, detail: { notice: "restricted" },
     });
+    // HQ hears about it too. A failed alert must not undo the restriction:
+    // the office's state is the fact, the email is the courtesy.
+    try {
+      await queueRestrictionAlert(result.row, now);
+    } catch (error) {
+      await recordAccessEvent({
+        row: result.row, event: "dunning_notice", actor: SYSTEM_ACTOR,
+        detail: { notice: "hq_alert_failed", message: error instanceof Error ? error.message : String(error) },
+      });
+    }
     return { providerId: row.provider_id, action: "restricted" };
   }
 

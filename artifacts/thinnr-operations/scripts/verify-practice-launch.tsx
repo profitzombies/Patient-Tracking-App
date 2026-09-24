@@ -38,6 +38,15 @@ globalThis.fetch = async (input, init) => {
   if (call.url.startsWith('/api/office/hq/accounts')) return new Response(JSON.stringify({ account: { id: 'fixture', officeName: 'Sample Practice', offboarding: { seal: null } } }), { status: 200 });
   if (call.url.startsWith('/api/billing/hq/providers/')) return new Response(JSON.stringify({ status: { is_connected: true, charges_enabled: true, payouts_enabled: true, details_submitted: true }, activity_30d: { collected_cents: 0, orders: 0 }, subscriptions: { active: 0 }, pending_requirements: [], recent_orders: [] }), { status: 200 });
   if (call.url.startsWith('/api/office/hq/analytics')) return new Response(JSON.stringify({ available: false }), { status: 200 });
+  if (call.url.includes('/office-access/')) return new Response(JSON.stringify({
+    office: { providerId: 'fixture', officeName: 'Sample Practice' },
+    subscription: null,
+    setup: null,
+    instruments: [],
+    attempts: [],
+    history: [],
+    policy: { monthlyPriceCents: 20000, yearlyPriceCents: 200000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100, maxIncludedPeriodDays: 1095 },
+  }), { status: 200 });
 
   if (call.method !== 'GET') {
     snapshot.version++;

@@ -44,3 +44,13 @@ card while a debit is in flight is exactly the double charge.
 **Duplicate cards are rejected on Stripe's fingerprint, not last4 + expiry.** The same
 physical card re-added through a wallet or a reissued number shares the fingerprint but
 not the digits, and a "backup" card that is the primary card is not a backup at all.
+
+**Access rows are Stripe-scoped, so any route that touches them needs a billing
+identity — including routes outside the /api/billing tree.** The billing store throws
+"Billing identity is required." (HTTP 503) unless the request ran inside the
+identity middleware's path match.
+**Why:** HQ office-access endpoints were mounted under an /api/hq path; every unit test
+mocked the store, so the 503 only appeared against a real server.
+**How to apply:** when adding a billing-backed surface on a non-billing URL, extend the
+identity middleware's path match at the same time, and prove the routes against the
+running server rather than trusting store-mocked suites.

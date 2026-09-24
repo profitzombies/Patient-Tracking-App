@@ -699,6 +699,90 @@ export function LivePolicySettings() {
           </FieldRow>
         )}
       </PolicyCard>
+
+      <PolicyCard
+        section="accessBilling"
+        title="Office access billing"
+        sub="What an office pays THINNR for the dashboard and the provider app, and THINNR's share of a patient payment. Changes apply from here on: periods already charged and shares already taken are untouched."
+        settings={settings}
+        fromSettings={accessBillingFrom}
+        toPayload={accessBillingPayload}
+        incomplete={(draft) =>
+          numbersComplete([
+            draft.monthlyPriceDollars,
+            draft.yearlyPriceDollars,
+            draft.includedPeriodDays,
+            draft.gracePeriodDays,
+            draft.normalSharePercent,
+            draft.restrictedSharePercent,
+          ])
+        }
+      >
+        {(draft, setDraft) => (
+          <>
+            <FieldRow label="Standard monthly price" help="What an office on the monthly plan pays. HQ can give an individual office its own price from that office's account page.">
+              <NumberField
+                id="input-policy-access-monthly"
+                label="Standard monthly price in dollars"
+                value={draft.monthlyPriceDollars}
+                bounds={POLICY_BOUNDS.accessMonthlyPriceDollars}
+                unit="dollars"
+                onChange={(monthlyPriceDollars) => setDraft({ monthlyPriceDollars })}
+              />
+            </FieldRow>
+            <FieldRow label="Standard yearly price" help="What an office on the yearly plan pays for twelve months up front.">
+              <NumberField
+                id="input-policy-access-yearly"
+                label="Standard yearly price in dollars"
+                value={draft.yearlyPriceDollars}
+                bounds={POLICY_BOUNDS.accessYearlyPriceDollars}
+                unit="dollars"
+                onChange={(yearlyPriceDollars) => setDraft({ yearlyPriceDollars })}
+              />
+            </FieldRow>
+            <FieldRow label="Included period" help="How long a new office pays nothing for access, counted from its owner's first dashboard sign-in. Up to three years. Offices already inside an included period keep the length they were given.">
+              <NumberField
+                id="input-policy-access-included-days"
+                label="Included period days"
+                value={draft.includedPeriodDays}
+                bounds={POLICY_BOUNDS.accessIncludedPeriodDays}
+                unit="days"
+                onChange={(includedPeriodDays) => setDraft({ includedPeriodDays })}
+              />
+            </FieldRow>
+            <FieldRow label="Recovery window" help="How long an office keeps normal access after a charge fails, while the cards on file are retried, before it is restricted.">
+              <NumberField
+                id="input-policy-access-grace-days"
+                label="Recovery window days"
+                value={draft.gracePeriodDays}
+                bounds={POLICY_BOUNDS.accessGracePeriodDays}
+                unit="days"
+                onChange={(gracePeriodDays) => setDraft({ gracePeriodDays })}
+              />
+            </FieldRow>
+            <FieldRow label="THINNR share, in good standing" help="THINNR's percentage of a patient payment while the office's access is paid, included, or inside its recovery window.">
+              <NumberField
+                id="input-policy-access-share-normal"
+                label="THINNR share percent in good standing"
+                value={draft.normalSharePercent}
+                bounds={POLICY_BOUNDS.accessSharePercent}
+                unit="percent"
+                onChange={(normalSharePercent) => setDraft({ normalSharePercent })}
+              />
+            </FieldRow>
+            <FieldRow label="THINNR share, restricted" help="THINNR's percentage of a patient payment while an office is restricted for non-payment. The office keeps its data and its patients keep buying; the split changes until it pays." last>
+              <NumberField
+                id="input-policy-access-share-restricted"
+                label="THINNR share percent while restricted"
+                value={draft.restrictedSharePercent}
+                bounds={POLICY_BOUNDS.accessSharePercent}
+                unit="percent"
+                onChange={(restrictedSharePercent) => setDraft({ restrictedSharePercent })}
+              />
+            </FieldRow>
+          </>
+        )}
+      </PolicyCard>
     </>
   );
 }
@@ -746,3 +830,35 @@ function describeArchiveStatus(status: HqOrganizationSettings['coldArchive'], en
 }
 
 const archivePayload = (d: ArchiveDraft): HqOrganizationSettingsInput => ({ coldArchiveEnabled: d.coldArchiveEnabled });
+
+// ─── Office access billing ───────────────────────────────────────────────────
+
+/** Prices are entered in whole dollars here; the API stores and returns cents. */
+interface AccessBillingDraft {
+  monthlyPriceDollars: number;
+  yearlyPriceDollars: number;
+  includedPeriodDays: number;
+  gracePeriodDays: number;
+  normalSharePercent: number;
+  restrictedSharePercent: number;
+}
+
+const accessBillingFrom = (s: HqOrganizationSettings): AccessBillingDraft => ({
+  monthlyPriceDollars: s.accessBilling.monthlyPriceCents / 100,
+  yearlyPriceDollars: s.accessBilling.yearlyPriceCents / 100,
+  includedPeriodDays: s.accessBilling.includedPeriodDays,
+  gracePeriodDays: s.accessBilling.gracePeriodDays,
+  normalSharePercent: s.accessBilling.normalSharePercent,
+  restrictedSharePercent: s.accessBilling.restrictedSharePercent,
+});
+
+const accessBillingPayload = (d: AccessBillingDraft): HqOrganizationSettingsInput => ({
+  accessBilling: {
+    monthlyPriceCents: Math.round(d.monthlyPriceDollars * 100),
+    yearlyPriceCents: Math.round(d.yearlyPriceDollars * 100),
+    includedPeriodDays: d.includedPeriodDays,
+    gracePeriodDays: d.gracePeriodDays,
+    normalSharePercent: d.normalSharePercent,
+    restrictedSharePercent: d.restrictedSharePercent,
+  },
+});

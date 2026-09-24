@@ -68,6 +68,31 @@ export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedE
 export function isSystemThresholdRow(row: StaffNotificationRow): boolean {
   return row.kind === "system_threshold" || (row.provider_id === null && row.kind !== "staff_attention_digest");
 }
+/** The kind HQ office-access restriction alerts carry. */
+export const OFFICE_ACCESS_RESTRICTED_KIND = "office_access_restricted";
+export function isOfficeAccessRestrictedRow(row: StaffNotificationRow): boolean {
+  return row.kind === OFFICE_ACCESS_RESTRICTED_KIND;
+}
+/**
+ * HQ's restriction notice for one office. Like the threshold alert it belongs
+ * to no office inbox (provider_id is null), so it carries its own snapshot:
+ * the office name, the day, and what is outstanding.
+ */
+export function officeAccessRestrictedEmail(row: StaffNotificationRow): StaffEmail {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  const amountCents = Number(data.amountCents ?? Number.NaN);
+  return { templateId: "office-access-restricted", variables: {
+    name: typeof data.recipientName === "string" ? data.recipientName : "",
+    officeName: typeof data.officeName === "string" && data.officeName ? data.officeName : "An office",
+    restrictedOn: digestDateLabel(String(data.day ?? "")),
+    amountDue: Number.isFinite(amountCents) ? `$${(amountCents / 100).toFixed(2)}` : "",
+    billingLink: `${publicOrigin()}/admin/payments/office-access`,
+  } };
+}
+export function renderOfficeAccessRestrictedEmail(row: StaffNotificationRow): RenderedEmail {
+  const email = officeAccessRestrictedEmail(row);
+  return renderEmailTemplate(email.templateId, email.variables);
+}
 /**
  * The digest email from the snapshot stored on the row at enqueue time:
  * counts per reason and a link to the Needs attention page. Names never
@@ -99,7 +124,9 @@ export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail
 }
 async function sendEmail(row: StaffNotificationRow): Promise<void> {
   if (!row.email) throw new Error("staff email delivery is not configured");
-  const email = isSystemThresholdRow(row) ? systemThresholdEmail(row) : staffDigestEmail(row);
+  const email = isOfficeAccessRestrictedRow(row)
+    ? officeAccessRestrictedEmail(row)
+    : isSystemThresholdRow(row) ? systemThresholdEmail(row) : staffDigestEmail(row);
   await sendTemplatedEmail({
     to: row.email, templateId: email.templateId, variables: email.variables, sender: "branded",
     refs: { notificationId: row.id, kind: row.kind ?? null, providerId: row.provider_id },

@@ -786,6 +786,133 @@ export interface HqProviderDetail {
   links: number;
 }
 
+// ---------- office access subscriptions (what an office pays THINNR) ----------
+
+export type OfficeAccessState = 'setup_incomplete' | 'included_period' | 'paid_current' | 'past_due' | 'restricted';
+export type OfficeAccessPlan = 'monthly' | 'yearly';
+export type OfficeAccessSlot = 'bank' | 'card_primary' | 'card_backup';
+export type PaidThroughSource = 'stripe' | 'offline' | 'hq_migration';
+
+/**
+ * One office's access terms. `state` is null for an office no subscription
+ * work has touched yet — honestly nothing, not a zeroed-out subscription.
+ */
+export interface OfficeAccessTerms {
+  state: OfficeAccessState | null;
+  plan: OfficeAccessPlan | null;
+  priceCents: number | null;
+  priceCentsOverride: number | null;
+  lifetime: boolean;
+  includedPeriodStartedAt: string | null;
+  includedPeriodEndsAt: string | null;
+  paidThrough: string | null;
+  paidThroughSource: PaidThroughSource | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  graceEndsAt: string | null;
+  graceDaysLeft: number | null;
+  restrictedAt: string | null;
+  setupCompletedAt: string | null;
+  bankVerificationDeadline: string | null;
+  lastAttemptAt: string | null;
+  nextChargeAt: string | null;
+  version: number | null;
+}
+
+export interface OfficeAccessPolicy {
+  monthlyPriceCents: number;
+  yearlyPriceCents: number;
+  includedPeriodDays: number;
+  gracePeriodDays: number;
+  normalSharePercent: number;
+  restrictedSharePercent: number;
+  maxIncludedPeriodDays: number;
+}
+
+export interface OfficeAccessBoardRow extends OfficeAccessTerms {
+  providerId: string;
+  officeName: string;
+  locked: boolean;
+}
+
+export interface OfficeAccessBoard {
+  offices: OfficeAccessBoardRow[];
+  counts: {
+    total: number;
+    notStarted: number;
+    setupIncomplete: number;
+    includedPeriod: number;
+    paidCurrent: number;
+    pastDue: number;
+    restricted: number;
+    trialsEndingSoon: number;
+  };
+  policy: OfficeAccessPolicy;
+  trialEndingSoonDays: number;
+}
+
+export interface OfficeAccessInstrument {
+  id: string;
+  slot: OfficeAccessSlot;
+  kind: 'bank' | 'card';
+  brand: string | null;
+  last4: string | null;
+  bankName: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  verificationStatus: 'verified' | 'pending' | 'failed';
+  verificationDeadline: string | null;
+  removedAt: string | null;
+}
+
+export interface OfficeAccessAttempt {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  cycle: number;
+  slot: OfficeAccessSlot;
+  plan: OfficeAccessPlan;
+  amountCents: number;
+  status: 'processing' | 'succeeded' | 'failed';
+  failureCode: string | null;
+  failureMessage: string | null;
+  settledAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+}
+
+export interface OfficeAccessHistoryEntry {
+  id: number;
+  event: string;
+  fromState: OfficeAccessState | null;
+  toState: OfficeAccessState | null;
+  actorKind: 'system' | 'hq' | 'provider' | 'team_member' | 'stripe';
+  actorUserId: string | null;
+  actorName: string | null;
+  detail: Record<string, string | number | boolean | null>;
+  createdAt: string;
+}
+
+export interface OfficeAccessDetail {
+  office: { providerId: string; officeName: string };
+  subscription: OfficeAccessTerms | null;
+  setup: {
+    complete: boolean;
+    missing: OfficeAccessSlot[];
+    bankVerificationPending: boolean;
+    bankVerificationDeadline: string | null;
+    bankVerificationOverdue: boolean;
+  } | null;
+  instruments: OfficeAccessInstrument[];
+  attempts: OfficeAccessAttempt[];
+  history: OfficeAccessHistoryEntry[];
+  policy: OfficeAccessPolicy;
+}
+
+export interface OfficeAccessChange {
+  subscription: OfficeAccessTerms | null;
+}
+
 export interface HqCatalogResponse {
   products: CatalogProduct[];
   settings: BillingSettings;

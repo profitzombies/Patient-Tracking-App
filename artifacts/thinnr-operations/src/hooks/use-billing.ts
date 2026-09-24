@@ -21,7 +21,9 @@ import type {
   CatalogProductInput,
   FulfillmentUpdate,
   HqCatalogResponse,
+  OfficeAccessPlan,
   OfficePrice,
+  PaidThroughSource,
   ProductStatus,
 } from '@/lib/billing-types';
 
@@ -424,6 +426,64 @@ export async function uploadProductImage(
     size: file.size,
   });
   return result.product;
+}
+
+// ---------------- office access subscriptions ----------------
+
+/** The board: every live office with its access state. */
+export function useHqOfficeAccessBoard() {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'office-access', 'board'],
+    queryFn: () => hqBilling.officeAccessBoard(),
+    enabled: liveEnabled,
+    ...refreshOnStaleFocus,
+  });
+}
+
+/** One office's access terms, instruments, attempts and change history. */
+export function useHqOfficeAccess(providerId: string | null) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'office-access', providerId],
+    queryFn: () => hqBilling.officeAccess(providerId as string),
+    enabled: liveEnabled && Boolean(providerId),
+  });
+}
+
+/**
+ * The HQ actions on one office. Each answers with the refreshed terms, so the
+ * detail and board reads are invalidated together — a recorded offline
+ * payment must not leave the board still calling the office restricted.
+ */
+export function useHqOfficeAccessMutations(providerId: string) {
+  const { base } = useHqBillingScope();
+  const client = useQueryClient();
+  const settle = () => {
+    void client.invalidateQueries({ queryKey: [...base, 'office-access'] });
+  };
+  return {
+    includedPeriod: useMutation({
+      mutationFn: (body: { lifetime?: boolean; days?: number; endsAt?: string | null }) => hqBilling.setIncludedPeriod(providerId, body),
+      onSuccess: settle,
+    }),
+    resetTrial: useMutation({
+      mutationFn: (body: { days?: number }) => hqBilling.resetAccessTrial(providerId, body),
+      onSuccess: settle,
+    }),
+    terms: useMutation({
+      mutationFn: (body: { plan?: OfficeAccessPlan; priceCentsOverride?: number | null }) => hqBilling.setAccessTerms(providerId, body),
+      onSuccess: settle,
+    }),
+    paidThrough: useMutation({
+      mutationFn: (body: { paidThrough: string; source: PaidThroughSource; note?: string }) => hqBilling.recordAccessPaidThrough(providerId, body),
+      onSuccess: settle,
+    }),
+    offlinePayment: useMutation({
+      mutationFn: (body: { paidThrough: string; amountCents?: number; note?: string }) => hqBilling.recordAccessOfflinePayment(providerId, body),
+      onSuccess: settle,
+    }),
+  };
 }
 
 export function useHqCatalogMutations() {

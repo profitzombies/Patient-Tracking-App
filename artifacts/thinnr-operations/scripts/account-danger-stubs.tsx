@@ -65,6 +65,10 @@ export function AccountPaymentsCard({ providerId }: { providerId: string }) {
   return <div data-testid="stub-payments" data-provider-id={providerId} />;
 }
 
+export function AccountAccessBillingCard({ providerId }: { providerId: string }) {
+  return <div data-testid="stub-access-billing" data-provider-id={providerId} />;
+}
+
 export function StaffAccessCard({ account }: { account: { id: string } }) {
   return <div data-testid="stub-staff-access" data-provider-id={account.id}>Staff access</div>;
 }

@@ -41,7 +41,7 @@ export function demoOfficeSettings(): OfficeSettingsDto {
     },
     version: 1,
     updatedAt: '2026-09-01T16:00:00.000Z',
-    sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null, archive: null },
+    sections: { organization: null, coach: null, notifications: null, conversations: null, retention: null, security: null, archive: null, accessBilling: null },
     coldArchive: { storageConfigured: false, lastArchivedDay: null, daysPending: null },
   };
   const overrides: OfficeOverrides = { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null };

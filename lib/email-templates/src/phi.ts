@@ -46,6 +46,7 @@ export const EMAIL_TEMPLATE_PHI_CLASS: Record<EmailTemplateId, EmailPhiClass> = 
   "subscription-card-updated": "payment",
   "staff-attention-digest": "operational",
   "system-threshold-alert": "operational",
+  "office-access-restricted": "operational",
 };
 
 /** Templates that may address a patient or staff member by full name. */

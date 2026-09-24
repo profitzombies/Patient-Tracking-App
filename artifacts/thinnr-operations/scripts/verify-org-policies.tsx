@@ -180,6 +180,7 @@ function hqFixture(): HqOrganizationSettings {
       security: null,
       archive: null,
     },
+    accessBilling: { monthlyPriceCents: 20_000, yearlyPriceCents: 200_000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100 },
     coldArchive: { storageConfigured: true, lastArchivedDay: '2026-09-05', daysPending: 1 },
   };
 }

@@ -12,6 +12,7 @@
       "@/components/office/OfficeRangeMetricsGrid": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/AccountPaymentsCard": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/StaffAccessCard": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/office-access/AccessBillingCard": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/OfficeOffboarding": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/OfficeBundleExport": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/LegalHold": ["./scripts/account-danger-stubs.tsx"],

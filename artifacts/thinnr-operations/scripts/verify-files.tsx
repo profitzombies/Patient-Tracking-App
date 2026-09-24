@@ -287,7 +287,7 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   ok(updateBody?.archived === true, 'Archive action calls file update with archived true');
   const detailClose = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Close'))[0];
   if (detailClose) await click(detailClose);
-  const crumb = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Files'))[0];
+  const crumb = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Marketing Assets'))[0];
   await click(crumb);
   ok(location.history.at(-1) === '/admin/files', 'breadcrumb navigates to root');
   await click(renderer!.root.findByProps({ 'data-testid': 'button-new-folder' }));
@@ -312,14 +312,14 @@ const liveFile = (overrides: Partial<HqFile> = {}): HqFile => ({
   const archived = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Archived'))[0];
   await click(archived);
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-  ok(text(renderer!).includes('Restore') && text(renderer!).includes('Files') && text(renderer!).includes('Archived'), 'archived view lists file with Restore');
+  ok(text(renderer!).includes('Restore') && text(renderer!).includes('Marketing Assets') && text(renderer!).includes('Archived'), 'archived view lists file with Restore');
 
   const transfer = { types: ['Files'], files: [] };
   await act(async () => { window.dispatchEvent(Object.assign(new Event('dragenter'), { dataTransfer: transfer })); });
   ok(text(renderer!).includes('Drop to upload into'), 'window file drag shows drop overlay');
 
   // Back to the root: cards by default, list on demand, and a reorder saves through PUT /hq/files/order.
-  const back = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Back to files'))[0];
+  const back = renderer!.root.findAll((node) => node.type === 'button' && node.children.includes('Back to assets'))[0];
   await click(back);
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)); });
   ok(renderer!.root.findAllByProps({ 'data-testid': 'folder-grid' }).length === 1 && renderer!.root.findByProps({ 'data-testid': 'view-cards' }).props['aria-pressed'] === true, 'cards view is the default');

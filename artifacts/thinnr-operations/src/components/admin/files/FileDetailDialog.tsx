@@ -181,7 +181,7 @@ export function FileDetailDialog({
           <dt className="font-semibold">Name</dt><dd className="break-all">{file.name}</dd>
           <dt className="font-semibold">Type</dt><dd>{kind}</dd>
           <dt className="font-semibold">Size</dt><dd>{formatBytes(file.size)}{file.originalSize && file.originalSize > file.size ? ` (was ${formatBytes(file.originalSize)})` : ''}</dd>
-          <dt className="font-semibold">Folder</dt><dd>{file.path?.length ? file.path.map((folder, index) => <span key={folder.id}>{index > 0 && ' › '}<button className="text-primary hover:underline" onClick={() => onFolder(folder)}>{folder.name}</button></span>) : 'Files'}</dd>
+          <dt className="font-semibold">Folder</dt><dd>{file.path?.length ? file.path.map((folder, index) => <span key={folder.id}>{index > 0 && ' › '}<button className="text-primary hover:underline" onClick={() => onFolder(folder)}>{folder.name}</button></span>) : 'Marketing Assets'}</dd>
           <dt className="font-semibold">Added</dt><dd>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(file.createdAt))}</dd>
           <dt className="font-semibold">Uploaded by</dt><dd>{file.uploadedBy || 'Unknown'}</dd>
           {file.archivedAt && <><dt className="font-semibold">Archived on</dt><dd>{new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(file.archivedAt))}</dd></>}

@@ -86,8 +86,8 @@ export default function OfficeFiles() {
     <div className="mx-auto max-w-[1320px] space-y-6 px-4 py-6 sm:px-5 sm:py-7 md:px-8">
       <PageHeader
         kicker="Office"
-        title="Files"
-        sub="Browse, preview, and download files shared by HQ. Your office can view these files but cannot change them."
+        title="Marketing Assets"
+        sub="Browse, preview, and download marketing assets shared by HQ. Your office can view these files but cannot change them."
       />
       <div role="search" className="mb-4 flex max-w-xl items-center gap-2">
         <label htmlFor="office-file-search" className="sr-only">Search files</label>
@@ -96,7 +96,7 @@ export default function OfficeFiles() {
       </div>
       <SectionCard
         title={fileSearch.trim() ? `Results for “${fileSearch.trim()}”` : 'HQ Drive'}
-        sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Files</button>{data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
+        sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Marketing Assets</button>{data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
       >
         {isResolving && <p className="px-5 py-8 text-xs text-muted-foreground">Checking your sign-in…</p>}
         {isDemo && <p className="px-5 py-8 text-xs text-muted-foreground">Sign in to see the files HQ shares with your office.</p>}

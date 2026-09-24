@@ -61,7 +61,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
   { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
-  { path: '/admin/files', label: 'Files', icon: FolderOpen },
+  { path: '/admin/files', label: 'Marketing Assets', mobileLabel: 'Marketing', icon: FolderOpen },
   { path: '/admin/exports', label: 'Exports', icon: FileDown },
   {
     path: '/admin/payments', label: 'Payments', icon: CreditCard,

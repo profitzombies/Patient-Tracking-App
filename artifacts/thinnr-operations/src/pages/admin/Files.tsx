@@ -167,7 +167,7 @@ function DemoFiles() {
     <AdminPage>
       <PageHeader
         kicker="Library"
-        title="Files"
+        title="Marketing Assets"
         sub="The shared HQ drive: brand assets, onboarding packets, and internal docs, organized by folder."
         action={
           <button
@@ -539,7 +539,7 @@ function LiveFiles() {
       <p className="sr-only" aria-live="polite" data-testid="order-notice">{orderNotice}</p>
       <PageHeader
         kicker="Library"
-        title="Files"
+        title="Marketing Assets"
         sub="Durable document storage for HQ administrators."
         action={
           <div className="flex gap-2">
@@ -571,10 +571,10 @@ function LiveFiles() {
       </div>}
       <SectionCard
         title={fileSearch.trim() ? `Results for “${fileSearch.trim()}”` : 'HQ Drive'}
-        sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Files</button>{archivedView ? <><ChevronRight size={11} /><strong className="text-xs text-navy">Archived</strong></> : data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
+        sub={<span className="flex flex-wrap items-center gap-1" aria-label="Folder path"><button type="button" className="text-xs text-primary hover:underline" onClick={() => goFolder(null)}>Marketing Assets</button>{archivedView ? <><ChevronRight size={11} /><strong className="text-xs text-navy">Archived</strong></> : data?.breadcrumbs.map((crumb, index) => <React.Fragment key={crumb.id}><ChevronRight size={11} /><button type="button" className={index === data.breadcrumbs.length - 1 ? 'text-xs font-semibold text-navy' : 'text-xs text-primary hover:underline'} onClick={() => goFolder(crumb.id)}>{crumb.name}</button></React.Fragment>)}</span>}
         action={!fileSearch.trim() ? <div className="flex items-center gap-2">
           {!archivedView && <ViewToggle view={view} onChange={changeView} />}
-          <button type="button" className={`${archivedView ? BTN_PRIMARY : BTN_SECONDARY} h-8 px-3 text-xs`} onClick={() => { setFileSearch(''); setDebouncedSearch(''); navigate(archivedView ? '/admin/files' : '/admin/files?view=archived', { replace: true }); }}>{archivedView ? 'Back to files' : 'Archived'}</button>
+          <button type="button" className={`${archivedView ? BTN_PRIMARY : BTN_SECONDARY} h-8 px-3 text-xs`} onClick={() => { setFileSearch(''); setDebouncedSearch(''); navigate(archivedView ? '/admin/files' : '/admin/files?view=archived', { replace: true }); }}>{archivedView ? 'Back to assets' : 'Archived'}</button>
         </div> : undefined}
       >
         <div className="px-5 py-4">
@@ -601,11 +601,11 @@ function LiveFiles() {
         </div>
       </SectionCard>
 
-      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}><DialogContent><DialogHeader><DialogTitle className="font-serif text-navy">New folder</DialogTitle><DialogDescription>Create a folder inside {data?.folder?.name ?? 'Files'}.</DialogDescription></DialogHeader><label className="text-xs font-semibold">Folder name<input autoFocus value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3" /></label><DialogFooter><button type="button" className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => setNewFolderOpen(false)}>Cancel</button><button type="button" className={`${BTN_PRIMARY} h-9 px-3`} disabled={!newFolderName.trim()} onClick={() => void mutate(() => createFolder.mutateAsync({ data: { name: newFolderName, parentId: folderId } }), 'Folder created').then(() => { setNewFolderOpen(false); setNewFolderName(''); }).catch(() => {})}>Create folder</button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}><DialogContent><DialogHeader><DialogTitle className="font-serif text-navy">New folder</DialogTitle><DialogDescription>Create a folder inside {data?.folder?.name ?? 'Marketing Assets'}.</DialogDescription></DialogHeader><label className="text-xs font-semibold">Folder name<input autoFocus value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} className="mt-1 block h-10 w-full rounded-md border border-input bg-background px-3" /></label><DialogFooter><button type="button" className={`${BTN_SECONDARY} h-9 px-3`} onClick={() => setNewFolderOpen(false)}>Cancel</button><button type="button" className={`${BTN_PRIMARY} h-9 px-3`} disabled={!newFolderName.trim()} onClick={() => void mutate(() => createFolder.mutateAsync({ data: { name: newFolderName, parentId: folderId } }), 'Folder created').then(() => { setNewFolderOpen(false); setNewFolderName(''); }).catch(() => {})}>Create folder</button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={editItem?.action === 'rename'} onOpenChange={(open) => !open && setEditItem(null)}><DialogContent><DialogHeader><DialogTitle className="font-serif text-navy">Rename {editItem?.kind}</DialogTitle><DialogDescription>Enter a new name.</DialogDescription></DialogHeader><input aria-label="New name" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="h-10 rounded-md border border-input px-3" /><DialogFooter><button type="button" className={`${BTN_PRIMARY} h-9 px-3`} onClick={() => { if (!editItem) return; const work = editItem.kind === 'file' ? () => updateFile.mutateAsync({ fileId: editItem.item.id, data: { name: renameValue } }) : () => updateFolder.mutateAsync({ folderId: editItem.item.id, data: { name: renameValue } }); void mutate(work, 'Renamed').then(() => setEditItem(null)).catch(() => {}); }}>Save</button></DialogFooter></DialogContent></Dialog>
       {editItem?.action === 'move' && <MoveDialog open itemName={editItem.item.name} currentFolderId={folderId} movingFolderId={editItem.kind === 'folder' ? editItem.item.id : undefined} onOpenChange={(open) => !open && setEditItem(null)} onMove={(destination) => mutate(editItem.kind === 'file' ? () => updateFile.mutateAsync({ fileId: editItem.item.id, data: { folderId: destination } }) : () => updateFolder.mutateAsync({ folderId: editItem.item.id, data: { parentId: destination } }), 'Moved')} />}
-      <DropOverlay visible={dropVisible} folderName={data?.folder?.name ?? 'Files'} />
+      <DropOverlay visible={dropVisible} folderName={data?.folder?.name ?? 'Marketing Assets'} />
       <UploadPanel items={uploadItems} minimized={uploadsMinimized} onMinimizedChange={setUploadsMinimized} onAnswer={(batch, compress) => queue.answer(batch, compress)} onRetry={(id) => queue.retry(id)} onClose={() => { queue.clearSettled(); setUploadItems(queue.snapshot); }} />
       <FileDetailDialog
         file={selectedFile}

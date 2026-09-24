@@ -67,7 +67,7 @@ export const OFFICE_NAV_ITEMS: OfficeNavItem[] = [
   { path: '/subscriptions', label: 'Subscriptions', mobileLabel: 'Plans', icon: Box },
   { path: '/payments', label: 'Payments', mobileLabel: 'Payments', icon: CreditCard, children: [...OFFICE_PAYMENTS_SECTIONS] },
   { path: '/training', label: 'Training', mobileLabel: 'Training', icon: GraduationCap },
-  { path: '/files', label: 'Files', mobileLabel: 'Files', icon: FolderOpen },
+  { path: '/files', label: 'Marketing Assets', mobileLabel: 'Marketing', icon: FolderOpen },
   { path: '/ai-support', label: 'AI Support', mobileLabel: 'Support', icon: Sparkles },
   { path: '/team', label: 'Team', mobileLabel: 'Team', icon: UserCog },
   { path: '/audit', label: 'Audit trail', mobileLabel: 'Audit', icon: ClipboardList },

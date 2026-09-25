@@ -592,6 +592,14 @@ args = "patient-invite-api"
 task = "workflow.run"
 args = "patient-invite-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "setup-wizard-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "setup-wizard-api"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3376,6 +3384,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-mobile run test:invite-patients && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "setup-wizard-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:setup-wizard && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "setup-wizard-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/connect-oauth.test.ts src/routes/billing-office.test.ts src/practice-launch src/routes/practice-launch.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

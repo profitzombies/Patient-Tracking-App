@@ -9,7 +9,8 @@ import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as setToken } from './invite-stubs/supabase';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { PracticeLaunchGuard, launchRecoveryPath } from '../src/pages/PracticeLaunch';
-import { launchKey, useLaunchWrite, type LaunchState } from '../src/hooks/use-launch';
+import { launchKey, useLaunchData, useLaunchWrite, type LaunchState } from '../src/hooks/use-launch';
+import { LaunchScreen } from '../src/pages/LaunchScreen';
 import { AccountLocksProvider } from '../src/contexts/account-locks';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import { TrainingDataProvider } from '../src/contexts/training-data';
@@ -100,11 +101,19 @@ const byLabel = (root: ReactTestRenderer, label: string) => root.root.findAll((n
 const byTestId = (root: ReactTestRenderer, id: string) => root.root.findAll((node) => typeof node.type === 'string' && node.props['data-testid'] === id)[0];
 const stepState = (root: ReactTestRenderer, step: string) => root.root.findAll((node) => node.type === 'section' && node.props['data-setup-step'] === step)[0]?.props['data-state'];
 function RealOperations() { mounted++; return <p>REAL OPERATIONS</p>; }
-async function render(path = '/patients') {
+// First-time full setup now walks the step-by-step wizard (its own suite);
+// the practice setup page below still serves legacy, partial and finished
+// offices, so its behaviour is exercised directly on the same fixtures.
+function PracticeSetupPage() {
+  const query = useLaunchData();
+  return query.data ? <LaunchScreen launchData={query.data} /> : <p>Checking practice setup…</p>;
+}
+async function render(path = '/patients', page: 'guard' | 'setup-page' = 'guard') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const location = memoryLocation({ path });
   let root!: ReactTestRenderer;
-  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>, { createNodeMock }); });
+  const body = page === 'guard' ? <PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard> : <PracticeSetupPage />;
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}>{body}</Router></QueryClientProvider>, { createNodeMock }); });
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
   return { root, client };
 }
@@ -127,6 +136,11 @@ assert.notDeepEqual(launchKey('a', 'office1'), launchKey('a', 'office2'));
 
 let result = await render();
 assert.equal(mounted, 0, 'incomplete setup must not mount operational children');
+assert.ok(byTestId(result.root, 'setup-wizard'), 'a first-time full-setup office is routed to the setup wizard');
+assert.equal(stepState(result.root, 'details'), undefined, 'the practice setup page is not shown to a first-time office');
+await dispose(result.root, result.client);
+
+result = await render('/patients', 'setup-page');
 // Already-confirmed details start folded; security that needs nothing more is
 // a completed row with no link off the page and no pencil.
 assert.equal(stepState(result.root, 'details'), 'folded');
@@ -171,7 +185,7 @@ await dispose(result.root, result.client);
 // page moves on to the next unfinished step once the fold has finished.
 snapshot = { ...structuredClone(state), detailsConfirmed: false };
 scrolls.length = 0;
-result = await render();
+result = await render('/patients', 'setup-page');
 assert.equal(stepState(result.root, 'details'), 'open');
 assert.equal(button(result.root, 'Cancel'), undefined, 'nothing confirmed yet to fold back to');
 await act(async () => { result.root.root.findAllByType('input')[0].props.onChange({ target: { value: 'Renamed Practice' } }); });
@@ -211,7 +225,7 @@ await dispose(result.root, result.client);
 snapshot = { ...structuredClone(state), security: { ready: false, emailVerified: true, phoneVerified: false, phoneRequired: true, phoneMasked: null } };
 scrolls.length = 0;
 reducedMotion = true;
-result = await render();
+result = await render('/patients', 'setup-page');
 assert.equal(stepState(result.root, 'security'), 'open');
 assert.match(text(result.root.toJSON()), /Account security · Action required/);
 assert.match(text(result.root.toJSON()), /Email verified at sign-in/);
@@ -239,6 +253,7 @@ await dispose(result.root, result.client);
 // Stripe's OAuth callback lands on /payments/get-paid, which this screen
 // covers while setup is unfinished: the result must still reach the owner
 // and the one-shot query must be dropped so a reload does not repeat it.
+snapshot = { ...structuredClone(state), payments: { state: 'not_started', sandbox: true } };
 {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const location = memoryLocation({ path: '/payments/get-paid?error=access_denied', record: true });
@@ -246,6 +261,19 @@ await dispose(result.root, result.client);
   await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook} searchHook={location.searchHook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>); });
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
   assert.equal(mounted, 0, 'an OAuth return does not open the workspace early');
+  assert.ok(byTestId(root, 'wizard-connect-signin-failed'), 'the wizard reopens its connect step with the failed sign-in');
+  assert.match(text(root.toJSON()), /access_denied/);
+  assert.equal(location.history!.at(-1), '/setup', 'the one-shot OAuth result is removed from the URL');
+  await dispose(root, client);
+}
+// The practice setup page (legacy, partial and finished offices) keeps its own notice.
+snapshot = structuredClone(state);
+{
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const location = memoryLocation({ path: '/payments/get-paid?error=access_denied', record: true });
+  let root!: ReactTestRenderer;
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook} searchHook={location.searchHook}><PracticeSetupPage /></Router></QueryClientProvider>); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
   assert.match(text(root.toJSON()), /Stripe connection was not completed:\s+access_denied/);
   assert.equal(location.history!.at(-1), '/payments/get-paid', 'the one-shot OAuth result is removed from the URL');
   await dispose(root, client);
@@ -269,13 +297,15 @@ await dispose(result.root, result.client);
 // is available, and finishing from /setup takes the owner into the workspace
 // instead of leaving them on a screen that looks unchanged.
 {
-  snapshot = { ...structuredClone(state), productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
+  // A partial-setup office keeps the practice setup page behind the guard
+  // (first-time full setup walks the wizard, whose suite covers the same rule).
+  snapshot = { ...structuredClone(state), fullSetupRequired: false, productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const location = memoryLocation({ path: '/setup', record: true });
   let root!: ReactTestRenderer;
   await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>, { createNodeMock }); });
   await tick();
-  assert.match(text(root.toJSON()), /4\s+of\s+4\s+essentials confirmed/);
+  assert.match(text(root.toJSON()), /2\s+of\s+2\s+essentials confirmed/);
   assert.equal(button(root, 'Finish setup').props.disabled, false, 'pending Stripe verification can finish setup');
   await act(async () => { button(root, 'Finish setup').props.onClick(); });
   await tick();
@@ -326,7 +356,7 @@ await dispose(result.root, result.client);
 }
 
 snapshot = { ...structuredClone(state), canEdit: false };
-result = await render();
+result = await render('/patients', 'setup-page');
 assert.match(text(result.root.toJSON()), /Your practice owner completes setup/);
 assert.equal(button(result.root, 'Use suggested setup'), undefined);
 assert.equal(stepState(result.root, 'details'), 'folded', 'read-only viewers see the same folded state');

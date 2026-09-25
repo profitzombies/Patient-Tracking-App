@@ -7,9 +7,20 @@ import { LaunchScreen } from '@/pages/LaunchScreen';
 import { SetupHandoff } from '@/components/launch/SetupHandoff';
 import { useToast } from '@/hooks/use-toast';
 import { BTN_PRIMARY, BTN_SECONDARY, SectionCard } from '@/components/patient/heritage';
+import { SetupWizard } from '@/components/launch/wizard/SetupWizard';
+import type { LaunchState } from '@/hooks/use-launch';
 
 export function launchRecoveryPath(path: string) {
   return path === '/security' || path === '/help' || path === '/ai-support';
+}
+
+/**
+ * First-time full setup (a brand-new office that has never finished) walks the
+ * step-by-step wizard. Legacy and partial-setup offices, and anyone already
+ * finished, keep the practice setup page.
+ */
+export function wizardEligible(data: Pick<LaunchState, 'fullSetupRequired' | 'required' | 'completedAt'>) {
+  return data.fullSetupRequired && data.required && !data.completedAt;
 }
 export function PracticeLaunchGuard({ children }: { children: ReactNode }) {
   const scope = useLiveOfficeScope();
@@ -25,11 +36,15 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const data = query.data;
   const refresh = () => { void query.refetch(); };
+  // Once the wizard is showing it stays until the office leaves its finish screen,
+  // even though activation flips completedAt underneath it.
+  const [wizardOpen, setWizardOpen] = useState(false);
   // Seeing setup go from unfinished to finished in this session (whichever
   // screen finished it) plays the short "configuring your account" hand-off
   // over the dashboard while it loads. Offices that were already done when
   // they signed in go straight in. Derived during render so the dashboard is
-  // never shown uncovered for a frame.
+  // never shown uncovered for a frame. The wizard's own finish screen comes
+  // first; the hand-off starts once the office leaves it.
   const incompleteNow = !!data && data.required && !data.completedAt && !data.hqInspection;
   const [sawIncomplete, setSawIncomplete] = useState(false);
   const [handoffOver, setHandoffOver] = useState(false);
@@ -37,7 +52,7 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
   // "incomplete" from an earlier visit must not replay the cover once the
   // refetch says setup was already done.
   if (incompleteNow && query.isFetchedAfterMount && !sawIncomplete) setSawIncomplete(true);
-  const handoff = sawIncomplete && !!data?.completedAt && !data.hqInspection && !handoffOver;
+  const handoff = sawIncomplete && !!data?.completedAt && !data.hqInspection && !handoffOver && !wizardOpen;
   useEffect(() => { if (handoff && location === '/setup') navigate('/', { replace: true }); }, [handoff, location, navigate]);
   const endHandoff = () => {
     setHandoffOver(true);
@@ -56,6 +71,19 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
   const incomplete = data.required && !data.completedAt && !data.hqInspection;
   const isSetup = location === '/setup';
   const isHelp = location === '/help';
+  const wizardNow = wizardEligible(data) && (isSetup || (!data.hqInspection && !launchRecoveryPath(location)));
+  // Like the hand-off, only a fresh server answer opens the wizard (which moves
+  // the address to /setup): a cached "unfinished" from an earlier visit must
+  // not strand an office that finished elsewhere on the setup page.
+  if (wizardNow && !wizardOpen && !query.isFetchedAfterMount) return <div className="mx-auto max-w-xl space-y-4 p-6">
+    <h1 className="font-serif text-2xl font-bold text-navy" role="status">Checking practice setup…</h1>
+  </div>;
+  if (wizardNow && !wizardOpen) setWizardOpen(true);
+  const justFinished = wizardOpen && Boolean(data.completedAt) && !data.hqInspection && !launchRecoveryPath(location);
+  if (wizardNow || justFinished) {
+    return <SetupWizard key={data.office.providerId} launch={data} readOnly={Boolean(data.hqInspection) || !data.canEdit}
+      onSignOut={signOut} onFinished={() => { setWizardOpen(false); navigate('/', { replace: true }); }} />;
+  }
   // During the hand-off the tools bar and setup screen step aside; the
   // dashboard renders in its normal slot (so it is not remounted when the
   // cover lifts) and loads underneath the cover.

@@ -40,6 +40,32 @@ export async function getLaunchProducts(providerId: string) {
   });
 }
 
+/**
+ * First-time full setup no longer has a products step: the suggested prices
+ * are saved for the office in the current payment mode and the products item
+ * counts as confirmed. The database function never overwrites a price the
+ * office already holds, and is a no-op outside first-time full setup or when a
+ * receipt for this payment identity already exists.
+ */
+export async function autoconfirmLaunchProducts(providerId: string, actorUserId: string) {
+  const identity = currentBillingIdentity();
+  if (!identity) throw new LaunchProductsError("Billing identity is required.", 503);
+  const products = (await getLaunchProducts(providerId))
+    .map(({ productId, enabled, sellPriceCents, subscriptionEnabled }) => ({ productId, enabled, sellPriceCents, subscriptionEnabled }))
+    .sort((a, b) => a.productId.localeCompare(b.productId));
+  const result = await supabaseAdmin("POST", "/rest/v1/rpc/autoconfirm_practice_launch_products", {
+    p_provider_id: providerId, p_actor_user_id: actorUserId, p_products: products,
+    p_stripe_mode: identity.mode, p_platform_account_id: identity.platformAccountId,
+  });
+  if (result.status >= 300) {
+    throw new LaunchProductsError(
+      typeof result.json?.message === "string" ? result.json.message : "Suggested prices could not be saved.",
+      result.json?.code === "40001" ? 409 : 503,
+    );
+  }
+  return result.json as { applied: boolean; version: number };
+}
+
 /** One database transaction revalidates catalog/minimums and writes all choices + checklist. */
 export async function saveLaunchProducts(
   providerId: string, actorUserId: string, expectedVersion: number, products: LaunchProductInput[],

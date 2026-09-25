@@ -156,6 +156,9 @@ export const officeBilling = {
     officeRequest<{ status: string; setup: OfficeAccessSnapshot }>(`${OFFICE}/access/pay${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}' }),
   createAccount: (billingScope: string, office?: string | null) =>
     officeRequest<{ account: ConnectedAccount }>(`${OFFICE}/connect/create${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}', headers: { 'X-Billing-Scope': billingScope } }),
+  /** Discard an unfinished Stripe setup. The server refuses (409) once the account has financial history. */
+  restartConnect: (billingScope: string, office?: string | null) =>
+    officeRequest<{ restarted: boolean }>(`${OFFICE}/connect/restart${qs({}, office)}`, MESSAGES, { method: 'POST', body: '{}', headers: { 'X-Billing-Scope': billingScope } }),
   oauthStart: (billingScope: string, office?: string | null) =>
     officeRequest<{ url: string }>(`${OFFICE}/connect/oauth/start${qs({}, office)}`, MESSAGES, { headers: { 'X-Billing-Scope': billingScope } }),
   accountSession: (components: string[], office?: string | null) =>

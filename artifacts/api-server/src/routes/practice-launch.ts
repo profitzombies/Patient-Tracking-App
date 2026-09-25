@@ -7,10 +7,10 @@ import { runWithBillingIdentity, currentBillingIdentity } from "../billing/strip
 import { selectOne } from "../billing/store";
 import { syncAccount } from "../billing/accounts";
 import { AccountInput } from "./provider-accounts";
-import { getLaunchProducts, saveLaunchProducts, LaunchProductsError } from "../practice-launch/products";
 import { paymentLaunchState, paymentsLaunchSatisfied, readLaunch, readModeCompletion } from "../practice-launch/state";
 import { accessGateFacts } from "../billing/office-access/setup";
 import { currentSecondFactorPolicy, loadStaffSecondFactor, secondFactorRequiredByPolicy } from "../auth/second-factor";
+import { autoconfirmLaunchProducts, getLaunchProducts, saveLaunchProducts, LaunchProductsError } from "../practice-launch/products";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -74,6 +74,27 @@ async function snapshot(scope:OfficeScope) {
     products,
   };
 }
+
+/**
+ * The snapshot after first-time full setup has had its suggested prices saved.
+ * Only the office's own people trigger the write (an HQ read stays free of
+ * side effects), and only while the products item is still open, so settled
+ * offices pay nothing extra. A failed write never fails the read: the office
+ * simply sees products as still open and the next read tries again.
+ */
+async function settled(scope:OfficeScope, req:Request) {
+  const state=await snapshot(scope);
+  if (scope.actorKind==="hq" || !state.fullSetupRequired || state.productsConfirmed || !scope.actorUserId) return state;
+  try {
+    const result=await autoconfirmLaunchProducts(scope.providerId,scope.actorUserId);
+    if (!result?.applied) return state;
+  } catch(error) {
+    req.log?.warn({err:error},"suggested launch prices were not saved");
+    return state;
+  }
+  return snapshot(scope);
+}
+
 router.use("/office/launch", async (req,res,next) => {
   try {
     const mode = await getBillingModeStatus();
@@ -108,7 +129,7 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       const input=z.object({expectedVersion:Version}).parse(req.body);
       const account=await selectOne("billing_connected_accounts",`provider_id=eq.${enc(scope.providerId)}`);
       if (account) await syncAccount(scope.providerId);
-      const state=await snapshot(scope);
+      const state=await settled(scope,req);
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
        if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
        if (!paymentsLaunchSatisfied(state.payments.state)) throw new LaunchProductsError("Finish Stripe's steps for your connected account before setup can be confirmed.");
@@ -128,7 +149,7 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       const input=z.object({expectedVersion:Version,enabled:z.boolean(),note:z.string().max(280).optional()}).strict().parse(req.body);
       await rpc("set_practice_launch_override",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_actor:scope.actorUserId,p_enabled:input.enabled,p_note:input.note??null});
     }
-    res.json(await snapshot(scope));
+    res.json(await settled(scope,req));
   } catch(error) {
     if(error instanceof z.ZodError) {res.status(400).json({error:error.issues[0]?.message??"Check the form."});return;}
     if(error instanceof LaunchProductsError) {res.status(error.status).json({error:error.message});return;}

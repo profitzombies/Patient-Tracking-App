@@ -16,6 +16,7 @@ import { ExternalLink } from 'lucide-react';
 import { officeBilling, BillingApiError } from '@/lib/billing-api';
 import type { AccountSessionResponse } from '@/lib/billing-types';
 import { BTN_SECONDARY } from '@/components/patient/heritage';
+import { THINNR_CONNECT_APPEARANCE, THINNR_CONNECT_FONTS } from '@/lib/stripe-branding';
 
 export type ConnectComponent =
   | 'account_onboarding'
@@ -31,10 +32,13 @@ export type ConnectComponent =
 export function ConnectEmbed({
   components,
   office,
+  loader,
   children,
 }: {
   components: ConnectComponent[];
   office?: string | null;
+  /** Shown while the account session and Stripe's script load (defaults to a one-line note). */
+  loader?: ReactNode;
   children: ReactNode;
 }) {
   const [failure, setFailure] = useState<Error | null>(null);
@@ -88,17 +92,8 @@ export function ConnectEmbed({
               throw error;
             }
           },
-          appearance: {
-            overlays: 'dialog',
-            variables: {
-              colorPrimary: '#315eae',
-              colorBackground: '#fdfcf9',
-              colorText: '#26364b',
-              colorDanger: '#a04646',
-              borderRadius: '7px',
-              fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
-            },
-          },
+          appearance: THINNR_CONNECT_APPEARANCE,
+          fonts: THINNR_CONNECT_FONTS,
         }),
       );
     } catch (error) {
@@ -139,12 +134,17 @@ export function ConnectEmbed({
       </div>
     );
   }
-  if (!connectInstance) return <p className="py-4 text-xs text-muted-foreground">Loading secure Stripe tools…</p>;
+  if (!connectInstance) return loader ?? <p className="py-4 text-xs text-muted-foreground">Loading secure Stripe tools…</p>;
   return <ConnectComponentsProvider connectInstance={connectInstance}>{children}</ConnectComponentsProvider>;
 }
 
-export function ConnectOnboarding({ onExit }: { onExit: () => void }) {
-  return <StripeAccountOnboarding onExit={onExit} />;
+export function ConnectOnboarding({ onExit, onLoaderStart, onLoadError }: {
+  onExit: () => void;
+  /** Stripe has started drawing its own form; any placeholder above it can go. */
+  onLoaderStart?: () => void;
+  onLoadError?: () => void;
+}) {
+  return <StripeAccountOnboarding onExit={onExit} onLoaderStart={onLoaderStart} onLoadError={onLoadError} />;
 }
 export function ConnectAccountManagement() {
   return <StripeAccountManagement />;

@@ -146,3 +146,4 @@
 - [First-provider Stripe connect](first-provider-connect.md) — new offices need create/OAuth before the embed (409 without account); predicate invalidation; live webhook proof recipe.
 - [Patient invitation app link](patient-invite-link.md) — invites use PATIENT_INVITE_URL (Expo Go page), not PATIENT_APP_URL; real path is Create New Account → I have an invitation.
 - [Practice setup Stripe gate](practice-launch-stripe-pending.md) — pending Stripe verification counts as done for setup; rule lives in TS, access snapshot, SQL RPC and web together.
+- [New-office setup wizard](setup-wizard.md) — wizard only for first-time full setup; sticky finish screen; server-derived resume; Stripe switch lock; tsconfig paths don't merge.

@@ -2,7 +2,7 @@ import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
 import { beforeAll,afterAll,beforeEach,describe,it,expect,vi } from "vitest";
-const m=vi.hoisted(()=>({scope:vi.fn(),admin:vi.fn(),account:vi.fn(),sync:vi.fn(),products:vi.fn(),save:vi.fn(),launch:vi.fn(),completion:vi.fn(),factor:vi.fn(),policy:vi.fn(),mode:vi.fn(),access:vi.fn()}));
+const m=vi.hoisted(()=>({scope:vi.fn(),admin:vi.fn(),account:vi.fn(),sync:vi.fn(),products:vi.fn(),save:vi.fn(),launch:vi.fn(),completion:vi.fn(),factor:vi.fn(),policy:vi.fn(),mode:vi.fn(),access:vi.fn(),auto:vi.fn()}));
 // The office's OWN payment setup with THINNR is a separate surface; this
 // suite only cares that the launch snapshot reflects its verdict.
 vi.mock("../billing/office-access/setup",()=>({accessGateFacts:m.access}));
@@ -11,7 +11,7 @@ vi.mock("../lib/supabase-admin",()=>({supabaseAdmin:m.admin}));
 vi.mock("../billing/mode-state",()=>({getBillingModeStatus:m.mode}));
 vi.mock("../billing/store",()=>({selectOne:m.account}));
 vi.mock("../billing/accounts",()=>({syncAccount:m.sync}));
-vi.mock("../practice-launch/products",()=>({getLaunchProducts:m.products,saveLaunchProducts:m.save,LaunchProductsError:class extends Error {constructor(message:string,readonly status=400){super(message);}}}));
+vi.mock("../practice-launch/products",()=>({autoconfirmLaunchProducts:m.auto,getLaunchProducts:m.products,saveLaunchProducts:m.save,LaunchProductsError:class extends Error {constructor(message:string,readonly status=400){super(message);}}}));
 vi.mock("../practice-launch/state",async original=>({...await original<typeof import("../practice-launch/state")>(),readLaunch:m.launch,readModeCompletion:m.completion}));
 vi.mock("../auth/second-factor",()=>({currentSecondFactorPolicy:m.policy,loadStaffSecondFactor:m.factor,secondFactorRequiredByPolicy:(p:{allStaff:boolean})=>p.allStaff}));
 // Isolate routing from unrelated HQ account router initialization, retaining
@@ -36,7 +36,7 @@ beforeEach(()=>{
  m.completion.mockResolvedValue(undefined);
  m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{disabled_reason:"requirements.pending_verification"}});
  m.sync.mockResolvedValue({});
- m.products.mockResolvedValue([product]);m.save.mockResolvedValue({version:3});
+ m.products.mockResolvedValue([product]);m.save.mockResolvedValue({version:3});m.auto.mockResolvedValue({applied:false,version:2});
  m.policy.mockResolvedValue({allStaff:false});m.factor.mockResolvedValue(null);
  m.access.mockResolvedValue({satisfied:true,planSelected:true,disclosureAcknowledged:true,status:{missing:[],bankVerificationPending:false,bankVerificationDeadline:null,bankVerificationOverdue:false}});
  m.admin.mockImplementation(async(method:string,path:string)=>{
@@ -184,5 +184,36 @@ describe("practice launch HTTP boundary",()=>{
    const result=await(await call("GET")).json();
    expect(result).toMatchObject({billingScope:"live:acct_live",detailsConfirmed:true,completedAt:null});
    expect(m.completion).toHaveBeenCalledWith("office-a",expect.objectContaining({mode:"live"}));
+ });
+ it("saves suggested prices for a new office's first read and reports products confirmed",async()=>{
+   const original=m.admin.getMockImplementation()!;
+   let saved=false;
+   m.launch.mockImplementation(async()=>({required:true,version:saved?3:2,details_confirmed:true,products_confirmed:saved,completed_at:null}));
+   m.admin.mockImplementation(async(method:string,path:string,...args:unknown[])=>path.includes("practice_launch_product_receipts") ? {status:200,json:saved?[{expected_version:2}]:[]} : original(method,path,...args));
+   m.auto.mockImplementation(async()=>{saved=true;return {applied:true,version:3};});
+   const body=await(await call("GET")).json();
+   expect(m.auto).toHaveBeenCalledWith("office-a","owner-a");
+   expect(body).toMatchObject({productsConfirmed:true,version:3,fullSetupRequired:true});
+ });
+ it("never writes prices for HQ reads, legacy offices or offices already confirmed",async()=>{
+   await call("GET");
+   expect(m.auto).not.toHaveBeenCalled();
+   m.launch.mockResolvedValue({required:false,version:0,details_confirmed:false,products_confirmed:false});
+   await call("GET");
+   expect(m.auto).not.toHaveBeenCalled();
+   const original=m.admin.getMockImplementation()!;
+   m.admin.mockImplementation(async(method:string,path:string,...args:unknown[])=>path.includes("practice_launch_product_receipts") ? {status:200,json:[]} : original(method,path,...args));
+   m.launch.mockResolvedValue({required:true,version:2,details_confirmed:true,products_confirmed:false,completed_at:null});
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"hq"}});
+   expect((await(await call("GET","?office=office-a")).json())).toMatchObject({productsConfirmed:false});
+   expect(m.auto).not.toHaveBeenCalled();
+ });
+ it("keeps the read working when the suggested-price write fails",async()=>{
+   const original=m.admin.getMockImplementation()!;
+   m.admin.mockImplementation(async(method:string,path:string,...args:unknown[])=>path.includes("practice_launch_product_receipts") ? {status:200,json:[]} : original(method,path,...args));
+   m.auto.mockRejectedValue(new LaunchProductsError("Catalog changed",409));
+   const res=await call("GET");
+   expect(res.status).toBe(200);
+   expect(await res.json()).toMatchObject({productsConfirmed:false});
  });
 });

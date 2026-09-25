@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
+import { type Stripe } from '@stripe/stripe-js';
+import { loadBrandedStripe } from '@/lib/stripe-branding';
 import { BTN_PRIMARY } from '@/components/patient/heritage';
 
 const stripeInstances = new Map<string, PromiseLike<Stripe | null>>();
@@ -9,7 +10,7 @@ function stripeFor(publishableKey: string, stripeAccount: string) {
   const cacheKey = `${publishableKey}:${stripeAccount}`;
   let instance = stripeInstances.get(cacheKey);
   if (!instance) {
-    instance = loadStripe(publishableKey, { stripeAccount });
+    instance = loadBrandedStripe(publishableKey, { stripeAccount });
     stripeInstances.set(cacheKey, instance);
   }
   return instance;

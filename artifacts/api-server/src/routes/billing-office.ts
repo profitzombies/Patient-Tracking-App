@@ -96,6 +96,9 @@ router.get("/billing/oauth/callback", async (req, res) => {
   try {
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const state = typeof req.query.state === "string" ? req.query.state : "";
+    // Stripe sends the office back with `error` (e.g. access_denied) when it
+    // closes or cancels the sign-in; say so plainly instead of "invalid".
+    if (!code && typeof req.query.error === "string") throw new BillingAccountError("Stripe sign-in was cancelled before your account was connected.", 400);
     if (!code || !state) throw new BillingAccountError("Stripe did not return a valid authorization.", 400);
     await completeOauth(code, state);
     res.redirect(302, `${publicOrigin()}/payments/get-paid?connected=1`);

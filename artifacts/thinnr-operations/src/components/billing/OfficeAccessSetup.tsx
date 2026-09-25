@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
+import { type Stripe } from '@stripe/stripe-js';
+import { loadBrandedStripe } from '@/lib/stripe-branding';
 import { ConnectEmbed, ConnectOnboarding } from '@/components/billing/ConnectEmbed';
 import { ConnectStartCards } from '@/components/billing/ConnectStart';
 import { useOfficeBillingStatus } from '@/hooks/use-billing';
@@ -101,7 +102,7 @@ function InstrumentCard({ title, slot, item, snapshot, refresh }: {
     setError('');
     try {
       const result = await writes.setupIntent.mutateAsync(slot);
-      setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadStripe(result.publishableKey) });
+      setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadBrandedStripe(result.publishableKey) });
     } catch (failure) { setError(readable(failure)); }
   };
   const pendingBank = slot === 'bank' && snapshot.bank.verificationPending;

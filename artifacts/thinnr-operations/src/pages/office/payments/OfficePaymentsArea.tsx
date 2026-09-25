@@ -232,11 +232,11 @@ function PricesTable({ products, demo = false }: { products: OfficePrice[]; demo
   return (
     <SectionCard
       title="Catalog"
-      sub="Set your own price for each product; anything you have not priced is sold to your patients at the THINNR default (floor) price, one-time only. Subscriptions need your own price at or above the minimum."
+      sub="Set your own price for each product; anything you have not priced is sold to your patients at its Retail MSRP, one-time only. Subscriptions need your own price at or above the minimum."
     >
       <div className={`hidden gap-4 border-b border-border bg-secondary/50 px-5 py-2.5 lg:grid lg:items-center ${PRICE_GRID}`} aria-hidden="true">
         <span className={PANEL_LABEL}>Product</span>
-        <span className={PANEL_LABEL}>Floor</span>
+        <span className={PANEL_LABEL}>Retail MSRP</span>
         <span className={PANEL_LABEL}>Minimum</span>
         <span className={PANEL_LABEL}>Sell price</span>
         <span className={PANEL_LABEL}>Own price</span>
@@ -266,7 +266,7 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
   const toggleOffered = (next: boolean) => {
     setOffered(next);
     setError('');
-    // Turning a product on with no price yet starts from the floor so the
+    // Turning a product on with no price yet starts from the Retail MSRP so the
     // field is never silently blank; staff can still type their own number.
     if (next && !price.trim()) setPrice(centsToDollarsInput(product.floor_price_cents));
   };
@@ -278,7 +278,7 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
         return setError(
           price.trim()
             ? parsed.error
-            : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Own price to sell ${product.name} at the default price.`,
+            : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Own price to sell ${product.name} at its Retail MSRP.`,
         );
       if (parsed.cents < product.break_even_minimum_cents)
         return setError(`Price must be at least ${formatCents(product.break_even_minimum_cents)}.`);
@@ -328,7 +328,7 @@ function PriceRow({ product, demo }: { product: OfficePrice; demo: boolean }) {
           </p>
         </div>
       </div>
-      <LabelValue label="Floor" value={formatCents(product.floor_price_cents)} />
+      <LabelValue label="Retail MSRP" value={formatCents(product.floor_price_cents)} />
       <LabelValue label="Minimum" value={formatCents(product.break_even_minimum_cents)} />
       <label className="block">
         <span className={`${PANEL_LABEL} lg:sr-only`}>Sell price</span>

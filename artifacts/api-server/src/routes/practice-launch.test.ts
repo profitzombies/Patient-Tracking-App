@@ -22,7 +22,7 @@ import { LaunchProductsError } from "../practice-launch/products";
 let server:http.Server,base="";
 const owner={providerId:"office-a",officeName:"A",providerName:"Owner",actorUserId:"owner-a",actorKind:"provider",officeRole:"owner",teamMemberId:null};
 const details={officeName:"A",providerName:"Owner",email:"owner@example.com",phone:"5555550123",address1:"1 Test",address2:"",city:"Test",state:"MA",postalCode:"02108"};
-const product={productId:"00000000-0000-4000-8000-000000000001",enabled:true,sellPriceCents:7198,subscriptionEnabled:true};
+const product={productId:"00000000-0000-4000-8000-000000000001",enabled:true,sellPriceCents:5999,subscriptionEnabled:true};
 async function call(method:string,path="",body?:unknown,header:string|null="test:acct_test"){
  return fetch(`${base}/office/launch${path}`,{method,headers:{"Content-Type":"application/json","Authorization":"Bearer synthetic",...(header?{"X-Billing-Scope":header}:{})},body:body===undefined?undefined:JSON.stringify(body)});
 }

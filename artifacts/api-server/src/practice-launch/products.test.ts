@@ -17,10 +17,10 @@ vi.mock("../billing/stripe-environment", () => ({
 import { getLaunchProducts, saveLaunchProducts, suggestedPriceCents } from "./products";
 beforeEach(() => { state.prices = []; state.rpc.mockReset().mockResolvedValue({status:200,json:{version:1}}); });
 describe("practice setup product defaults", () => {
-  it("doubles the THINNR fee already truncated to cents, not hard cost or retail floor", async () => {
-    expect(suggestedPriceCents(5999)).toBe(7198);
+  it("defaults every product to its Retail MSRP, not a multiple of the THINNR fee", async () => {
+    expect(suggestedPriceCents(5999)).toBe(5999);
     expect((await getLaunchProducts("office"))[0]).toMatchObject({
-      enabled:true,sellPriceCents:7198,suggestedPriceCents:7198,existingPrice:false,subscriptionEnabled:true,
+      enabled:true,sellPriceCents:5999,suggestedPriceCents:5999,existingPrice:false,subscriptionEnabled:true,
     });
   });
   it("prefills existing custom prices and disabled state without performing a write", async () => {
@@ -31,7 +31,7 @@ describe("practice setup product defaults", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
   it("rejects fractional cents before any mutation and surfaces stale versions", async () => {
-    const product = {productId:"control",enabled:true,sellPriceCents:7198,subscriptionEnabled:true};
+    const product = {productId:"control",enabled:true,sellPriceCents:5999,subscriptionEnabled:true};
     await expect(saveLaunchProducts("office","owner",0,[{...product,sellPriceCents:1.5}])).rejects.toThrow();
     expect(state.rpc).not.toHaveBeenCalled();
     state.rpc.mockResolvedValue({status:400,json:{code:"40001",message:"Refresh"}});

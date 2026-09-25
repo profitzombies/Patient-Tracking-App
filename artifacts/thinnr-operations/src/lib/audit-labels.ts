@@ -111,7 +111,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   billing_product_created: 'Created a billing product',
   billing_product_updated: 'Updated a billing product',
   billing_product_archived: 'Archived a billing product',
-  billing_product_floor_updated: 'Updated a product floor price',
+  billing_product_floor_updated: 'Updated a product Retail MSRP',
 };
 
 export function auditActionLabel(action: string): string {
@@ -156,7 +156,7 @@ const METADATA_LABELS: Record<string, string> = {
   link_id: 'Link ID',
   product_id: 'Product ID',
   amount_cents: 'Amount in cents',
-  floor_price_cents: 'Floor price in cents',
+  floor_price_cents: 'Retail MSRP in cents',
   at_period_end: 'At period end',
   fulfillment_status: 'Fulfilment',
   has_tracking: 'Has tracking',

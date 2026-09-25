@@ -299,7 +299,7 @@ await check('catalog demo rows', '/admin/payments/catalog', PaymentsCatalog, [
   'Send paid orders to WarehouseCraft automatically', 'Every paid order is submitted to the warehouse within a few minutes',
 ]);
 await check('catalog history demo rows', '/admin/payments/catalog/history', PaymentsCatalogHistory, [
-  'Office price changed', 'Jenkins Wellness', 'Alex Morgan', '/admin/team?member=hq-1', 'floor $109.99 → $119.99', 'price $79.99 → $84.99', ':27',
+  'Office price changed', 'Jenkins Wellness', 'Alex Morgan', '/admin/team?member=hq-1', 'Retail MSRP $109.99 → $119.99', 'price $79.99 → $84.99', ':27',
 ]);
 await check(
   'product editor demo page',

@@ -43,7 +43,7 @@ function PricesView({ products, demo = false, userId }: { products: OfficePrice[
   return (
     <Panel
       title="Catalog"
-      sub="Set your own price for each product; anything you have not priced is sold to your patients at the THINNR default (floor) price, one-time only. Subscriptions need your own price at or above the minimum."
+      sub="Set your own price for each product; anything you have not priced is sold to your patients at its Retail MSRP, one-time only. Subscriptions need your own price at or above the minimum."
       testID="prices-catalog"
     >
       {products.map((product) => <PriceRow key={product.product_id} product={product} demo={demo} userId={userId} />)}
@@ -90,7 +90,7 @@ function PriceRow({ product, demo, userId }: { product: OfficePrice; demo: boole
     if (offered) {
       const parsed = parseDollarsToCents(price);
       if (!parsed.ok) {
-        setError(price.trim() ? parsed.error : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Own price to sell ${product.name} at the default price.`);
+        setError(price.trim() ? parsed.error : `Enter a sell price of at least ${formatCents(product.break_even_minimum_cents)}, or uncheck Own price to sell ${product.name} at its Retail MSRP.`);
         return;
       }
       if (parsed.cents < product.break_even_minimum_cents) {
@@ -134,7 +134,7 @@ function PriceRow({ product, demo, userId }: { product: OfficePrice; demo: boole
           : ''}
       </Body>
       <DetailList items={[
-        { label: 'Floor', value: formatCents(product.floor_price_cents) },
+        { label: 'Retail MSRP', value: formatCents(product.floor_price_cents) },
         { label: 'Minimum', value: formatCents(product.break_even_minimum_cents) },
         { label: 'Sell price', value: product.offered ? formatCents(product.sell_price_cents) : 'Default price' },
         { label: 'Own price', value: product.offered ? 'Yes' : 'No' },

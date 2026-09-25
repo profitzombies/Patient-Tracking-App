@@ -438,7 +438,7 @@ function ProviderDetailBody({ demo, id }: { demo: boolean; id: string }) {
                 <thead>
                   <tr>
                     <th className="p-3 text-left">Product</th>
-                    <th>Floor</th>
+                    <th>Retail MSRP</th>
                     <th>Minimum</th>
                     <th>Office price</th>
                     <th className="text-left">Subscription</th>

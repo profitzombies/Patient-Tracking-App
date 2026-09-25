@@ -25,7 +25,7 @@ const state: LaunchState = {
   canEdit: true, required: true, fullSetupRequired: true, version: 3, detailsConfirmed: true, productsConfirmed: false, completedAt: null,
   details: { officeName: 'Sample Practice', providerName: 'Sample Owner', email: 'owner@example.invalid', phone: '6175550123', address1: '1 Sample Street', address2: '', city: 'Boston', state: 'MA', postalCode: '02108' },
   security: { ready: true, emailVerified: true, phoneVerified: false, phoneRequired: false, phoneMasked: null }, payments: { state: 'pending', sandbox: true },
-  products: [{ productId: 'sample', name: 'Sample Product', enabled: true, sellPriceCents: 9000, suggestedPriceCents: 7198, minimumPriceCents: 4000, subscriptionEnabled: false, subscriptionEligible: true, existingPrice: true, available: true }],
+  products: [{ productId: 'sample', name: 'Sample Product', enabled: true, sellPriceCents: 9000, suggestedPriceCents: 5999, minimumPriceCents: 4000, subscriptionEnabled: false, subscriptionEligible: true, existingPrice: true, available: true }],
 };
 let snapshot = structuredClone(state);
 

@@ -16,7 +16,7 @@ function sql(value: string) {
 }
 const actor = "00000000-0000-4000-8000-0000000000aa";
 const ids = ["00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000002"];
-const suggested = ids.map(productId => ({ productId, enabled:true, sellPriceCents:7198, subscriptionEnabled:true }));
+const suggested = ids.map(productId => ({ productId, enabled:true, sellPriceCents:5999, subscriptionEnabled:true }));
 function auto(office: string, products: unknown = suggested, mode = "test", platform = "acct_platform") {
   return JSON.parse(sql(`select autoconfirm_practice_launch_products('${office}','${actor}','${JSON.stringify(products)}','${mode}','${platform}')`));
 }
@@ -51,20 +51,20 @@ describe.skipIf(!available)("automatic suggested launch prices on PostgreSQL", (
   it("saves every suggested price and confirms products in one commit", () => {
     expect(auto("new")).toEqual({ applied:true, version:1 });
     expect(sql("select version||':'||products_confirmed from practice_launch where provider_id='new'")).toBe("1:true");
-    expect(sql("select count(*)||':'||min(sell_price_cents) from billing_office_prices where provider_id='new'")).toBe("2:7198");
+    expect(sql("select count(*)||':'||min(sell_price_cents) from billing_office_prices where provider_id='new'")).toBe("2:5999");
     expect(sql("select expected_version||':'||stripe_mode from practice_launch_product_receipts where provider_id='new'")).toBe("0:test");
   });
 
   it("is a no-op once this payment identity holds a receipt", () => {
     expect(auto("new", suggested.map(p => ({ ...p, sellPriceCents:9000 })))).toEqual({ applied:false, version:1 });
-    expect(sql("select max(sell_price_cents) from billing_office_prices where provider_id='new'")).toBe("7198");
+    expect(sql("select max(sell_price_cents) from billing_office_prices where provider_id='new'")).toBe("5999");
   });
 
   it("never overwrites a price the office already set", () => {
     sql(`insert into billing_office_prices values('priced','${ids[0]}',12345,false,'${actor}','test','acct_platform',now())`);
     auto("priced");
     expect(sql(`select sell_price_cents||':'||subscription_enabled from billing_office_prices where provider_id='priced' and product_id='${ids[0]}'`)).toBe("12345:false");
-    expect(sql(`select sell_price_cents from billing_office_prices where provider_id='priced' and product_id='${ids[1]}'`)).toBe("7198");
+    expect(sql(`select sell_price_cents from billing_office_prices where provider_id='priced' and product_id='${ids[1]}'`)).toBe("5999");
   });
 
   it("confirms again in a new payment mode without touching the first mode", () => {

@@ -36,7 +36,7 @@ function CatalogBody({ demo, canWrite }: { demo: boolean; canWrite: boolean }) {
     <AdminPage>
       <Header
         title="Product catalog"
-        sub="Products, pricing floors, costs and the fee assumptions behind every office minimum."
+        sub="Products, Retail MSRPs, costs and the fee assumptions behind every office minimum."
         sandbox={sandbox.data?.sandbox}
         action={
           canWrite ? (
@@ -185,7 +185,7 @@ function ProductTable({ data, demo, canWrite }: { data: HqCatalogResponse; demo:
               <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
                 <th className="w-8 px-2 py-3" aria-label="Order" />
                 <th className="px-3 py-3 text-left font-bold">Product</th>
-                <th className="px-3 py-3 text-right font-bold">Floor</th>
+                <th className="px-3 py-3 text-right font-bold">Retail MSRP</th>
                 <th className="px-3 py-3 text-right font-bold">Hard cost</th>
                 <th className="px-3 py-3 text-right font-bold">THINNR share</th>
                 <th className="px-3 py-3 text-right font-bold">Office minimum</th>
@@ -356,7 +356,7 @@ function ProductTable({ data, demo, canWrite }: { data: HqCatalogResponse; demo:
                       {p.name}
                     </Link>
                     <p className="text-[11px] text-muted-foreground">
-                      Floor {formatCents(p.floor_price_cents)} · archived {formatDateTime(p.archived_at)}
+                      Retail MSRP {formatCents(p.floor_price_cents)} · archived {formatDateTime(p.archived_at)}
                     </p>
                   </div>
                   <ProductStatusPill status={p.status} />

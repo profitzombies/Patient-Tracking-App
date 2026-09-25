@@ -15,7 +15,7 @@ export interface FeeSettings {
   card_fee_fixed_cents: number;
 }
 
-/** THINNR share (60% of floor), the office's break-even minimum, and HQ profit per unit. */
+/** THINNR share (60% of Retail MSRP), the office's break-even minimum, and HQ profit per unit. */
 export function productMath(floor: number, hard: number | null, settings: FeeSettings) {
   const { shipping_charge_cents: shippingCharge, card_fee_bps: bps, card_fee_fixed_cents: fixed } = settings;
   const share = Math.floor((floor * 60) / 100);

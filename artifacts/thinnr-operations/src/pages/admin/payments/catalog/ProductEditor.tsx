@@ -247,7 +247,7 @@ function Editor({
       return;
     }
     if (!parsedFloor.ok) {
-      setError(`Floor price: ${parsedFloor.error}`);
+      setError(`Retail MSRP: ${parsedFloor.error}`);
       return;
     }
     if (!parsedHard.ok) {
@@ -346,7 +346,7 @@ function Editor({
     <AdminPage>
       <Header
         title={product ? product.name : 'New product'}
-        sub={product ? `Last changed ${formatDateTime(product.updated_at)}` : 'Name it, set the floor and cost, then add pictures.'}
+        sub={product ? `Last changed ${formatDateTime(product.updated_at)}` : 'Name it, set the Retail MSRP and cost, then add pictures.'}
         tabs={false}
         sandbox={sandbox}
         back={{ href: '/catalog', label: '← Back to product catalog' }}
@@ -438,7 +438,7 @@ function Editor({
               </label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className={FIELD_LABEL}>Floor price</span>
+                  <span className={FIELD_LABEL}>Retail MSRP</span>
                   <MoneyInput
                     data-testid="input-catalog-floor"
                     value={draft.floor}

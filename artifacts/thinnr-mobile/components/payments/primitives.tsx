@@ -95,7 +95,7 @@ export function FeeBreakdown({ fees }: { fees: FeeBreakdownShape }) {
     { label: 'Shipping', cents: fees.shipping_charge_cents },
     { label: 'Sales tax', cents: fees.tax_cents, hint: fees.tax_cents === 0 ? '(none collected)' : undefined },
     { label: 'Total charged', cents: fees.total_cents, emphasis: true },
-    { label: 'THINNR share (60% of floor)', cents: -fees.thinnr_share_cents },
+    { label: 'THINNR share (60% of Retail MSRP)', cents: -fees.thinnr_share_cents },
     { label: 'THINNR shipping fee', cents: -fees.shipping_charge_cents },
     {
       label: 'Stripe processing',

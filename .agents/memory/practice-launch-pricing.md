@@ -1,10 +1,10 @@
 ---
 name: Practice launch pricing intent
-description: User-approved meaning of twice office product cost; no historical preset was found.
+description: Owner-approved default office price = the product's Retail MSRP (catalog floor_price_cents); the older 2× THINNR fee rule is retired.
 ---
 
-Suggested launch pricing means twice the THINNR product fee paid by the office, excluding shipping and card fees, with no special retail rounding.
+Every office's default patient price for a product is its Retail MSRP. MSRP is stored in `billing_products.floor_price_cents`. Staff-facing copy says "Retail MSRP" and never "Floor"; internal field names keep `floor`. THINNR's share (60%), the office minimum and fees are all still computed from that same number.
 
-**Why:** Repository investigation found no existing authoritative 2× preset. The user clarified “2x office cost to get the product” and explicitly selected the THINNR product fee rather than a separate wholesale cost. It must not be interpreted as twice THINNR’s supplier cost or twice an already marked-up patient price.
+**Why:** On 2026-09-25 the owner explicitly replaced the earlier "2× the THINNR product fee" suggestion (which worked out to 1.2× MSRP). Existing offices were reset to MSRP once through the normal office-price edit path. Intentional custom prices were overridden on the owner's instruction. Existing patient subscriptions kept their signed-up prices.
 
-**How to apply:** Keep the fee definition authoritative; show the base and suggested patient price clearly. Preserve existing office choices on revisit or replay. Any change to this financial meaning requires explicit confirmation.
+**How to apply:** The default is decided client-side in TS (`suggestedPriceCents`), and the autoconfirm/save SQL RPCs insert whatever prices the client sends, so a default change needs no migration. Keep the rule that a default below the office minimum is saved switched off. Any change to this financial meaning needs explicit owner confirmation. A bulk re-price must go through `setOfficePrice` under a pinned billing identity, so audit rows and Stripe recurring prices stay in lockstep; the reset script shows the pattern.

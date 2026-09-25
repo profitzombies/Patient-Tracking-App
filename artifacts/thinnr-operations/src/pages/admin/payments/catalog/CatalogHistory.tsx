@@ -114,7 +114,7 @@ function Actor({ change }: { change: CatalogChange }) {
 const FIELD_LABELS: Record<string, string> = {
   name: 'name',
   description: 'description',
-  floor_price_cents: 'floor',
+  floor_price_cents: 'Retail MSRP',
   hard_cost_cents: 'hard cost',
   sell_price_cents: 'price',
   subscription_enabled: 'subscriptions',
@@ -136,7 +136,7 @@ function formatValue(key: string, value: unknown): string {
   return String(value);
 }
 
-/** "floor $109.99 → $119.99 · hard cost unchanged" style summary from the before/after payloads. */
+/** "Retail MSRP $109.99 → $119.99 · hard cost unchanged" style summary from the before/after payloads. */
 export function describeChange(change: CatalogChange): string {
   if (change.kind === 'products_reordered') return 'The order offices see was changed.';
   if (change.kind === 'product_image_added' || change.kind === 'product_image_removed' || change.kind === 'product_default_image') {

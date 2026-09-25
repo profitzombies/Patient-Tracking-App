@@ -11,7 +11,7 @@ function sql(value: string) {
     { encoding:"utf8", stdio:["pipe","pipe","pipe"] }).trim();
 }
 const ids = ["00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000002"];
-const choices = ids.map((productId, i) => ({ productId, enabled:i === 0, sellPriceCents:7198, subscriptionEnabled:true }));
+const choices = ids.map((productId, i) => ({ productId, enabled:i === 0, sellPriceCents:5999, subscriptionEnabled:true }));
 function save(version: number, products = choices, mode = "test") {
   return sql(`select save_practice_launch_products('office','${ids[0]}',${version},'${JSON.stringify(products)}','${mode}','acct_platform')`);
 }
@@ -46,7 +46,7 @@ describe.skipIf(!available)("atomic practice product setup on PostgreSQL", () =>
     save(0);
     expect(sql("select version||':'||products_confirmed from practice_launch")).toBe("1:true");
     expect(sql(`select enabled||':'||subscription_enabled from billing_office_prices where product_id='${ids[1]}'`)).toBe("false:false");
-    expect(sql("select min(sell_price_cents) from billing_office_prices")).toBe("7198");
+    expect(sql("select min(sell_price_cents) from billing_office_prices")).toBe("5999");
   });
   it("identical retry is idempotent while competing/stale payloads fail", () => {
     save(0);
@@ -58,7 +58,7 @@ describe.skipIf(!available)("atomic practice product setup on PostgreSQL", () =>
     expect(() => save(1, choices.map(p => ({...p,enabled:true,sellPriceCents:3900})))).toThrow();
     save(1, choices.map(p => ({...p,sellPriceCents:8000})), "live");
     expect(sql("select count(*) from billing_office_prices")).toBe("4");
-    expect(sql("select min(sell_price_cents) from billing_office_prices where stripe_mode='test'")).toBe("7198");
+    expect(sql("select min(sell_price_cents) from billing_office_prices where stripe_mode='test'")).toBe("5999");
   });
   it("RPC is unavailable to browser roles", () => {
     expect(sql("select has_function_privilege('authenticated','save_practice_launch_products(text,uuid,integer,jsonb,text,text)','EXECUTE')")).toBe("f");

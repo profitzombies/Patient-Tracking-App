@@ -1,5 +1,5 @@
 import { getSettings, subscribeSavePercent, subscriptionUnitPrice } from "../billing/catalog";
-import { breakEvenMinimum, thinnrSharePerUnit } from "../billing/fees";
+import { breakEvenMinimum } from "../billing/fees";
 import { selectMany } from "../billing/store";
 import { currentBillingIdentity } from "../billing/stripe-environment";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -13,8 +13,9 @@ export interface LaunchProductInput {
   sellPriceCents: number;
   subscriptionEnabled: boolean;
 }
-export function suggestedPriceCents(floor: number): number {
-  return 2 * thinnrSharePerUnit(floor);
+/** The default office price is the product's Retail MSRP (stored as floor_price_cents). */
+export function suggestedPriceCents(retailMsrpCents: number): number {
+  return retailMsrpCents;
 }
 export async function getLaunchProducts(providerId: string) {
   const [products, prices, settings] = await Promise.all([

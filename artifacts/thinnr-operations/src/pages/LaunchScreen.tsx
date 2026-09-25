@@ -345,7 +345,7 @@ function ProductsForm({ launchData }: { launchData: LaunchState }) {
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Product setup could not be saved.'); }
   };
   return <div className="space-y-4 p-5 text-sm">
-    <p>Suggested patient prices are exactly <b>2× the THINNR product fee</b>, excluding shipping and card fees. The product fee is 60% of the catalog floor, truncated to cents before doubling. Existing custom prices and choices stay unchanged.</p>
+    <p>Suggested patient prices are each product’s <b>Retail MSRP</b>. Existing custom prices and choices stay unchanged.</p>
     <p className="text-muted-foreground">All available active products are suggested, with supported subscriptions enabled when eligible. Turning a product off hides it from new patient purchases; it does not cancel existing subscriptions.</p>
     <div className="divide-y divide-border rounded-md border border-border">
       {products.map((p, index) => <div key={p.productId} className="space-y-3 p-4">

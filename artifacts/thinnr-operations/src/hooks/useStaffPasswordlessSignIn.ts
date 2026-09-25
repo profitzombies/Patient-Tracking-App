@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useSession } from '@/contexts/session';
+import { formatUsPhone, isValidUsPhone, normalizeUsPhone } from '@/lib/us-contact';
 
 export type StaffSignInPhase = 'email' | 'code' | 'phone';
 
@@ -70,7 +71,10 @@ export function useStaffPasswordlessSignIn(options: {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [phoneStep, setPhoneStep] = useState<StaffPhoneStep | null>(null);
-  const [phone, setPhone] = useState('');
+  const [phone, setPhoneValue] = useState('');
+  // Sign-in phones are US mobiles: format as (555) 123-4567 while typing, hide
+  // a typed "+1", and stop at 10 digits.
+  const setPhone = useCallback((value: string) => setPhoneValue(formatUsPhone(value)), []);
   const [smsRequestId, setSmsRequestId] = useState<string | null>(null);
   const [smsCode, setSmsCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -180,7 +184,8 @@ export function useStaffPasswordlessSignIn(options: {
     try {
       const result = await startStaffPhoneStep({
         stepToken: phoneStep.stepToken,
-        ...(enteredPhone ? { phone: enteredPhone } : {}),
+        // The box shows (555) 123-4567; the wire carries E.164.
+        ...(enteredPhone ? { phone: isValidUsPhone(enteredPhone) ? `+1${normalizeUsPhone(enteredPhone)}` : enteredPhone } : {}),
       });
       if (result.code === 'STEP_EXPIRED') {
         expiredPhoneStep();
@@ -213,6 +218,10 @@ export function useStaffPasswordlessSignIn(options: {
       const trimmed = phone.trim();
       if (!trimmed) {
         setError('Enter a mobile number.');
+        return;
+      }
+      if (!isValidUsPhone(trimmed)) {
+        setError('Enter a 10-digit US mobile number.');
         return;
       }
       await sendPhoneCode(trimmed);

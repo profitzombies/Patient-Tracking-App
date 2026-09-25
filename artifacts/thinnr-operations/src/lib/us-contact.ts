@@ -63,9 +63,19 @@ export function usStateName(value: string): string {
   return US_STATES.find((state) => state.abbr === abbreviation)?.name ?? value;
 }
 
+/**
+ * US numbers only: drop a leading country code 1 (typed "+1", pasted
+ * "1-555-…") and keep at most 10 digits. No US area code starts with 1, so a
+ * leading 1 is always the country code — stripping it while the person is
+ * still typing keeps "+1" hidden instead of rendering "(1".
+ */
+function usPhoneDigits(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  return (digits.startsWith('1') ? digits.slice(1) : digits).slice(0, 10);
+}
+
 export function formatUsPhone(value: string): string {
-  let digits = value.replace(/\D/g, '');
-  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  const digits = usPhoneDigits(value);
   if (digits.length === 0) return '';
   if (digits.length <= 3) return `(${digits}`;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
@@ -73,8 +83,7 @@ export function formatUsPhone(value: string): string {
 }
 
 export function normalizeUsPhone(value: string): string {
-  const digits = value.replace(/\D/g, '');
-  return (digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits).slice(0, 10);
+  return usPhoneDigits(value);
 }
 
 export function isValidUsPhone(value: string): boolean {

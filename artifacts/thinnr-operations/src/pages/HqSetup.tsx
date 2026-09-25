@@ -200,7 +200,9 @@ export default function HqSetup() {
               <Input
                 id="setup-phone"
                 type="tel"
-                autoComplete="tel"
+                autoComplete="tel-national"
+                placeholder="(555) 000-0000"
+                maxLength={14}
                 data-testid="input-setup-phone"
                 className="mt-1.5"
                 value={phone}

@@ -270,7 +270,9 @@ export default function SignIn() {
                   <Input
                     id="staff-phone"
                     type="tel"
-                    autoComplete="tel"
+                    autoComplete="tel-national"
+                    placeholder="(555) 000-0000"
+                    maxLength={14}
                     data-testid="input-staff-phone"
                     className="mt-1.5"
                     value={phone}

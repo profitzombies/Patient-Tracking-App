@@ -92,7 +92,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
 
   return <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6" data-testid="practice-launch">
     <header><p className={PANEL_LABEL}>Practice launch · {launchData.payments.sandbox ? 'Test payments' : 'Live payments'}</p>
-      <h1 className="mt-2 font-serif text-2xl font-bold text-navy">Welcome to {launchData.office.officeName}</h1>
+      <h1 className="mt-2 font-serif text-2xl font-bold text-navy">Welcome to THINNR</h1>
       <p className="mt-2 text-sm text-muted-foreground">A few essentials to get started. Confirmed steps are saved to your practice so you can return on any device.</p></header>
     <div className="rounded-lg border border-border bg-card p-5"><p className="text-sm font-semibold">{count} of {total} essentials confirmed</p><progress className="mt-3 h-2 w-full accent-primary" value={count} max={total} aria-label="Practice setup progress" /></div>
     {!launchData.canEdit && <SectionCard title="Your practice owner completes setup"><div className="space-y-3 p-5 text-sm"><p>These settings affect the whole practice. Ask your owner to confirm the remaining essentials. HQ inspection is read-only; you cannot accept terms or confirm owner setup.</p></div></SectionCard>}

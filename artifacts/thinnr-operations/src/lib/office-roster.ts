@@ -552,7 +552,9 @@ export interface PatientProfilePatch {
  */
 export function formatUsPhoneInput(raw: string): string {
   let digits = raw.replace(/\D/g, '');
-  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+  // A leading 1 is always the country code (no US area code starts with 1),
+  // so "+1" stays hidden while typing instead of rendering "(1".
+  if (digits.startsWith('1')) digits = digits.slice(1);
   digits = digits.slice(0, 10);
   if (digits.length === 0) return '';
   if (digits.length < 4) return `(${digits}`;

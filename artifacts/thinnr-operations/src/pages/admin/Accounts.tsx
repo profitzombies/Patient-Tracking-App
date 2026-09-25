@@ -34,7 +34,7 @@ import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, type Acco
 import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
-import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, usStateName } from '@/lib/us-contact';
+import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, normalizeUsPostalCode, usStateName } from '@/lib/us-contact';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
@@ -126,6 +126,8 @@ export default function Accounts() {
   const setField = (key: keyof typeof EMPTY_FORM) => (event: React.ChangeEvent<HTMLInputElement>) => {
     let value = event.target.value;
     if (key === 'phone') value = formatUsPhone(value);
+    // Digits only, capped at a ZIP+4 (12345-6789) so the field can't grow.
+    if (key === 'postalCode') value = normalizeUsPostalCode(value);
     setForm((current) => ({ ...current, [key]: value }));
   };
 
@@ -436,7 +438,7 @@ export default function Accounts() {
             </div>
             <label className="block">
               <span className={PANEL_LABEL}>ZIP Code *</span>
-              <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.postalCode} onChange={setField('postalCode')} placeholder="e.g. 02108" maxLength={10} data-testid="input-account-zip" />
+              <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.postalCode} onChange={setField('postalCode')} placeholder="e.g. 02108" maxLength={10} inputMode="numeric" autoComplete="postal-code" data-testid="input-account-zip" />
             </label>
             <div className="block">
               <span className={PANEL_LABEL}>Plan</span>

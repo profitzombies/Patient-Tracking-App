@@ -42,7 +42,7 @@ import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { fetchProviderAccountDetail, ProviderAccountError, resendProviderWelcome, type UpdateProviderAccountInput } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
-import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, usStateName } from '@/lib/us-contact';
+import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, normalizeUsPostalCode, usStateName } from '@/lib/us-contact';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -482,7 +482,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
       address2: account.address2 || '',
       city: account.city,
       state: account.state,
-      postalCode: account.postalCode || '',
+      postalCode: normalizeUsPostalCode(account.postalCode || ''),
       plan: account.plan,
       email: account.email,
       phone: account.phone ? formatUsPhone(account.phone) : '',
@@ -494,6 +494,8 @@ function ProviderAccountDetail({ id }: { id: string }) {
   const setField = (key: keyof UpdateProviderAccountInput) => (event: React.ChangeEvent<HTMLInputElement>) => {
     let value = event.target.value;
     if (key === 'phone') value = formatUsPhone(value);
+    // Digits only, capped at a ZIP+4 (12345-6789) so the field can't grow.
+    if (key === 'postalCode') value = normalizeUsPostalCode(value);
     setForm((current) => ({ ...current, [key]: value }));
   };
 
@@ -879,7 +881,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
 
             <label className="block">
               <span className={PANEL_LABEL}>ZIP Code *</span>
-               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.postalCode} onChange={setField('postalCode')} placeholder="e.g. 02108" maxLength={10} data-testid="input-edit-zip" />
+               <input className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.postalCode} onChange={setField('postalCode')} placeholder="e.g. 02108" maxLength={10} inputMode="numeric" autoComplete="postal-code" data-testid="input-edit-zip" />
             </label>
 
             <label className="block">

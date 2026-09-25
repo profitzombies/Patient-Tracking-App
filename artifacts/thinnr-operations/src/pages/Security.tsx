@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { ShieldCheck } from 'lucide-react';
 import { useSession } from '@/contexts/session';
+import { formatUsPhone, isValidUsPhone, normalizeUsPhone } from '@/lib/us-contact';
 import { useToast } from '@/hooks/use-toast';
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, CHIP_WARM, INPUT_CLASS, SectionCard } from '@/components/patient/heritage';
 import {
@@ -78,7 +79,7 @@ export default function Security() {
   const data = preview ? PREVIEW : query.data;
   const refreshSecurity = () => client.invalidateQueries({ queryKey: ['account-security'] });
   const phoneStart = useMutation({
-    mutationFn: () => startMySecondFactorPhone(phone.trim()),
+    mutationFn: () => startMySecondFactorPhone(`+1${normalizeUsPhone(phone)}`),
     onSuccess: (result) => {
       setPhoneRequest({ requestId: result.requestId, destination: result.destination, devCode: result.devCode ?? null });
       setPhoneError(null);
@@ -143,7 +144,9 @@ export default function Security() {
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(event) => setPhone(event.target.value)}
+                      onChange={(event) => setPhone(formatUsPhone(event.target.value))}
+                      autoComplete="tel-national"
+                      maxLength={14}
                       className={`${INPUT_CLASS} h-9 w-full`}
                       placeholder={data.secondFactor.phone ? 'Enter a new mobile number' : 'Mobile number'}
                       aria-label="Mobile number"
@@ -153,7 +156,7 @@ export default function Security() {
                       type="button"
                       className={`${BTN_PRIMARY} h-9 px-3.5`}
                       data-testid="button-security-phone-send"
-                      disabled={phoneStart.isPending || !phone.trim()}
+                      disabled={phoneStart.isPending || !isValidUsPhone(phone)}
                       onClick={() => phoneStart.mutate()}
                     >
                       {phoneStart.isPending ? 'Sending…' : 'Text me a code'}

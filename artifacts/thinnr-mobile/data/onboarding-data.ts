@@ -6,6 +6,7 @@
  * and provider codes are fixed, nothing persists, and all dates derive from
  * the shared demo anchor date — never the device clock.
  */
+import { normalizePhone } from '../lib/phone';
 import { addDays, formatDateKey, toDateKey, TODAY } from './patient-data';
 
 // ─── Mock codes ──────────────────────────────────────────────────────────────
@@ -231,6 +232,47 @@ export function isBlockedPassword(pw: string): boolean {
 export function isValidContact(method: ContactMethod, value: string): boolean {
   if (method === 'phone') return value.replace(/\D/g, '').length >= 10;
   return /^\S+@\S+\.\S+$/.test(value.trim());
+}
+
+/** Canonical comparison form: E.164 for phones, trimmed lowercase for email. */
+export function canonicalContact(method: ContactMethod, value: string | null | undefined): string {
+  if (!value) return '';
+  return method === 'phone' ? normalizePhone(value) : value.trim().toLowerCase();
+}
+
+/**
+ * True when two contact values name the same address/number, however each
+ * was formatted ("+15551234567" matches "(555) 123-4567"). Empty never matches.
+ */
+export function contactsMatch(
+  method: ContactMethod,
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const left = canonicalContact(method, a);
+  return left !== '' && left === canonicalContact(method, b);
+}
+
+/**
+ * Reduces typed or stored input to the 10-digit US national number when it
+ * carries a +1 / leading-1 country code, so "+1 555 123 4567" and autofilled
+ * E.164 values never shift into the area code under formatPhoneNumber.
+ */
+export function usNationalDigits(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (value.trim().startsWith('+1') || (digits.length === 11 && digits.startsWith('1'))) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+/** Display form of a phone number that may be stored as E.164 (+1…). */
+export function formatUsPhone(value: string | null | undefined): string {
+  if (!value) return '';
+  const trimmed = value.trim();
+  // Non-US numbers on file stay as stored rather than being forced into a US mask.
+  if (trimmed.startsWith('+') && !trimmed.startsWith('+1')) return trimmed;
+  return formatPhoneNumber(usNationalDigits(trimmed));
 }
 
 /** Formats a phone number progressively as the user enters it. */

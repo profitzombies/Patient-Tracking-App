@@ -54,22 +54,8 @@ if (supabase && Platform.OS !== 'web') {
   });
 }
 
-/**
- * Normalize a user-typed phone number to E.164. Ten digits are treated as US.
- * Returns '' when the input can't be a dialable number.
- */
-export function normalizePhone(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return '';
-  const digits = trimmed.replace(/\D/g, '');
-  if (!digits) return '';
-  if (trimmed.startsWith('+')) {
-    return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '';
-  }
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '';
-}
+/** Re-exported so existing callers keep importing it from here. */
+export { normalizePhone } from './phone';
 
 /** Map raw Supabase auth errors to calm, actionable copy. */
 export function describeAuthError(error: { message?: string; status?: number } | null): string {

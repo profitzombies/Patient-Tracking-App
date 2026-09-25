@@ -35,6 +35,7 @@
     "test:meal-photo": "tsx --tsconfig tsconfig.meal-photo.json scripts/verify-meal-photo.ts",
     "test:onboarding-gate": "tsx --tsconfig tsconfig.onboarding-gate.json scripts/verify-onboarding-gate.ts",
     "test:onboarding-hints": "tsx --tsconfig tsconfig.onboarding-hints.json scripts/verify-onboarding-hints.ts",
+    "test:onboarding-identity": "tsx --tsconfig tsconfig.onboarding-identity.json scripts/verify-onboarding-identity.tsx",
     "test:patient-profile": "tsx scripts/verify-patient-profile.ts",
     "test:patient-auth": "tsx --tsconfig tsconfig.patient-auth.json scripts/verify-patient-auth.ts",
     "test:patient-fab": "tsx --tsconfig tsconfig.patient-fab.json scripts/verify-patient-fab.ts",

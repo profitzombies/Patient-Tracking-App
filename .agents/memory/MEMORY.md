@@ -148,3 +148,4 @@
 - [Practice setup Stripe gate](practice-launch-stripe-pending.md) — pending Stripe verification counts as done for setup; rule lives in TS, access snapshot, SQL RPC and web together.
 - [New-office setup wizard](setup-wizard.md) — wizard only for first-time full setup; sticky finish screen; server-derived resume; Stripe switch lock; tsconfig paths don't merge.
 - [Patient enrollment safety](patient-enrollment-safety.md) — activate only after GoTrue accepts the password; roll back own login + release code; weak_password 422 shape; client rule mirror.
+- [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset must re-overlay on-file profile; compare/display phones via E.164 (US mask keeps first 10 digits).

@@ -1,0 +1,28 @@
+{
+  // tsx config for scripts/verify-onboarding-identity.tsx ONLY (not part of typecheck).
+  //
+  // Same Node stubs as the onboarding-gate suite, plus a patient-store stub
+  // so the real OnboardingProvider and IdentityStep see an on-file profile.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/context/DeviceFeaturesContext": ["./scripts/onboarding-gate-stubs/device-features.ts"],
+      "@/context/PatientContext": ["./scripts/onboarding-identity-stubs/patient-context.tsx"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/onboarding-gate-stubs/react-native.ts"],
+      "@expo/vector-icons": ["./scripts/onboarding-gate-stubs/expo-vector-icons.ts"],
+      "expo-haptics": ["./scripts/onboarding-gate-stubs/expo-haptics.ts"],
+      "expo-router": ["./scripts/onboarding-gate-stubs/expo-router.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ],
+      "@react-native-async-storage/async-storage": [
+        "./scripts/onboarding-gate-stubs/async-storage.ts"
+      ]
+    }
+  }
+}

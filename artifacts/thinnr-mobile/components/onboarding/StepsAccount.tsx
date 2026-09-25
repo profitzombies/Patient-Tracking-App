@@ -15,6 +15,8 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import {
   allPasswordChecksPass,
+  canonicalContact,
+  contactsMatch,
   formatPhoneNumber,
   isBlockedPassword,
   isValidContact,
@@ -22,6 +24,7 @@ import {
   MOCK_PROVIDER_CODE,
   MOCK_VERIFICATION_CODE,
   passwordChecks,
+  usNationalDigits,
   VALUE_PROPS,
   type ContactMethod,
 } from '@/data/onboarding-data';
@@ -70,6 +73,25 @@ export function WelcomeStep() {
 
 // ─── Live account identity ────────────────────────────────────────────────────
 
+/** Replaces a contact's send-code button once it matches what is on file. */
+function ConfirmedBadge({ testID, what }: { testID: string; what: string }) {
+  const colors = useColors();
+  return (
+    <View
+      testID={testID}
+      accessible
+      accessibilityLabel={`${what} confirmed`}
+      style={[
+        styles.confirmedBadge,
+        { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, borderRadius: colors.radiusSm },
+      ]}
+    >
+      <Feather name="check-circle" size={14} color={colors.activeGreen} />
+      <Text style={[styles.confirmedText, { color: colors.activeGreen }]}>Confirmed</Text>
+    </View>
+  );
+}
+
 /** Real-only canonical identity step. The demo keeps its original contact flow. */
 export function IdentityStep() {
   const { answers, patch } = useOnboarding();
@@ -84,16 +106,27 @@ export function IdentityStep() {
   const nameValid = answers.name.trim().split(/\s+/).filter(Boolean).length >= 2;
   const emailValid = isValidContact('email', answers.email);
   const phoneValid = isValidContact('phone', answers.phone);
-  const canonicalEmail = patient.profile?.email?.trim().toLowerCase() ?? '';
-  const canonicalPhone = patient.profile?.phone?.replace(/\D/g, '') ?? '';
-  const emailConfirmed = answers.email.trim().toLowerCase() === canonicalEmail;
-  const phoneConfirmed = answers.phone.replace(/\D/g, '') === canonicalPhone;
+  // Compare in one canonical form so formatting (+1, dashes, case, spaces)
+  // never makes an on-file detail look changed.
+  const emailConfirmed = emailValid && contactsMatch('email', answers.email, patient.profile?.email);
+  const phoneConfirmed = phoneValid && contactsMatch('phone', answers.phone, patient.profile?.phone);
   const valid = nameValid && emailValid && phoneValid && emailConfirmed && phoneConfirmed;
+  // Name the first field that actually blocks Next — never a blanket hint.
+  const blockedHint = !nameValid
+    ? 'Enter your first and last name.'
+    : !emailValid
+      ? 'Enter a valid email address, like you@example.com.'
+      : !phoneValid
+        ? 'Enter a complete phone number, like (555) 123-4567.'
+        : !emailConfirmed
+          ? 'Your email is new — tap “Send email code” and confirm it to continue.'
+          : !phoneConfirmed
+            ? 'Your phone number is new — tap “Send text code” and confirm it to continue.'
+            : null;
 
   const sendCode = async (kind: ContactMethod) => {
     if (account.kind !== 'real') return;
-    const value =
-      kind === 'email' ? answers.email.trim().toLowerCase() : answers.phone.replace(/\D/g, '');
+    const value = canonicalContact(kind, kind === 'email' ? answers.email : answers.phone);
     setBusy(true);
     setContactError(null);
     try {
@@ -154,7 +187,9 @@ export function IdentityStep() {
           autoComplete="email"
           returnKeyType="next"
         />
-        {!emailConfirmed ? (
+        {emailConfirmed ? (
+          <ConfirmedBadge testID="ob-email-confirmed" what="Email" />
+        ) : emailValid ? (
           <PrimaryButton
             testID="ob-verify-email"
             label="Send email code"
@@ -169,12 +204,14 @@ export function IdentityStep() {
         <LedgerInput
           testID="ob-phone-input"
           value={answers.phone}
-          onChangeText={phone => patch({ phone: formatPhoneNumber(phone) })}
+          onChangeText={phone => patch({ phone: formatPhoneNumber(usNationalDigits(phone)) })}
           placeholder="(555) 123-4567"
           keyboardType="phone-pad"
           autoComplete="tel"
         />
-        {!phoneConfirmed ? (
+        {phoneConfirmed ? (
+          <ConfirmedBadge testID="ob-phone-confirmed" what="Phone number" />
+        ) : phoneValid ? (
           <PrimaryButton
             testID="ob-verify-phone"
             label="Send text code"
@@ -210,15 +247,9 @@ export function IdentityStep() {
           <ErrorBox message={contactError} />
         </View>
       ) : null}
-      {showHint && !valid ? (
+      {showHint && blockedHint ? (
         <View style={styles.blockGapTop}>
-          <ErrorBox
-            message={
-              !nameValid || !emailValid || !phoneValid
-                ? 'Enter your first and last name, a valid email, and a complete phone number.'
-                : 'Verify each changed contact detail before continuing.'
-            }
-          />
+          <ErrorBox testID="ob-identity-hint" message={blockedHint} />
         </View>
       ) : null}
       <View style={styles.blockGapTop}>
@@ -601,6 +632,20 @@ const styles = StyleSheet.create({
   },
   smallButtonGap: {
     marginTop: 8,
+  },
+  confirmedBadge: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  confirmedText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
   },
   codeInput: {
     textAlign: 'center',

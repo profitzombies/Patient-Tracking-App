@@ -608,6 +608,10 @@ args = "patient-signup-api"
 task = "workflow.run"
 args = "patient-signup-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "onboarding-identity"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3436,6 +3440,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:account-security && pnpm --filter @workspace/thinnr-mobile run test:claim-flow && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "onboarding-identity"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity && pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

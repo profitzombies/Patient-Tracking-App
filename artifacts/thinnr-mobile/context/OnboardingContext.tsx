@@ -30,6 +30,7 @@ import React, {
 import { router, type Href } from 'expo-router';
 import {
   DEFAULT_ANSWERS,
+  formatUsPhone,
   stepOrderIndex,
   visibleSteps,
   type OnboardingAnswers,
@@ -38,9 +39,11 @@ import {
 import {
   usePatientAccount,
   type PatientFlagsWrite,
+  type PatientProfile,
   type PatientSetupWrite,
 } from './PatientAccountContext';
-import { usePatientOptional } from './PatientContext';
+// Aliased (not relative) so Node suites can substitute a patient-store stub.
+import { usePatientOptional } from '@/context/PatientContext';
 
 interface OnboardingContextValue {
   /** True while a run is live (guards deep links; cleared after completion). */
@@ -63,6 +66,34 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 function freshAnswers(): OnboardingAnswers {
   return { ...DEFAULT_ANSWERS, diets: [...DEFAULT_ANSWERS.diets] };
+}
+
+/**
+ * Overlay a real account's on-file profile onto `base`: identity (name,
+ * email, phone — the phone shown in the same US mask the step types in) plus
+ * the body/program facts the account already knows.
+ */
+function withProfile(base: OnboardingAnswers, p: PatientProfile): OnboardingAnswers {
+  const birth = p.dateOfBirth?.split('-') ?? [];
+  return {
+    ...base,
+    name: [p.firstName, p.lastName].filter(Boolean).join(' '),
+    email: p.email ?? '',
+    phone: formatUsPhone(p.phone),
+    heightUnit: 'imperial',
+    heightFt: p.heightInches ? Math.floor(p.heightInches / 12) : base.heightFt,
+    heightIn: p.heightInches ? Math.round(p.heightInches % 12) : base.heightIn,
+    currentWeight: p.currentWeight === null ? '' : String(p.currentWeight),
+    goalWeight: p.goalWeight === null ? '' : String(p.goalWeight),
+    birthYear: birth[0] ?? '',
+    birthMonth: birth[1] ? Number(birth[1]) : null,
+    birthDay: birth[2] ?? '',
+    program:
+      p.programId === 'thinnr' || p.programId === 'glp1' || p.programId === 'none'
+        ? p.programId
+        : null,
+    programStartDate: p.programStartDate ?? '',
+  };
 }
 
 /**
@@ -108,6 +139,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   // mounts — OnboardingProvider without PatientProvider — still work; in
   // the app the root layout always nests this provider inside it.
   const patient = usePatientOptional();
+  const profileRef = useRef<PatientProfile | null>(patient?.profile ?? null);
+  profileRef.current = patient?.profile ?? null;
   const saveFlagsRef = useRef<((flags: Partial<PatientFlagsWrite>) => void) | null>(null);
   saveFlagsRef.current = patient?.saveOnboardingFlags ?? null;
 
@@ -150,27 +183,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!accountId || begun || !patient?.profile) return;
-    const p = patient.profile;
-    const birth = p.dateOfBirth?.split('-') ?? [];
-    answersRef.current = {
-      ...answersRef.current,
-      name: [p.firstName, p.lastName].filter(Boolean).join(' '),
-      email: p.email ?? '',
-      phone: p.phone ?? '',
-      heightUnit: 'imperial',
-      heightFt: p.heightInches ? Math.floor(p.heightInches / 12) : answersRef.current.heightFt,
-      heightIn: p.heightInches ? Math.round(p.heightInches % 12) : answersRef.current.heightIn,
-      currentWeight: p.currentWeight === null ? '' : String(p.currentWeight),
-      goalWeight: p.goalWeight === null ? '' : String(p.goalWeight),
-      birthYear: birth[0] ?? '',
-      birthMonth: birth[1] ? Number(birth[1]) : null,
-      birthDay: birth[2] ?? '',
-      program:
-        p.programId === 'thinnr' || p.programId === 'glp1' || p.programId === 'none'
-          ? p.programId
-          : null,
-      programStartDate: p.programStartDate ?? '',
-    };
+    answersRef.current = withProfile(answersRef.current, patient.profile);
     setAnswers(answersRef.current);
   }, [accountId, begun, patient?.profile]);
 
@@ -180,8 +193,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     setSaveError(null);
   }, []);
 
+  // A fresh start (the welcome screen) must not wipe what a real account
+  // already has on file — otherwise "Tell us about you" opens empty and the
+  // prefill effect above never re-runs once the run has begun.
   const reset = useCallback(() => {
-    answersRef.current = freshAnswers();
+    const profile = profileRef.current;
+    answersRef.current =
+      accountRef.current.kind === 'real' && profile
+        ? withProfile(freshAnswers(), profile)
+        : freshAnswers();
     setAnswers(answersRef.current);
     setFurthest('welcome');
     setBegun(true);

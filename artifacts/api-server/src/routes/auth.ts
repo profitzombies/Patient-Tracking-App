@@ -97,6 +97,8 @@ import {
   WEAK_PASSWORD_CODE,
 } from "../auth/session";
 import { passwordIssue } from "../claim/normalize";
+import { logger } from "../lib/logger";
+import { loadPrivacyState } from "./patient-privacy";
 import {
   acquireSendSlot,
   acquireCheckSlot,
@@ -1153,6 +1155,7 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     return;
   }
   let createdPatientId: string | null = null;
+  const clock = stageClock();
   try {
     const { signupToken, name, firstName, lastName, email, password } = (req.body ?? {}) as {
       signupToken?: unknown;
@@ -1186,6 +1189,7 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     const fullName = splitName ? `${first} ${last}` : legacyName;
 
     const row = await loadRowByToken(signupToken);
+    clock.mark("token");
     if (
       !row ||
       row.purpose !== "signup" ||
@@ -1197,7 +1201,15 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     }
 
     if (row.resolved_ref) {
-      const patient = await loadPatientById(row.resolved_ref);
+      // The office's name and proven-contact fields load alongside the
+      // patient row; a failed read only matters once the patient is known
+      // to be eligible.
+      const namesLoad = loadEnrollmentNames(row.resolved_ref).then(
+        (names) => ({ ok: true as const, names }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      const [patient, namesResult] = await Promise.all([loadPatientById(row.resolved_ref), namesLoad]);
+      clock.mark("patient");
       if (!patient || !LOGIN_ELIGIBLE_ACTIVATION.includes(patient.activation_status ?? "")) {
         res.status(400).json({ error: SESSION_EXPIRED });
         return;
@@ -1210,7 +1222,8 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       if (!patient.email && normalizedEmail?.kind === "email") fill.email = normalizedEmail.email;
       if (!patient.phone && row.identifier_kind === "phone") fill.phone = row.identifier;
       if (patient.activation_status === "invited") fill.activation_status = "activated";
-      const priorNames = await loadEnrollmentNames(patient.id);
+      if (!namesResult.ok) throw namesResult.error;
+      const priorNames = namesResult.names;
       // The signup code proved this contact, so the details step never asks
       // for it again. Stamped only when it is the contact actually on file.
       const provenColumn = provenContactColumn(row, {
@@ -1231,6 +1244,7 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       // cannot overwrite the winning password.
       const reservedAt = new Date().toISOString();
       const reserved = await patchRow(row.id, { consumed_at: reservedAt }, "&consumed_at=is.null");
+      clock.mark("reserve");
       if (reserved !== 1) { res.status(400).json({ error: SESSION_EXPIRED }); return; }
 
       // Order matters: the password must be accepted by GoTrue (breach list
@@ -1247,14 +1261,35 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
           },
           password as string,
         );
-        const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(login.userId));
-        if (Object.keys(fill).length) {
-          patientTouched = true;
-          const updated = await supabaseAdmin("PATCH", `/rest/v1/patients?id=eq.${encodeURIComponent(patient.id)}`, fill);
-          if (updated.status >= 300) throw new Error(`patient enrollment update failed (${updated.status})`);
-        }
-        const signInId = await noteSignIn(req, { userId: login.userId, realm: "patient", method: "signup" });
-        res.json({ ok: true, tokenHash, signInId });
+        clock.mark("login");
+        // The password is accepted, so activation, the session mint and the
+        // sign-in ledger no longer depend on each other: run them together
+        // and unwind everything if any one fails. A login this attempt
+        // created carries the synthetic address, so no lookup is needed.
+        const accepted = login;
+        if (Object.keys(fill).length) patientTouched = true;
+        const [minted, activated, ledger, privacy] = await Promise.allSettled([
+          (accepted.created
+            ? Promise.resolve(patientSyntheticEmail(patient.id))
+            : getAuthUserEmail(accepted.userId)
+          ).then((authEmail) => mintSessionTokenHash(authEmail)),
+          patientTouched
+            ? supabaseAdmin("PATCH", `/rest/v1/patients?id=eq.${encodeURIComponent(patient.id)}`, fill).then((updated) => {
+                if (updated.status >= 300) throw new Error(`patient enrollment update failed (${updated.status})`);
+              })
+            : Promise.resolve(),
+          noteSignIn(req, { userId: accepted.userId, realm: "patient", method: "signup", firstSignIn: accepted.created }),
+          signupPrivacy(patient.id),
+        ]);
+        clock.mark("finish");
+        for (const step of [minted, activated, ledger]) if (step.status === "rejected") throw step.reason;
+        clock.send(res, req);
+        res.json(signupSuccess({
+          tokenHash: (minted as PromiseFulfilledResult<string>).value,
+          signInId: (ledger as PromiseFulfilledResult<string>).value,
+          patientId: patient.id,
+          privacy: privacy.status === "fulfilled" ? privacy.value : null,
+        }));
         return;
       } catch (error) {
         await rollbackInvitedEnrollment({
@@ -1291,10 +1326,23 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     // Patient emails must map to exactly one patient account — the email
     // code fallback depends on it. The partial unique index is the airtight
     // backstop; this pre-check just gives a clear error.
-    const emailTaken = await supabaseAdmin(
-      "GET",
-      `/rest/v1/patients?email=ilike.${encodeURIComponent(normalizedEmail.email)}&archived_at=is.null&select=id&limit=1`,
-    );
+    //
+    // The office must still be active — a lock applied mid-signup blocks it.
+    // Both reads are independent and run together; the email answer is
+    // checked first so a taken email never consumes the code.
+    const officeRef = (row.scope_key ?? "").startsWith(SIGNUP_SCOPE_PREFIX)
+      ? (row.scope_key ?? "").slice(SIGNUP_SCOPE_PREFIX.length).split("|", 1)[0]
+      : "";
+    const [emailCheck, officeCheck] = await Promise.allSettled([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/patients?email=ilike.${encodeURIComponent(normalizedEmail.email)}&archived_at=is.null&select=id&limit=1`,
+      ),
+      officeRef ? resolveSignupOfficeById(officeRef) : Promise.resolve(null),
+    ]);
+    clock.mark("checks");
+    if (emailCheck.status === "rejected") throw emailCheck.reason;
+    const emailTaken = emailCheck.value;
     if (emailTaken.status >= 300) throw new Error(`email check failed (${emailTaken.status})`);
     if (Array.isArray(emailTaken.json) && emailTaken.json.length > 0) {
       res.status(409).json({
@@ -1304,11 +1352,8 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       return;
     }
 
-    // The office must still be active — a lock applied mid-signup blocks it.
-    const officeRef = (row.scope_key ?? "").startsWith(SIGNUP_SCOPE_PREFIX)
-      ? (row.scope_key ?? "").slice(SIGNUP_SCOPE_PREFIX.length).split("|", 1)[0]
-      : "";
-    const office = officeRef ? await resolveSignupOfficeById(officeRef) : null;
+    if (officeCheck.status === "rejected") throw officeCheck.reason;
+    const office = officeCheck.value;
     if (!office) {
       await patchRow(row.id, { consumed_at: new Date().toISOString() });
       res.status(409).json({ error: OFFICE_CODE_ERROR });
@@ -1331,13 +1376,15 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
 
     // Auth user first, carrying the password (it can fail on a phone already
     // holding a login, or on a password GoTrue refuses), then the patient
-    // row, then the link — with cleanup on every failure.
+    // row, then the link — with cleanup on every failure. Nothing activates
+    // before GoTrue has accepted the password.
     let userId: string;
     try {
       userId = await createConfirmedPatientUser(
         { id: patientId, phone: row.identifier, name: fullName },
         password as string,
       );
+      clock.mark("login");
     } catch (error) {
       if (error instanceof PhoneExistsError) {
         res.status(409).json({
@@ -1352,13 +1399,25 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       throw error;
     }
 
+    // The password is accepted. The session mint, the sign-in ledger (a
+    // brand-new login has no history to compare) and the privacy snapshot
+    // need only the login, so they run beside the patient row and the code
+    // consumption. The ledger stays fail-closed: the response waits for it.
+    const sideSteps = Promise.allSettled([
+      mintSessionTokenHash(patientSyntheticEmail(patientId)),
+      noteSignIn(req, { userId, realm: "patient", method: "signup", firstSignIn: true }),
+      signupPrivacy(patientId),
+    ]);
+
     const inserted = await supabaseAdmin(
       "POST",
       "/rest/v1/patients",
       { ...patient, auth_user_id: userId, claimed_at: new Date().toISOString() },
       "return=representation",
     );
+    clock.mark("insert");
     if (inserted.status >= 300) {
+      await sideSteps;
       await deleteAuthUserQuietly(userId);
       const message = String((inserted.json as { message?: unknown })?.message ?? "");
       const conflict = patientUniqueConflict(message);
@@ -1389,15 +1448,26 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
         { consumed_at: consumedAt, resolved_ref: patientId, auth_user_id: userId },
         "&consumed_at=is.null",
       )) === 1;
+      clock.mark("consume");
       if (!consumed) {
+        await sideSteps;
         await rollbackNewSignup({ patientId, userId, rowId: row.id, consumedAt: null });
         res.status(400).json({ error: SESSION_EXPIRED });
         return;
       }
-      const tokenHash = await mintSessionTokenHash(patientSyntheticEmail(patientId));
-      const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
-      res.json({ ok: true, tokenHash, signInId });
+      const [minted, ledger, privacySnapshot] = await sideSteps;
+      clock.mark("finish");
+      if (minted.status === "rejected") throw minted.reason;
+      if (ledger.status === "rejected") throw ledger.reason;
+      const tokenHash = minted.value;
+      const signInId = ledger.value;
+      const privacy = privacySnapshot.status === "fulfilled" ? privacySnapshot.value : null;
+      clock.send(res, req);
+      res.json(signupSuccess({ tokenHash, signInId, patientId, privacy }));
     } catch (error) {
+      // Let the concurrent steps settle first so an unwind never races a
+      // ledger row landing after its login is gone.
+      await sideSteps;
       await rollbackNewSignup({ patientId, userId, rowId: row.id, consumedAt: consumed ? consumedAt : null }).catch(
         (rollbackError) => req.log?.error({ err: rollbackError, patientId }, "auth signup rollback incomplete"),
       );
@@ -1411,6 +1481,61 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     slot.ok && slot.release();
   }
 });
+
+type SignupPrivacy = Awaited<ReturnType<typeof loadPrivacyState>>;
+
+/**
+ * The new account's privacy state, handed back with the session so the app
+ * can open the consent page without another round trip. Best effort: a
+ * failed read only means the app fetches it itself; it never fails signup.
+ */
+function signupPrivacy(patientId: string): Promise<SignupPrivacy | null> {
+  return loadPrivacyState(patientId).catch((error) => {
+    logger.warn({ err: error }, "signup privacy snapshot unavailable");
+    return null;
+  });
+}
+
+function signupSuccess(input: {
+  tokenHash: string;
+  signInId: string;
+  patientId: string;
+  privacy: SignupPrivacy | null;
+}) {
+  return {
+    ok: true as const,
+    tokenHash: input.tokenHash,
+    signInId: input.signInId,
+    patientId: input.patientId,
+    ...(input.privacy ? { privacy: input.privacy } : {}),
+  };
+}
+
+/**
+ * Stage durations for the signup completion, sent back as a Server-Timing
+ * header (names and milliseconds only) so the account-creation wait can be
+ * measured stage by stage from any client.
+ */
+function stageClock() {
+  const started = performance.now();
+  let last = started;
+  const stages: Array<[string, number]> = [];
+  return {
+    mark(name: string) {
+      const now = performance.now();
+      stages.push([name, now - last]);
+      last = now;
+    },
+    send(res: { setHeader(name: string, value: string): unknown }, req: { log?: { info?: (obj: object, msg: string) => void } }) {
+      const total = performance.now() - started;
+      res.setHeader(
+        "Server-Timing",
+        [...stages, ["total", total] as [string, number]].map(([name, ms]) => `${name};dur=${ms.toFixed(1)}`).join(", "),
+      );
+      req.log?.info?.({ stages: Object.fromEntries(stages.map(([n, ms]) => [n, Math.round(ms)])), totalMs: Math.round(total) }, "auth signup complete timing");
+    },
+  };
+}
 
 /**
  * Unwind a failed invited enrollment: prior patient fields (activation

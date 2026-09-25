@@ -12,6 +12,17 @@ import { normalizePhone } from '@/lib/supabase';
 import { formatUsPhoneInput } from '@/lib/office-roster-api';
 import { passwordChecks, passwordMeetsRules } from '@/lib/password-rules';
 import { attachSignIn } from '@/lib/security-api';
+import { clearSignupSeed, setSignupSeed } from '@/lib/signup-seed';
+import type { PrivacyState } from '@/lib/patient-privacy';
+
+/** The steps after "Create account", in the order the patient sees them. */
+export type SignupFinishStage = 'creating' | 'signing-in' | 'opening';
+
+export const SIGNUP_FINISH_LABELS: Record<SignupFinishStage, string> = {
+  creating: 'Creating your account…',
+  'signing-in': 'Signing you in…',
+  opening: 'Opening your account…',
+};
 
 export type SignupFlow = 'invited' | 'new';
 export type SignupPhase = 'choose' | 'contact' | 'code' | 'name' | 'password';
@@ -36,6 +47,9 @@ export function usePatientSignup() {
   const [notice, setNotice] = useState<string | null>(null);
   const [devCode, setDevCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Which part of account creation is running, so the wait after "Create
+  // account" (request, sign-in, opening consent) never looks frozen.
+  const [finishStage, setFinishStage] = useState<SignupFinishStage | null>(null);
 
   const identifier = () => (emailOK(email) ? email.trim() : normalizePhone(phone));
   const clear = () => {
@@ -50,6 +64,7 @@ export function usePatientSignup() {
   const invalidate = () => {
     genRef.current += 1;
     setBusy(false);
+    setFinishStage(null);
   };
 
   const goBack = () => {
@@ -190,7 +205,9 @@ export function usePatientSignup() {
     }
     const gen = ++genRef.current;
     setBusy(true);
+    setFinishStage('creating');
     setError(null);
+    let leaving = false;
     try {
       // Entered values stay in place: a refused password or a server hiccup
       // leaves the patient on the right step with nothing to retype.
@@ -207,18 +224,37 @@ export function usePatientSignup() {
         if (r.field === 'firstName' || r.field === 'lastName' || r.field === 'name') setPhase('name');
         return;
       }
+      setFinishStage('signing-in');
+      // What the server just told us about the new account lets the app
+      // open consent as soon as the session lands, without waiting on the
+      // account lookup and full hydration. Set before the session exists so
+      // the first account resolution already sees it.
+      const seeded = r.patientId !== null && r.privacy !== null && !r.privacy.consent.satisfied;
+      if (seeded) setSignupSeed({ patientId: r.patientId as string, privacy: r.privacy as PrivacyState });
+      else clearSignupSeed();
       const se = await signInWithTokenHash(r.tokenHash);
       if (genRef.current !== gen) return;
-      if (se) setError(se);
-      else {
+      if (se) {
+        clearSignupSeed();
+        setError(se);
+      } else {
+        setFinishStage('opening');
         if (r.signInId) void attachSignIn(r.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
         leaveDemo();
         await setMode('patient');
-        // The live entry gate sends a new account on to consent/onboarding.
-        router.replace('/today');
+        if (genRef.current !== gen) return;
+        // A new account has no consent on record, so it goes straight to the
+        // consent page. Without the server's snapshot, Today's entry gate
+        // routes it there once hydration confirms the same.
+        leaving = true;
+        router.replace(seeded ? '/consent' : '/today');
       }
     } finally {
-      if (genRef.current === gen) setBusy(false);
+      // Leaving keeps the progress on screen through the navigation.
+      if (genRef.current === gen && !leaving) {
+        setBusy(false);
+        setFinishStage(null);
+      }
     }
   };
 
@@ -246,6 +282,7 @@ export function usePatientSignup() {
     notice,
     devCode,
     busy,
+    finishStage,
     setPhone: (value: string) => setPhone(formatUsPhoneInput(value)),
     setEmail,
     setProviderCode,

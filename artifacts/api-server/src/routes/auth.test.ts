@@ -57,6 +57,10 @@ class FakeBackend {
       account_security_state: [],
       auth_session_revocations: [],
       staff_second_factors: [],
+      // Privacy state a finished signup hands back (empty for a new patient).
+      patient_consents: [],
+      patient_data_exports: [],
+      patient_deletion_requests: [],
       // Policy singleton: tests start with every second-factor rule OFF and
       // switch the relevant rule on explicitly, so the pre-existing sign-in
       // expectations stay a faithful picture of an uncovered staff member.
@@ -1927,6 +1931,57 @@ describe("patient signup", () => {
     expect(user.phone).toBe("+18135550101");
     expect((user.app_metadata as Row).thinnr_claim).toBe("patient");
     expect(complete.json.tokenHash).toBe(`hashed-${user.email}`);
+    // The app opens the consent page straight away from what came back.
+    expect(complete.json.patientId).toBe(patient.id);
+    expect(complete.json.privacy.consent.satisfied).toBe(false);
+    expect(typeof complete.json.privacy.consent.requiredVersion).toBe("string");
+    expect(complete.json.privacy.deletion).toBeNull();
+  });
+
+  it("finishes a new signup without reading the new login's sign-in history, ledger row still recorded", async () => {
+    seedSignupOffice();
+    const token = await signupToDetails("813-555-0107");
+    const seen: string[] = [];
+    const handle = backend.handle.bind(backend);
+    const spy = vi.spyOn(backend, "handle").mockImplementation((input: string, init?: RequestInit) => {
+      seen.push(`${(init?.method ?? "GET").toUpperCase()} ${new URL(input).pathname}`);
+      return handle(input, init);
+    });
+    try {
+      const complete = await api("POST", "/api/auth/signup/complete", {
+        signupToken: token, password: "Strong!Pass", firstName: "Quinn", lastName: "Fast", email: "quinn@example.com",
+      });
+      expect(complete.status).toBe(200);
+      expect(complete.json.signInId).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seen).not.toContain("GET /rest/v1/auth_sign_ins");
+    expect(seen).toContain("POST /rest/v1/auth_sign_ins");
+    expect(backend.tables.auth_sign_ins).toHaveLength(1);
+    expect(backend.tables.auth_sign_ins[0].new_device).toBe(false);
+  });
+
+  it("still signs a new patient in when the privacy snapshot cannot be read", async () => {
+    seedSignupOffice();
+    const token = await signupToDetails("813-555-0108");
+    const handle = backend.handle.bind(backend);
+    const spy = vi.spyOn(backend, "handle").mockImplementation((input: string, init?: RequestInit) =>
+      new URL(input).pathname.startsWith("/rest/v1/patient_consents")
+        ? new Response(JSON.stringify({ message: "down" }), { status: 503 })
+        : handle(input, init),
+    );
+    try {
+      const complete = await api("POST", "/api/auth/signup/complete", {
+        signupToken: token, password: "Strong!Pass", firstName: "Sky", lastName: "Outage", email: "sky@example.com",
+      });
+      expect(complete.status).toBe(200);
+      expect(complete.json.tokenHash).toBeTruthy();
+      expect(complete.json.patientId).toBe(backend.tables.patients[0].id);
+      expect(complete.json.privacy).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("requires an explicit password without creating or mutating a patient", async () => {
@@ -1963,8 +2018,11 @@ describe("patient signup", () => {
     });
     expect(complete.status).toBe(200);
     expect(complete.json.tokenHash).toBeTruthy();
+    expect(complete.json.patientId).toBe(patient.id);
+    expect(complete.json.privacy.consent.satisfied).toBe(false);
     expect(backend.tables.patients).toHaveLength(1);
     expect(patient.auth_user_id).toBeTruthy();
+    expect(backend.tables.auth_sign_ins).toHaveLength(1);
   });
 
   it("sends ambiguous shared phones to the clinic", async () => {

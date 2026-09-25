@@ -149,3 +149,4 @@
 - [New-office setup wizard](setup-wizard.md) — wizard only for first-time full setup; sticky finish screen; server-derived resume; Stripe switch lock; tsconfig paths don't merge.
 - [Patient enrollment safety](patient-enrollment-safety.md) — activate only after GoTrue accepts the password; roll back own login + release code; weak_password 422 shape; client rule mirror.
 - [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset re-overlays profile; compare phones via E.164; verified = profile flag + matching value, stamped at signup.
+- [Signup completion speed](signup-completion-speed.md) — post-password steps run concurrently, rollback waits for all; one-shot client seed opens /consent directly, narrowing only.

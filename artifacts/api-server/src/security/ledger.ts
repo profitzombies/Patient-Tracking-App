@@ -128,17 +128,25 @@ export async function recordSignIn(input: {
   request: SignInRequestFacts;
   /** Already-known GoTrue session (inline re-authentication of a session with no ledger row). */
   sessionId?: string | null;
+  /**
+   * The login was created by this very request, so it has no earlier
+   * sign-ins and can never be a "new device": skip the history read.
+   */
+  firstSignIn?: boolean;
 }): Promise<RecordedSignIn> {
   const { headers, ip } = input.request;
   const platform = platformOf(headers);
   const ua = userAgentOf(headers);
   const { fingerprint } = fingerprintOf(headers);
-  const priorRes = await supabaseAdmin(
-    "GET",
-    `/rest/v1/auth_sign_ins?user_id=eq.${enc(input.userId)}&select=id,device_fingerprint&order=created_at.desc&limit=200`,
-  );
-  if (priorRes.status >= 300) throw new Error(`sign-in ledger read failed (${priorRes.status})`);
-  const prior = Array.isArray(priorRes.json) ? (priorRes.json as Array<{ device_fingerprint: string }>) : [];
+  let prior: Array<{ device_fingerprint: string }> = [];
+  if (!input.firstSignIn) {
+    const priorRes = await supabaseAdmin(
+      "GET",
+      `/rest/v1/auth_sign_ins?user_id=eq.${enc(input.userId)}&select=id,device_fingerprint&order=created_at.desc&limit=200`,
+    );
+    if (priorRes.status >= 300) throw new Error(`sign-in ledger read failed (${priorRes.status})`);
+    prior = Array.isArray(priorRes.json) ? (priorRes.json as Array<{ device_fingerprint: string }>) : [];
+  }
   const newDevice = prior.length > 0 && !prior.some((row) => row.device_fingerprint === fingerprint);
   const reportToken = newDevice ? crypto.randomBytes(32).toString("hex") : null;
   const inserted = await supabaseAdmin(

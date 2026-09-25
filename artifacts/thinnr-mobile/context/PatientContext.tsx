@@ -41,6 +41,7 @@ import {
 import { buildCopyWithExtras, cloneEntriesForCopy } from '@/data/diary-entries';
 import { setPatientMediaToken } from '@/lib/media-token-holder';
 import { localTodayKey } from '@/lib/live-patient-entry';
+import { takeSignupSeed } from '@/lib/signup-seed';
 import type { PrivacyState } from '@/lib/patient-privacy';
 import { PatientDataError } from '@/lib/patient-data-error';
 import { newUuid } from '@/lib/uuid';
@@ -1533,6 +1534,17 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
     if (account.kind === 'real') {
       const acct = account;
+      // A signup that just finished handed back this account's privacy
+      // state with no consent on record. Open exactly as the server's
+      // CONSENT_REQUIRED answer would (seedless, writes BLOCKED, entry guard
+      // parks the account on /consent) without the round trips that would
+      // only confirm it. One-shot: consent landing rehydrates from the server.
+      const seeded = takeSignupSeed(acct.patientId);
+      if (seeded) {
+        setHydratedPrivacy(seeded.privacy);
+        finish(EMPTY_STATE);
+        return;
+      }
       (async () => {
         const currentLocalDay = localTodayKey();
         const [serverResult, profileResult, localResult, queueResult, snapshotResult] = await Promise.allSettled([

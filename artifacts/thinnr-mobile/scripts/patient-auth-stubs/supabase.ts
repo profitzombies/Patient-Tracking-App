@@ -31,10 +31,20 @@ export function failNextVerifyOtp(message: string): void {
   nextVerifyOtpError = { message };
 }
 
+let verifyOtpHold: Promise<void> | null = null;
+
+/** Hold the next verifyOtp open until the returned release runs (one-shot). */
+export function holdNextVerifyOtp(): () => void {
+  let release!: () => void;
+  verifyOtpHold = new Promise<void>(resolve => { release = resolve; });
+  return release;
+}
+
 export function clearAuthStub(): void {
   verifyOtpCalls.length = 0;
   signOutCalls.length = 0;
   nextVerifyOtpError = null;
+  verifyOtpHold = null;
 }
 
 export const supabaseConfigured = true;
@@ -43,6 +53,11 @@ export const supabase = {
   auth: {
     async verifyOtp(params: RecordedVerifyOtp) {
       verifyOtpCalls.push({ ...params });
+      if (verifyOtpHold) {
+        const hold = verifyOtpHold;
+        verifyOtpHold = null;
+        await hold;
+      }
       if (nextVerifyOtpError) {
         const error = nextVerifyOtpError;
         nextVerifyOtpError = null;

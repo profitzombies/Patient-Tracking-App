@@ -41,6 +41,7 @@ import {
   writeCachedAccountRole,
 } from '@/lib/account-role-cache';
 import { usePatientPresenceHeartbeat } from '@/lib/patient-presence-heartbeat';
+import { clearSignupSeed, peekSignupSeed } from '@/lib/signup-seed';
 import {
   ACCOUNT_CLOSED_MESSAGE,
   REENROLL_REQUIRED_MESSAGE,
@@ -76,7 +77,10 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       // Only a settled signed-out state forgets the remembered role. While
       // the session is still loading (every cold start) userId is null too,
       // and wiping here would defeat the offline cold start it exists for.
-      if (!sessionLoading) void clearCachedAccountRole();
+      if (!sessionLoading) {
+        void clearCachedAccountRole();
+        clearSignupSeed();
+      }
       return;
     }
     let cancelled = false;
@@ -84,11 +88,23 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       role.kind === 'patient'
         ? { kind: 'real', patientId: role.patientId, api: patientDataApi }
         : { kind: 'demo' };
+    // A signup that just finished already knows its patient: resolve to it
+    // at once so consent opens without waiting on the lookup below, which
+    // still runs and has the final say.
+    const seed = peekSignupSeed(userId);
+    const seededRole: AccountRole | null = seed ? { kind: 'patient', patientId: seed.patientId } : null;
+    if (seededRole) setResolved({ forUserId: userId, account: accountFor(seededRole), notice: null });
     (async () => {
       try {
         const role = await fetchAccountRole();
         if (cancelled) return;
-        setResolved({ forUserId: userId, account: accountFor(role), notice: null });
+        setResolved(prev =>
+          // Same patient as the seed: keep the resolution already in use.
+          prev && prev.forUserId === userId && prev.account.kind === 'real' && role.kind === 'patient' &&
+          prev.account.patientId === role.patientId && prev.notice === null
+            ? prev
+            : { forUserId: userId, account: accountFor(role), notice: null },
+        );
         void writeCachedAccountRole(userId, role);
       } catch (error) {
         if (isProgramEndedResolutionError(error)) {
@@ -109,7 +125,7 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
         }
         // Unreachable server: fall back to what this user resolved to last
         // time (offline cold start), else block behind a retry.
-        const remembered = await readCachedAccountRole(userId).catch(() => null);
+        const remembered = (await readCachedAccountRole(userId).catch(() => null)) ?? seededRole;
         if (cancelled) return;
         if (remembered) {
           setResolved({ forUserId: userId, account: accountFor(remembered), notice: null });

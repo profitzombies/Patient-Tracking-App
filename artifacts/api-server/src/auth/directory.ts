@@ -305,10 +305,26 @@ export async function resolveSignupOffice(code: string): Promise<SignupOffice | 
  * route the stored id back through the code parser above.
  */
 export async function resolveSignupOfficeById(providerId: string): Promise<SignupOffice | null> {
-  const row = await loadProviderById(providerId);
+  // The three reads are independent (the recorded id is the provider id), so
+  // they run together; the answer is the same as checking them in turn — a
+  // missing or inactive office wins over any lock-read failure.
+  const [rowResult, lockedResult, restrictedResult] = await Promise.allSettled([
+    loadProviderById(providerId),
+    providerLocked(providerId),
+    officeRestrictedForNonpayment(providerId),
+  ]);
+  if (rowResult.status === "rejected") throw rowResult.reason;
+  const row = rowResult.value;
   if (!row || !officeIsActive(row)) return null;
-  if (await providerLocked(row.provider_id)) return null;
-  if (await officeRestrictedForNonpayment(row.provider_id)) return null;
+  if (row.provider_id !== providerId) {
+    if (await providerLocked(row.provider_id)) return null;
+    if (await officeRestrictedForNonpayment(row.provider_id)) return null;
+  } else {
+    if (lockedResult.status === "rejected") throw lockedResult.reason;
+    if (lockedResult.value) return null;
+    if (restrictedResult.status === "rejected") throw restrictedResult.reason;
+    if (restrictedResult.value) return null;
+  }
   return {
     providerId: row.provider_id,
     officeName: String(row.office_name ?? row.provider_name ?? "your provider's office"),

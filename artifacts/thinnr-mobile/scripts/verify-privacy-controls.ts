@@ -51,6 +51,7 @@ import {
   liveEntryDecision,
 } from '../lib/live-patient-entry';
 import { describeExport, graceDaysRemaining, parsePrivacyState } from '../lib/patient-privacy';
+import { peekSignupSeed, setSignupSeed, takeSignupSeed } from '../lib/signup-seed';
 import ConsentScreen from '../app/consent';
 import { PrivacyDataControls } from '../components/account/PrivacyDataControls';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
@@ -187,7 +188,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   const call: ApiCall = { method: (init?.method ?? 'GET').toUpperCase(), path: url.pathname.slice('/api/'.length), token: auth?.startsWith('Bearer ') ? auth.slice(7) : null, body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : null };
   apiCalls.push(call);
   const result = routeCall(call);
-  return { ok: result.status < 300, status: result.status, json: async () => result.body } as Response;
+  return { ok: result.status < 300, status: result.status, headers: new Headers(), json: async () => result.body } as Response;
 }) as typeof fetch;
 
 const P1: StubSession = { access_token: 'tok-p1', user: { id: 'user-p1' } };
@@ -416,6 +417,35 @@ async function main() {
   assert('demo shows the unavailable card only', has(tree, 'privacy-unavailable') && !has(tree, 'privacy-controls') && textOf(tree, 'privacy-unavailable').includes('guided demo'));
   assert('demo never touches the privacy routes', apiCalls.length === before && ctx.hydratedPrivacy === null);
   await unmount(tree);
+
+  section('fresh signup: seeded straight onto consent');
+  await signIn(null);
+  tokenRoles.set('tok-new', { kind: 'patient', patientId: 'p-new' });
+  const NEW: StubSession = { access_token: 'tok-new', user: { id: 'user-new' } };
+  tree = await mount(ConsentScreen);
+  // What /auth/signup/complete hands back, set before the session lands.
+  setSignupSeed({ patientId: 'p-new', privacy: parsePrivacyState(privacyBlock(storeFor('p-new'))) });
+  const seededBefore = apiCalls.length;
+  await signIn(NEW);
+  const seededCalls = apiCalls.slice(seededBefore).map(c => `${c.method} ${c.path}`);
+  assert('seeded signup opens as the real account with no consent', account.account.kind === 'real' && (account.account as { patientId?: string }).patientId === 'p-new' && ctx.hydrated && ctx.hydratedPrivacy?.consent.satisfied === false);
+  assert('seeded signup skips the refused data slice and the privacy re-fetch', !seededCalls.includes('GET patient-data/state') && !seededCalls.includes('GET patient-data/privacy'));
+  assert('the account lookup still runs and confirms the seed', seededCalls.filter(c => c === 'GET claim/whoami').length === 1);
+  assert('seeded signup parks on /consent and shows it', redirectTo(gateFromCtx('/today')) === '/consent' && redirectTo(gateFromCtx('/consent')) === 'allow' && textOf(tree, 'consent-title') === 'Your data, your say.');
+  assert('seeded signup keeps onboarding unknown (never unlocks routes)', ctx.hydratedFlags === null && notice === null);
+  await press(tree, 'consent-terms');
+  await press(tree, 'consent-privacy');
+  await press(tree, 'consent-health');
+  await press(tree, 'consent-agree');
+  assert('consent from a seeded signup records and rehydrates from the server', storeFor('p-new').consents.length === 1 && ctx.hydratedPrivacy?.consent.satisfied === true && callsTo('patient-data/state').filter(c => c.token === 'tok-new').length === 1 && ctx.hydratedFlags !== null);
+  assert('the seed is spent after the first hydration', takeSignupSeed('p-new') === null);
+  await unmount(tree);
+  tree = await mount(null);
+  await signIn(P1);
+  setSignupSeed({ patientId: 'p-new', privacy: parsePrivacyState(privacyBlock(storeFor('p-new'))) });
+  await signIn(null);
+  await unmount(tree);
+  assert('signing out forgets an unused seed', peekSignupSeed('user-new') === null);
 
   section('sealed account resolution: neutral message and local sign-out');
   failNext.set('GET claim/whoami', {

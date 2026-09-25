@@ -14,6 +14,7 @@ import { describeAuthError, supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getOrCreateDeviceId } from '@/lib/push-notification-core';
+import { parsePrivacyState, type PrivacyState } from '@/lib/patient-privacy';
 
 const NOT_CONFIGURED = 'Real sign-in isn’t configured in this environment.';
 const NETWORK_ERROR = 'Could not reach the sign-in service. Check your connection and try again.';
@@ -64,7 +65,14 @@ export type SignupVerifyResult =
 export type SignupField = 'password' | 'firstName' | 'lastName' | 'name' | 'email';
 
 export type SignupCompleteResult =
-  | { ok: true; tokenHash: string; signInId: string | null }
+  | {
+      ok: true;
+      tokenHash: string;
+      signInId: string | null;
+      /** The new account's patient id and privacy state, when the server sent them. */
+      patientId: string | null;
+      privacy: PrivacyState | null;
+    }
   | { ok: false; error: string; field: SignupField | null };
 
 const SIGNUP_FIELDS: readonly string[] = ['password', 'firstName', 'lastName', 'name', 'email'];
@@ -343,7 +351,22 @@ export async function completeSignup(input: {
       field,
     };
   }
-  return { ok: true, tokenHash: json.tokenHash, signInId: typeof json.signInId === 'string' ? json.signInId : null };
+  let privacy: PrivacyState | null = null;
+  if (json.privacy !== undefined && json.privacy !== null) {
+    try {
+      privacy = parsePrivacyState(json.privacy);
+    } catch {
+      // A malformed snapshot only costs the shortcut; the app fetches it.
+      privacy = null;
+    }
+  }
+  return {
+    ok: true,
+    tokenHash: json.tokenHash,
+    signInId: typeof json.signInId === 'string' ? json.signInId : null,
+    patientId: typeof json.patientId === 'string' && json.patientId.length > 0 ? json.patientId : null,
+    privacy,
+  };
 }
 
 /**

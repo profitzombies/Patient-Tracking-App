@@ -17,7 +17,7 @@ import {
 } from '@/components/auth/AuthPrimitives';
 import { CodeInput, LedgerInput, NoteText, PasswordInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { PASSWORD_MAX_LENGTH } from '@/lib/password-rules';
-import { usePatientSignup } from '@/hooks/usePatientSignup';
+import { SIGNUP_FINISH_LABELS, usePatientSignup, type SignupFinishStage } from '@/hooks/usePatientSignup';
 import { supabaseConfigured } from '@/lib/supabase';
 import { authLayout, space } from '@/constants/spacing';
 
@@ -238,10 +238,18 @@ export default function PatientSignupScreen() {
           <ActionGroup>
             <PrimaryButton
               testID="signup-complete"
-              label={busy ? 'Creating…' : 'Create account'}
+              label={signup.finishStage ? SIGNUP_FINISH_LABELS[signup.finishStage] : busy ? 'Creating…' : 'Create account'}
               onPress={signup.finish}
               disabled={busy || !signup.canFinish}
             />
+            {signup.finishStage ? (
+              <View testID="signup-progress" accessibilityLiveRegion="polite" accessibilityRole="progressbar">
+                <NoteText
+                  center
+                  text={`Step ${SIGNUP_FINISH_ORDER.indexOf(signup.finishStage) + 1} of ${SIGNUP_FINISH_ORDER.length} · This takes a few seconds.`}
+                />
+              </View>
+            ) : null}
           </ActionGroup>
           {feedback}
         </View>
@@ -249,6 +257,8 @@ export default function PatientSignupScreen() {
     </AuthPageFrame>
   );
 }
+
+const SIGNUP_FINISH_ORDER: readonly SignupFinishStage[] = ['creating', 'signing-in', 'opening'];
 
 const styles = StyleSheet.create({
   options: { gap: space.md },

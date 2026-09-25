@@ -69,7 +69,37 @@ after any reset or setting change.
      falls due after the included period. HQ can lengthen or reset that
      period on the office access panel.
 
-## 4. Resetting a test office
+## 4. Invite your first patient
+
+Patients use **Expo Go** for this run (no App Store build yet). The invite
+email links the live site's Expo Go page,
+`https://app.trythinnr.com/thinnr-mobile/`, set as `PATIENT_INVITE_URL` for
+the published site. The readiness check's **Patient app link** row fails if
+that setting is missing or points at a development preview address.
+
+1. **Get the office past the setup gate.** The HQ override from step 3.5 is
+   fine for this run.
+2. **Invite from the roster.** In the office, go to Patients → **Invite
+   patient** and enter the patient's name, email and US mobile number. The
+   roster shows whether the invite email was sent; **Resend invite** tries
+   again.
+3. **What the patient does** (the email walks them through it):
+   1. Install the free **Expo Go** app from the App Store or Google Play.
+   2. Open the email link on the phone and tap **Open in Expo Go**. On a
+      computer, the page shows a QR code to scan with the phone's camera.
+   3. In THINNR, tap **Create New Account**, then **I have an invitation**.
+      Not **Log In**: they have no password yet.
+   4. Enter the invited phone number or email address, then the 6-digit code
+      that is texted or emailed.
+   5. Create a password (the name is optional), then accept the consent
+      screen and finish onboarding. They are linked to the office
+      automatically, with no provider code needed.
+4. **Each republish refreshes the Expo Go bundle.** Patients get the new
+   version the next time they open the app from the link. Development builds
+   never reach them: the page serves the published build and talks to the
+   published API.
+
+## 5. Resetting a test office
 
 Resets are fine for internal testing:
 - If Stripe setup is unfinished, the owner can use **Restart Stripe
@@ -77,7 +107,7 @@ Resets are fine for internal testing:
 - To start over completely, create a new office with a new plus-addressed
   email.
 
-## 5. Automated proof
+## 6. Automated proof
 
 `pnpm --filter @workspace/thinnr-operations run test:first-provider-live`
 walks the same path against the running API and Stripe **Test** mode. It
@@ -88,3 +118,12 @@ published site, and the HQ no-charge override opening and closing the gate.
 It refuses to run in Live mode and removes everything it creates. It can't
 cover the parts that need a person: the inbox, the SMS code on a real phone,
 and logging in to Stripe on the OAuth screen. Step 3 covers those.
+
+`STAFF_API_BASE=https://app.trythinnr.com pnpm --filter @workspace/thinnr-operations run test:patient-invite-live`
+opens a throwaway office with the HQ override, invites a throwaway patient
+(Resend's `delivered+…@resend.dev` test inbox, so nobody real is emailed),
+and confirms the invite is recorded as sent and that the email that went out
+links the Expo Go page and gives the Expo Go steps. It removes the office,
+patient and users it created and fails on any leftovers. Run it against the
+published site after a republish; the development workspace links its own
+temporary preview instead, so it fails the link check there.

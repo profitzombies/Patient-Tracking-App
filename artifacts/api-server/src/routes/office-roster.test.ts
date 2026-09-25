@@ -10,7 +10,7 @@
 import express from "express";
 import type http from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 // These legacy-office fixtures have a fixed, synthetic billing environment.
 vi.mock("../billing/mode-state", () => ({
   getBillingModeStatus: async () => ({mode:"test",platformAccountId:"acct_fixture",version:0}),
@@ -205,9 +205,11 @@ beforeEach(() => {
       const userId = authUsers[bearerOf(init)];
       return userId ? response({ id: userId }) : response({ message: "bad token" }, 401);
     }
+    // Unwaived practices have no completion in the current payment mode.
+    if (url.pathname === "/rest/v1/practice_launch_completions") return response([]);
     if (url.pathname === "/rest/v1/practice_launch") {
       const id=url.searchParams.get("provider_id")?.replace("eq.","");
-      return response(providers.some(row=>row.provider_id===id) ? [{provider_id:id,required:launchRequired,version:0,details_confirmed:false,products_confirmed:false,completed_at:null}] : []);
+      return response(providers.some(row=>row.provider_id===id) ? [{provider_id:id,required:launchRequired,version:0,details_confirmed:false,products_confirmed:false,completed_at:null,setup_override_at:launchRequired?null:"2026-01-01T00:00:00Z"}] : []);
     }
     if (url.pathname === "/rest/v1/providers") {
       const byAuth = url.searchParams.get("auth_user_id");
@@ -1079,6 +1081,37 @@ describe("creating invitations", () => {
     expect(emailText).toContain("483920");
     expect(emailText).toContain("(555) 201-7788");
     expect(emailText).toContain("https://app.thinnr.test");
+  });
+
+  describe("on the published site", () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      for (const key of ["NODE_ENV", "PATIENT_APP_URL", "PATIENT_INVITE_URL", "REPLIT_EXPO_DEV_DOMAIN"]) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    it("links the invitation to the configured Expo Go page", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.PATIENT_INVITE_URL = "https://app.thinnr.test/thinnr-mobile/";
+      const res = await api("/office/invitations", "provider-token", { method: "POST", body: JSON.stringify(INVITE) });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { invitation: string }).invitation).toBe("sent");
+      expect(JSON.stringify(resendCalls[0].vars)).toContain("https://app.thinnr.test/thinnr-mobile/");
+    });
+
+    it("never emails the workspace preview: no live link holds the email as not configured", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.PATIENT_APP_URL;
+      delete process.env.PATIENT_INVITE_URL;
+      process.env.REPLIT_EXPO_DEV_DOMAIN = "abc123.expo.worf.replit.dev";
+      const res = await api("/office/invitations", "provider-token", { method: "POST", body: JSON.stringify(INVITE) });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { invitation: string }).invitation).toBe("not_configured");
+      expect(resendCalls).toHaveLength(0);
+      expect(patients.find((row) => row.email === "jordan.ellis@example.com")?.invite_email_status).toBe("failed");
+    });
   });
 
   it("scopes an HQ invitation to the explicitly named office only", async () => {

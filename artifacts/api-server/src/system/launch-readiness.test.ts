@@ -8,6 +8,7 @@ const ORIGIN = "https://app.example.test";
 function goodEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     OPERATIONS_APP_URL: ORIGIN,
+    PATIENT_INVITE_URL: `${ORIGIN}/thinnr-mobile/`,
     RESEND_API_KEY: "re_test",
     CLAIM_EMAIL_FROM: "THINNR <no-reply@mail.example.test>",
     CLAIM_EMAIL_DELIVERY_MODE: "live",
@@ -70,6 +71,27 @@ describe("provider launch readiness", () => {
     expect(notPass).toEqual(["live_oauth_redirect:manual", "test_oauth_redirect:manual"]);
     expect(byId(result, "live_oauth_redirect").copyValue).toBe(`${ORIGIN}/api/billing/oauth/callback`);
     expect(result.mode).toBe("live");
+  });
+
+  it("checks the patient invitation app link the way the published site reads it", async () => {
+    const pass = byId(await checkLaunchReadiness(deps().deps), "patient_app_url");
+    expect(pass).toMatchObject({ section: "app", status: "pass", copyValue: `${ORIGIN}/thinnr-mobile/` });
+
+    // Missing: the workspace's Expo preview does not count, and the fix offers the Expo Go page.
+    const missingEnv: NodeJS.ProcessEnv = { ...goodEnv(), REPLIT_EXPO_DEV_DOMAIN: "abc.expo.worf.replit.dev" };
+    delete missingEnv.PATIENT_INVITE_URL;
+    const missing = byId(await checkLaunchReadiness(deps({ env: missingEnv }).deps), "patient_app_url");
+    expect(missing.status).toBe("fail");
+    expect(missing.fix).toContain("PATIENT_INVITE_URL");
+    expect(missing.copyValue).toBe(`${ORIGIN}/thinnr-mobile/`);
+
+    const devEnv = { ...goodEnv(), PATIENT_INVITE_URL: "https://abc.expo.worf.replit.dev" };
+    const dev = byId(await checkLaunchReadiness(deps({ env: devEnv }).deps), "patient_app_url");
+    expect(dev.status).toBe("fail");
+    expect(dev.detail).toContain("development preview");
+
+    const badEnv = { ...goodEnv(), PATIENT_INVITE_URL: "http://app.example.test/thinnr-mobile/" };
+    expect(byId(await checkLaunchReadiness(deps({ env: badEnv }).deps), "patient_app_url").status).toBe("fail");
   });
 
   it("only reads vendor state: webhook lists and GET requests, never writes", async () => {

@@ -161,8 +161,8 @@ export function InvitePatientAction({ office }: { office: string | null }) {
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Invite a patient</DialogTitle>
             <DialogDescription>
-              They’ll get a THINNR email invitation and connect to this office automatically by
-              signing in to the app with this phone number.
+              They’ll get a THINNR email invitation and connect to this office automatically when they
+              create their account in the app with this phone number or email.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={(event) => void submit(event)} noValidate>

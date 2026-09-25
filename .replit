@@ -584,6 +584,14 @@ args = "provider-launch-api"
 task = "workflow.run"
 args = "provider-launch-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-invite-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-invite-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1813,6 +1821,9 @@ OPERATIONS_APP_URL = "https://app.trythinnr.com"
 
 [userenv.development]
 SYSTEM_ALERT_EMAILS = "off"
+
+[userenv.production]
+PATIENT_INVITE_URL = "https://app.trythinnr.com/thinnr-mobile/"
 
 [nix]
 channel = "stable-25_05"
@@ -3343,6 +3354,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-invite-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/lib/patient-invite-link.test.ts src/system/launch-readiness.test.ts src/routes/office-roster.test.ts src/claim/email-templates.test.ts src/email && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-invite-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-mobile run test:invite-patients && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

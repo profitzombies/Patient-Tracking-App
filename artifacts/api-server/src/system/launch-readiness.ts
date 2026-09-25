@@ -17,6 +17,7 @@ import * as stripeClient from "../billing/stripe-client";
 import { getStripe, getStripeCredentials } from "../billing/stripe-client";
 import type { StripeMode } from "../billing/stripe-environment";
 import { BILLING_WEBHOOK_EVENTS } from "../billing/webhook-endpoints";
+import { resolvePatientInviteLink, suggestedPatientInviteUrl } from "../lib/patient-invite-link";
 
 export type ReadinessStatus = "pass" | "warn" | "fail" | "manual";
 
@@ -137,6 +138,8 @@ function appChecks(deps: ReadinessDeps): ReadinessCheck[] {
     });
   }
 
+  checks.push(patientAppLinkCheck(deps.env));
+
   if (billingError || !billingOrigin) {
     checks.push({
       id: "billing_origin", section: "app", label: "Payments return address",
@@ -158,6 +161,40 @@ function appChecks(deps: ReadinessDeps): ReadinessCheck[] {
     });
   }
   return checks;
+}
+
+/**
+ * The link patient invitation emails carry. Read strictly, the way the
+ * published site reads it: the workspace's Expo preview never counts.
+ */
+function patientAppLinkCheck(env: NodeJS.ProcessEnv): ReadinessCheck {
+  const base = { id: "patient_app_url", section: "app" as const, label: "Patient app link" };
+  const suggested = suggestedPatientInviteUrl(env);
+  const setIt = `Set PATIENT_INVITE_URL for the published site to the app's Expo Go page${suggested ? ` (${suggested})` : " (the site address followed by /thinnr-mobile/)"} and republish.`;
+  const copy = suggested ? { copyValue: suggested } : {};
+  const resolved = resolvePatientInviteLink(env, { strict: true });
+  if (resolved.ok) {
+    return {
+      ...base, status: "pass", fix: null, copyValue: resolved.link,
+      detail: `Patient invitation emails open ${resolved.link}.`,
+    };
+  }
+  if (resolved.problem === "missing") {
+    return {
+      ...base, status: "fail", fix: setIt, ...copy,
+      detail: "PATIENT_INVITE_URL is not set, so patient invitation emails have no app link on the live site and are held as not sent.",
+    };
+  }
+  if (resolved.problem === "dev_preview") {
+    return {
+      ...base, status: "fail", fix: setIt, ...copy,
+      detail: `${resolved.setting} points at a development preview address (${resolved.value}), which stops working when the workspace closes.`,
+    };
+  }
+  return {
+    ...base, status: "fail", fix: setIt, ...copy,
+    detail: `${resolved.setting} is set but is not a valid https address.`,
+  };
 }
 
 async function modeCheck(deps: ReadinessDeps): Promise<{ check: ReadinessCheck; mode: StripeMode | null }> {

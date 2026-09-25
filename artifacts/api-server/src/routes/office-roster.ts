@@ -45,6 +45,7 @@ import { activeSubscriptionPatientIds, officePatientSpend, ZERO_SPEND } from "..
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
+import { resolvePatientInviteLink } from "../lib/patient-invite-link";
 import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 
 const router: IRouter = Router();
@@ -387,16 +388,14 @@ async function authorizedPhotoUrl(patientId: string, path: unknown): Promise<str
 export type OfficePatientDto = ReturnType<typeof patientDto>;
 
 /**
- * The app link for the invitation email. Deployments set PATIENT_APP_URL;
- * the workspace falls back to the Expo dev domain. No link means email
- * delivery is not configured — better an honest retry state than a dead
- * button in a patient's inbox.
+ * The app link for the invitation email (see resolvePatientInviteLink: the
+ * published site uses PATIENT_INVITE_URL and never the workspace preview).
+ * No usable link means email delivery is not configured — better an honest
+ * retry state than a dead button in a patient's inbox.
  */
 function patientAppLink(): string {
-  const configured = process.env.PATIENT_APP_URL?.trim();
-  if (configured) return configured;
-  const expo = process.env.REPLIT_EXPO_DEV_DOMAIN?.trim();
-  if (expo) return `https://${expo}`;
+  const resolved = resolvePatientInviteLink();
+  if (resolved.ok) return resolved.link;
   // No app link = the invitation email cannot be composed; surface the same
   // durable "not configured" retry state as missing email credentials.
   throw new DeliveryNotConfiguredError("email");

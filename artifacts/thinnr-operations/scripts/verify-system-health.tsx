@@ -250,6 +250,7 @@ const readiness = {
   mode: 'test',
   checks: [
     { id: 'app_url', section: 'app', label: 'Production app URL', status: 'pass', detail: 'Emailed links open https://app.example.test.', fix: null },
+    { id: 'patient_app_url', section: 'app', label: 'Patient app link', status: 'pass', detail: 'Patient invitation emails open https://app.example.test/thinnr-mobile/.', fix: null, copyValue: 'https://app.example.test/thinnr-mobile/' },
     { id: 'billing_mode', section: 'stripe_live', label: 'Payments mode', status: 'warn', detail: 'Payments run in Test mode.', fix: 'Switch to Live when ready.' },
     { id: 'live_webhook_connect', section: 'stripe_live', label: 'Live Connect webhook', status: 'fail', detail: 'Stripe has no webhook endpoint pointing at this site.', fix: 'Add the endpoint.', copyValue: 'https://app.example.test/api/billing/webhooks/live/connect' },
     { id: 'live_oauth_redirect', section: 'stripe_live', label: 'Live OAuth redirect URL', status: 'manual', detail: 'Confirm it by hand.', fix: 'List this URL in Stripe.', copyValue: 'https://app.example.test/api/billing/oauth/callback' },
@@ -390,6 +391,9 @@ console.log('\nsystem health: admin board');
   check('each check shows its status, detail, fix and copyable URL',
     textOf(byTestId(root, 'readiness-status-live_webhook_connect')[0]) === 'Fix needed'
       && textOf(byTestId(root, 'readiness-status-app_url')[0]) === 'Ready'
+      && textOf(byTestId(root, 'readiness-status-patient_app_url')[0]) === 'Ready'
+      && textOf(byTestId(root, 'readiness-check-patient_app_url')[0]).includes('Patient app link')
+      && textOf(byTestId(root, 'readiness-check-patient_app_url')[0]).includes('https://app.example.test/thinnr-mobile/')
       && textOf(byTestId(root, 'readiness-status-live_oauth_redirect')[0]) === 'Confirm by hand'
       && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('https://app.example.test/api/billing/webhooks/live/connect')
       && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('What to do: Add the endpoint.'));

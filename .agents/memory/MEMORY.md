@@ -144,3 +144,4 @@
 - [Office access subscriptions](office-access-subscriptions.md) — offices pay THINNR on the PLATFORM account via direct PaymentIntents (no Stripe dunning); state derives from dates, charges claim in SQL first.
 - [Office access gate live proof](office-access-gate-live-proof.md) — prove the setup gate by state transitions on one throwaway office; snapshot reads create the row, attach needs NOT NULL columns, teardown needs replica role.
 - [First-provider Stripe connect](first-provider-connect.md) — new offices need create/OAuth before the embed (409 without account); predicate invalidation; live webhook proof recipe.
+- [Patient invitation app link](patient-invite-link.md) — invites use PATIENT_INVITE_URL (Expo Go page), not PATIENT_APP_URL; real path is Create New Account → I have an invitation.

@@ -218,8 +218,8 @@ export function InvitePatientModal({ visible, onClose, onInvited }: InvitePatien
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.cardInner}>
               <Text style={[styles.title, { color: colors.navy }]}>Invite a patient</Text>
               <Text style={[styles.sub, { color: colors.subtleText }]}>
-                They’ll get a THINNR email invitation and connect to your office automatically by
-                signing in to the app with this phone number.
+                They’ll get a THINNR email invitation and connect to your office automatically when they
+                create their account in the app with this phone number or email.
               </Text>
               <View style={styles.nameRow}>
                 <View style={styles.nameCol}>{field('firstName', 'First name', { placeholder: 'Jordan' })}</View>

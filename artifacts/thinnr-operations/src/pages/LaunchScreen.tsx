@@ -9,11 +9,47 @@ import { useSession } from '@/contexts/session';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OfficeAccessSetup } from '@/components/billing/OfficeAccessSetup';
 import { useToast } from '@/hooks/use-toast';
+import { FOLD_MS, SetupStep, prefersReducedMotion } from '@/components/launch/SetupStep';
+import { InlinePhoneVerify } from '@/components/launch/InlinePhoneVerify';
 
 const labels: Record<keyof LaunchState['details'], string> = {
   officeName: 'Practice name', providerName: 'Provider name', email: 'Contact email', phone: 'Office phone',
   address1: 'Address 1', address2: 'Address 2 (optional)', city: 'City', state: 'US state', postalCode: 'ZIP code',
 };
+type StepId = 'details' | 'security' | 'payments' | 'products';
+
+function stepOrder(data: LaunchState): StepId[] {
+  return data.fullSetupRequired ? ['details', 'security', 'payments', 'products'] : ['security', 'payments'];
+}
+
+function stepComplete(data: LaunchState, step: StepId): boolean {
+  if (step === 'details') return data.detailsConfirmed;
+  if (step === 'security') return data.security.ready;
+  if (step === 'payments') return data.payments.state === 'ready';
+  return data.productsConfirmed;
+}
+
+/**
+ * Where the page moves after `from` completes: the next unfinished step after
+ * it, else the first unfinished step before it, else the Finish footer.
+ */
+export function nextIncompleteStep(data: LaunchState, from: StepId): StepId | 'finish' {
+  const order = stepOrder(data);
+  const at = order.indexOf(from);
+  const rotated = [...order.slice(at + 1), ...order.slice(0, Math.max(at, 0))];
+  return rotated.find((step) => !stepComplete(data, step)) ?? 'finish';
+}
+
+/** Folded security line: "Email verified · Texts to (•••) •••-7788". */
+export function securitySummary(data: LaunchState): string {
+  const { security } = data;
+  const parts: string[] = [];
+  if (security.emailVerified) parts.push('Email verified');
+  if (security.phoneVerified && security.phoneMasked) parts.push(`Texts to ${security.phoneMasked}`);
+  else if (!security.phoneRequired && !data.hqInspection) parts.push('Texted code not required for your role');
+  return parts.join(' · ');
+}
+
 export const paymentLabels = { not_started: 'Not started', action_required: 'Action required', pending: 'Submitted — Stripe verification pending', ready: 'Ready' };
 
 /**
@@ -87,6 +123,27 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     : [launchData.security.ready, launchData.payments.state === 'ready'].filter(Boolean).length;
   const total = fullSetupRequired ? 4 : 2;
 
+  // Details start folded once confirmed; unconfirmed details are always open.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsFolded = launchData.detailsConfirmed && !detailsOpen;
+  // After a step completes, wait for the setup status to report it, let the
+  // fold finish, then bring the next unfinished step into view.
+  const [pendingScroll, setPendingScroll] = useState<StepId | null>(null);
+  const targets = useRef<Partial<Record<StepId | 'finish', HTMLElement | null>>>({});
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(scrollTimer.current), []);
+  useEffect(() => {
+    if (!pendingScroll || !stepComplete(launchData, pendingScroll)) return;
+    setPendingScroll(null);
+    const target = nextIncompleteStep(launchData, pendingScroll);
+    const reduced = prefersReducedMotion();
+    clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      targets.current[target]?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+    }, reduced ? 0 : FOLD_MS);
+  }, [pendingScroll, launchData]);
+  const n = (step: StepId) => stepOrder(launchData).indexOf(step) + 1;
+
   const isOwner = staffSession?.staffKind === 'provider';
   const canRestart = isOwner && launchData.payments.state !== 'not_started' && launchData.payments.state !== 'ready';
 
@@ -96,13 +153,21 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
       <p className="mt-2 text-sm text-muted-foreground">A few essentials to get started. Confirmed steps are saved to your practice so you can return on any device.</p></header>
     <div className="rounded-lg border border-border bg-card p-5"><p className="text-sm font-semibold">{count} of {total} essentials confirmed</p><progress className="mt-3 h-2 w-full accent-primary" value={count} max={total} aria-label="Practice setup progress" /></div>
     {!launchData.canEdit && <SectionCard title="Your practice owner completes setup"><div className="space-y-3 p-5 text-sm"><p>These settings affect the whole practice. Ask your owner to confirm the remaining essentials. HQ inspection is read-only; you cannot accept terms or confirm owner setup.</p></div></SectionCard>}
-    {fullSetupRequired && <SectionCard title={`1. Practice details${launchData.detailsConfirmed ? ' · Confirmed' : ''}`} sub="Review your existing contact information. No new signup is needed.">
-      <DetailsForm launchData={launchData} />
-    </SectionCard>}
-    <SectionCard title={`${fullSetupRequired ? '2' : '1'}. Account security · ${launchData.security.ready ? 'Ready' : 'Action required'}`} sub="Your existing email verification and required second-factor policy apply.">
-      <div className="p-5"><Link href="/security" className={`${BTN_SECONDARY} h-10 px-4`}>Review account security</Link></div>
-    </SectionCard>
-    <SectionCard title={`${fullSetupRequired ? '3' : '2'}. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
+    {fullSetupRequired && <SetupStep ref={(el) => { targets.current.details = el; }} stepId="details"
+      title={`${n('details')}. Practice details`} sub="Review your existing contact information. No new signup is needed."
+      doneLabel="Practice details confirmed" folded={detailsFolded}
+      onOpen={launchData.canEdit ? () => setDetailsOpen(true) : undefined} editLabel="Edit practice details">
+      <DetailsForm launchData={launchData}
+        onConfirmed={() => { setDetailsOpen(false); setPendingScroll('details'); }}
+        onCancel={launchData.detailsConfirmed ? () => setDetailsOpen(false) : undefined} />
+    </SetupStep>}
+    <SetupStep ref={(el) => { targets.current.security = el; }} stepId="security"
+      title={`${n('security')}. Account security · Action required`} sub="A texted code is required after your emailed sign-in code."
+      doneLabel="Account security confirmed" doneDetail={securitySummary(launchData)} folded={launchData.security.ready}>
+      {!launchData.security.ready && <InlinePhoneVerify emailVerified={launchData.security.emailVerified}
+        canVerify={!launchData.hqInspection} onVerified={() => setPendingScroll('security')} />}
+    </SetupStep>
+    <div ref={(el) => { targets.current.payments = el; }} data-setup-step="payments" className="scroll-mt-4"><SectionCard title={`${n('payments')}. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
       <div className="space-y-3 p-5 text-sm">
         <p>{launchData.payments.sandbox ? 'This is Test mode. Test readiness does not confirm Live readiness.' : 'This is Live mode. Review your real business information carefully.'}</p>
         {launchData.payments.state === 'pending' && <p>Currently actionable steps are submitted, but Stripe is still verifying your account. <strong className="font-semibold text-navy">Your account remains gated</strong> — you cannot charge patients or use operational features until payments are ready.</p>}
@@ -112,14 +177,14 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
         </div>}
         <p className="text-muted-foreground">Return to Practice setup after completing Stripe’s steps. Use Refresh status there to check the latest requirements.</p>
       </div>
-    </SectionCard>
-    {fullSetupRequired && <SectionCard title={`4. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
+    </SectionCard></div>
+    {fullSetupRequired && <div ref={(el) => { targets.current.products = el; }} data-setup-step="products" className="scroll-mt-4"><SectionCard title={`${n('products')}. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
       <ProductsForm launchData={launchData} />
-    </SectionCard>}
+    </SectionCard></div>}
     {stripeReturn && <p role="alert" data-testid="stripe-return-error" className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Stripe connection was not completed: {stripeReturn} Try again below.</p>}
     <OfficeAccessSetup />
     {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
-    <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+    <footer ref={(el) => { targets.current.finish = el; }} data-setup-step="finish" className="scroll-mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
       {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : launchData.completedAt ? 'Setup complete' : 'Finish setup'}</button>}
       <p className="text-sm text-muted-foreground">Invitations and training are optional.</p>
     </footer>
@@ -157,7 +222,13 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   </div>;
 }
 
-function DetailsForm({ launchData }: { launchData: LaunchState }) {
+function DetailsForm({ launchData, onConfirmed, onCancel }: {
+  launchData: LaunchState;
+  /** Saved successfully: the step folds and the page moves on. */
+  onConfirmed: () => void;
+  /** Present when there is a confirmed version to fold back to. */
+  onCancel?: () => void;
+}) {
   const [details, setDetails] = useState({ ...launchData.details });
   const baseline = useRef(launchData.version);
   const [dirty, setDirty] = useState(false);
@@ -170,7 +241,7 @@ function DetailsForm({ launchData }: { launchData: LaunchState }) {
     event.preventDefault(); setError('');
     try {
       const result = await write.save({ expectedVersion: baseline.current, details });
-      if (result) { baseline.current = result.version; setDirty(false); }
+      if (result) { baseline.current = result.version; setDirty(false); onConfirmed(); }
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Details could not be saved.'); }
   }}>
     <fieldset disabled={!launchData.canEdit || write.isPending} className="grid gap-4 sm:grid-cols-2">
@@ -185,6 +256,8 @@ function DetailsForm({ launchData }: { launchData: LaunchState }) {
     {dirty && launchData.version !== baseline.current && <p role="alert" className="text-sm text-destructive">Setup changed while you were editing. Discard your draft to review the latest details.</p>}
     {dirty && <button type="button" className={`${BTN_SECONDARY} mr-3 h-10 px-4`} onClick={() => { setDirty(false); setError(''); }}>Discard draft</button>}
     {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={write.isPending}>{write.isPending ? 'Saving…' : 'Confirm practice details'}</button>}
+    {launchData.canEdit && onCancel && <button type="button" className={`${BTN_SECONDARY} ml-3 h-10 px-4`} disabled={write.isPending}
+      onClick={() => { setDirty(false); setError(''); onCancel(); }}>Cancel</button>}
   </form>;
 }
 

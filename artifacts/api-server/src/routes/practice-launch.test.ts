@@ -93,6 +93,25 @@ describe("practice launch HTTP boundary",()=>{
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
  });
+ it("reports the viewer's security facts with only a masked phone",async()=>{
+   // Not required for the role and no phone yet: ready, email proven by sign-in.
+   expect(((await(await call("GET")).json()) as {security:unknown}).security).toEqual({ready:true,emailVerified:true,phoneVerified:false,phoneRequired:false,phoneMasked:null});
+   // Required and not verified yet: the office must add a phone.
+   m.policy.mockResolvedValue({allStaff:true});
+   expect(((await(await call("GET")).json()) as {security:unknown}).security).toEqual({ready:false,emailVerified:true,phoneVerified:false,phoneRequired:true,phoneMasked:null});
+   // Required and verified: ready, and the full number never leaves the API.
+   m.factor.mockResolvedValue({kind:"provider",ref:"office-a",phone:"+16175557788",verifiedAt:"2026-01-01T00:00:00Z",enabled:true});
+   const raw=await(await call("GET")).text();
+   expect(JSON.parse(raw).security).toEqual({ready:true,emailVerified:true,phoneVerified:true,phoneRequired:true,phoneMasked:"(•••) •••-7788"});
+   expect(raw).not.toContain("6175557788");
+   expect(m.factor).toHaveBeenCalledWith("provider","office-a");
+ });
+ it("keeps HQ inspection ready without reading the office's phone",async()=>{
+   m.scope.mockResolvedValue({kind:"ok",scope:{...owner,actorKind:"hq"}});
+   m.policy.mockResolvedValue({allStaff:true});
+   expect(((await(await call("GET")).json()) as {security:unknown}).security).toEqual({ready:true,emailVerified:true,phoneVerified:false,phoneRequired:false,phoneMasked:null});
+   expect(m.factor).not.toHaveBeenCalled();
+ });
  it("blocks pending external verification",async()=>{
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);

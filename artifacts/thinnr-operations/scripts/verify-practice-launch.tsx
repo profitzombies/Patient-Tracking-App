@@ -16,12 +16,13 @@ import { TrainingDataProvider } from '../src/contexts/training-data';
 import AccountDetail from '../src/pages/admin/AccountDetail';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-(globalThis as any).window = { matchMedia: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }), getSelection: () => '' };
+let reducedMotion = false;
+(globalThis as any).window = { matchMedia: (query: string) => ({ matches: reducedMotion && query.includes('reduced-motion'), addEventListener: () => {}, removeEventListener: () => {} }), getSelection: () => '' };
 const state: LaunchState = {
   billingScope: 'test:acct_fixture', office: { providerId: 'fixture', officeName: 'Sample Practice' },
   canEdit: true, required: true, fullSetupRequired: true, version: 3, detailsConfirmed: true, productsConfirmed: false, completedAt: null,
   details: { officeName: 'Sample Practice', providerName: 'Sample Owner', email: 'owner@example.invalid', phone: '6175550123', address1: '1 Sample Street', address2: '', city: 'Boston', state: 'MA', postalCode: '02108' },
-  security: { ready: true }, payments: { state: 'pending', sandbox: true },
+  security: { ready: true, emailVerified: true, phoneVerified: false, phoneRequired: false, phoneMasked: null }, payments: { state: 'pending', sandbox: true },
   products: [{ productId: 'sample', name: 'Sample Product', enabled: true, sellPriceCents: 9000, suggestedPriceCents: 7198, minimumPriceCents: 4000, subscriptionEnabled: false, subscriptionEligible: true, existingPrice: true, available: true }],
 };
 let snapshot = structuredClone(state);
@@ -65,6 +66,15 @@ globalThis.fetch = async (input, init) => {
   }), { status: 200 });
 
   if (call.url.startsWith('/api/billing/office/access')) return new Response(JSON.stringify(accessSnapshot), { status: 200 });
+  if (call.url.includes('/second-factor/phone/start')) return new Response(JSON.stringify({ ok: true, requestId: 'req-fixture', destination: '•••-•••-7788', devCode: null }), { status: 200 });
+  if (call.url.includes('/second-factor/phone/complete')) {
+    snapshot.security = { ready: true, emailVerified: true, phoneVerified: true, phoneRequired: true, phoneMasked: '(•••) •••-7788' };
+    return new Response(JSON.stringify({ ok: true, secondFactor: { policyRequired: true, enabled: true, phone: '•••-•••-7788', verifiedAt: '2026-01-01T00:00:00Z' } }), { status: 200 });
+  }
+  if (call.url.includes('/office/launch/details') && call.method === 'PUT') {
+    snapshot.detailsConfirmed = true;
+    snapshot.details = { ...snapshot.details, ...call.body.details };
+  }
 
   if (call.method !== 'GET') {
     snapshot.version++;
@@ -78,12 +88,21 @@ __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', staffSession
 const text = (node: any): string => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join(' ') : node?.children ? text(node.children) : '';
 const button = (root: ReactTestRenderer, label: string) => root.root.findAllByType('button').find((b) => text(b.props.children) === label)!;
 let mounted = 0;
+const scrolls: { step: string; behavior: string }[] = [];
+// Only the setup-step scroll targets get a host node; every other ref stays null.
+const createNodeMock = (element: { props: Record<string, unknown> }) => typeof element.props['data-setup-step'] === 'string'
+  ? { scrollIntoView: (options: { behavior: string }) => scrolls.push({ step: element.props['data-setup-step'] as string, behavior: options.behavior }) }
+  : null;
+const tick = (ms = 20) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+const byLabel = (root: ReactTestRenderer, label: string) => root.root.findAll((node) => node.type === 'button' && node.props['aria-label'] === label)[0];
+const byTestId = (root: ReactTestRenderer, id: string) => root.root.findAll((node) => typeof node.type === 'string' && node.props['data-testid'] === id)[0];
+const stepState = (root: ReactTestRenderer, step: string) => root.root.findAll((node) => node.type === 'section' && node.props['data-setup-step'] === step)[0]?.props['data-state'];
 function RealOperations() { mounted++; return <p>REAL OPERATIONS</p>; }
 async function render(path = '/patients') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const location = memoryLocation({ path });
   let root!: ReactTestRenderer;
-  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>); });
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>, { createNodeMock }); });
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
   return { root, client };
 }
@@ -97,7 +116,16 @@ assert.notDeepEqual(launchKey('a', 'office1'), launchKey('a', 'office2'));
 
 let result = await render();
 assert.equal(mounted, 0, 'incomplete setup must not mount operational children');
-assert.match(text(result.root.toJSON()), /1\. Practice details · Confirmed/);
+// Already-confirmed details start folded; security that needs nothing more is
+// a completed row with no link off the page and no pencil.
+assert.equal(stepState(result.root, 'details'), 'folded');
+assert.match(text(result.root.toJSON()), /Practice details confirmed/);
+assert.equal(stepState(result.root, 'security'), 'folded');
+assert.match(text(result.root.toJSON()), /Account security confirmed/);
+assert.match(text(result.root.toJSON()), /Email verified · Texted code not required for your role/);
+assert.doesNotMatch(text(result.root.toJSON()), /Review account security/);
+assert.equal(byTestId(result.root, 'button-setup-step-security-edit'), undefined, 'completed security has no pencil');
+assert.ok(byLabel(result.root, 'Edit practice details'), 'confirmed details offer a pencil');
 assert.match(text(result.root.toJSON()), /Stripe is still verifying your account/);
 assert.equal(result.root.root.findAllByType('input')[0].props.value, 'Sample Practice');
 
@@ -128,6 +156,75 @@ assert.equal(productCall.body.products[0].sellPriceCents, 9000, 'suggested setup
 assert.equal(productCall.body.products[0].subscriptionEnabled, false);
 await dispose(result.root, result.client);
 
+// Unconfirmed details start open, fold after a successful confirm, and the
+// page moves on to the next unfinished step once the fold has finished.
+snapshot = { ...structuredClone(state), detailsConfirmed: false };
+scrolls.length = 0;
+result = await render();
+assert.equal(stepState(result.root, 'details'), 'open');
+assert.equal(button(result.root, 'Cancel'), undefined, 'nothing confirmed yet to fold back to');
+await act(async () => { result.root.root.findAllByType('input')[0].props.onChange({ target: { value: 'Renamed Practice' } }); });
+await act(async () => { result.root.root.findAllByType('form')[0].props.onSubmit({ preventDefault() {} }); });
+await tick();
+const detailsPut = calls.filter((c) => c.url.includes('/office/launch/details'));
+assert.equal(detailsPut.length, 1);
+assert.equal(detailsPut[0].body.details.officeName, 'Renamed Practice');
+assert.equal(stepState(result.root, 'details'), 'folded', 'confirmed details fold up');
+assert.match(text(result.root.toJSON()), /Practice details confirmed/);
+assert.match(text(result.root.toJSON()), /2\s+of\s+4\s+essentials confirmed/);
+assert.equal(scrolls.length, 0, 'scrolling waits for the fold animation');
+await tick(350);
+assert.deepEqual(scrolls, [{ step: 'payments', behavior: 'smooth' }], 'scrolls to the next unfinished step (security is already done)');
+
+// Pencil reopens with the saved values; Cancel folds without saving.
+await act(async () => { byLabel(result.root, 'Edit practice details').props.onClick({ stopPropagation() {} }); });
+assert.equal(stepState(result.root, 'details'), 'open');
+assert.equal(result.root.root.findAllByType('input')[0].props.value, 'Renamed Practice');
+await act(async () => { result.root.root.findAllByType('input')[0].props.onChange({ target: { value: 'Unsaved draft' } }); });
+await act(async () => { button(result.root, 'Cancel').props.onClick(); });
+assert.equal(stepState(result.root, 'details'), 'folded');
+assert.equal(calls.filter((c) => c.url.includes('/office/launch/details')).length, 1, 'Cancel does not save');
+// The folded row itself also reopens; the discarded draft is gone and a
+// second confirm folds it back up.
+await act(async () => { byTestId(result.root, 'setup-step-details-folded').props.onClick(); });
+assert.equal(result.root.root.findAllByType('input')[0].props.value, 'Renamed Practice');
+await act(async () => { result.root.root.findAllByType('form')[0].props.onSubmit({ preventDefault() {} }); });
+await tick();
+assert.equal(calls.filter((c) => c.url.includes('/office/launch/details')).length, 2);
+assert.equal(stepState(result.root, 'details'), 'folded');
+await dispose(result.root, result.client);
+
+// Security that is not ready is handled right here: add the phone (formatted,
+// "+1" hidden), enter the texted code, then the step folds and the page moves
+// on. Reduced motion jumps instantly.
+snapshot = { ...structuredClone(state), security: { ready: false, emailVerified: true, phoneVerified: false, phoneRequired: true, phoneMasked: null } };
+scrolls.length = 0;
+reducedMotion = true;
+result = await render();
+assert.equal(stepState(result.root, 'security'), 'open');
+assert.match(text(result.root.toJSON()), /Account security · Action required/);
+assert.match(text(result.root.toJSON()), /Email verified at sign-in/);
+assert.match(text(result.root.toJSON()), /1\s+of\s+4\s+essentials confirmed/);
+assert.equal(byTestId(result.root, 'button-launch-phone-send').props.disabled, true, 'send waits for 10 digits');
+await act(async () => { byTestId(result.root, 'input-launch-phone').props.onChange({ target: { value: '+1 555 123 4567' } }); });
+assert.equal(byTestId(result.root, 'input-launch-phone').props.value, '(555) 123-4567');
+assert.equal(byTestId(result.root, 'button-launch-phone-send').props.disabled, false);
+await act(async () => { result.root.root.findAll((node) => node.type === 'form' && node.findAll((child) => child.props['data-testid'] === 'input-launch-phone').length > 0)[0].props.onSubmit({ preventDefault() {} }); });
+await tick();
+assert.deepEqual(calls.filter((c) => c.url.includes('/phone/start')).at(-1)?.body, { phone: '+15551234567' });
+assert.match(text(result.root.toJSON()), /Enter the code texted to\s+•••-•••-7788/);
+await act(async () => { byTestId(result.root, 'input-launch-phone-code').props.onChange({ target: { value: '12-34-56' } }); });
+assert.equal(byTestId(result.root, 'input-launch-phone-code').props.value, '123456');
+await act(async () => { result.root.root.findAll((node) => node.type === 'form' && node.findAll((child) => child.props['data-testid'] === 'input-launch-phone-code').length > 0)[0].props.onSubmit({ preventDefault() {} }); });
+await tick(40);
+assert.deepEqual(calls.filter((c) => c.url.includes('/phone/complete')).at(-1)?.body, { requestId: 'req-fixture', code: '123456' });
+assert.equal(stepState(result.root, 'security'), 'folded', 'verified security folds');
+assert.match(text(result.root.toJSON()), /Email verified · Texts to \(•••\) •••-7788/);
+assert.match(text(result.root.toJSON()), /2\s+of\s+4\s+essentials confirmed/);
+assert.deepEqual(scrolls, [{ step: 'payments', behavior: 'auto' }], 'reduced motion jumps without animating');
+reducedMotion = false;
+await dispose(result.root, result.client);
+
 // Stripe's OAuth callback lands on /payments/get-paid, which this screen
 // covers while setup is unfinished: the result must still reach the owner
 // and the one-shot query must be dropped so a reload does not repeat it.
@@ -151,7 +248,7 @@ await dispose(result.root, result.client);
 failed = false;
 
 // Legacy office does not require details/products
-snapshot = { ...structuredClone(state), fullSetupRequired: false, payments: { state: 'ready', sandbox: true }, security: { ready: true }, detailsConfirmed: false, productsConfirmed: false };
+snapshot = { ...structuredClone(state), fullSetupRequired: false, payments: { state: 'ready', sandbox: true }, detailsConfirmed: false, productsConfirmed: false };
 result = await render();
 assert.equal(button(result.root, 'Finish setup').props.disabled, false, 'Legacy office can finish setup without details or products');
 assert.match(text(result.root.toJSON()), /2\s+of\s+2\s+essentials confirmed/);
@@ -161,6 +258,8 @@ snapshot = { ...structuredClone(state), canEdit: false };
 result = await render();
 assert.match(text(result.root.toJSON()), /Your practice owner completes setup/);
 assert.equal(button(result.root, 'Use suggested setup'), undefined);
+assert.equal(stepState(result.root, 'details'), 'folded', 'read-only viewers see the same folded state');
+assert.equal(byLabel(result.root, 'Edit practice details'), undefined, 'read-only viewers cannot reopen to edit');
 await dispose(result.root, result.client);
 
 // HQ inspecting an office reads the workspace it came to see; only the office
@@ -223,4 +322,4 @@ assert.equal(overrideCall.body.expectedVersion, snapshot.version - 1);
 await dispose(hqRoot, hqClient);
 
 
-console.log('Practice launch: scopes, fail-closed guard, OAuth return notice, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');
+console.log('Practice launch: scopes, fail-closed guard, folding steps, inline security, scroll-to-next, OAuth return notice, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');

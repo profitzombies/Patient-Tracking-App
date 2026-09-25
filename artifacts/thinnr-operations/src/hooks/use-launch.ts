@@ -15,7 +15,11 @@ export interface LaunchState {
   hqInspection?: boolean;
   version: number; detailsConfirmed: boolean; productsConfirmed: boolean; completedAt: string | null;
   details: { officeName: string; providerName: string; email: string; phone: string; address1: string; address2: string; city: string; state: string; postalCode: string };
-  security: { ready: boolean };
+  /**
+   * The viewer's own sign-in facts. `emailVerified` is true for anyone signed
+   * in by emailed code; `phoneMasked` is display-only, e.g. "(•••) •••-7788".
+   */
+  security: { ready: boolean; emailVerified: boolean; phoneVerified: boolean; phoneRequired: boolean; phoneMasked: string | null };
   /** HQ waived the gate for this office; the fields above still report reality. */
   setupOverride?: { active: boolean; at: string | null; note: string | null };
   payments: { state: 'not_started' | 'action_required' | 'pending' | 'ready'; sandbox: boolean };

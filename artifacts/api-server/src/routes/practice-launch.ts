@@ -34,7 +34,9 @@ async function snapshot(scope:OfficeScope) {
     accessGateFacts(scope.providerId),
   ]);
   if (provider.status >= 300 || receipts.status>=300 || !provider.json?.[0]) throw new Error("Practice details unavailable.");
-  const securityReady=scope.actorKind==="hq" || !secondFactorRequiredByPolicy(policy,{class:scope.actorKind,officeRole:scope.officeRole}) || Boolean(factor?.verifiedAt);
+  const phoneRequired=scope.actorKind!=="hq" && secondFactorRequiredByPolicy(policy,{class:scope.actorKind,officeRole:scope.officeRole});
+  const phoneVerified=Boolean(factor?.verifiedAt);
+  const securityReady=scope.actorKind==="hq" || !phoneRequired || phoneVerified;
   const row = provider.json[0];
   return {
     office:{providerId:scope.providerId,officeName:scope.officeName},canEdit:scope.actorKind === "provider",
@@ -62,7 +64,13 @@ async function snapshot(scope:OfficeScope) {
       bankVerificationOverdue:access.status.bankVerificationOverdue,
     },
     details:{officeName:row.office_name??"",providerName:row.provider_name??"",email:row.email??"",phone:row.phone??"",address1:row.address_line_1??"",address2:row.address_line_2??"",city:row.city??"",state:row.state??"",postalCode:row.postal_code??""},
-    security:{ready:securityReady},payments:{state:paymentLaunchState(account),sandbox:identity.mode !== "live"},
+    // Facts about the VIEWER's own sign-in. Staff always sign in with an
+    // emailed code, so reaching this route proves the email. Only the last
+    // four digits of the verified phone ever leave the API.
+    security:{
+      ready:securityReady,emailVerified:true,phoneVerified,phoneRequired,
+      phoneMasked:phoneVerified&&factor?.phone ? `(•••) •••-${String(factor.phone).slice(-4)}` : null,
+    },payments:{state:paymentLaunchState(account),sandbox:identity.mode !== "live"},
     products,
   };
 }

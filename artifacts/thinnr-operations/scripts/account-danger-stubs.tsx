@@ -86,4 +86,8 @@ export function OfficeBundleExport({ officeId, officeName }: { officeId: string;
 }
 export function LegalHoldControls(props: { targetKind: string; targetId: string; providerId: string; label: string }) {
   return <div data-testid="stub-legal-hold" data-target-kind={props.targetKind} data-target-id={props.targetId} data-provider-id={props.providerId} data-label={props.label}><button type="button" disabled>Legal hold</button></div>;
+}export function TestingHardDelete(props: { kind: string; targetId: string; label: string; onDeleted: () => void }) {
+  return <div data-testid="stub-testing-hard-delete" data-kind={props.kind} data-target-id={props.targetId} data-label={props.label} />;
 }
+export async function resendProviderWelcome() { return { sent: true }; }
+export async function officeRequest() { return { version: 1 }; }

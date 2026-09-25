@@ -79,6 +79,7 @@ import {
 } from "@/components/office/LivePatientEdits";
 
 import { CoachReviewPanel } from "@/components/office/CoachReviewPanel";
+import { TestingHardDelete, useCanHardDelete } from "@/components/admin/TestingHardDelete";
 import { PatientDetailLoading } from "@/components/office/ProviderLoading";
 
 /**
@@ -699,6 +700,20 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           {!closure && <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} />}
         </div>
       </main>
+      {isHq && tab !== 'history' && (
+        <HqPatientHardDelete patientId={identity.id} label={identity.name} onDeleted={() => setLocation('/patients')} />
+      )}
+    </div>
+  );
+}
+
+/** HQ testing override (temporary, not HIPAA compliant) — see TestingHardDelete. */
+function HqPatientHardDelete({ patientId, label, onDeleted }: { patientId: string; label: string; onDeleted: () => void }) {
+  const allowed = useCanHardDelete();
+  if (!allowed) return null;
+  return (
+    <div className="mt-8 border-t border-destructive/20 pt-6">
+      <TestingHardDelete kind="patient" targetId={patientId} label={label} onDeleted={onDeleted} />
     </div>
   );
 }

@@ -11,7 +11,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'wouter';
+import { Link, useLocation, useParams } from 'wouter';
 import { ArrowLeft, ArrowRight, Check, ChevronsUpDown, Copy, Edit2, Lock, Mail, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -29,6 +29,7 @@ import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
 import { OfficeOffboarding } from '@/components/admin/OfficeOffboarding';
 import { AccountDangerZone } from '@/components/admin/AccountDangerZone';
+import { TestingHardDelete } from '@/components/admin/TestingHardDelete';
 import { AccountPaymentsCard, useAccountPayments } from '@/components/admin/AccountPaymentsCard';
 import { AccountAccessBillingCard } from '@/components/admin/office-access/AccessBillingCard';
 import { OfficeRangeMetricsGrid } from '@/components/office/OfficeRangeMetricsGrid';
@@ -345,6 +346,7 @@ export default function AccountDetail() {
 
 function ProviderAccountDetail({ id }: { id: string }) {
   const { findAccount, accountsStatus, updateAccount, canManageProviderAccounts } = useHqData();
+  const [, setLocation] = useLocation();
   const { locks, isLocked, setAccountLock } = useAccountLocks();
   const { toast } = useToast();
 
@@ -763,6 +765,14 @@ function ProviderAccountDetail({ id }: { id: string }) {
             </>
           )}
         </div>
+        {canManageProviderAccounts && (
+          <TestingHardDelete
+            kind="provider"
+            targetId={account.id}
+            label={account.officeName}
+            onDeleted={() => setLocation('/admin/accounts')}
+          />
+        )}
       </AccountDangerZone>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

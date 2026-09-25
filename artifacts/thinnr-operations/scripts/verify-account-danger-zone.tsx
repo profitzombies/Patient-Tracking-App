@@ -89,6 +89,15 @@ console.log('\naccount detail composition and route ownership');
     byTestId(zone, 'stub-legal-hold')[0].props['data-target-id'] === 'office-1' &&
     byTestId(zone, 'stub-legal-hold')[0].props['data-provider-id'] === 'office-1');
 
+  const content = byTestId(zone, 'danger-zone-content')[0];
+  const lastChild = content.children[content.children.length - 1] as ReactTestInstance | undefined;
+  const override = byTestId(zone, 'stub-testing-hard-delete');
+  check('testing hard-delete override is the last danger-zone section with the current provider',
+    override.length === 1 && lastChild !== undefined && typeof lastChild !== 'string' &&
+    lastChild.findAll((node) => node.props['data-testid'] === 'stub-testing-hard-delete').length > 0 &&
+    override[0].props['data-kind'] === 'provider' && override[0].props['data-target-id'] === 'office-1' &&
+    override[0].props['data-label'] === 'Beacon Hill Aesthetics');
+
   const buttons = zone.findAll((node) => node.type === 'button' && ['Offboard', 'Export', 'Legal hold'].includes(String(node.children[0])));
   check('actions remain independently available', buttons.find((node) => node.children[0] === 'Export')?.props.disabled !== true &&
     buttons.find((node) => node.children[0] === 'Offboard')?.props.disabled === true &&

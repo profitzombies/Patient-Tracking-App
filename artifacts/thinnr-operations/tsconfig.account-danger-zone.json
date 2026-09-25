@@ -16,6 +16,8 @@
       "@/components/admin/OfficeOffboarding": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/OfficeBundleExport": ["./scripts/account-danger-stubs.tsx"],
       "@/components/admin/LegalHold": ["./scripts/account-danger-stubs.tsx"],
+      "@/components/admin/TestingHardDelete": ["./scripts/account-danger-stubs.tsx"],
+      "@/lib/office-api": ["./scripts/account-danger-stubs.tsx"],
       "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
       "@workspace/api-client-react": ["./scripts/account-danger-stubs.tsx"],
       "@/*": ["./src/*"]

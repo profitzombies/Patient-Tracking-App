@@ -151,3 +151,4 @@
 - [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset re-overlays profile; compare phones via E.164; verified = profile flag + matching value, stamped at signup.
 - [Signup completion speed](signup-completion-speed.md) — post-password steps run concurrently, rollback waits for all; one-shot client seed opens /consent directly, narrowing only.
 - [Office access Stripe identity](office-access-stripe-identity.md) — replace-only instruments; unverified ACH banks cannot be attached (SetupIntent attaches); cancel dropped staged SIs.
+- [HQ testing hard delete](hq-testing-hard-delete.md) — removable non-compliant wipe; Stripe first, one SQL txn; sign-out list rows are the only intended leftover; DB-wide scan proves erasure.

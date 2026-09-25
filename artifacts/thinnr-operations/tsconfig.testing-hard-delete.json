@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/contexts/session": ["./scripts/testing-hard-delete-stubs/session.tsx"],
+      "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

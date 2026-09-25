@@ -1,9 +1,11 @@
-import { type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useLaunchData } from '@/hooks/use-launch';
 import { useLiveOfficeScope } from '@/hooks/use-live-office-scope';
 import { useSession } from '@/contexts/session';
 import { LaunchScreen } from '@/pages/LaunchScreen';
+import { SetupHandoff } from '@/components/launch/SetupHandoff';
+import { useToast } from '@/hooks/use-toast';
 import { BTN_PRIMARY, BTN_SECONDARY, SectionCard } from '@/components/patient/heritage';
 
 export function launchRecoveryPath(path: string) {
@@ -19,9 +21,28 @@ export function PracticeLaunchGuard({ children }: { children: ReactNode }) {
 function LaunchDataResolver({ children }: { children: ReactNode }) {
   const query = useLaunchData();
   const { signOut } = useSession();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const { toast } = useToast();
   const data = query.data;
   const refresh = () => { void query.refetch(); };
+  // Seeing setup go from unfinished to finished in this session (whichever
+  // screen finished it) plays the short "configuring your account" hand-off
+  // over the dashboard while it loads. Offices that were already done when
+  // they signed in go straight in. Derived during render so the dashboard is
+  // never shown uncovered for a frame.
+  const incompleteNow = !!data && data.required && !data.completedAt && !data.hqInspection;
+  const [sawIncomplete, setSawIncomplete] = useState(false);
+  const [handoffOver, setHandoffOver] = useState(false);
+  // Only a server answer fetched since this gate mounted counts: a cached
+  // "incomplete" from an earlier visit must not replay the cover once the
+  // refetch says setup was already done.
+  if (incompleteNow && query.isFetchedAfterMount && !sawIncomplete) setSawIncomplete(true);
+  const handoff = sawIncomplete && !!data?.completedAt && !data.hqInspection && !handoffOver;
+  useEffect(() => { if (handoff && location === '/setup') navigate('/', { replace: true }); }, [handoff, location, navigate]);
+  const endHandoff = () => {
+    setHandoffOver(true);
+    toast({ variant: 'success', title: 'Practice setup complete' });
+  };
   // Never mount operational children during failed or unresolved eligibility.
   if (query.isPending || query.isError || !data) return <div className="mx-auto max-w-xl space-y-4 p-6">
     <h1 className="font-serif text-2xl font-bold text-navy">{query.isPending ? 'Checking practice setup…' : 'Practice setup could not be loaded'}</h1>
@@ -35,7 +56,10 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
   const incomplete = data.required && !data.completedAt && !data.hqInspection;
   const isSetup = location === '/setup';
   const isHelp = location === '/help';
-  const showTools = isSetup || isHelp || location === '/settings' || incomplete;
+  // During the hand-off the tools bar and setup screen step aside; the
+  // dashboard renders in its normal slot (so it is not remounted when the
+  // cover lifts) and loads underneath the cover.
+  const showTools = !handoff && (isSetup || isHelp || location === '/settings' || incomplete);
   return <>
     {showTools && <div className="border-b border-border bg-sidebar px-4 py-3">
       <nav aria-label="Practice launch" className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
@@ -44,9 +68,11 @@ function LaunchDataResolver({ children }: { children: ReactNode }) {
         <button className={`${BTN_SECONDARY} h-9 px-3`} onClick={signOut}>Sign out</button>
       </nav>
     </div>}
-    {isSetup || (incomplete && !launchRecoveryPath(location))
+    {handoff && isSetup ? null
+      : !handoff && (isSetup || (incomplete && !launchRecoveryPath(location)))
       ? <LaunchScreen key={data.office.providerId} launchData={data} />
       : isHelp ? <div className="mx-auto max-w-5xl p-5"><SectionCard title="Practice help"><div className="space-y-3 p-5 text-sm"><p>For more help, open THINNR support.</p><Link href="/ai-support" className={`${BTN_SECONDARY} h-10 px-4`}>Open support</Link></div></SectionCard></div>
-        : children}
+        : <div className="contents" inert={handoff}>{children}</div>}
+    {handoff && <SetupHandoff officeName={data.office.officeName} onDone={endHandoff} />}
   </>;
 }

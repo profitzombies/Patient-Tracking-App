@@ -33,6 +33,7 @@ import { formatPercent, percentOf, sumComparison } from '@/lib/office-analytics'
 import { APP_USAGE_REFRESH_MS, shareDetail } from '@/lib/app-usage';
 import { demoAppUsage } from '@/data/hq/app-usage-demo';
 import { DEFAULT_DATE_RANGE } from '@/lib/date-range-keys';
+import { greetingName } from '@/lib/greeting-name';
 import { useGetHqOfficeComparison, getGetHqOfficeComparisonQueryKey, useGetHqOverview, getGetHqOverviewQueryKey, useGetHqAppUsage, getGetHqAppUsageQueryKey } from '@workspace/api-client-react';
 
 const fmt = (value: number) => value.toLocaleString('en-US');
@@ -217,7 +218,7 @@ const BAR_CLASSES = ['bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4'];
 export default function HqOverview() {
   const { authStatus, authUser } = useSession();
   if (authStatus === 'signed-in') {
-    return <LiveHqOverview firstName={authUser?.displayName?.trim().split(/\s+/)[0] ?? null} />;
+    return <LiveHqOverview firstName={greetingName(authUser?.displayName)} />;
   }
   return <DemoHqOverview />;
 }

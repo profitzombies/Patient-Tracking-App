@@ -14,6 +14,7 @@ import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { offboardingStatusOf } from "../lib/office-status";
 import { appBaseUrl } from "../security/alerts";
 import { createLimiter } from "../coach/limits";
+import { greetingName } from "../lib/greeting-name";
 
 const router: IRouter = Router();
 
@@ -208,7 +209,7 @@ async function loadAccounts(supportOnly = false) {
       email: row.email ? String(row.email) : "—",
       phone: row.phone ? String(row.phone) : null,
       joinedKey: String(row.created_at ?? "").slice(0, 10),
-      greetingName: String(row.provider_name ?? "Provider").split(/\s+/)[0] ?? "Provider",
+      greetingName: greetingName(String(row.provider_name ?? "")) ?? "Provider",
       activePatientCount: activeCounts.get(id) ?? 0,
       lock: lockMap.has(id) ? { lockedAt: lockMap.get(id) } : null,
       // No live source is authoritative for the old demo analytics tiles.
@@ -403,7 +404,7 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
         email: String(row.email),
         phone: row.phone ? String(row.phone) : null,
         joinedKey: String(row.created_at).slice(0, 10),
-        greetingName: String(row.provider_name ?? "Provider").split(/\s+/)[0] ?? "Provider",
+        greetingName: greetingName(String(row.provider_name ?? "")) ?? "Provider",
         activePatientCount: 0,
         lock: null,
         newEnrollments: null,

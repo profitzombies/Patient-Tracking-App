@@ -5,6 +5,7 @@
  */
 import { AlertTriangle, BadgeCheck, Lock, LogOut, RefreshCw, Smartphone } from 'lucide-react';
 import { useSession } from '@/contexts/session';
+import { greetingName } from '@/lib/greeting-name';
 import { findSeededAccount } from '@/data/hq/accounts';
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -127,7 +128,7 @@ export function AccountLockedScreen() {
  */
 export function ClaimedWorkspaceScreen() {
   const { signOut, claimedWorkspace, authUser } = useSession();
-  const firstName = (claimedWorkspace?.name ?? '').trim().split(/\s+/)[0] || null;
+  const firstName = greetingName(claimedWorkspace?.name);
   return (
     <Frame>
       <section

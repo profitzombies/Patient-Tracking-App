@@ -100,7 +100,6 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   const client = useQueryClient();
   const stripeReturn = useStripeReturnNotice();
   const [, navigate] = useLocation();
-  const { toast } = useToast();
   const { fullSetupRequired } = launchData;
   const paymentsDone = paymentsSatisfied(launchData);
   const ready = fullSetupRequired
@@ -114,10 +113,8 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     setError('');
     try {
       const next = await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
-      if (next?.completedAt) {
-        toast({ variant: 'success', title: 'Practice setup complete' });
-        navigate('/');
-      }
+      // The workspace gate plays the "configuring your account" hand-off.
+      if (next?.completedAt) navigate('/');
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not finish setup.'); }
   };
 

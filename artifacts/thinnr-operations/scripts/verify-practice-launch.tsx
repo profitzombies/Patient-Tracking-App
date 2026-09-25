@@ -14,6 +14,7 @@ import { AccountLocksProvider } from '../src/contexts/account-locks';
 import { DateRangeProvider } from '../src/contexts/date-range';
 import { TrainingDataProvider } from '../src/contexts/training-data';
 import AccountDetail from '../src/pages/admin/AccountDetail';
+import { greetingName } from '../src/lib/greeting-name';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let reducedMotion = false;
@@ -109,6 +110,15 @@ async function render(path = '/patients') {
 }
 async function dispose(root: ReactTestRenderer, client?: QueryClient) { await act(async () => root.unmount()); client?.clear(); }
 
+// Greetings address titled names by title + last name, never a bare "Dr.".
+assert.equal(greetingName('Dr. Jason Strotheide'), 'Dr. Strotheide');
+assert.equal(greetingName('dr jason strotheide'), 'Dr. strotheide');
+assert.equal(greetingName('Jason Strotheide, DC'), 'Jason');
+assert.equal(greetingName('Dr. Jason Strotheide DC'), 'Dr. Strotheide');
+assert.equal(greetingName('Sarah Jenkins'), 'Sarah');
+assert.equal(greetingName('Dr.'), null);
+assert.equal(greetingName(''), null);
+assert.equal(greetingName(null), null);
 assert.equal(launchRecoveryPath('/payments/get-paid'), false);
 assert.equal(launchRecoveryPath('/payments/orders'), false);
 assert.equal(launchRecoveryPath('/security-bypass'), false);
@@ -271,9 +281,41 @@ await dispose(result.root, result.client);
   await tick();
   assert.ok(calls.some((c) => c.url.includes('/office/launch/complete')), 'finish posts the completion');
   assert.equal(location.history!.at(-1), '/', 'finishing moves into the workspace');
-  assert.equal(mounted, 1, 'the workspace opens after finishing');
+  assert.equal(mounted, 1, 'the dashboard loads underneath the hand-off');
+  assert.ok(byTestId(root, 'setup-handoff'), 'finishing shows the "configuring your account" hand-off');
+  assert.match(text(root.toJSON()), /Configuring your account/);
+  const bar = root.root.findAll((node) => typeof node.type === 'string' && node.props.role === 'progressbar')[0];
+  assert.ok(bar.props['aria-valuenow'] < 100, 'the bar starts part-way at most');
+  await tick(2600);
+  const mid = root.root.findAll((node) => typeof node.type === 'string' && node.props.role === 'progressbar')[0];
+  assert.ok(mid.props['aria-valuenow'] > 30 && mid.props['aria-valuenow'] < 80, 'the bar fills over about five seconds');
+  assert.ok(byTestId(root, 'setup-handoff'), 'still covering half-way through');
+  await tick(2900);
+  assert.equal(byTestId(root, 'setup-handoff'), undefined, 'the hand-off clears after about five seconds');
+  assert.equal(mounted, 1, 'the dashboard stayed mounted, not reloaded');
   await dispose(root, client);
   mounted = 0;
+
+  // A cached "incomplete" from an earlier visit does not replay the cover when
+  // the fresh answer says setup was already finished.
+  {
+    snapshot = { ...structuredClone(state), productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
+    const cached = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const tree = () => <QueryClientProvider client={cached}><Router hook={memoryLocation({ path: '/' }).hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>;
+    let first!: ReactTestRenderer;
+    await act(async () => { first = create(tree(), { createNodeMock }); });
+    await tick();
+    assert.equal(mounted, 0, 'still incomplete on the first visit');
+    await act(async () => { first.unmount(); });
+    snapshot = { ...snapshot, completedAt: '2026-02-02T00:00:00Z' };
+    let again!: ReactTestRenderer;
+    await act(async () => { again = create(tree(), { createNodeMock }); });
+    await tick();
+    assert.equal(byTestId(again, 'setup-handoff'), undefined, 'no hand-off for setup finished elsewhere');
+    assert.equal(mounted, 1, 'the workspace opens directly');
+    await dispose(again, cached);
+    mounted = 0;
+  }
 
   // Coming back to /setup after it is done offers a way out, not a dead button.
   snapshot = { ...structuredClone(state), productsConfirmed: true, completedAt: '2026-02-02T00:00:00Z' };

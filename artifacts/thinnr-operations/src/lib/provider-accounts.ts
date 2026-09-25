@@ -4,6 +4,7 @@ import type {
   ProviderAccount,
   ProviderAccountDetail,
 } from '@/data/hq/accounts';
+import { greetingName } from '@/lib/greeting-name';
 
 /** The directory shape returned to Support: contact and access status only. */
 export type SupportProviderAccount = Pick<
@@ -111,7 +112,7 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
     postalCode: account.postalCode ?? null,
     providerCode: account.providerCode ?? null,
     plan: account.plan ?? null,
-    greetingName: account.greetingName ?? account.providerName.split(/\s+/)[0] ?? 'Provider',
+    greetingName: greetingName(account.providerName) ?? account.greetingName ?? 'Provider',
     activePatientCount: account.activePatientCount ?? null,
     newEnrollments: account.newEnrollments ?? null,
     recurringRevenue: account.recurringRevenue ?? null,

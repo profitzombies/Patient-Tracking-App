@@ -36,6 +36,7 @@ import { isActivatedRosterPatient, rosterActivityFor, rosterHasReason, rosterRea
 import { AreaChart, CHART_COLORS } from "@/components/billing/hq/RevenueCharts";
 import { ChartSkeleton, LoadingRegion, RowsSkeleton } from "@/components/office/ProviderLoading";
 import { Skeleton } from "@/components/ui/skeleton";
+import { greetingName } from "@/lib/greeting-name";
 import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
@@ -771,7 +772,7 @@ export default function Overview() {
     ? formatLocalDate(overviewData.asOf)
     : formatDateKey(TODAY_KEY, true);
 
-  const greetingName = liveEnabled ? authUser?.displayName?.split(' ')[0] : (scope ? scope.greetingName : 'Dr. Jenkins');
+  const greetName = liveEnabled ? greetingName(authUser?.displayName) : (scope ? scope.greetingName : 'Dr. Jenkins');
   const greetingSubtitle = liveEnabled ? 'Here is your current practice overview.' : 'Here’s what changed since your last login.';
 
   return (
@@ -784,7 +785,7 @@ export default function Overview() {
             <span data-testid="text-demo-date">{pulseDate}</span>
           </div>
           <h1 className="font-serif text-[32px] leading-[1.08] tracking-[-.02em] text-navy md:text-[38px]">
-            {liveEnabled ? localGreeting : 'Good morning'}{greetingName ? `, ${greetingName}` : ''}.
+            {liveEnabled ? localGreeting : 'Good morning'}{greetName ? `, ${greetName}` : ''}.
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{greetingSubtitle}</p>
         </div>

@@ -263,7 +263,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <RestrictedBanner />
 
         {/* The scrollable content */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-x-hidden overflow-y-auto">
+        <div ref={scrollContainerRef} data-app-scroll className="flex-1 overflow-x-hidden overflow-y-auto">
           {children}
         </div>
 

@@ -9,6 +9,7 @@ import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession } from './a11y-stubs/session';
 import { OfficeAccessContent, OfficeAccessSetup, PaymentMethodForm } from '../src/components/billing/OfficeAccessSetup';
 import { launchRecoveryPath } from '../src/pages/PracticeLaunch';
+import { __stripeStub } from './a11y-stubs/stripe-react';
 import type { OfficeAccessSnapshot } from '../src/lib/billing-types';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,13 +100,55 @@ result = await render(<OfficeAccessContent snapshot={{ ...base, bank: { ...base.
 assert.match(text(result.root.toJSON()), /Bank verification is overdue/);
 await act(async () => result.root.unmount()); result.client.clear();
 
-result = await render(<OfficeAccessContent snapshot={base} refresh={() => {}} management />);
-const replace = result.root.root.findAllByType('button').find((button) => label(button) === 'Replace primary card');
-assert.ok(replace, 'non-owner staff can replace a card when canManage is true');
+// ---- Payment methods page: Replace only, names shown, staged bank explained ----
+const named: OfficeAccessSnapshot = {
+  ...base,
+  instruments: base.instruments.map((item) => ({ ...item, holderName: item.slot === 'bank' ? 'Heritage Practice LLC' : 'Ada Lane' })),
+};
+result = await render(<OfficeAccessContent snapshot={named} refresh={() => {}} management />);
+const managementButtons = result.root.root.findAllByType('button').map(label);
+for (const title of ['Replace bank account', 'Replace primary card', 'Replace backup card']) {
+  assert.ok(managementButtons.includes(title), `${title} is offered (non-owner staff with canManage)`);
+}
+assert.ok(managementButtons.every((name) => !/remove|delete|detach/i.test(name)), `no remove/delete action anywhere: ${managementButtons.join(' | ')}`);
+output = text(result.root.toJSON());
+output = output.replace(/\s+/g, ' ').replace(/ ([:·,.]) /g, '$1 ').replace(/ ([:,.])/g, '$1');
+assert.match(output, /always keeps one bank account and two different cards/, 'the page says why there is no delete');
+assert.match(output, /Name on account: Heritage Practice LLC/, 'bank shows the account-holder name');
+assert.match(output, /visa •••• 4242· expires 04\/2030/, 'card shows brand, last four and expiry');
+assert.match(output, /Name on card: Ada Lane/, 'card shows the cardholder name');
+await act(async () => result.root.unmount()); result.client.clear();
+
+result = await render(<OfficeAccessContent management refresh={() => {}} snapshot={{
+  ...named,
+  bank: { ...named.bank, verificationPending: true, replacement: { bankName: 'New Bank', last4: '1111', holderName: 'Heritage Practice LLC', deadline: '2026-02-10T00:00:00Z', verificationUrl: 'https://stripe.test/verify', addedAt: '2026-02-01T00:00:00Z' } },
+}} />);
+output = text(result.root.toJSON()).replace(/\s+/g, ' ');
+assert.match(output, /Replacement bank waiting on test deposits/, 'a staged bank is shown beside the bank in service');
+assert.match(output, /New Bank •••• 1111/, 'the staged bank is identified');
+assert.match(output, /current bank stays on file and is still charged/, 'the office is told the current bank keeps working');
+assert.doesNotMatch(output, /You may keep using the dashboard for/, 'the bank in service is not presented as pending');
+await act(async () => result.root.unmount()); result.client.clear();
+
+// ---- The holder name and email pre-fill, stay editable, and reach Stripe ----
+result = await render(<PaymentMethodForm slot="card_primary" setupIntentId="seti_1" replacing management billingDefaults={{ name: 'Heritage Practice', email: 'owner@heritage.test' }} onDone={() => {}} onCancel={() => {}} />);
+const nameInput = () => result.root.root.findAll((node) => node.type === 'input' && node.props.id === 'access-card_primary-holder-name')[0];
+const emailInput = () => result.root.root.findAll((node) => node.type === 'input' && node.props.id === 'access-card_primary-holder-email')[0];
+assert.equal(nameInput().props.value, 'Heritage Practice', 'name pre-fills from the practice');
+assert.equal(emailInput().props.value, 'owner@heritage.test', 'email pre-fills from the practice');
+await act(async () => { nameInput().props.onChange({ target: { value: '' } }); });
+const saveReplacement = () => result.root.root.findAllByType('button').find((button) => label(button) === 'Save replacement card')!;
+__stripeStub.setups.length = 0;
+await act(async () => { saveReplacement().props.onClick(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+assert.match(text(result.root.toJSON()), /Enter the name on the card/, 'an empty holder name is refused before Stripe');
+assert.equal(__stripeStub.setups.length, 0, 'nothing is confirmed without a name');
+await act(async () => { nameInput().props.onChange({ target: { value: 'Ada Lane' } }); });
+await act(async () => { saveReplacement().props.onClick(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+assert.deepEqual(__stripeStub.setups[0]?.confirmParams?.payment_method_data?.billing_details, { name: 'Ada Lane', email: 'owner@heritage.test' }, 'the edited name and email are saved on the payment method');
 await act(async () => result.root.unmount()); result.client.clear();
 
 duplicate = true;
-result = await render(<PaymentMethodForm slot="card_backup" setupIntentId="seti_1" onDone={() => {}} onCancel={() => {}} />);
+result = await render(<PaymentMethodForm slot="card_backup" setupIntentId="seti_1" billingDefaults={{ name: 'Heritage Practice', email: 'owner@heritage.test' }} onDone={() => {}} onCancel={() => {}} />);
 const save = result.root.root.findAllByType('button').find((button) => label(button) === 'Save payment method')!;
 await act(async () => { save.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 10)); });
 assert.match(text(result.root.toJSON()), /same card as the first card/i);
@@ -177,4 +220,4 @@ await act(async () => result.root.unmount()); result.client.clear();
 served = null;
 __setSession({ authStatus: 'signed-out', authRole: null, authUser: null, staffSession: null });
 
-console.log('Office access: instant plan/terms feedback with rollback, single-press working states, absolute gate, first-run Stripe connect choice, duplicate card, bank window/overdue, real plan terms, and staff card management passed.');
+console.log('Office access: instant plan/terms feedback with rollback, single-press working states, absolute gate, first-run Stripe connect choice, duplicate card, bank window/overdue, real plan terms, staff card management, Replace-only payment methods with holder names, and a staged replacement bank passed.');

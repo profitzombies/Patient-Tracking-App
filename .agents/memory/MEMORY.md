@@ -150,3 +150,4 @@
 - [Patient enrollment safety](patient-enrollment-safety.md) — activate only after GoTrue accepts the password; roll back own login + release code; weak_password 422 shape; client rule mirror.
 - [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset re-overlays profile; compare phones via E.164; verified = profile flag + matching value, stamped at signup.
 - [Signup completion speed](signup-completion-speed.md) — post-password steps run concurrently, rollback waits for all; one-shot client seed opens /consent directly, narrowing only.
+- [Office access Stripe identity](office-access-stripe-identity.md) — replace-only instruments; unverified ACH banks cannot be attached (SetupIntent attaches); cancel dropped staged SIs.

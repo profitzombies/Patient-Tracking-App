@@ -14,6 +14,7 @@
  */
 import { selectMany, type BillingOfficeAccessSubscriptionRow as Row } from "../store";
 import { chargeAccessPeriod } from "./charge";
+import { maintainAccessInstruments } from "./instruments";
 import { queueRestrictionAlert } from "./restriction-alert";
 import { loadAccessBillingSettings } from "./settings";
 import { dueBillingPeriod, isLifetime } from "./state";
@@ -124,6 +125,17 @@ export async function runOfficeAccessBilling(ctx: {
   for (const stored of rows) {
     ctx.checkpoint();
     ctx.tally("scanned");
+    if (!ctx.dryRun) {
+      // Instrument housekeeping runs for every office, lifetime ones included:
+      // expired replacement banks drop away and deferred detaches finish.
+      try {
+        const kept = await maintainAccessInstruments(stored, ctx.now);
+        if (kept.expired) ctx.tally("bankReplacementsExpired", kept.expired);
+        if (kept.detached) ctx.tally("methodsDetached", kept.detached);
+      } catch (error) {
+        ctx.failItem(`${stored.provider_id}:instruments`, error);
+      }
+    }
     if (isLifetime(stored)) continue;
     try {
       if (ctx.dryRun) {

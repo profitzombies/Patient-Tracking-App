@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { queueOfficeStripeIdentitySync } from "../billing/office-access/customer-identity";
 import { z } from "zod";
 import { resolveOfficeScope, type OfficeScope } from "../auth/office-scope";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -135,6 +136,8 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
     if (kind==="details") {
       const input = z.object({expectedVersion:Version,details:Details}).parse(req.body);
       await rpc("save_practice_launch_details",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_details:input.details});
+      // THINNR's Stripe customer for this office carries these details too.
+      queueOfficeStripeIdentitySync(scope.providerId,req.log);
     }
     if (kind==="products") {
       const input = z.object({expectedVersion:Version,products:z.array(z.object({productId:z.string().uuid(),enabled:z.boolean(),sellPriceCents:z.number().int().nonnegative(),subscriptionEnabled:z.boolean()}))}).parse(req.body);

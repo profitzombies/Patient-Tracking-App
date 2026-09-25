@@ -5,6 +5,7 @@
  * intentionally separate and calls the atomic database function only after the
  * caller has passed the HQ staff guard.
  */
+import { queueOfficeStripeIdentitySync } from "../billing/office-access/customer-identity";
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
@@ -550,6 +551,8 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
       return;
     }
     const providerId = String(req.params.id);
+    // The office's name and owner contact also label its Stripe customer.
+    queueOfficeStripeIdentitySync(providerId, req.log);
     await recordAdminAuditEvent({ action: "provider_account_updated", actorUserId: callerId, actorKind: "hq", providerId, targetKind: "provider_account", targetId: providerId, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "provider account update audit failed"));
     res.json({ account });
   } catch (error) {

@@ -122,10 +122,13 @@ async function handleSetupIntent(event: Stripe.Event, ctx: StripeEventContext): 
     "billing_office_access_instruments",
     `stripe_payment_method_id=eq.${q(paymentMethodId)}&removed_at=is.null`,
   );
+  // Matches a staged replacement bank too (it is not removed), so its deposits
+  // verifying hands the slot over from the bank it replaces.
   if (!instrument || instrument.kind !== "bank") return;
   const { recordBankVerification } = await import("./instruments");
   await recordBankVerification({
     providerId: instrument.provider_id,
+    paymentMethodId,
     verified: event.type === "setup_intent.succeeded",
     actor: STRIPE_ACTOR,
   });

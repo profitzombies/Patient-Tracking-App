@@ -26,6 +26,7 @@ import {
   refreshBankVerification, selectAccessPlan,
 } from "../billing/office-access/setup";
 import { ensureAccessSubscription, type AccessActor } from "../billing/office-access/subscription";
+import { defaultBillingDetails, loadOfficeIdentity } from "../billing/office-access/customer-identity";
 import { chargeOfficeAccess } from "../billing/office-access/charge";
 import { requestIdOf } from "../lib/admin-audit";
 
@@ -140,7 +141,7 @@ router.post("/billing/office/access/setup-intent", async (req, res) => {
     const scope = await scoped(req, res, "staff"); if (!scope) return;
     const { slot } = z.object({ slot: Slot }).parse(req.body);
     const row = await ensureAccessSubscription(scope.providerId);
-    const customer = await ensureAccessCustomer(row);
+    const [customer, facts] = await Promise.all([ensureAccessCustomer(row), loadOfficeIdentity(scope.providerId)]);
     const stripe = await getStripe();
     const intent = await stripe.setupIntents.create({
       customer,
@@ -153,11 +154,25 @@ router.post("/billing/office/access/setup-intent", async (req, res) => {
       setupIntentId: intent.id,
       publishableKey: await getPublishableKey(),
       slot,
+      // What the form's name and email start as; the office may edit both.
+      billingDetails: defaultBillingDetails(facts),
     });
   } catch (error) { answerError(req, res, error); }
 });
 
-/** Store an instrument the browser already collected. */
+/**
+ * There is deliberately no way to remove an instrument. An office always keeps
+ * one bank account and two cards on file; a slot changes only by saving a
+ * replacement into it (POST /instruments), which detaches the old method.
+ */
+router.delete(["/billing/office/access/instruments", "/billing/office/access/instruments/:slot"], (_req, res) => {
+  res.status(405).set("Allow", "POST").json({
+    error: "Payment methods can be replaced but not removed. Your office always keeps a bank account and two cards on file.",
+    code: "replace_only",
+  });
+});
+
+/** Store an instrument the browser already collected — a first save or a replacement. */
 router.post("/billing/office/access/instruments", async (req, res) => {
   try {
     const scope = await scoped(req, res, "staff"); if (!scope) return;

@@ -14,8 +14,10 @@ import { loadOrgPolicy } from "../../lib/org-policy";
 import { accessPriceCents, periodEnd } from "./state";
 import {
   accessSetupStatus,
-  listAccessInstruments,
+  expireStagedReplacements,
+  listInstrumentRows,
   recordBankVerification,
+  stagedExpired,
   WATERFALL_SLOTS,
   type AccessSetupStatus,
 } from "./instruments";
@@ -35,6 +37,8 @@ function iso(value: Date | null): string | null { return value ? value.toISOStri
 export interface AccessGateFacts {
   row: Row;
   instruments: Instrument[];
+  /** A replacement bank waiting on test deposits beside the bank in service. */
+  staged: Instrument[];
   status: AccessSetupStatus;
   /** The office actively chose monthly or yearly (the column has a default). */
   planSelected: boolean;
@@ -47,12 +51,14 @@ export async function accessGateFacts(providerId: string, now = new Date(), know
   // A caller that has just written the row passes it back in, which saves a
   // re-read of what it is already holding.
   const row = known ?? await ensureAccessSubscription(providerId);
-  const instruments = await listAccessInstruments(row.id);
+  const rows = await listInstrumentRows(row.id);
+  const instruments = rows.filter((item) => !item.staged_at);
+  const staged = rows.filter((item) => item.staged_at);
   const status = accessSetupStatus(instruments, now);
   const planSelected = Boolean(row.plan_selected_at);
   const disclosureAcknowledged = Boolean(row.disclosure_acknowledged_at);
   return {
-    row, instruments, status, planSelected, disclosureAcknowledged,
+    row, instruments, staged, status, planSelected, disclosureAcknowledged,
     // A bank account awaiting microdeposits does NOT block the office — until
     // its 48-hour window runs out, at which point the block returns.
     satisfied: status.complete && !status.bankVerificationOverdue && planSelected && disclosureAcknowledged,
@@ -77,14 +83,26 @@ export interface AccessInstrumentView {
   bankName: string | null;
   verificationStatus: Instrument["verification_status"];
   verificationDeadline: string | null;
+  /** Cardholder / account-holder name saved on the method in Stripe. */
+  holderName: string | null;
   addedAt: string;
 }
 
+/** A replacement bank still waiting on test deposits; the bank in service stays chargeable meanwhile. */
+export interface AccessBankReplacementView {
+  bankName: string | null;
+  last4: string | null;
+  holderName: string | null;
+  deadline: string | null;
+  verificationUrl: string | null;
+  addedAt: string;
+}
 function instrumentView(row: Instrument): AccessInstrumentView {
   return {
     slot: row.slot, kind: row.kind, brand: row.brand, last4: row.last4,
     expMonth: row.exp_month, expYear: row.exp_year, bankName: row.bank_name,
     verificationStatus: row.verification_status, verificationDeadline: row.verification_deadline,
+    holderName: row.billing_name ?? null,
     addedAt: row.created_at,
   };
 }
@@ -131,6 +149,7 @@ export interface AccessSetupSnapshot {
     windowHours: number;
     /** Stripe's own hosted microdeposit page: the amounts never reach us. */
     verificationUrl: string | null;
+    replacement: AccessBankReplacementView | null;
   };
   balance: {
     state: Row["state"];
@@ -175,9 +194,17 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
   ]);
   const bySlot = new Map(facts.instruments.map((item) => [item.slot, item]));
   const bank = bySlot.get("bank");
-  const [row, verificationUrl] = await Promise.all([
+  let staged = facts.staged.find((item) => item.slot === "bank");
+  if (staged && stagedExpired(staged, now)) {
+    // The deposit window ran out: the replacement drops away here rather than
+    // waiting for the billing job, so the screen never offers a dead link.
+    await expireStagedReplacements(facts.row, now, facts.staged);
+    staged = undefined;
+  }
+  const [row, verificationUrl, replacementUrl] = await Promise.all([
     refreshAccessState(facts.row, now),
     facts.status.bankVerificationPending ? bankVerificationUrl(bank) : Promise.resolve(null),
+    staged ? bankVerificationUrl(staged) : Promise.resolve(null),
   ]);
 
   const firstChargeAt = row.paid_through ?? row.included_period_ends_at ?? null;
@@ -237,6 +264,12 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
       overdue: facts.status.bankVerificationOverdue,
       windowHours: BANK_VERIFICATION_WINDOW_HOURS,
       verificationUrl,
+      replacement: staged
+        ? {
+            bankName: staged.bank_name, last4: staged.last4, holderName: staged.billing_name ?? null,
+            deadline: staged.verification_deadline, verificationUrl: replacementUrl, addedAt: staged.created_at,
+          }
+        : null,
     },
     balance: {
       state: row.state,
@@ -298,14 +331,18 @@ export async function refreshBankVerification(input: {
   actor: AccessActor;
 }): Promise<{ verified: boolean }> {
   const row = await ensureAccessSubscription(input.providerId);
-  const bank = (await listAccessInstruments(row.id)).find((item) => item.kind === "bank");
+  // A replacement waiting on deposits is the bank the office is verifying.
+  const banks = (await listInstrumentRows(row.id)).filter((item) => item.kind === "bank");
+  const bank = banks.find((item) => item.staged_at) ?? banks.find((item) => !item.staged_at);
   if (!bank) throw new AccessSetupError("There is no bank account on file to verify.", 404);
-  if (bank.verification_status === "verified") return { verified: true };
+  if (bank.verification_status === "verified" && !bank.staged_at) return { verified: true };
   if (!bank.setup_intent_id) throw new AccessSetupError("This bank account cannot be verified here. Add it again to restart verification.", 409);
   const stripe = await getStripe();
   const intent = await stripe.setupIntents.retrieve(bank.setup_intent_id);
   if (intent.status !== "succeeded") return { verified: false };
-  await recordBankVerification({ providerId: input.providerId, verified: true, actor: input.actor });
+  await recordBankVerification({
+    providerId: input.providerId, verified: true, paymentMethodId: bank.stripe_payment_method_id, actor: input.actor,
+  });
   return { verified: true };
 }
 

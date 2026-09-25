@@ -34,6 +34,18 @@ export interface OfficeAccessInstrument {
   bankName: string | null;
   verificationStatus: 'verified' | 'pending' | 'failed';
   verificationDeadline: string | null;
+  /** The cardholder / account-holder name saved on the method in Stripe. */
+  holderName?: string | null;
+  addedAt: string;
+}
+
+/** A replacement bank waiting on test deposits; the bank in service stays chargeable meanwhile. */
+export interface OfficeAccessBankReplacement {
+  bankName: string | null;
+  last4: string;
+  holderName: string | null;
+  deadline: string | null;
+  verificationUrl: string | null;
   addedAt: string;
 }
 
@@ -54,7 +66,10 @@ export interface OfficeAccessSnapshot {
     nextPeriodEndsAt: string | null;
   };
   disclosure: { text: string; version: number; acknowledgedAt: string | null };
-  bank: { verificationPending: boolean; deadline: string | null; overdue: boolean; windowHours: number; verificationUrl: string | null };
+  bank: {
+    verificationPending: boolean; deadline: string | null; overdue: boolean; windowHours: number; verificationUrl: string | null;
+    replacement?: OfficeAccessBankReplacement | null;
+  };
   balance: { state: 'setup_incomplete' | 'included_period' | 'paid_current' | 'past_due' | 'restricted'; outstanding: boolean; amountCents: number; graceEndsAt: string | null };
   canManage: boolean;
   canChoosePlan: boolean;
@@ -65,6 +80,8 @@ export interface OfficeAccessSetupIntent {
   setupIntentId: string;
   publishableKey: string;
   slot: OfficeAccessSlot;
+  /** What the form's holder name and email start as; the office may edit both. */
+  billingDetails?: { name: string | null; email: string | null };
 }
 
 export interface AiCostTotals {

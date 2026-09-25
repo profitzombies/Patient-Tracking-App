@@ -17,7 +17,8 @@
     "test:patient-snapshot-sql": "vitest run src/routes/patient-data.sql.test.ts",
     "sandbox-verification": "tsx scripts/sandbox-verification-run.mts",
     "test:overview-finance-live": "tsx scripts/overview-finance-live-smoke.ts cleanup && tsx scripts/overview-finance-live-smoke.ts prepare && tsx scripts/overview-finance-live-smoke.ts verify",
-    "test:office-access-live": "tsx scripts/verify-office-access-live.ts"
+    "test:office-access-live": "tsx scripts/verify-office-access-live.ts",
+    "test:office-access-replace-live": "tsx scripts/verify-office-access-replace-live.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.0.1",

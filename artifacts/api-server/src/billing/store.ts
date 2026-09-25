@@ -299,6 +299,13 @@ export interface BillingOfficeAccessInstrumentRow extends TimestampedRow {
   exp_month: number | null; exp_year: number | null; bank_name: string | null;
   verification_status: "verified" | "pending" | "failed"; verification_deadline: string | null;
   removed_at: string | null;
+  /** Set while a replacement bank waits on test deposits beside the account it replaces. */
+  staged_at?: string | null;
+  replaces_instrument_id?: string | null;
+  /** When a replaced method was detached from the office's platform customer. */
+  detached_at?: string | null;
+  /** Cardholder / account-holder name saved on the Stripe payment method. */
+  billing_name?: string | null;
 }
 export interface BillingOfficeAccessAttemptRow extends TimestampedRow {
   id: string; subscription_id: string; provider_id: string; period_start: string; period_end: string;

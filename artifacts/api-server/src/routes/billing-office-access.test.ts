@@ -14,7 +14,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 const m = vi.hoisted(() => ({
   scope: vi.fn(), snapshot: vi.fn(), attach: vi.fn(), plan: vi.fn(), disclosure: vi.fn(),
-  verify: vi.fn(), charge: vi.fn(), customer: vi.fn(), setupIntent: vi.fn(),
+  verify: vi.fn(), charge: vi.fn(), customer: vi.fn(), setupIntent: vi.fn(), identity: vi.fn(),
   // The real error classes carry status/code; the router branches on both.
   errors: class extends Error { constructor(message: string, readonly status = 400, readonly code?: string) { super(message); } },
 }));
@@ -46,6 +46,10 @@ vi.mock("../billing/office-access/instruments", () => ({
   AccessInstrumentError: m.errors,
   attachAccessInstrument: m.attach,
   ensureAccessCustomer: m.customer,
+}));
+vi.mock("../billing/office-access/customer-identity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../billing/office-access/customer-identity")>()),
+  loadOfficeIdentity: m.identity,
 }));
 vi.mock("../billing/office-access/subscription", () => ({ ensureAccessSubscription: async () => ({ id: "sub-1" }) }));
 vi.mock("../billing/office-access/charge", () => ({ chargeOfficeAccess: m.charge }));
@@ -86,6 +90,10 @@ beforeEach(() => {
   m.charge.mockResolvedValue({ status: "succeeded" });
   m.customer.mockResolvedValue("cus_1");
   m.setupIntent.mockResolvedValue({ id: "seti_1", client_secret: "seti_1_secret" });
+  m.identity.mockResolvedValue({
+    providerId: "office-a", ownerName: "Dr. Ada Lane", officeName: "Lane Aesthetics", email: "owner@lane.test",
+    phone: null, address1: null, address2: null, city: null, state: null, postalCode: null,
+  });
 });
 
 describe("office access setup boundary", () => {
@@ -173,6 +181,20 @@ describe("office access setup boundary", () => {
     const res = await call("POST", "/setup-intent", { slot: "bank" });
     expect(await res.json()).toMatchObject({ clientSecret: "seti_1_secret", setupIntentId: "seti_1", publishableKey: "pk_test_123", slot: "bank" });
     expect(m.setupIntent).toHaveBeenCalledWith(expect.objectContaining({ payment_method_types: ["us_bank_account"], customer: "cus_1" }));
+  });
+
+  it("hands the form the practice's name and email to pre-fill the holder details", async () => {
+    const res = await call("POST", "/setup-intent", { slot: "card_primary" });
+    expect(await res.json()).toMatchObject({ billingDetails: { name: "Lane Aesthetics", email: "owner@lane.test" } });
+  });
+
+  it("never removes a card or bank: every slot is replace-only", async () => {
+    for (const path of ["/instruments", "/instruments/card_backup", "/instruments/bank"]) {
+      const res = await call("DELETE", path);
+      expect(res.status).toBe(405);
+      expect(await res.json()).toMatchObject({ code: "replace_only" });
+    }
+    expect(m.attach).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown slot rather than storing it", async () => {

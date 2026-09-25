@@ -10,6 +10,9 @@ import { BusyLabel } from '@/components/ui/busy-label';
 import { THINNR_CARD_STYLE, THINNR_ELEMENTS_APPEARANCE, THINNR_ELEMENTS_FONTS, loadBrandedStripe } from '@/lib/stripe-branding';
 import { firstCharge, instrumentFor, longDate, paymentDetailsDone } from './steps';
 import { DoneMark, InlineError, StepFrame, WizardFooter, readable } from './ui';
+import { HolderDetailsFields, holderBillingDetails, holderProblem, useHolderDetails } from '@/components/billing/HolderDetails';
+
+type BillingDefaults = { name: string | null; email: string | null } | null;
 
 export const DUPLICATE_CARD_MESSAGE = 'This is the same card as the first card. Add a different card for backup.';
 
@@ -63,7 +66,7 @@ function SlotSection({ slot, icon, title, sub, access, canManage }: {
 }) {
   const writes = useOfficeAccessMutations();
   const item = instrumentFor(access, slot);
-  const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; stripe: Promise<Stripe | null> } | null>(null);
+  const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; stripe: Promise<Stripe | null>; billingDetails: BillingDefaults } | null>(null);
   const [error, setError] = useState('');
   const opening = useRef(false);
   const start = async () => {
@@ -72,7 +75,7 @@ function SlotSection({ slot, icon, title, sub, access, canManage }: {
     setError('');
     try {
       const result = await writes.setupIntent.mutateAsync(slot);
-      setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadBrandedStripe(result.publishableKey) });
+      setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadBrandedStripe(result.publishableKey), billingDetails: result.billingDetails ?? null });
     } catch (failure) { setError(readable(failure, 'Stripe could not be opened. Try again.')); }
     finally { opening.current = false; }
   };
@@ -88,10 +91,10 @@ function SlotSection({ slot, icon, title, sub, access, canManage }: {
     {intent
       ? slot === 'bank'
         ? <Elements stripe={intent.stripe} options={{ clientSecret: intent.clientSecret, appearance: THINNR_ELEMENTS_APPEARANCE, fonts: THINNR_ELEMENTS_FONTS }}>
-          <BankForm setupIntentId={intent.setupIntentId} onDone={finish} onCancel={finish} />
+          <BankForm setupIntentId={intent.setupIntentId} billingDefaults={intent.billingDetails} onDone={finish} onCancel={finish} />
         </Elements>
         : <Elements stripe={intent.stripe} options={{ fonts: THINNR_ELEMENTS_FONTS }}>
-          <CardForm slot={slot} clientSecret={intent.clientSecret} setupIntentId={intent.setupIntentId} onDone={finish} onCancel={finish} />
+          <CardForm slot={slot} clientSecret={intent.clientSecret} setupIntentId={intent.setupIntentId} billingDefaults={intent.billingDetails} onDone={finish} onCancel={finish} />
         </Elements>
       : canManage && <button type="button" className={`${item ? BTN_SECONDARY : BTN_PRIMARY} h-10 px-4 text-sm`} data-testid={`wizard-add-${slot}`}
         disabled={writes.setupIntent.isPending} onClick={() => void start()}>
@@ -106,6 +109,7 @@ function InstrumentLine({ item }: { item: OfficeAccessInstrument }) {
   const brand = item.brand ? item.brand.charAt(0).toUpperCase() + item.brand.slice(1) : 'Card';
   return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-secondary px-4 py-3 text-sm" data-testid={`wizard-instrument-${item.slot}`}>
     <span className="font-semibold text-navy">{item.kind === 'card' ? brand : item.bankName || 'Bank account'} ending in {item.last4}</span>
+    {item.holderName && <span className="text-xs text-muted-foreground">{item.holderName}</span>}
     {item.kind === 'card' && item.expMonth && item.expYear && <span className="text-xs text-muted-foreground">Expires {String(item.expMonth).padStart(2, '0')}/{String(item.expYear).slice(-2)}</span>}
     {item.kind === 'bank' && <span className={`text-xs ${item.verificationStatus === 'verified' ? 'text-primary' : item.verificationStatus === 'failed' ? 'text-destructive' : 'text-[#b65c22]'}`}>
       {item.verificationStatus === 'verified' ? 'Verified' : item.verificationStatus === 'failed' ? 'Verification failed' : 'Waiting for test deposits'}</span>}
@@ -127,19 +131,25 @@ function BankVerification({ access }: { access: OfficeAccessSnapshot }) {
   </div>;
 }
 
-function BankForm({ setupIntentId, onDone, onCancel }: { setupIntentId: string; onDone: () => void; onCancel: () => void }) {
+function BankForm({ setupIntentId, billingDefaults, onDone, onCancel }: { setupIntentId: string; billingDefaults: BillingDefaults; onDone: () => void; onCancel: () => void }) {
   const stripe = useStripe();
   const elements = useElements();
   const writes = useOfficeAccessMutations();
+  const [holder, setHolder] = useHolderDetails(billingDefaults);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const submit = async () => {
     if (!stripe || !elements || lock.current) return;
+    const problem = holderProblem(holder, 'bank');
+    if (problem) { setError(problem); return; }
     lock.current = true;
     setError(''); setBusy(true);
     try {
-      const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
+      const result = await stripe.confirmSetup({
+        elements, redirect: 'if_required',
+        confirmParams: { payment_method_data: { billing_details: holderBillingDetails(holder) } },
+      });
       if (result.error) throw new Error(result.error.message || 'Stripe could not confirm this bank account.');
       const method = result.setupIntent?.payment_method;
       const paymentMethodId = typeof method === 'string' ? method : method?.id;
@@ -150,7 +160,8 @@ function BankForm({ setupIntentId, onDone, onCancel }: { setupIntentId: string; 
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="space-y-4 rounded-md border border-border bg-background p-4" data-testid="wizard-bank-form">
-    <PaymentElement options={{ layout: 'tabs' }} />
+    <HolderDetailsFields kind="bank" details={holder} onChange={setHolder} disabled={busy} idPrefix="wizard-bank" />
+    <PaymentElement options={{ layout: 'tabs', fields: { billingDetails: { name: 'never', email: 'never' } } }} />
     {error && <InlineError message={error} />}
     <div className="flex flex-wrap gap-3">
       <button type="button" className={`${BTN_PRIMARY} h-10 px-4 text-sm`} disabled={!stripe || busy} onClick={() => void submit()} data-testid="wizard-save-bank"><BusyLabel busy={busy} label="Save bank account" /></button>
@@ -161,12 +172,13 @@ function BankForm({ setupIntentId, onDone, onCancel }: { setupIntentId: string; 
 
 const CARD_FIELD = 'rounded-md border border-border bg-card px-3 py-3 shadow-xs transition focus-within:border-primary focus-within:ring-2 focus-within:ring-ring/40';
 
-function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
-  slot: OfficeAccessSlot; clientSecret: string; setupIntentId: string; onDone: () => void; onCancel: () => void;
+function CardForm({ slot, clientSecret, setupIntentId, billingDefaults, onDone, onCancel }: {
+  slot: OfficeAccessSlot; clientSecret: string; setupIntentId: string; billingDefaults: BillingDefaults; onDone: () => void; onCancel: () => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const writes = useOfficeAccessMutations();
+  const [holder, setHolder] = useHolderDetails(billingDefaults);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
@@ -174,10 +186,12 @@ function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
     if (!stripe || !elements || lock.current) return;
     const card = elements.getElement(CardNumberElement);
     if (!card) return;
+    const problem = holderProblem(holder, 'card');
+    if (problem) { setError(problem); return; }
     lock.current = true;
     setError(''); setBusy(true);
     try {
-      const result = await stripe.confirmCardSetup(clientSecret, { payment_method: { card } });
+      const result = await stripe.confirmCardSetup(clientSecret, { payment_method: { card, billing_details: holderBillingDetails(holder) } });
       if (result.error) throw new Error(result.error.message || 'Stripe could not confirm this card.');
       const method = result.setupIntent?.payment_method;
       const paymentMethodId = typeof method === 'string' ? method : method?.id;
@@ -188,6 +202,7 @@ function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
     finally { lock.current = false; setBusy(false); }
   };
   return <div className="space-y-3 rounded-md border border-border bg-background p-4" data-testid={`wizard-card-form-${slot}`}>
+    <HolderDetailsFields kind="card" details={holder} onChange={setHolder} disabled={busy} idPrefix={`wizard-${slot}`} />
     <label className="block text-xs font-semibold text-navy">Card number
       <div className={`${CARD_FIELD} mt-1.5`}><CardNumberElement options={{ style: THINNR_CARD_STYLE, showIcon: true, disableLink: true }} /></div>
     </label>

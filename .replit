@@ -612,6 +612,14 @@ args = "patient-signup-mobile"
 task = "workflow.run"
 args = "onboarding-identity"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-stripe-identity-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-stripe-identity-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3451,6 +3459,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity && pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-stripe-identity-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/billing/account-prefill.test.ts src/routes/billing-office-access.test.ts src/routes/billing-office.test.ts src/routes/practice-launch.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-stripe-identity-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:setup-wizard && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

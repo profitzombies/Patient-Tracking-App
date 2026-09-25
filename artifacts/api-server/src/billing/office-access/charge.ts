@@ -69,7 +69,13 @@ async function chargeOne(input: {
   stripe: Stripe;
   row: Row;
   customerId: string;
-  paymentMethodId: string;
+  /**
+   * Read only once the `processing` attempt row exists. A replacement saved
+   * before that point is charged in place of the method the waterfall first
+   * saw; one saved after it finds the attempt and leaves the old method
+   * attached until this charge settles (see retireInstruments).
+   */
+  resolvePaymentMethod: () => Promise<string>;
   slot: OfficeAccessSlot;
   amountCents: number;
   period: { start: Date; end: Date };
@@ -88,13 +94,14 @@ async function chargeOne(input: {
     amount_cents: input.amountCents,
     status: "processing",
   });
+  const paymentMethodId = await input.resolvePaymentMethod();
   const idempotencyKey = `office-access:${input.row.id}:${input.period.start.toISOString()}:${input.cycle}:${input.slot}`;
   try {
     const intent = await input.stripe.paymentIntents.create({
       amount: input.amountCents,
       currency: "usd",
       customer: input.customerId,
-      payment_method: input.paymentMethodId,
+      payment_method: paymentMethodId,
       payment_method_types: [input.slot === "bank" ? "us_bank_account" : "card"],
       confirm: true,
       off_session: true,
@@ -198,8 +205,11 @@ export async function chargeAccessPeriod(input: ChargeInput): Promise<ChargeOutc
   for (const instrument of instruments) {
     tried.push(instrument.slot);
     const outcome = await chargeOne({
-      stripe, row, customerId, paymentMethodId: instrument.stripe_payment_method_id,
-      slot: instrument.slot, amountCents, period, cycle,
+      stripe, row, customerId, slot: instrument.slot, amountCents, period, cycle,
+      resolvePaymentMethod: async () => {
+        const current = chargeableInstruments(await listAccessInstruments(row.id)).find((item) => item.slot === instrument.slot);
+        return current?.stripe_payment_method_id ?? instrument.stripe_payment_method_id;
+      },
     });
     if (outcome.attempt.status === "succeeded") {
       const result = await applyAccessInput({

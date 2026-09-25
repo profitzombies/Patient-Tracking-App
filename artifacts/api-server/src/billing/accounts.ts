@@ -111,27 +111,48 @@ export function toConnectedAccount(row: BillingConnectedAccountRow): ConnectedAc
   };
 }
 
+/** Stripe's merchant category for health and beauty spas — what a med spa is. */
+export const MED_SPA_MCC = "7298";
+
+/**
+ * Everything THINNR already knows about the office, pre-filled into the new
+ * connected account so Stripe's onboarding opens with it filled in.
+ *
+ * Only account-level fields and `business_profile` are sent. A `company` or
+ * `individual` block would force `business_type`, which the office chooses in
+ * Stripe's onboarding (sole proprietors are individuals, most med spas are
+ * companies) — sending one would make that choice for them. THINNR keeps no
+ * practice website, so `business_profile.url` is left for the office to add.
+ */
+export function inAppAccountPrefill(office: Provider): Pick<Stripe.AccountCreateParams, "country" | "email" | "default_currency" | "business_profile"> {
+  const supportAddress = office.address_line_1 && office.city && office.state && office.postal_code
+    ? { line1: office.address_line_1, line2: office.address_line_2 ?? undefined, city: office.city,
+        state: office.state, postal_code: office.postal_code, country: "US" }
+    : undefined;
+  const name = office.office_name?.trim() || office.provider_name?.trim() || undefined;
+  return {
+    country: "US",
+    email: office.email ?? undefined,
+    default_currency: "usd",
+    business_profile: {
+      name,
+      mcc: MED_SPA_MCC,
+      product_description: `${name ?? "Med spa"} sells aesthetic and wellness services and products to its patients through THINNR.`,
+      support_email: office.email ?? undefined,
+      support_phone: office.phone ?? undefined,
+      support_address: supportAddress,
+    },
+  };
+}
+
 export async function createInAppAccount(providerId: string, actorUserId: string): Promise<ConnectedAccount> {
   const existing = await selectOne("billing_connected_accounts", `provider_id=eq.${encodeURIComponent(providerId)}`);
   if (existing) throw new BillingAccountError("This office already has a Stripe account. Use the safe restart workflow or contact HQ.", 409);
   const claim=await claimConnect(providerId);
   const office = await provider(providerId);
   const stripe = await getStripe();
-  // Only business_profile is prefilled. A `company`/`individual` block would
-  // force `business_type`, which the office chooses in Stripe's onboarding
-  // (sole proprietors are individuals, most med spas are companies).
-  const supportAddress = office.address_line_1 && office.city && office.state && office.postal_code
-    ? { line1: office.address_line_1, line2: office.address_line_2 ?? undefined, city: office.city,
-        state: office.state, postal_code: office.postal_code, country: "US" }
-    : undefined;
   const account = await stripe.accounts.create({
-    country: "US",
-    email: office.email ?? undefined,
-    business_profile: {
-      name: office.office_name ?? office.provider_name ?? undefined,
-      support_phone: office.phone ?? undefined,
-      support_address: supportAddress,
-    },
+    ...inAppAccountPrefill(office),
     controller: {
       stripe_dashboard: { type: "none" },
       fees: { payer: "account" },
@@ -140,7 +161,7 @@ export async function createInAppAccount(providerId: string, actorUserId: string
     },
     capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
     metadata: { thinnr_provider_id: providerId },
-  }, { idempotencyKey: `account:v3:${providerId}:${currentBillingIdentity()!.mode}:${currentBillingIdentity()!.platformAccountId}:${claim.generation}` });
+  }, { idempotencyKey: `account:v4:${providerId}:${currentBillingIdentity()!.mode}:${currentBillingIdentity()!.platformAccountId}:${claim.generation}` });
   await connectGuard("attach",providerId,{p_token:claim.token,p_generation:claim.generation,p_version:claim.modeVersion,p_account:{
     provider_id: providerId, origin: "created", oauth_refresh_token: null, disconnected_at: null,
     tax_enabled: false, tax_last_checked_at: null, last_synced_at: nowIso(), livemode: !(await isSandbox()),

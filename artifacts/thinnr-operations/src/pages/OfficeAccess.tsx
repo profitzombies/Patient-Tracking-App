@@ -83,6 +83,14 @@ export function OfficeAccessCard({ access }: { access: OfficeAccessState | undef
           <dd className="mt-0.5 text-foreground">{day(access?.grace_ends_at ?? null)}</dd>
         </div>
       </dl>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3 text-xs" data-testid="office-access-methods">
+        <span className="text-muted-foreground">Charged to your bank account first, then your primary and backup cards.</span>
+        {access?.restricted ? null : (
+          <Link href="/payments/methods" className="font-semibold text-primary hover:underline" data-testid="link-payment-methods">
+            Manage payment methods
+          </Link>
+        )}
+      </div>
       {pay.isError && (
         <p role="alert" className="border-t border-border px-5 py-3 text-xs text-destructive" data-testid="text-pay-error">
           {pay.error instanceof Error ? pay.error.message : 'That payment could not be started.'}

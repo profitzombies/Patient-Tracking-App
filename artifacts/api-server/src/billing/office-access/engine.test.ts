@@ -20,6 +20,14 @@ const stripeState = vi.hoisted(() => ({
   outcomes: {} as Record<string, "succeeded" | "processing" | "decline">,
   methods: {} as Record<string, any>,
   setupIntents: {} as Record<string, any>,
+  /** Every customer create/update call, in order. */
+  customerCalls: [] as Array<{ op: "create" | "update"; id?: string; params: any }>,
+  detached: [] as string[],
+  methodUpdates: [] as Array<{ id: string; params: any }>,
+  cancelledSetups: [] as string[],
+}));
+const office = vi.hoisted(() => ({
+  row: null as null | Record<string, unknown>,
 }));
 
 vi.mock("../store", () => {
@@ -103,6 +111,7 @@ vi.mock("../../lib/admin-audit", () => ({
 /** The claim RPC, mirrored in JS; the SQL itself is proven in claim.sql.test.ts. */
 vi.mock("../../lib/supabase-admin", () => ({
   supabaseAdmin: async (_method: string, path: string, body: any) => {
+    if (path.startsWith("/rest/v1/providers?")) return { status: 200, json: office.row ? [office.row] : [] };
     if (!path.endsWith("/rpc/claim_office_access_charge")) return { status: 404, json: null };
     const attempts = (db.tables.billing_office_access_attempts ?? []).filter(
       (row) => row.subscription_id === body.p_subscription_id && row.period_start === body.p_period_start,
@@ -116,13 +125,43 @@ vi.mock("../../lib/supabase-admin", () => ({
   },
 }));
 
+const OFFICE_ID = "office-1";
 const stripe = {
-  customers: { create: async () => ({ id: `cus_${++stripeState.customers}` }) },
+  customers: {
+    create: async (params: any) => {
+      const id = `cus_${++stripeState.customers}`;
+      stripeState.customerCalls.push({ op: "create", id, params });
+      return { id, ...params };
+    },
+    update: async (id: string, params: any) => { stripeState.customerCalls.push({ op: "update", id, params }); return { id, ...params }; },
+    retrieve: async (id: string) => ({ id, metadata: { thinnr_provider_id: OFFICE_ID, thinnr_purpose: "office_access" }, invoice_settings: {} }),
+    listPaymentMethods: async (id: string) => ({
+      data: Object.values(stripeState.methods).filter((m: any) => m.customer === id),
+    }),
+  },
   paymentMethods: {
     retrieve: async (id: string) => stripeState.methods[id],
-    attach: async (id: string) => { stripeState.attached.push(id); return stripeState.methods[id]; },
+    attach: async (id: string, params: any) => {
+      stripeState.attached.push(id);
+      if (stripeState.methods[id]) stripeState.methods[id].customer = params.customer;
+      return stripeState.methods[id];
+    },
+    detach: async (id: string) => {
+      stripeState.detached.push(id);
+      if (stripeState.methods[id]) stripeState.methods[id].customer = null;
+      return stripeState.methods[id];
+    },
+    update: async (id: string, params: any) => {
+      stripeState.methodUpdates.push({ id, params });
+      const method = stripeState.methods[id];
+      if (method) method.billing_details = { ...(method.billing_details ?? {}), ...params.billing_details };
+      return method;
+    },
   },
-  setupIntents: { retrieve: async (id: string) => stripeState.setupIntents[id] },
+  setupIntents: {
+    retrieve: async (id: string) => stripeState.setupIntents[id],
+    cancel: async (id: string) => { stripeState.cancelledSetups.push(id); return { id, status: "canceled" }; },
+  },
   paymentIntents: {
     create: async (params: any) => {
       const outcome = stripeState.outcomes[params.payment_method] ?? "succeeded";
@@ -186,7 +225,12 @@ async function dueOffice(now: Date, options: { bankInstant?: boolean } = {}): Pr
 beforeEach(() => {
   db.tables = {}; db.seq = 0; db.audits = [];
   stripeState.intents = []; stripeState.customers = 0; stripeState.attached = [];
-  stripeState.outcomes = {}; stripeState.methods = {}; stripeState.setupIntents = {};
+  stripeState.outcomes = {}; stripeState.methods = {}; stripeState.setupIntents = {}; stripeState.cancelledSetups = [];
+  stripeState.customerCalls = []; stripeState.detached = []; stripeState.methodUpdates = [];
+  office.row = {
+    provider_id: OFFICE, provider_name: "Dr. Ada Lane", office_name: "Lane Aesthetics", email: "owner@lane.test",
+    phone: "(813) 555-0100", address_line_1: "1 Main St", address_line_2: null, city: "Tampa", state: "FL", postal_code: "33602",
+  };
   resetStripeEventHandlers();
   registerOfficeAccessWebhookHandlers();
 });
@@ -513,5 +557,295 @@ describe("HQ overrides", () => {
     expect(db.audits.map((event) => event.action)).toContain("office_access_offline_payment_recorded");
     const history = await accessHistory(OFFICE);
     expect(history.some((event) => event.event === "offline_payment" && event.actor_kind === "hq")).toBe(true);
+  });
+});
+
+describe("the office's identity in Stripe", () => {
+  it("creates the customer already named after the practice and its owner", async () => {
+    await setUpOffice();
+    const created = stripeState.customerCalls.filter((call) => call.op === "create");
+    expect(created).toHaveLength(1);
+    expect(created[0].params).toMatchObject({
+      name: "Lane Aesthetics",
+      business_name: "Lane Aesthetics",
+      individual_name: "Dr. Ada Lane",
+      email: "owner@lane.test",
+      phone: "(813) 555-0100",
+      address: { line1: "1 Main St", city: "Tampa", state: "FL", postal_code: "33602", country: "US" },
+      metadata: { thinnr_provider_id: OFFICE, thinnr_office_name: "Lane Aesthetics", thinnr_purpose: "office_access" },
+    });
+    expect(created[0].params.description).toContain("Lane Aesthetics");
+  });
+
+  it("puts the practice's name and email on a card saved without them, and remembers it", async () => {
+    await setUpOffice();
+    expect(stripeState.methods.pm_card1.billing_details).toMatchObject({ name: "Lane Aesthetics", email: "owner@lane.test" });
+    const primary = (await listAccessInstruments((await findAccessSubscription(OFFICE))!.id)).find((i) => i.slot === "card_primary")!;
+    expect(primary.billing_name).toBe("Lane Aesthetics");
+  });
+
+  it("keeps a name the office typed into the form", async () => {
+    stripeState.methods.pm_card1 = { ...card("pm_card1", "fp_a"), billing_details: { name: "Ada Lane", email: "ada@lane.test" } };
+    await attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card1" });
+    expect(stripeState.methodUpdates.filter((u) => u.id === "pm_card1")).toHaveLength(0);
+    expect(stripeState.methods.pm_card1.billing_details.name).toBe("Ada Lane");
+  });
+
+  it("makes the primary card Stripe's default for the customer", async () => {
+    await setUpOffice();
+    const defaults = stripeState.customerCalls.filter((call) => call.params.invoice_settings);
+    expect(defaults.at(-1)!.params.invoice_settings.default_payment_method).toBe("pm_card1");
+  });
+
+  it("refreshes the customer in every payment mode when the office's details change", async () => {
+    await setUpOffice();
+    const { syncOfficeStripeIdentity, __setSyncModesForTests } = await import("./customer-identity");
+    __setSyncModesForTests(() => [{ mode: "test", platformAccountId: "acct_test" }]);
+    office.row = { ...office.row!, office_name: "Lane Aesthetics & Wellness", phone: "(813) 555-0199" };
+    const outcomes = await syncOfficeStripeIdentity(OFFICE);
+    __setSyncModesForTests(null);
+    expect(outcomes).toEqual([{ mode: "test", updated: true }]);
+    const last = stripeState.customerCalls.at(-1)!;
+    expect(last).toMatchObject({ op: "update", id: "cus_1" });
+    expect(last.params).toMatchObject({
+      name: "Lane Aesthetics & Wellness", business_name: "Lane Aesthetics & Wellness", phone: "(813) 555-0199",
+      metadata: { thinnr_payment_mode: "test", thinnr_office_name: "Lane Aesthetics & Wellness" },
+      invoice_settings: { default_payment_method: "pm_card1" },
+    });
+  });
+
+  it("never throws from a details sync, even when the office cannot be read", async () => {
+    const { syncOfficeStripeIdentity, __setSyncModesForTests } = await import("./customer-identity");
+    __setSyncModesForTests(() => [{ mode: "test", platformAccountId: "acct_test" }]);
+    const outcomes = await syncOfficeStripeIdentity("no-such-office");
+    __setSyncModesForTests(null);
+    expect(outcomes).toEqual([{ mode: "test", updated: false }]);
+  });
+});
+
+describe("replacing a card or bank", () => {
+  it("detaches the replaced card, keeps its history, and leaves exactly three on file", async () => {
+    await setUpOffice();
+    stripeState.methods.pm_card3 = card("pm_card3", "fp_card_c", "5555");
+    await attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card3" });
+    expect(stripeState.detached).toEqual(["pm_card1"]);
+    const all = db.tables.billing_office_access_instruments;
+    const old = all.find((i: any) => i.stripe_payment_method_id === "pm_card1");
+    expect(old.removed_at).not.toBeNull();
+    expect(old.detached_at).not.toBeNull();
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    expect(live.map((i) => i.stripe_payment_method_id).sort()).toEqual(["pm_bank", "pm_card2", "pm_card3"]);
+    expect(stripeState.customerCalls.at(-1)!.params.invoice_settings.default_payment_method).toBe("pm_card3");
+    expect(db.tables.billing_office_access_events.map((e: any) => e.event)).toContain("instrument_replaced");
+  });
+
+  it("refuses to replace a card with the office's other card, and detaches the refused copy", async () => {
+    await setUpOffice();
+    stripeState.methods.pm_card2_again = { ...card("pm_card2_again", "fp_card_b", "1881"), customer: "cus_1" };
+    await expect(
+      attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card2_again" }),
+    ).rejects.toThrow(DUPLICATE_CARD_MESSAGE);
+    expect(stripeState.detached).toEqual(["pm_card2_again"]);
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    expect(live.find((i) => i.slot === "card_primary")!.stripe_payment_method_id).toBe("pm_card1");
+  });
+
+  it("refuses moving the backup card into the primary slot", async () => {
+    await setUpOffice();
+    await expect(
+      attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card2" }),
+    ).rejects.toThrow(DUPLICATE_CARD_MESSAGE);
+    expect(stripeState.detached).toEqual([]);
+  });
+
+  it("treats a retried save of the same card as a no-op", async () => {
+    await setUpOffice();
+    await attachAccessInstrument({ providerId: OFFICE, slot: "card_backup", paymentMethodId: "pm_card2" });
+    expect(stripeState.detached).toEqual([]);
+    expect(db.tables.billing_office_access_instruments).toHaveLength(3);
+  });
+
+  it("puts the old card back if saving its replacement fails, so the slot is never empty", async () => {
+    await setUpOffice();
+    stripeState.methods.pm_card3 = card("pm_card3", "fp_card_c", "5555");
+    const store = await import("../store");
+    const spy = vi.spyOn(store, "insert").mockRejectedValueOnce(new Error("database down"));
+    await expect(
+      attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card3" }),
+    ).rejects.toThrow("database down");
+    spy.mockRestore();
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    expect(live.find((i) => i.slot === "card_primary")!.stripe_payment_method_id).toBe("pm_card1");
+    expect(stripeState.detached).toEqual([]);
+  });
+
+  it("does not detach a card while a charge on its slot is still in flight; the job finishes it", async () => {
+    const now = new Date("2026-05-01T00:00:00.000Z");
+    await dueOffice(now);
+    const row = (await findAccessSubscription(OFFICE))!;
+    db.tables.billing_office_access_attempts = [{
+      id: "attempt-x", subscription_id: row.id, slot: "card_primary", status: "processing", cycle: 1,
+      period_start: now.toISOString(),
+    }];
+    stripeState.methods.pm_card3 = card("pm_card3", "fp_card_c", "5555");
+    await attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card3" });
+    expect(stripeState.detached).toEqual([]);
+    db.tables.billing_office_access_attempts[0].status = "succeeded";
+    const { maintainAccessInstruments } = await import("./instruments");
+    const kept = await maintainAccessInstruments(row);
+    expect(kept.detached).toBe(1);
+    expect(stripeState.detached).toEqual(["pm_card1"]);
+  });
+
+  it("charges the slot's current card when it was replaced after the waterfall was read", async () => {
+    const now = new Date("2026-05-01T00:00:00.000Z");
+    await dueOffice(now);
+    stripeState.outcomes = { pm_bank: "decline" };
+    stripeState.methods.pm_card3 = card("pm_card3", "fp_card_c", "5555");
+    const row = (await findAccessSubscription(OFFICE))!;
+    const original = stripe.paymentIntents.create;
+    let swapped = false;
+    stripe.paymentIntents.create = async (params: any) => {
+      // The replacement lands between the bank decline and the card attempt.
+      if (!swapped && params.payment_method === "pm_bank") {
+        swapped = true;
+        try { return await original(params); } finally {
+          await attachAccessInstrument({ providerId: OFFICE, slot: "card_primary", paymentMethodId: "pm_card3" });
+        }
+      }
+      return original(params);
+    };
+    try {
+      const outcome = await chargeAccessPeriod({ row, now });
+      expect(outcome.status).toBe("succeeded");
+    } finally {
+      stripe.paymentIntents.create = original;
+    }
+    expect(stripeState.intents.map((i) => i.params.payment_method)).toEqual(["pm_bank", "pm_card3"]);
+  });
+});
+
+describe("replacing a verified bank with one that needs test deposits", () => {
+  async function stageReplacement(): Promise<void> {
+    await setUpOffice({ bankInstant: true });
+    stripeState.methods.pm_bank2 = bank("pm_bank2");
+    const customer = (await findAccessSubscription(OFFICE))!.stripe_customer_id;
+    stripeState.setupIntents.seti_2 = { id: "seti_2", status: "requires_action", payment_method: "pm_bank2", customer };
+    stripeState.attached = [];
+    await attachAccessInstrument({ providerId: OFFICE, slot: "bank", paymentMethodId: "pm_bank2", setupIntentId: "seti_2" });
+  }
+
+  it("keeps the old bank in service and chargeable until the new one verifies", async () => {
+    await stageReplacement();
+    const row = (await findAccessSubscription(OFFICE))!;
+    const live = await listAccessInstruments(row.id);
+    expect(live.find((i) => i.slot === "bank")!.stripe_payment_method_id).toBe("pm_bank");
+    expect(stripeState.detached).toEqual([]);
+    // Stripe refuses to attach an unverified bank; its SetupIntent attaches it on verification.
+    expect(stripeState.attached).not.toContain("pm_bank2");
+    expect(stripeState.methodUpdates.map((u) => u.id)).not.toContain("pm_bank2");
+    const now = new Date("2030-05-01T00:00:00.000Z");
+    Object.assign(row, {
+      state: "included_period",
+      included_period_started_at: new Date(now.getTime() - 400 * DAY).toISOString(),
+      included_period_ends_at: new Date(now.getTime() - DAY).toISOString(),
+    });
+    const outcome = await chargeAccessPeriod({ row, now });
+    expect(outcome.status).toBe("succeeded");
+    expect(stripeState.intents[0].params.payment_method).toBe("pm_bank");
+  });
+
+  it("hands the slot over when the deposits verify, then detaches the old bank", async () => {
+    await stageReplacement();
+    await dispatchStripeEvent(
+      { type: "setup_intent.succeeded", data: { object: { id: "seti_2", payment_method: "pm_bank2" } } } as any, PLATFORM,
+    );
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    const bankRow = live.find((i) => i.slot === "bank")!;
+    expect(bankRow.stripe_payment_method_id).toBe("pm_bank2");
+    expect(bankRow.verification_status).toBe("verified");
+    expect(bankRow.staged_at).toBeNull();
+    expect(stripeState.detached).toEqual(["pm_bank"]);
+  });
+
+  it("drops the replacement and keeps the old bank when verification fails", async () => {
+    await stageReplacement();
+    await dispatchStripeEvent(
+      { type: "setup_intent.setup_failed", data: { object: { id: "seti_2", payment_method: "pm_bank2" } } } as any, PLATFORM,
+    );
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    const bankRow = live.find((i) => i.slot === "bank")!;
+    expect(bankRow.stripe_payment_method_id).toBe("pm_bank");
+    expect(bankRow.verification_status).toBe("verified");
+    expect(stripeState.detached).toEqual(["pm_bank2"]);
+    expect(stripeState.cancelledSetups).toEqual(["seti_2"]);
+  });
+
+  it("drops the replacement when its deposit window runs out", async () => {
+    await stageReplacement();
+    const { maintainAccessInstruments } = await import("./instruments");
+    const row = (await findAccessSubscription(OFFICE))!;
+    const kept = await maintainAccessInstruments(row, new Date(Date.now() + 49 * 3_600_000));
+    expect(kept.expired).toBe(1);
+    const live = await listAccessInstruments(row.id);
+    expect(live.find((i) => i.slot === "bank")!.stripe_payment_method_id).toBe("pm_bank");
+    expect(stripeState.detached).toEqual(["pm_bank2"]);
+    // A late confirmation cannot attach it after it was dropped.
+    expect(stripeState.cancelledSetups).toEqual(["seti_2"]);
+  });
+});
+
+describe("the one-time identity back-fill", () => {
+  const TEST = { mode: "test" as const, platformAccountId: "acct_test" };
+
+  async function legacyOffice(): Promise<void> {
+    // An office set up before customers carried a name, with one replaced
+    // card still attached and a card an abandoned form left behind.
+    await setUpOffice();
+    for (const method of Object.values(stripeState.methods) as any[]) method.billing_details = {};
+    for (const row of db.tables.billing_office_access_instruments) row.billing_name = null;
+    stripeState.methods.pm_old = { ...card("pm_old", "fp_old", "0005"), customer: "cus_1" };
+    db.tables.billing_office_access_instruments.push({
+      ...db.tables.billing_office_access_instruments[1], id: "instruments-old", stripe_payment_method_id: "pm_old",
+      removed_at: new Date(Date.now() - DAY).toISOString(), detached_at: null,
+    });
+    stripeState.methods.pm_stray = { ...card("pm_stray", "fp_stray", "0077"), customer: "cus_1", created: Math.floor((Date.now() - 2 * DAY) / 1000) };
+    stripeState.methods.pm_fresh = { ...card("pm_fresh", "fp_fresh", "0088"), customer: "cus_1", created: Math.floor(Date.now() / 1000) };
+    stripeState.customerCalls = []; stripeState.detached = []; stripeState.methodUpdates = [];
+  }
+
+  it("reports what it would change on a dry run and writes nothing", async () => {
+    await legacyOffice();
+    const { backfillAccessIdentity } = await import("./identity-backfill");
+    const { runWithBillingIdentity } = await import("../stripe-environment");
+    const report = await runWithBillingIdentity(TEST, () => backfillAccessIdentity({ apply: false }));
+    const [entry] = report.offices;
+    expect(entry.customerChanges).toEqual(expect.arrayContaining(["name", "business_name", "individual_name", "email", "address", "metadata", "default_payment_method"]));
+    expect(entry.methodNamesFilled).toBe(3);
+    expect(entry.replacedDetached).toBe(1);
+    expect(entry.untrackedDetached).toEqual(["pm_stray"]);
+    expect(stripeState.customerCalls).toEqual([]);
+    expect(stripeState.detached).toEqual([]);
+    expect(stripeState.methodUpdates).toEqual([]);
+    expect(db.tables.billing_office_access_instruments.every((row: any) => row.billing_name === null)).toBe(true);
+  });
+
+  it("names the customer, fills method names and leaves only the three in service when applied", async () => {
+    await legacyOffice();
+    const { backfillAccessIdentity } = await import("./identity-backfill");
+    const { runWithBillingIdentity } = await import("../stripe-environment");
+    await runWithBillingIdentity(TEST, () => backfillAccessIdentity({ apply: true }));
+    const update = stripeState.customerCalls.find((call) => call.op === "update")!;
+    expect(update.params).toMatchObject({
+      name: "Lane Aesthetics", individual_name: "Dr. Ada Lane",
+      metadata: { thinnr_payment_mode: "test", thinnr_provider_id: OFFICE },
+      invoice_settings: { default_payment_method: "pm_card1" },
+    });
+    expect(stripeState.detached.sort()).toEqual(["pm_old", "pm_stray"]);
+    const attached = Object.values(stripeState.methods).filter((m: any) => m.customer === "cus_1").map((m: any) => m.id).sort();
+    // The form opened moments ago is left alone.
+    expect(attached).toEqual(["pm_bank", "pm_card1", "pm_card2", "pm_fresh"]);
+    const live = await listAccessInstruments((await findAccessSubscription(OFFICE))!.id);
+    expect(live.every((row) => row.billing_name === "Lane Aesthetics")).toBe(true);
   });
 });

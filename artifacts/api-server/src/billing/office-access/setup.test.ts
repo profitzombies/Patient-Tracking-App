@@ -92,7 +92,7 @@ import { attachAccessInstrument } from "./instruments";
 import { findAccessSubscription } from "./subscription";
 import {
   AccessSetupError, accessGateFacts, accessGateSatisfied, accessSetupSnapshot,
-  acknowledgeAccessDisclosure, refreshBankVerification, selectAccessPlan,
+  acknowledgeAccessDisclosure, clearBankVerificationUrlCache, refreshBankVerification, selectAccessPlan,
 } from "./setup";
 
 const OFFICE = "office-1";
@@ -135,6 +135,7 @@ function snapshot(overrides: Partial<Parameters<typeof accessSetupSnapshot>[0]> 
 beforeEach(() => {
   db.tables = {}; db.seq = 0;
   stripeState.methods = {}; stripeState.setupIntents = {}; stripeState.customers = 0;
+  clearBankVerificationUrlCache();
 });
 
 describe("the gate verdict", () => {
@@ -232,6 +233,20 @@ describe("the setup snapshot", () => {
     expect(view.bank.deadline).not.toBeNull();
   });
 
+  it("asks Stripe for the microdeposit page once rather than on every setup click", async () => {
+    await addInstruments({ bankInstant: false });
+    stripeState.setupIntents.seti_bank = {
+      id: "seti_bank", status: "requires_action",
+      next_action: { verify_with_microdeposits: { hosted_verification_url: "https://stripe.test/verify" } },
+    };
+    const retrieve = vi.spyOn(stripe.setupIntents, "retrieve");
+    try {
+      expect((await snapshot()).bank.verificationUrl).toBe("https://stripe.test/verify");
+      expect((await snapshot()).bank.verificationUrl).toBe("https://stripe.test/verify");
+      expect(retrieve).toHaveBeenCalledTimes(1);
+    } finally { retrieve.mockRestore(); }
+  });
+
   it("records the verification once Stripe reports the SetupIntent succeeded", async () => {
     await addInstruments({ bankInstant: false });
     stripeState.setupIntents.seti_bank = { id: "seti_bank", status: "requires_action" };
@@ -249,6 +264,23 @@ describe("the setup snapshot", () => {
 });
 
 describe("plan and disclosure", () => {
+  it("answers a plan choice or acknowledgment with fresh state built from the written row", async () => {
+    await addInstruments();
+    const planned = await selectAccessPlan({ providerId: OFFICE, plan: "yearly", actor: ACTOR });
+    let view = await snapshot({ row: planned });
+    expect(view.plan.selected).toBe("yearly");
+    expect(view.steps.find((step) => step.id === "plan")?.status).toBe("done");
+    expect(view.complete).toBe(false);
+    const acknowledged = await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, actor: ACTOR });
+    view = await snapshot({ row: acknowledged });
+    expect(view.disclosure.acknowledgedAt).not.toBeNull();
+    expect(view.complete).toBe(true);
+    // Connect and sandbox may arrive still in flight; the snapshot waits for them.
+    view = await snapshot({ row: acknowledged, connect: Promise.resolve("not_started"), sandbox: Promise.resolve(false) });
+    expect(view).toMatchObject({ complete: false, connect: { state: "not_started", sandbox: false } });
+  });
+
+
   it("treats the plan as chosen only once the office actually chose it", async () => {
     const before = await accessGateFacts(OFFICE);
     // The column has always carried a default, so its value proves nothing.

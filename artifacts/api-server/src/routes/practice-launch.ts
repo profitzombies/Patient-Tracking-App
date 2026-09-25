@@ -20,6 +20,20 @@ async function rpc(name:string, body:Record<string,unknown>) {
   const result = await supabaseAdmin("POST", `/rest/v1/rpc/${name}`, body);
   if (result.status >= 300) throw new LaunchProductsError(result.json?.message ?? "Setup could not be saved.",result.json?.code === "40001" ? 409 : 400);
 }
+type LaunchRow = Awaited<ReturnType<typeof readLaunch>>;
+/**
+ * Setup is only complete when BOTH directions of money are arranged: the
+ * office can charge its patients (connected account) and THINNR can charge
+ * the office (bank account, two cards, plan, disclosure). An HQ waiver opens
+ * the workspace without pretending any of that is in place: every other field
+ * of the snapshot still reports what is actually missing.
+ */
+function launchCompletedAt(launch:LaunchRow, payments:ReturnType<typeof paymentLaunchState>, accessSatisfied:boolean, modeCompletion:string|undefined) {
+  return launch.setup_override_at ?? (paymentsLaunchSatisfied(payments) && accessSatisfied ? modeCompletion??null : null);
+}
+function overrideOf(launch:LaunchRow) {
+  return {active:Boolean(launch.setup_override_at),at:launch.setup_override_at??null,note:launch.setup_override_note??null};
+}
 async function snapshot(scope:OfficeScope) {
   const identity=currentBillingIdentity()!;
   const [launch,provider,account,products,receipts,policy,factor,modeCompletion,access] = await Promise.all([
@@ -46,14 +60,8 @@ async function snapshot(scope:OfficeScope) {
     billingScope:`${identity.mode}:${identity.platformAccountId}`,
     required:true,fullSetupRequired:launch.required,version:launch.version,detailsConfirmed:launch.details_confirmed,
     productsConfirmed:launch.products_confirmed&&receipts.json.length>0,
-    // Setup is only complete when BOTH directions of money are arranged: the
-    // office can charge its patients (connected account) and THINNR can charge
-    // the office (bank account, two cards, plan, disclosure). An HQ waiver
-    // opens the workspace without pretending any of that is in place: every
-    // other field below still reports what is actually missing.
-    completedAt:launch.setup_override_at
-      ?? (paymentsLaunchSatisfied(paymentLaunchState(account)) && access.satisfied ? modeCompletion??null : null),
-    setupOverride:{active:Boolean(launch.setup_override_at),at:launch.setup_override_at??null,note:launch.setup_override_note??null},
+    completedAt:launchCompletedAt(launch,paymentLaunchState(account),access.satisfied,modeCompletion),
+    setupOverride:overrideOf(launch),
     accessSetup:{
       complete:access.satisfied,
       missing:access.status.missing,
@@ -128,7 +136,11 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
     if (kind==="complete") {
       const input=z.object({expectedVersion:Version}).parse(req.body);
       const account=await selectOne("billing_connected_accounts",`provider_id=eq.${enc(scope.providerId)}`);
-      if (account) await syncAccount(scope.providerId);
+      // Only an account that does not yet satisfy setup is re-read from
+      // Stripe (its webhook may simply not have landed). One that already
+      // satisfies it cannot become more ready, and the completion RPC re-checks
+      // the stored account itself, so the click is spared a Stripe round-trip.
+      if (account && !paymentsLaunchSatisfied(paymentLaunchState(account))) await syncAccount(scope.providerId);
       const state=await settled(scope,req);
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
        if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
@@ -138,6 +150,13 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
          : "Add your bank account, both credit cards, a billing plan and accept the access terms before finishing setup.");
       const identity=currentBillingIdentity()!;
       await rpc("complete_practice_launch",{p_provider_id:scope.providerId,p_expected_version:input.expectedVersion,p_stripe_mode:identity.mode,p_platform_account_id:identity.platformAccountId});
+      // Completing changes only the launch row and this mode's completion, so
+      // re-read just those instead of rebuilding the whole snapshot.
+      const [launch,modeCompletion]=await Promise.all([readLaunch(scope.providerId),readModeCompletion(scope.providerId,identity)]);
+      res.json({...state,version:launch.version,
+        completedAt:launchCompletedAt(launch,state.payments.state,state.accessSetup.complete,modeCompletion),
+        setupOverride:overrideOf(launch)});
+      return;
     }
     if (kind==="regate") {
       const input=z.object({expectedVersion:Version}).strict().parse(req.body);

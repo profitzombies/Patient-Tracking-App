@@ -126,7 +126,8 @@ describe("practice launch HTTP boundary",()=>{
  it("allows ready accounts to submit in the pinned mode",async()=>{
    m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
-   expect(m.sync).toHaveBeenCalledWith("office-a");
+   // Already ready: nothing Stripe says can make it more ready, so no sync.
+   expect(m.sync).not.toHaveBeenCalled();
    expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/complete_practice_launch",{p_provider_id:"office-a",p_expected_version:2,p_stripe_mode:"test",p_platform_account_id:"acct_test"});
  });
  it("requires legacy offices to confirm Stripe but not details or products",async()=>{
@@ -215,5 +216,44 @@ describe("practice launch HTTP boundary",()=>{
    const res=await call("GET");
    expect(res.status).toBe(200);
    expect(await res.json()).toMatchObject({productsConfirmed:false});
+ });
+ it("re-reads Stripe only for an account that does not yet satisfy setup, then lets it finish",async()=>{
+   const due={details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}};
+   const ready={details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}};
+   // The stored row is behind; the sync brings it up to date.
+   m.account.mockResolvedValueOnce(due).mockResolvedValue(ready);
+   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
+   expect(m.sync).toHaveBeenCalledWith("office-a");
+   expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete_practice_launch"))).toBe(true);
+ });
+ it("answers a completed setup with fresh state from one snapshot",async()=>{
+   m.launch.mockResolvedValueOnce({required:true,version:2,details_confirmed:true,products_confirmed:true,completed_at:null})
+     .mockResolvedValue({required:true,version:3,details_confirmed:true,products_confirmed:true,completed_at:"2026-09-25T12:00:00Z"});
+   m.completion.mockResolvedValueOnce(undefined).mockResolvedValue("2026-09-25T12:00:00Z");
+   const res=await call("POST","/complete",{expectedVersion:2});
+   expect(res.status).toBe(200);
+   expect(await res.json()).toMatchObject({version:3,completedAt:"2026-09-25T12:00:00Z",productsConfirmed:true,accessSetup:{complete:true}});
+   // The rest of the snapshot is not rebuilt after the write.
+   expect(m.access).toHaveBeenCalledTimes(1);
+   expect(m.products).toHaveBeenCalledTimes(1);
+   expect(m.policy).toHaveBeenCalledTimes(1);
+ });
+ it("still refuses to finish while the office's own payment setup is incomplete",async()=>{
+   m.access.mockResolvedValue({satisfied:false,planSelected:true,disclosureAcknowledged:false,status:{missing:["card_backup"],bankVerificationPending:false,bankVerificationDeadline:null,bankVerificationOverdue:false}});
+   const res=await call("POST","/complete",{expectedVersion:2});
+   expect(res.status).toBe(400);
+   expect((await res.json() as {error:string}).error).toMatch(/both credit cards/);
+   m.access.mockResolvedValue({satisfied:false,planSelected:true,disclosureAcknowledged:true,status:{missing:[],bankVerificationPending:true,bankVerificationDeadline:"2026-09-20T00:00:00Z",bankVerificationOverdue:true}});
+   expect((await (await call("POST","/complete",{expectedVersion:2})).json() as {error:string}).error).toMatch(/not verified in time/);
+   expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
+ });
+ it("still refuses a stale version at completion",async()=>{
+   m.admin.mockImplementation(async(_method:string,path:string)=>{
+     if(path.includes("/rpc/complete_practice_launch")) return {status:409,json:{code:"40001",message:"Stale version"}};
+     if(path.includes("practice_launch_product_receipts")) return {status:200,json:[{expected_version:1}]};
+     if(path.includes("/providers?")) return {status:200,json:[{office_name:"A",provider_name:"Owner",email:"owner@example.com"}]};
+     return {status:200,json:[]};
+   });
+   expect((await call("POST","/complete",{expectedVersion:1})).status).toBe(409);
  });
 });

@@ -78,7 +78,7 @@ afterAll(() => server.close());
 beforeEach(() => {
   vi.clearAllMocks();
   m.scope.mockResolvedValue({ kind: "ok", scope: owner });
-  m.snapshot.mockImplementation(async (input: any) => ({ complete: false, canManage: input.canManage, canChoosePlan: input.canChoosePlan, connect: { state: input.connect, sandbox: input.sandbox } }));
+  m.snapshot.mockImplementation(async (input: any) => ({ complete: false, canManage: input.canManage, canChoosePlan: input.canChoosePlan, connect: { state: await input.connect, sandbox: await input.sandbox }, row: input.row ?? null }));
   m.attach.mockResolvedValue({ slot: "card_backup" });
   m.plan.mockResolvedValue({});
   m.disclosure.mockResolvedValue({});
@@ -126,6 +126,24 @@ describe("office access setup boundary", () => {
     expect((await call("POST", "/disclosure", { version: 4 })).status).toBe(200);
     expect(m.plan).toHaveBeenCalledWith(expect.objectContaining({ plan: "yearly", actor: expect.objectContaining({ kind: "provider", userId: "owner-a" }) }));
     expect(m.disclosure).toHaveBeenCalledWith(expect.objectContaining({ version: 4 }));
+  });
+
+  it("answers a plan choice and an acknowledgment with the new setup, built from the written row", async () => {
+    m.plan.mockResolvedValue({ id: "sub-1", plan: "yearly", plan_selected_at: "2026-09-25T00:00:00Z" });
+    const planned = await (await call("POST", "/plan", { plan: "yearly" })).json();
+    expect(planned).toMatchObject({ connect: { state: "ready", sandbox: true }, row: { plan: "yearly" } });
+    m.disclosure.mockResolvedValue({ id: "sub-1", disclosure_acknowledged_at: "2026-09-25T00:00:00Z" });
+    const acknowledged = await (await call("POST", "/disclosure", { version: 4 })).json();
+    expect(acknowledged).toMatchObject({ row: { disclosure_acknowledged_at: "2026-09-25T00:00:00Z" } });
+    // One snapshot per write: no follow-up read is needed to see the change.
+    expect(m.snapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not build a snapshot when the write itself fails", async () => {
+    m.plan.mockRejectedValue(new m.errors("Contact THINNR support to change your billing plan.", 409, "plan_locked"));
+    const res = await call("POST", "/plan", { plan: "monthly" });
+    expect(res.status).toBe(409);
+    expect(m.snapshot).not.toHaveBeenCalled();
   });
 
   it("lets HQ review an office's setup but never act on it", async () => {

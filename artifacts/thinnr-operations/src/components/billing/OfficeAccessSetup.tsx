@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Check } from 'lucide-react';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { type Stripe } from '@stripe/stripe-js';
 import { loadBrandedStripe } from '@/lib/stripe-branding';
@@ -9,6 +10,8 @@ import { BTN_PRIMARY, BTN_SECONDARY, PANEL_LABEL, SectionCard } from '@/componen
 import { BillingApiError } from '@/lib/billing-api';
 import type { OfficeAccessInstrument, OfficeAccessSlot, OfficeAccessSnapshot } from '@/lib/billing-types';
 import { useOfficeAccessSetup, useOfficeAccessMutations } from '@/hooks/use-office-access';
+import { BusyLabel } from '@/components/ui/busy-label';
+import { setupSectionId } from '@/lib/setup-checklist';
 
 const STEP_LABELS: Record<string, string> = {
   connect: 'Stripe connection', bank: 'Bank account', card_primary: 'First card',
@@ -56,32 +59,38 @@ export function OfficeAccessContent({ snapshot, refresh, management = false }: {
     <InstrumentCard title={management ? 'Primary card' : 'First card'} slot="card_primary" item={instrument('card_primary')} snapshot={snapshot} refresh={refresh} />
     <InstrumentCard title={management ? 'Backup card' : 'Second card'} slot="card_backup" item={instrument('card_backup')} snapshot={snapshot} refresh={refresh} />
 
-    {!management && <SectionCard title={`Plan · ${snapshot.plan.selected ? 'Done' : 'To do'}`} sub={`Choose what happens after the ${snapshot.plan.includedPeriodDays}-day included period ends.`}>
+    {!management && <div id={setupSectionId('plan')} className="scroll-mt-6"><SectionCard title={`Plan · ${snapshot.plan.selected ? 'Done' : 'To do'}`} sub={`Choose what happens after the ${snapshot.plan.includedPeriodDays}-day included period ends.`}>
       <div className="space-y-4 p-5 text-sm">
         <div className="grid gap-3 sm:grid-cols-2">
+          {/* The choice shows the moment it is clicked; a refused save puts the old one back. */}
           {(['monthly', 'yearly'] as const).map((plan) => <button key={plan} type="button" disabled={!snapshot.canChoosePlan || writes.plan.isPending}
-            onClick={() => writes.plan.mutate(plan)}
+            aria-pressed={snapshot.plan.selected === plan} data-testid={`access-plan-${plan}`}
+            onClick={() => writes.choosePlan(plan)}
             className={`rounded-md border p-4 text-left ${snapshot.plan.selected === plan ? 'border-primary bg-accent' : 'border-border bg-card'}`}>
-            <b className="capitalize">{plan}</b><span className="block">{money(plan === 'monthly' ? snapshot.plan.monthlyPriceCents : snapshot.plan.yearlyPriceCents)} after the included period</span>
+            <b className="capitalize"><BusyLabel busy={writes.plan.isPending && writes.plan.variables === plan} label={plan} /></b><span className="block">{money(plan === 'monthly' ? snapshot.plan.monthlyPriceCents : snapshot.plan.yearlyPriceCents)} after the included period</span>
           </button>)}
         </div>
         {snapshot.plan.firstChargeAt && <p>First charge: <strong>{date(snapshot.plan.firstChargeAt)}</strong>. Your office price is {money(snapshot.plan.priceCents)}.</p>}
         {!snapshot.canChoosePlan && <p className="text-muted-foreground">Only the practice owner may choose the plan. You can review the current selection.</p>}
-        {writes.plan.isError && <InlineError error={writes.plan.error} retry={refresh} />}
+        {writes.plan.isError && <InlineError prefix="Your plan choice was not saved." error={writes.plan.error} retry={refresh} />}
       </div>
-    </SectionCard>}
+    </SectionCard></div>}
 
-    {!management && <SectionCard title={`Disclosure · ${snapshot.disclosure.acknowledgedAt ? 'Done' : 'To do'}`}>
+    {!management && <div id={setupSectionId('disclosure')} className="scroll-mt-6"><SectionCard title={`Disclosure · ${snapshot.disclosure.acknowledgedAt ? 'Done' : 'To do'}`}>
       <div className="space-y-4 p-5 text-sm"><p className="whitespace-pre-wrap">{snapshot.disclosure.text}</p>
-        {snapshot.disclosure.acknowledgedAt ? <p>Acknowledged {date(snapshot.disclosure.acknowledgedAt)}.</p>
-          : snapshot.canChoosePlan ? <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={writes.disclosure.isPending} onClick={() => writes.disclosure.mutate(snapshot.disclosure.version)}>Acknowledge disclosure</button>
+        {snapshot.disclosure.acknowledgedAt
+          ? <p className="flex flex-wrap items-center gap-2 font-semibold text-emerald-700" data-testid="access-disclosure-acknowledged">
+            <Check size={16} aria-hidden="true" />Acknowledged {date(snapshot.disclosure.acknowledgedAt)}.
+            {writes.disclosure.isPending && <span className="font-normal text-muted-foreground"><BusyLabel busy label="" busyLabel="Saving…" /></span>}
+          </p>
+          : snapshot.canChoosePlan ? <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={writes.disclosure.isPending} onClick={() => writes.acknowledge(snapshot.disclosure.version)}>Acknowledge disclosure</button>
             : <p className="text-muted-foreground">Only the practice owner may acknowledge this disclosure.</p>}
-        {writes.disclosure.isError && <InlineError error={writes.disclosure.error} retry={refresh} />}
+        {writes.disclosure.isError && <InlineError prefix="Your acceptance was not saved." error={writes.disclosure.error} retry={refresh} />}
       </div>
-    </SectionCard>}
+    </SectionCard></div>}
 
     {snapshot.balance.outstanding && <SectionCard title="Outstanding balance" sub={`${money(snapshot.balance.amountCents)} is due.`}>
-      <div className="space-y-3 p-5"><button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!snapshot.canManage || writes.pay.isPending} onClick={() => writes.pay.mutate()}>{writes.pay.isPending ? 'Paying…' : `Pay ${money(snapshot.balance.amountCents)}`}</button>
+      <div className="space-y-3 p-5"><button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!snapshot.canManage || writes.pay.isPending} onClick={() => writes.payBalance()}><BusyLabel busy={writes.pay.isPending} busyLabel="Paying…" label={`Pay ${money(snapshot.balance.amountCents)}`} /></button>
         {writes.pay.isError && <InlineError error={writes.pay.error} retry={refresh} />}</div>
     </SectionCard>}
   </div>;
@@ -98,15 +107,19 @@ function InstrumentCard({ title, slot, item, snapshot, refresh }: {
   const writes = useOfficeAccessMutations();
   const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; stripe: Promise<Stripe | null> } | null>(null);
   const [error, setError] = useState('');
+  const opening = useRef(false);
   const start = async () => {
+    if (opening.current) return;
+    opening.current = true;
     setError('');
     try {
       const result = await writes.setupIntent.mutateAsync(slot);
       setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadBrandedStripe(result.publishableKey) });
     } catch (failure) { setError(readable(failure)); }
+    finally { opening.current = false; }
   };
   const pendingBank = slot === 'bank' && snapshot.bank.verificationPending;
-  return <SectionCard title={`${title} · ${snapshot.steps.find((s) => s.id === slot)?.status ?? (item ? 'done' : 'todo')}`}>
+  return <div id={setupSectionId(slot)} className="scroll-mt-6"><SectionCard title={`${title} · ${snapshot.steps.find((s) => s.id === slot)?.status ?? (item ? 'done' : 'todo')}`}>
     <div className="space-y-4 p-5 text-sm">
       {item && <InstrumentDetail item={item} />}
       {slot === 'bank' && snapshot.bank.overdue && <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-destructive"><b>Bank verification is overdue.</b><p>This step is blocked until the bank is verified or replaced.</p></div>}
@@ -114,17 +127,17 @@ function InstrumentCard({ title, slot, item, snapshot, refresh }: {
         <b>Bank verification is pending</b>
         <p>You may keep using the dashboard for {snapshot.bank.windowHours} hours{snapshot.bank.deadline ? `, through ${date(snapshot.bank.deadline)}` : ''}.</p>
         {snapshot.bank.verificationUrl && <a className="font-semibold text-primary underline" href={snapshot.bank.verificationUrl} target="_blank" rel="noreferrer">Enter microdeposit amounts securely in Stripe</a>}
-        <button className={`${BTN_SECONDARY} ml-3 h-9 px-3`} disabled={writes.bankVerify.isPending} onClick={() => writes.bankVerify.mutate()}>I have entered the amounts</button>
+        <button className={`${BTN_SECONDARY} ml-3 h-9 px-3`} disabled={writes.bankVerify.isPending} onClick={() => writes.verifyBank()}><BusyLabel busy={writes.bankVerify.isPending} busyLabel="Checking…" label="I have entered the amounts" /></button>
         {writes.bankVerify.isError && <InlineError error={writes.bankVerify.error} retry={refresh} />}
       </div>}
       {!snapshot.canManage ? <p className="text-muted-foreground">This payment method is read-only for your account.</p>
-        : !intent ? <button className={`${item ? BTN_SECONDARY : BTN_PRIMARY} h-10 px-4`} onClick={() => void start()} disabled={writes.setupIntent.isPending}>{item ? `Replace ${title.toLowerCase()}` : `Add ${title.toLowerCase()}`}</button>
+        : !intent ? <button className={`${item ? BTN_SECONDARY : BTN_PRIMARY} h-10 px-4`} onClick={() => void start()} disabled={writes.setupIntent.isPending}><BusyLabel busy={writes.setupIntent.isPending} busyLabel="Opening secure form…" label={item ? `Replace ${title.toLowerCase()}` : `Add ${title.toLowerCase()}`} /></button>
           : <Elements stripe={intent.stripe} options={{ clientSecret: intent.clientSecret }}>
-            <PaymentMethodForm slot={slot} setupIntentId={intent.setupIntentId} onDone={() => { setIntent(null); refresh(); }} onCancel={() => setIntent(null)} />
+            <PaymentMethodForm slot={slot} setupIntentId={intent.setupIntentId} onDone={() => setIntent(null)} onCancel={() => setIntent(null)} />
           </Elements>}
       {error && <p role="alert" className="text-destructive">{error} <button className="underline" onClick={() => void start()}>Try again</button></p>}
     </div>
-  </SectionCard>;
+  </SectionCard></div>;
 }
 
 export function PaymentMethodForm({ slot, setupIntentId, onDone, onCancel }: { slot: OfficeAccessSlot; setupIntentId: string; onDone: () => void; onCancel: () => void }) {
@@ -132,8 +145,14 @@ export function PaymentMethodForm({ slot, setupIntentId, onDone, onCancel }: { s
   const elements = useElements();
   const writes = useOfficeAccessMutations();
   const [error, setError] = useState('');
+  // Busy from the click (Stripe's confirmation included), not only while our
+  // own save runs, and a second press is dropped rather than confirming twice.
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const submit = async () => {
-    if (!stripe || !elements) return;
+    if (!stripe || !elements || lock.current) return;
+    lock.current = true;
+    setBusy(true);
     setError('');
     try {
       const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
@@ -147,12 +166,15 @@ export function PaymentMethodForm({ slot, setupIntentId, onDone, onCancel }: { s
       setError(failure instanceof BillingApiError && failure.code === 'duplicate_card'
         ? 'This is the same card as the first card. Add a different card for backup.'
         : readable(failure));
+    } finally {
+      lock.current = false;
+      setBusy(false);
     }
   };
   return <div className="space-y-3 rounded-md border border-border p-4"><PaymentElement />
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    <div className="flex gap-3"><button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!stripe || writes.instrument.isPending} onClick={() => void submit()}>{writes.instrument.isPending ? 'Saving…' : 'Save payment method'}</button>
-      <button className={`${BTN_SECONDARY} h-10 px-4`} onClick={onCancel}>Cancel and restart</button></div>
+    <div className="flex gap-3"><button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!stripe || busy} onClick={() => void submit()}><BusyLabel busy={busy} label="Save payment method" /></button>
+      <button className={`${BTN_SECONDARY} h-10 px-4`} disabled={busy} onClick={onCancel}>Cancel and restart</button></div>
   </div>;
 }
 
@@ -164,6 +186,6 @@ function InstrumentDetail({ item }: { item: OfficeAccessInstrument }) {
   </div>;
 }
 function readable(error: unknown) { return error instanceof Error ? error.message : 'The request could not be completed. Try again.'; }
-function InlineError({ error, retry }: { error: unknown; retry: () => void }) {
-  return <p role="alert" className="text-sm text-destructive">{readable(error)} <button className="underline" onClick={retry}>Refresh and try again</button></p>;
+function InlineError({ error, retry, prefix }: { error: unknown; retry: () => void; prefix?: string }) {
+  return <p role="alert" className="text-sm text-destructive">{prefix ? `${prefix} ` : ''}{readable(error)} <button className="underline" onClick={retry}>Refresh and try again</button></p>;
 }

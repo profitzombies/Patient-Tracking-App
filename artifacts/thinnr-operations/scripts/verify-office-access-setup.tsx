@@ -7,7 +7,7 @@ import { memoryLocation } from 'wouter/memory-location';
 import { __setSession as setToken } from './invite-stubs/supabase';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession } from './a11y-stubs/session';
-import { OfficeAccessContent, PaymentMethodForm } from '../src/components/billing/OfficeAccessSetup';
+import { OfficeAccessContent, OfficeAccessSetup, PaymentMethodForm } from '../src/components/billing/OfficeAccessSetup';
 import { launchRecoveryPath } from '../src/pages/PracticeLaunch';
 import type { OfficeAccessSnapshot } from '../src/lib/billing-types';
 
@@ -15,6 +15,12 @@ import type { OfficeAccessSnapshot } from '../src/lib/billing-types';
 setToken('fixture');
 __setScope(null);
 let duplicate = false;
+// Writes to plan/disclosure/pay can be held open (to see the working state)
+// and refused (to see the rollback).
+let served: OfficeAccessSnapshot | null = null;
+let held: Promise<void> | null = null;
+let refuse = false;
+const hold = () => { let release!: () => void; held = new Promise<void>((resolve) => { release = resolve; }); return () => { held = null; release(); }; };
 const calls: Array<{ url: string; method: string; scope: string | null }> = [];
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 globalThis.fetch = async (input, init) => {
@@ -23,6 +29,15 @@ globalThis.fetch = async (input, init) => {
   if (url.includes('/api/office/launch')) return json({ billingScope: 'scope-fixture' });
   if (url.includes('/billing/office/status')) return json({ account: null, oauth_available: true });
   if (url.includes('/billing/office/connect/create')) return json({ account: { stripe_account_id: 'acct_new' } }, 201);
+  if (served && /\/access\/(plan|disclosure|pay)/.test(url)) {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (held) await held;
+    if (refuse) return json({ error: 'Another session changed setup' }, 409);
+    if (url.includes('/access/plan')) served = { ...served, plan: { ...served.plan, selected: body.plan } };
+    if (url.includes('/access/disclosure')) served = { ...served, disclosure: { ...served.disclosure, acknowledgedAt: '2026-01-05T00:00:00Z' } };
+    return json(served);
+  }
+  if (served && url.includes('/billing/office/access')) return json(served);
   return duplicate ? json({ error: 'Duplicate card', code: 'duplicate_card' }, 409) : json(base);
 };
 const base: OfficeAccessSnapshot = {
@@ -41,6 +56,8 @@ const base: OfficeAccessSnapshot = {
   canManage: true, canChoosePlan: false,
 };
 const text = (node: any): string => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join(' ') : node?.children ? text(node.children) : '';
+// A button's visible wording, read from the rendered tree (labels sit inside BusyLabel).
+const label = (button: any) => text(button.children).replace(/\s+/g, ' ').trim();
 const render = async (child: React.ReactNode) => {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } });
   let root!: ReactTestRenderer;
@@ -83,15 +100,81 @@ assert.match(text(result.root.toJSON()), /Bank verification is overdue/);
 await act(async () => result.root.unmount()); result.client.clear();
 
 result = await render(<OfficeAccessContent snapshot={base} refresh={() => {}} management />);
-const replace = result.root.root.findAllByType('button').find((button) => text(button.props.children) === 'Replace primary card');
+const replace = result.root.root.findAllByType('button').find((button) => label(button) === 'Replace primary card');
 assert.ok(replace, 'non-owner staff can replace a card when canManage is true');
 await act(async () => result.root.unmount()); result.client.clear();
 
 duplicate = true;
 result = await render(<PaymentMethodForm slot="card_backup" setupIntentId="seti_1" onDone={() => {}} onCancel={() => {}} />);
-const save = result.root.root.findAllByType('button').find((button) => text(button.props.children) === 'Save payment method')!;
+const save = result.root.root.findAllByType('button').find((button) => label(button) === 'Save payment method')!;
 await act(async () => { save.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 10)); });
 assert.match(text(result.root.toJSON()), /same card as the first card/i);
 await act(async () => result.root.unmount()); result.client.clear();
 
-console.log('Office access: absolute gate, first-run Stripe connect choice, duplicate card, bank window/overdue, real plan terms, and staff card management passed.');
+// ---- Instant feedback: working states, optimistic plan and terms, rollback ----
+duplicate = false;
+__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'owner-1' }, staffSession: { staffKind: 'provider' } });
+const byTestId = (root: ReactTestRenderer, id: string) => root.root.findAll((node) => typeof node.type === 'string' && node.props['data-testid'] === id)[0];
+const posts = (path: string) => calls.filter((call) => call.method === 'POST' && call.url.includes(path)).length;
+const tick = (ms = 20) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+const busyIn = (node: any) => node.findAll((child: any) => typeof child.type === 'string' && child.props['data-busy'] === 'true').length > 0;
+served = { ...base, canChoosePlan: true };
+result = await render(<OfficeAccessSetup />);
+await tick();
+assert.equal(byTestId(result.root, 'access-plan-yearly').props['aria-pressed'], false, 'no plan chosen yet');
+
+// Refused plan: highlighted at once, working state, one request, then rolled back with a reason beside the plan.
+let release = hold();
+refuse = true;
+await act(async () => { byTestId(result.root, 'access-plan-yearly').props.onClick(); byTestId(result.root, 'access-plan-yearly').props.onClick(); });
+await tick(5);
+assert.equal(byTestId(result.root, 'access-plan-yearly').props['aria-pressed'], true, 'the choice shows the moment it is clicked');
+assert.ok(busyIn(byTestId(result.root, 'access-plan-yearly')), 'the chosen plan shows its working state');
+assert.equal(byTestId(result.root, 'access-plan-monthly').props.disabled, true, 'no second choice while one is saving');
+assert.match(text(result.root.toJSON()), /office price is\s+\$2,345\.60/, 'the office price follows the new plan at once');
+assert.equal(posts('/access/plan'), 1, 'a double click sends one request');
+await act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+assert.equal(byTestId(result.root, 'access-plan-yearly').props['aria-pressed'], false, 'a refused plan goes back');
+assert.match(text(result.root.toJSON()), /Your plan choice was not saved/);
+
+// Accepted plan stays chosen.
+refuse = false;
+await act(async () => { byTestId(result.root, 'access-plan-monthly').props.onClick(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+assert.equal(byTestId(result.root, 'access-plan-monthly').props['aria-pressed'], true, 'a saved plan stays chosen');
+assert.doesNotMatch(text(result.root.toJSON()), /Your plan choice was not saved/, 'the old failure clears on the next save');
+
+// Terms: "Acknowledged" with a check at once; a refusal puts the button back with a reason.
+const acknowledgeButton = () => result.root.root.findAllByType('button').find((button) => text(button.props.children) === 'Acknowledge disclosure');
+release = hold();
+refuse = true;
+await act(async () => { acknowledgeButton()!.props.onClick(); });
+await tick(5);
+assert.ok(byTestId(result.root, 'access-disclosure-acknowledged'), 'acknowledged shows the moment it is clicked');
+assert.match(text(byTestId(result.root, 'access-disclosure-acknowledged')), /Saving…/);
+await act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+assert.equal(byTestId(result.root, 'access-disclosure-acknowledged'), undefined, 'a refused acknowledgment goes back');
+assert.ok(acknowledgeButton(), 'the office can try again');
+assert.match(text(result.root.toJSON()), /Your acceptance was not saved/);
+refuse = false;
+await act(async () => { acknowledgeButton()!.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+assert.ok(byTestId(result.root, 'access-disclosure-acknowledged'), 'a saved acknowledgment stays');
+assert.doesNotMatch(text(byTestId(result.root, 'access-disclosure-acknowledged')), /Saving…/);
+await act(async () => result.root.unmount()); result.client.clear();
+
+// Paying a balance: working state and a single charge request.
+served = { ...base, balance: { state: 'grace', outstanding: true, amountCents: 23456, graceEndsAt: '2026-02-10T00:00:00Z' } as OfficeAccessSnapshot['balance'] };
+result = await render(<OfficeAccessSetup management />);
+await tick();
+const payButton = () => result.root.root.findAllByType('button').find((button) => /Pay|Paying/.test(label(button)))!;
+release = hold();
+await act(async () => { payButton().props.onClick(); payButton().props.onClick(); });
+await tick(5);
+assert.ok(busyIn(payButton()) && /Paying…/.test(label(payButton())), 'paying shows its working state');
+assert.equal(payButton().props.disabled, true);
+assert.equal(posts('/access/pay'), 1, 'a double click charges once');
+await act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+await act(async () => result.root.unmount()); result.client.clear();
+served = null;
+__setSession({ authStatus: 'signed-out', authRole: null, authUser: null, staffSession: null });
+
+console.log('Office access: instant plan/terms feedback with rollback, single-press working states, absolute gate, first-run Stripe connect choice, duplicate card, bank window/overdue, real plan terms, and staff card management passed.');

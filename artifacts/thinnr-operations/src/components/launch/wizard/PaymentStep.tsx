@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { CardCvcElement, CardExpiryElement, CardNumberElement, Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import type { Stripe } from '@stripe/stripe-js';
 import { CreditCard, Landmark, ShieldCheck } from 'lucide-react';
@@ -6,6 +6,7 @@ import { BTN_PRIMARY, BTN_SECONDARY, LINK_ACTION } from '@/components/patient/he
 import { useOfficeAccessMutations } from '@/hooks/use-office-access';
 import { BillingApiError } from '@/lib/billing-api';
 import type { OfficeAccessInstrument, OfficeAccessSlot, OfficeAccessSnapshot } from '@/lib/billing-types';
+import { BusyLabel } from '@/components/ui/busy-label';
 import { THINNR_CARD_STYLE, THINNR_ELEMENTS_APPEARANCE, THINNR_ELEMENTS_FONTS, loadBrandedStripe } from '@/lib/stripe-branding';
 import { firstCharge, instrumentFor, longDate, paymentDetailsDone } from './steps';
 import { DoneMark, InlineError, StepFrame, WizardFooter, readable } from './ui';
@@ -64,12 +65,16 @@ function SlotSection({ slot, icon, title, sub, access, canManage }: {
   const item = instrumentFor(access, slot);
   const [intent, setIntent] = useState<{ clientSecret: string; setupIntentId: string; stripe: Promise<Stripe | null> } | null>(null);
   const [error, setError] = useState('');
+  const opening = useRef(false);
   const start = async () => {
+    if (opening.current) return;
+    opening.current = true;
     setError('');
     try {
       const result = await writes.setupIntent.mutateAsync(slot);
       setIntent({ clientSecret: result.clientSecret, setupIntentId: result.setupIntentId, stripe: loadBrandedStripe(result.publishableKey) });
     } catch (failure) { setError(readable(failure, 'Stripe could not be opened. Try again.')); }
+    finally { opening.current = false; }
   };
   const finish = () => { setIntent(null); };
   const ready = item && !(slot === 'bank' && access.bank.overdue);
@@ -90,7 +95,8 @@ function SlotSection({ slot, icon, title, sub, access, canManage }: {
         </Elements>
       : canManage && <button type="button" className={`${item ? BTN_SECONDARY : BTN_PRIMARY} h-10 px-4 text-sm`} data-testid={`wizard-add-${slot}`}
         disabled={writes.setupIntent.isPending} onClick={() => void start()}>
-        {writes.setupIntent.isPending && writes.setupIntent.variables === slot ? 'Opening secure form…' : item ? `Replace ${title.toLowerCase()}` : slot === 'bank' ? 'Connect bank account' : `Add ${title.toLowerCase()}`}
+        <BusyLabel busy={writes.setupIntent.isPending && writes.setupIntent.variables === slot} busyLabel="Opening secure form…"
+          label={item ? `Replace ${title.toLowerCase()}` : slot === 'bank' ? 'Connect bank account' : `Add ${title.toLowerCase()}`} />
       </button>}
     {error && <InlineError message={error} />}
   </div>;
@@ -115,7 +121,7 @@ function BankVerification({ access }: { access: OfficeAccessSnapshot }) {
     <p className="text-xs text-[#8a4517]">Stripe sends them in 1–2 business days. You can finish setup now and enter the amounts within {access.bank.windowHours} hours{access.bank.deadline ? ` (by ${longDate(access.bank.deadline)})` : ''}.</p>
     <div className="flex flex-wrap items-center gap-3 pt-1">
       {access.bank.verificationUrl && <a className={LINK_ACTION} href={access.bank.verificationUrl} target="_blank" rel="noreferrer">Enter deposit amounts in Stripe</a>}
-      <button type="button" className={`${BTN_SECONDARY} h-9 px-3`} disabled={writes.bankVerify.isPending} onClick={() => writes.bankVerify.mutate()}>I've entered the amounts</button>
+      <button type="button" className={`${BTN_SECONDARY} h-9 px-3`} disabled={writes.bankVerify.isPending} onClick={() => writes.verifyBank()}><BusyLabel busy={writes.bankVerify.isPending} busyLabel="Checking…" label="I've entered the amounts" /></button>
     </div>
     {writes.bankVerify.isError && <p role="alert" className="text-xs text-destructive">{readable(writes.bankVerify.error)}</p>}
   </div>;
@@ -127,8 +133,10 @@ function BankForm({ setupIntentId, onDone, onCancel }: { setupIntentId: string; 
   const writes = useOfficeAccessMutations();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const submit = async () => {
-    if (!stripe || !elements) return;
+    if (!stripe || !elements || lock.current) return;
+    lock.current = true;
     setError(''); setBusy(true);
     try {
       const result = await stripe.confirmSetup({ elements, redirect: 'if_required' });
@@ -139,13 +147,13 @@ function BankForm({ setupIntentId, onDone, onCancel }: { setupIntentId: string; 
       await writes.instrument.mutateAsync({ slot: 'bank', paymentMethodId, setupIntentId });
       onDone();
     } catch (failure) { setError(saveError(failure)); }
-    finally { setBusy(false); }
+    finally { lock.current = false; setBusy(false); }
   };
   return <div className="space-y-4 rounded-md border border-border bg-background p-4" data-testid="wizard-bank-form">
     <PaymentElement options={{ layout: 'tabs' }} />
     {error && <InlineError message={error} />}
     <div className="flex flex-wrap gap-3">
-      <button type="button" className={`${BTN_PRIMARY} h-10 px-4 text-sm`} disabled={!stripe || busy} onClick={() => void submit()} data-testid="wizard-save-bank">{busy ? 'Saving…' : 'Save bank account'}</button>
+      <button type="button" className={`${BTN_PRIMARY} h-10 px-4 text-sm`} disabled={!stripe || busy} onClick={() => void submit()} data-testid="wizard-save-bank"><BusyLabel busy={busy} label="Save bank account" /></button>
       <button type="button" className={`${BTN_SECONDARY} h-10 px-4 text-sm`} disabled={busy} onClick={onCancel}>Cancel</button>
     </div>
   </div>;
@@ -161,10 +169,12 @@ function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
   const writes = useOfficeAccessMutations();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const submit = async () => {
-    if (!stripe || !elements) return;
+    if (!stripe || !elements || lock.current) return;
     const card = elements.getElement(CardNumberElement);
     if (!card) return;
+    lock.current = true;
     setError(''); setBusy(true);
     try {
       const result = await stripe.confirmCardSetup(clientSecret, { payment_method: { card } });
@@ -175,7 +185,7 @@ function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
       await writes.instrument.mutateAsync({ slot, paymentMethodId, setupIntentId });
       onDone();
     } catch (failure) { setError(saveError(failure)); }
-    finally { setBusy(false); }
+    finally { lock.current = false; setBusy(false); }
   };
   return <div className="space-y-3 rounded-md border border-border bg-background p-4" data-testid={`wizard-card-form-${slot}`}>
     <label className="block text-xs font-semibold text-navy">Card number
@@ -191,7 +201,7 @@ function CardForm({ slot, clientSecret, setupIntentId, onDone, onCancel }: {
     </div>
     {error && <InlineError message={error} />}
     <div className="flex flex-wrap gap-3 pt-1">
-      <button type="button" className={`${BTN_PRIMARY} h-10 px-4 text-sm`} disabled={!stripe || busy} onClick={() => void submit()} data-testid={`wizard-save-${slot}`}>{busy ? 'Saving…' : 'Save card'}</button>
+      <button type="button" className={`${BTN_PRIMARY} h-10 px-4 text-sm`} disabled={!stripe || busy} onClick={() => void submit()} data-testid={`wizard-save-${slot}`}><BusyLabel busy={busy} label="Save card" /></button>
       <button type="button" className={`${BTN_SECONDARY} h-10 px-4 text-sm`} disabled={busy} onClick={onCancel}>Cancel</button>
     </div>
   </div>;

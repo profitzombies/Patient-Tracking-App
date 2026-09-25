@@ -16,3 +16,4 @@ directory that holds the full lesson.
 - [a11y-announced-errors.md](a11y-announced-errors.md) — ErrorBox self-announces (alert role + live region; never nest live regions); blocked CTAs intercept taps via aria-disabled.
 - [hq-toast-layer.md](hq-toast-layer.md) — sound rides the variant; Radix won't announce in-place morphs; progress toasts pin against eviction; gated writes return landed booleans.
 - [scoped-style-font-reset.md](scoped-style-font-reset.md) — `.root button{font:inherit}` beats class font-size rules; use font-family:inherit in mockup style blocks.
+- [setup-action-feedback.md](setup-action-feedback.md) — setup buttons use BusyLabel + ref locks; RTR suites must read button text from instance children, not props.

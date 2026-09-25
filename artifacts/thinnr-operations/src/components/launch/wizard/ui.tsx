@@ -16,12 +16,14 @@ export function StepFrame({ eyebrow, title, sub, children, testId }: {
   </section>;
 }
 
-export function WizardFooter({ onBack, onContinue, canContinue, busy = false, continueLabel = 'Continue', hint, testId = 'wizard-continue' }: {
+export function WizardFooter({ onBack, onContinue, canContinue, busy = false, continueLabel = 'Continue', busyLabel, hint, testId = 'wizard-continue' }: {
   onBack?: () => void;
   onContinue: () => void;
   canContinue: boolean;
   busy?: boolean;
   continueLabel?: string;
+  /** Wording while `busy` ("Activating…"); the idle label stays when omitted. */
+  busyLabel?: string;
   /** Why Continue is waiting, shown beside the button. */
   hint?: string | null;
   testId?: string;
@@ -35,7 +37,7 @@ export function WizardFooter({ onBack, onContinue, canContinue, busy = false, co
       <button type="button" className={`${BTN_PRIMARY} h-11 px-5 text-sm disabled:cursor-not-allowed disabled:opacity-50`} disabled={!canContinue || busy}
         onClick={onContinue} data-testid={testId}>
         {busy ? <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
-        {continueLabel}{!busy && <ArrowRight size={15} aria-hidden="true" />}
+        {busy && busyLabel ? busyLabel : continueLabel}{!busy && <ArrowRight size={15} aria-hidden="true" />}
       </button>
     </div>
   </div>;

@@ -19,7 +19,7 @@ export function PlanStep({ access, readOnly, onBack, onNext }: {
   const savings = yearlySavings(access);
   const canChoose = !readOnly && access.canChoosePlan;
   const pick = async (plan: Plan) => {
-    if (!canChoose || plan === choice) return;
+    if (!canChoose || saving || plan === choice) return;
     const previous = choice;
     setChoice(plan); setError(''); setSaving(true);
     try { await writes.plan.mutateAsync(plan); }
@@ -66,7 +66,7 @@ export function PlanStep({ access, readOnly, onBack, onNext }: {
     </div>
     {!canChoose && <p className="text-xs text-muted-foreground">Only the practice owner can choose the plan.</p>}
     {error && <InlineError message={error} />}
-    <WizardFooter onBack={onBack} onContinue={onNext} busy={saving} canContinue={readOnly || confirmed}
+    <WizardFooter onBack={onBack} onContinue={onNext} busy={saving} busyLabel="Saving…" canContinue={readOnly || confirmed}
       hint="Choose a plan to continue." />
   </StepFrame>;
 }

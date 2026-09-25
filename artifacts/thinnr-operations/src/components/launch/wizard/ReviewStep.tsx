@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLaunchWrite, type LaunchState } from '@/hooks/use-launch';
 import { useOfficeAccessMutations } from '@/hooks/use-office-access';
 import { LINK_ACTION } from '@/components/patient/heritage';
 import type { OfficeAccessSnapshot } from '@/lib/billing-types';
+import { missingSetupItems, type SetupTarget } from '@/lib/setup-checklist';
 import { connectSubmitted, firstCharge, instrumentFor, longDate, money, planPriceCents, type WizardStepId } from './steps';
 import { InlineError, StepFrame, WizardFooter, readable } from './ui';
 
@@ -17,6 +18,7 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
   const acknowledged = access.disclosure.acknowledgedAt !== null;
   const [agreed, setAgreed] = useState(acknowledged);
   const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
   const [error, setError] = useState('');
   const plan = access.plan.selected;
   const charge = firstCharge(access);
@@ -25,9 +27,15 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
   const backup = instrumentFor(access, 'card_backup');
   // Stripe still verifying (pending) is enough to finish setup; patient charging turns on once Stripe enables it.
   const paymentsReady = connectSubmitted(launch);
+  // What the server checks before activating, minus what this screen settles
+  // itself: ticking the box records the terms on Activate, and the wizard has
+  // no products step (suggested prices are confirmed for the office).
+  const missing = missingSetupItems(launch, access)
+    .filter((item) => item.id !== 'products' && !(item.id === 'disclosure' && agreed));
 
   const activate = async () => {
-    if (readOnly) return;
+    if (readOnly || lock.current) return;
+    lock.current = true;
     setError(''); setBusy(true);
     try {
       if (!acknowledged) await writes.disclosure.mutateAsync(access.disclosure.version);
@@ -38,7 +46,7 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
         onActivated();
       }
     } catch (failure) { setError(readable(failure, 'Setup could not be activated. Try again.')); }
-    finally { setBusy(false); }
+    finally { lock.current = false; setBusy(false); }
   };
 
   const rows: Array<{ label: string; value: string; step: WizardStepId }> = [
@@ -51,7 +59,7 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
   ];
 
   const waiting = !paymentsReady ? 'Finish connecting Stripe before you activate.'
-    : !agreed ? 'Check the box to accept the terms.' : null;
+    : !agreed ? 'Check the box to accept the terms.' : missing.length ? 'Finish the items above to activate.' : null;
 
   return <StepFrame testId="wizard-step-review" eyebrow="Step 6" title="Review and activate"
     sub="Check your choices, read the terms, and activate your practice.">
@@ -71,10 +79,24 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
         data-testid="wizard-acknowledge" onChange={(event) => setAgreed(event.target.checked)} />
       <span>I have read and accept these terms for {launch.office.officeName}, including the plan and payment details above.</span>
     </label>
+    {!readOnly && missing.length > 0 && <div className="rounded-lg border border-border bg-card px-5 py-4 text-sm" data-testid="wizard-missing">
+      <p className="font-semibold text-navy">Still needed before you can activate:</p>
+      <ul className="mt-2 space-y-1">{missing.map((item) => <li key={item.id}>
+        {item.id === 'disclosure'
+          ? <span data-testid="wizard-missing-disclosure">{item.label}</span>
+          : <button type="button" className={LINK_ACTION} data-testid={`wizard-missing-${item.id}`} onClick={() => onEdit(wizardStepFor(item.id))}>{item.label}</button>}
+      </li>)}</ul>
+    </div>}
     {error && <InlineError message={error} />}
-    <WizardFooter onBack={onBack} onContinue={() => void activate()} busy={busy} testId="wizard-activate"
-      canContinue={!readOnly && paymentsReady && (agreed || acknowledged)} continueLabel="Activate" hint={readOnly ? 'Only the practice owner can activate.' : waiting} />
+    <WizardFooter onBack={onBack} onContinue={() => void activate()} busy={busy} busyLabel="Activating…" testId="wizard-activate"
+      canContinue={!readOnly && paymentsReady && (agreed || acknowledged) && missing.length === 0} continueLabel="Activate" hint={readOnly ? 'Only the practice owner can activate.' : waiting} />
   </StepFrame>;
+}
+
+function wizardStepFor(target: SetupTarget): WizardStepId {
+  if (target === 'details' || target === 'security' || target === 'plan') return target;
+  if (target === 'payments') return 'connect';
+  return 'payment';
 }
 
 function cardName(brand: string | null) {

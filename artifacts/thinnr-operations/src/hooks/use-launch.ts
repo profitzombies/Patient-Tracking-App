@@ -23,7 +23,18 @@ export interface LaunchState {
   /** HQ waived the gate for this office; the fields above still report reality. */
   setupOverride?: { active: boolean; at: string | null; note: string | null };
   payments: { state: 'not_started' | 'action_required' | 'pending' | 'ready'; sandbox: boolean };
+  /** The office's own payment arrangements with THINNR, as the server's gate sees them. */
+  accessSetup?: LaunchAccessSetup;
   products: LaunchProduct[];
+}
+export interface LaunchAccessSetup {
+  complete: boolean;
+  missing: Array<'bank' | 'card_primary' | 'card_backup'>;
+  planSelected: boolean;
+  disclosureAcknowledged: boolean;
+  bankVerificationPending: boolean;
+  bankVerificationDeadline: string | null;
+  bankVerificationOverdue: boolean;
 }
 const messages = { unconfigured: 'Practice setup is not configured.', signedOut: 'Sign in to continue practice setup.', unreachable: 'Practice setup could not be reached. Try again.', failed: 'Practice setup could not be saved' };
 export function launchKey(user: string | null, office: string | null) { return ['office', 'launch', user, office] as const; }

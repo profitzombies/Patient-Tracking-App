@@ -43,8 +43,10 @@ export interface AccessGateFacts {
   satisfied: boolean;
 }
 
-export async function accessGateFacts(providerId: string, now = new Date()): Promise<AccessGateFacts> {
-  const row = await ensureAccessSubscription(providerId);
+export async function accessGateFacts(providerId: string, now = new Date(), known?: Row): Promise<AccessGateFacts> {
+  // A caller that has just written the row passes it back in, which saves a
+  // re-read of what it is already holding.
+  const row = known ?? await ensureAccessSubscription(providerId);
   const instruments = await listAccessInstruments(row.id);
   const status = accessSetupStatus(instruments, now);
   const planSelected = Boolean(row.plan_selected_at);
@@ -150,8 +152,11 @@ function stepFor(id: AccessStepId, done: boolean, detail: string | null, status?
 export interface SnapshotInput {
   providerId: string;
   officeName?: string | null;
-  connect: ConnectState;
-  sandbox: boolean;
+  /** Accepted as promises so their reads overlap with the office's own. */
+  connect: ConnectState | Promise<ConnectState>;
+  sandbox: boolean | Promise<boolean>;
+  /** The subscription row a write just returned; skips re-reading it. */
+  row?: Row;
   canManage: boolean;
   canChoosePlan: boolean;
   now?: Date;
@@ -159,24 +164,34 @@ export interface SnapshotInput {
 
 export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessSetupSnapshot> {
   const now = input.now ?? new Date();
-  const facts = await accessGateFacts(input.providerId, now);
-  const row = await refreshAccessState(facts.row, now);
-  const [policy, settings] = await Promise.all([loadOrgPolicy(), loadAccessBillingSettings()]);
+  // Everything that does not depend on the office's row is read alongside it,
+  // so one setup action costs one round of reads rather than several.
+  const [facts, policy, settings, connect, sandbox] = await Promise.all([
+    accessGateFacts(input.providerId, now, input.row),
+    loadOrgPolicy(),
+    loadAccessBillingSettings(),
+    input.connect,
+    input.sandbox,
+  ]);
   const bySlot = new Map(facts.instruments.map((item) => [item.slot, item]));
   const bank = bySlot.get("bank");
+  const [row, verificationUrl] = await Promise.all([
+    refreshAccessState(facts.row, now),
+    facts.status.bankVerificationPending ? bankVerificationUrl(bank) : Promise.resolve(null),
+  ]);
 
   const firstChargeAt = row.paid_through ?? row.included_period_ends_at ?? null;
   const priceCents = accessPriceCents(row, settings);
-  const connectDone = input.connect === "ready";
+  const connectDone = connect === "ready";
   // Stripe still verifying submitted details does not hold the office back;
   // patient charges stay off on their own until Stripe enables them.
-  const connectSatisfied = connectDone || input.connect === "pending";
+  const connectSatisfied = connectDone || connect === "pending";
 
   const steps: AccessSetupStep[] = [
-    stepFor("connect", connectDone, input.connect === "pending"
+    stepFor("connect", connectDone, connect === "pending"
       ? "Stripe is still verifying your account."
       : "Connect Stripe so your patients can pay you.",
-      connectDone ? "done" : input.connect === "pending" ? "pending" : "todo"),
+      connectDone ? "done" : connect === "pending" ? "pending" : "todo"),
     stepFor("bank",
       Boolean(bank) && !facts.status.bankVerificationOverdue,
       facts.status.bankVerificationOverdue
@@ -196,7 +211,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
     complete: facts.satisfied && connectSatisfied,
     connectAlreadyDone: connectDone,
     steps,
-    connect: { state: input.connect, sandbox: input.sandbox },
+    connect: { state: connect, sandbox },
     instruments: WATERFALL_SLOTS.flatMap((slot) => {
       const item = bySlot.get(slot);
       return item ? [instrumentView(item)] : [];
@@ -220,7 +235,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
       deadline: facts.status.bankVerificationDeadline ?? row.bank_verification_deadline,
       overdue: facts.status.bankVerificationOverdue,
       windowHours: BANK_VERIFICATION_WINDOW_HOURS,
-      verificationUrl: facts.status.bankVerificationPending ? await bankVerificationUrl(bank) : null,
+      verificationUrl,
     },
     balance: {
       state: row.state,
@@ -239,12 +254,33 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
  * stored alongside the instrument — verification happens days later, long
  * after the browser that started it has gone.
  */
+const VERIFICATION_URL_TTL_MS = 10 * 60_000;
+const VERIFICATION_URL_CACHE_LIMIT = 500;
+const verificationUrls = new Map<string, { url: string; at: number }>();
+
+/** Test seam: forget remembered hosted verification pages. */
+export function clearBankVerificationUrlCache(): void {
+  verificationUrls.clear();
+}
+
 export async function bankVerificationUrl(bank: Instrument | undefined): Promise<string | null> {
   if (!bank?.setup_intent_id) return null;
+  // The hosted page belongs to the SetupIntent and does not change while the
+  // bank waits for its deposits, so it is remembered briefly instead of asking
+  // Stripe again on every setup click and background refresh.
+  const cached = verificationUrls.get(bank.setup_intent_id);
+  if (cached && Date.now() - cached.at < VERIFICATION_URL_TTL_MS) return cached.url;
   try {
     const stripe = await getStripe();
     const intent = await stripe.setupIntents.retrieve(bank.setup_intent_id);
-    return intent.next_action?.verify_with_microdeposits?.hosted_verification_url ?? null;
+    const url = intent.next_action?.verify_with_microdeposits?.hosted_verification_url ?? null;
+    if (url) {
+      if (verificationUrls.size >= VERIFICATION_URL_CACHE_LIMIT) verificationUrls.delete(verificationUrls.keys().next().value!);
+      verificationUrls.set(bank.setup_intent_id, { url, at: Date.now() });
+    } else {
+      verificationUrls.delete(bank.setup_intent_id);
+    }
+    return url;
   } catch {
     // A Stripe hiccup must not take the setup screen down with it.
     return null;

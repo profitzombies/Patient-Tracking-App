@@ -47,6 +47,11 @@ const accessSnapshot = {
 let failed = false;
 let restartFailed = false;
 const calls: { url: string; method: string; body: any; headers: any }[] = [];
+// Office payment facts for the missing-items checklist, and a completion
+// that can be held open (working state) or refused (inline failure).
+let accessOverride: unknown = null;
+let completeHeld: Promise<void> | null = null;
+let completeRefused = false;
 globalThis.fetch = async (input, init) => {
   const call = { url: String(input), method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null, headers: init?.headers };
   calls.push(call);
@@ -67,7 +72,7 @@ globalThis.fetch = async (input, init) => {
     policy: { monthlyPriceCents: 20000, yearlyPriceCents: 200000, includedPeriodDays: 365, gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100, maxIncludedPeriodDays: 1095 },
   }), { status: 200 });
 
-  if (call.url.startsWith('/api/billing/office/access')) return new Response(JSON.stringify(accessSnapshot), { status: 200 });
+  if (call.url.startsWith('/api/billing/office/access')) return new Response(JSON.stringify(accessOverride ?? accessSnapshot), { status: 200 });
   if (call.url.includes('/second-factor/phone/start')) return new Response(JSON.stringify({ ok: true, requestId: 'req-fixture', destination: '•••-•••-7788', devCode: null }), { status: 200 });
   if (call.url.includes('/second-factor/phone/complete')) {
     snapshot.security = { ready: true, emailVerified: true, phoneVerified: true, phoneRequired: true, phoneMasked: '(•••) •••-7788' };
@@ -78,6 +83,8 @@ globalThis.fetch = async (input, init) => {
     snapshot.details = { ...snapshot.details, ...call.body.details };
   }
 
+  if (call.url.includes('/office/launch/complete') && call.method === 'POST' && completeHeld) await completeHeld;
+  if (call.url.includes('/office/launch/complete') && call.method === 'POST' && completeRefused) return new Response(JSON.stringify({ error: 'Setup changed in another session.' }), { status: 409 });
   if (call.url.includes('/office/launch/complete') && call.method === 'POST') snapshot.completedAt = '2026-02-02T00:00:00Z';
   if (call.method !== 'GET') {
     snapshot.version++;
@@ -89,7 +96,8 @@ __setScope(null);
 __setHqData({ accounts: [{ id: 'fixture', officeName: 'Sample Practice', providerName: 'Sample Owner', providerRole: 'Owner', city: 'Boston', state: 'MA', status: 'active', joinedKey: '2023-01-01', email: 'owner@example.invalid' }], canManageProviderAccounts: true });
 __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', staffSession: { role: 'owner', staffKind: 'provider', providerId: 'fixture', idleTimeoutMinutes: 15, idleTimeoutSource: 'hq', freshCode: { needed: false } }, authUser: { id: 'owner-fixture' }, signOut() {} });
 const text = (node: any): string => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join(' ') : node?.children ? text(node.children) : '';
-const button = (root: ReactTestRenderer, label: string) => root.root.findAllByType('button').find((b) => text(b.props.children) === label)!;
+// A button's visible wording, read from the rendered tree (labels sit inside BusyLabel).
+const button = (root: ReactTestRenderer, label: string) => root.root.findAllByType('button').find((b) => text(b.children as any).replace(/\s+/g, ' ').trim() === label)!;
 let mounted = 0;
 const scrolls: { step: string; behavior: string }[] = [];
 // Only the setup-step scroll targets get a host node; every other ref stays null.
@@ -355,6 +363,61 @@ await dispose(result.root, result.client);
   await dispose(result.root, result.client);
 }
 
+// Finish is offered only when nothing is missing; otherwise the footer lists
+// each missing item and every item jumps to its section.
+{
+  snapshot = { ...structuredClone(state), fullSetupRequired: false, productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
+  accessOverride = { ...accessSnapshot, complete: false, instruments: accessSnapshot.instruments.filter((item) => item.slot !== 'card_backup'), disclosure: { ...accessSnapshot.disclosure, acknowledgedAt: null } };
+  const jumped: string[] = [];
+  (globalThis as any).document = { getElementById: (id: string) => ({ scrollIntoView: () => jumped.push(id) }) };
+  result = await render('/setup', 'setup-page');
+  assert.equal(button(result.root, 'Finish setup').props.disabled, true, 'Finish waits for the missing items');
+  const list = text(byTestId(result.root, 'setup-missing').children as any);
+  assert.match(list, /Add your backup card/);
+  assert.match(list, /Accept the access terms/);
+  assert.doesNotMatch(list, /first card|bank account|billing plan/, 'only what is actually missing is listed');
+  await act(async () => { byTestId(result.root, 'setup-missing-card_backup').props.onClick(); });
+  await act(async () => { byTestId(result.root, 'setup-missing-disclosure').props.onClick(); });
+  assert.deepEqual(jumped, ['setup-card_backup', 'setup-disclosure'], 'each item jumps to its section');
+  await dispose(result.root, result.client);
+  accessOverride = null;
+  delete (globalThis as any).document;
+}
+
+// Finishing: an immediate working state, one request per press, a refusal
+// shown beside the button, then success confirms and moves into the app.
+{
+  snapshot = { ...structuredClone(state), fullSetupRequired: false, productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const location = memoryLocation({ path: '/setup', record: true });
+  let root!: ReactTestRenderer;
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeSetupPage /></Router></QueryClientProvider>, { createNodeMock }); });
+  await tick();
+  const finish = () => byTestId(root, 'button-finish-setup');
+  const completions = () => calls.filter((c) => c.url.includes('/office/launch/complete')).length;
+  const before = completions();
+  let release!: () => void;
+  completeHeld = new Promise<void>((resolve) => { release = resolve; });
+  completeRefused = true;
+  await act(async () => { finish().props.onClick(); finish().props.onClick(); });
+  await tick(5);
+  assert.match(text(finish().children as any), /Finishing setup…/, 'finishing shows its working state at once');
+  assert.ok(finish().findAll((node) => typeof node.type === 'string' && node.props['data-busy'] === 'true').length > 0, 'with a spinner');
+  assert.equal(finish().props.disabled, true, 'no second press while finishing');
+  assert.equal(completions() - before, 1, 'a double click finishes once');
+  await act(async () => { completeHeld = null; release(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+  const error = byTestId(root, 'finish-setup-error');
+  assert.ok(error, 'a refusal appears beside the button');
+  assert.match(text(error.children as any), /Setup changed in another session/);
+  assert.equal(location.history!.at(-1), '/setup', 'a refused finish stays on setup');
+  completeRefused = false;
+  await act(async () => { finish().props.onClick(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+  assert.equal(byTestId(root, 'finish-setup-error'), undefined, 'the old failure clears');
+  assert.match(text(root.toJSON()), /Setup complete/, 'success is confirmed');
+  assert.equal(location.history!.at(-1), '/', 'and the office is taken into the app');
+  await dispose(root, client);
+}
+
 snapshot = { ...structuredClone(state), canEdit: false };
 result = await render('/patients', 'setup-page');
 assert.match(text(result.root.toJSON()), /Your practice owner completes setup/);
@@ -423,4 +486,4 @@ assert.equal(overrideCall.body.expectedVersion, snapshot.version - 1);
 await dispose(hqRoot, hqClient);
 
 
-console.log('Practice launch: scopes, fail-closed guard, folding steps, inline security, scroll-to-next, OAuth return notice, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');
+console.log('Practice launch: scopes, fail-closed guard, folding steps, inline security, scroll-to-next, OAuth return notice, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, missing-items checklist, finish working state and inline failure, and HQ control passed.');

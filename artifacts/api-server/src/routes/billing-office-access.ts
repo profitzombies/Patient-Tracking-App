@@ -16,7 +16,7 @@ import { resolveOfficeScope, respondOfficeScopeDenied, type OfficeScope } from "
 import { getBillingModeStatus } from "../billing/mode-state";
 import { currentBillingIdentity, runWithBillingIdentity } from "../billing/stripe-environment";
 import { getPublishableKey, getStripe, isSandbox, stripeRejection } from "../billing/stripe-client";
-import { selectOne } from "../billing/store";
+import { selectOne, type BillingOfficeAccessSubscriptionRow } from "../billing/store";
 import { paymentLaunchState } from "../practice-launch/state";
 import {
   AccessInstrumentError, attachAccessInstrument, ensureAccessCustomer,
@@ -43,16 +43,32 @@ function actorOf(scope: OfficeScope, req: Request): AccessActor {
   };
 }
 
-async function snapshotFor(scope: OfficeScope): Promise<Awaited<ReturnType<typeof accessSetupSnapshot>>> {
-  const [account, sandbox] = await Promise.all([
-    selectOne("billing_connected_accounts", `provider_id=eq.${enc(scope.providerId)}`),
-    isSandbox(),
-  ]);
+/**
+ * The connected-account side of the snapshot. Writes start these reads before
+ * they write, so they overlap with the write instead of queuing behind it.
+ * Rejections are parked so an early start never surfaces as unhandled when
+ * the write itself fails first.
+ */
+interface ConnectContext { connect: Promise<ReturnType<typeof paymentLaunchState>>; sandbox: Promise<boolean> }
+function connectContext(scope: OfficeScope): ConnectContext {
+  const connect = selectOne("billing_connected_accounts", `provider_id=eq.${enc(scope.providerId)}`).then(paymentLaunchState);
+  const sandbox = isSandbox();
+  connect.catch(() => undefined); sandbox.catch(() => undefined);
+  return { connect, sandbox };
+}
+
+/**
+ * The setup snapshot every access route answers with, so the screen can show
+ * the new state straight from the write's own response. `row` is the
+ * subscription row a write just returned, which spares a re-read.
+ */
+async function snapshotFor(scope: OfficeScope, context: ConnectContext = connectContext(scope), row?: BillingOfficeAccessSubscriptionRow | null): Promise<Awaited<ReturnType<typeof accessSetupSnapshot>>> {
   return accessSetupSnapshot({
     providerId: scope.providerId,
     officeName: scope.officeName,
-    connect: paymentLaunchState(account),
-    sandbox,
+    connect: context.connect,
+    sandbox: context.sandbox,
+    row: row ?? undefined,
     // Any office staff member may fix a card or settle a balance from their
     // phone; only the owner may choose the plan or accept the terms.
     canManage: scope.actorKind !== "hq",
@@ -150,6 +166,7 @@ router.post("/billing/office/access/instruments", async (req, res) => {
       paymentMethodId: z.string().min(1),
       setupIntentId: z.string().min(1).nullish(),
     }).parse(req.body);
+    const context = connectContext(scope);
     await attachAccessInstrument({
       providerId: scope.providerId,
       slot: input.slot,
@@ -157,7 +174,7 @@ router.post("/billing/office/access/instruments", async (req, res) => {
       setupIntentId: input.setupIntentId ?? null,
       actor: actorOf(scope, req),
     });
-    res.json(await snapshotFor(scope));
+    res.json(await snapshotFor(scope, context));
   } catch (error) { answerError(req, res, error); }
 });
 
@@ -165,8 +182,9 @@ router.post("/billing/office/access/plan", async (req, res) => {
   try {
     const scope = await scoped(req, res, "owner"); if (!scope) return;
     const { plan } = z.object({ plan: Plan }).parse(req.body);
-    await selectAccessPlan({ providerId: scope.providerId, plan, actor: actorOf(scope, req) });
-    res.json(await snapshotFor(scope));
+    const context = connectContext(scope);
+    const row = await selectAccessPlan({ providerId: scope.providerId, plan, actor: actorOf(scope, req) });
+    res.json(await snapshotFor(scope, context, row));
   } catch (error) { answerError(req, res, error); }
 });
 
@@ -174,8 +192,9 @@ router.post("/billing/office/access/disclosure", async (req, res) => {
   try {
     const scope = await scoped(req, res, "owner"); if (!scope) return;
     const { version } = z.object({ version: z.number().int().nonnegative() }).parse(req.body);
-    await acknowledgeAccessDisclosure({ providerId: scope.providerId, version, actor: actorOf(scope, req) });
-    res.json(await snapshotFor(scope));
+    const context = connectContext(scope);
+    const row = await acknowledgeAccessDisclosure({ providerId: scope.providerId, version, actor: actorOf(scope, req) });
+    res.json(await snapshotFor(scope, context, row));
   } catch (error) { answerError(req, res, error); }
 });
 
@@ -183,8 +202,9 @@ router.post("/billing/office/access/disclosure", async (req, res) => {
 router.post("/billing/office/access/bank/verify", async (req, res) => {
   try {
     const scope = await scoped(req, res, "staff"); if (!scope) return;
+    const context = connectContext(scope);
     const result = await refreshBankVerification({ providerId: scope.providerId, actor: actorOf(scope, req) });
-    res.json({ ...result, setup: await snapshotFor(scope) });
+    res.json({ ...result, setup: await snapshotFor(scope, context) });
   } catch (error) { answerError(req, res, error); }
 });
 

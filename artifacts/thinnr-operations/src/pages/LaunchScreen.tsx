@@ -11,6 +11,9 @@ import { OfficeAccessSetup } from '@/components/billing/OfficeAccessSetup';
 import { useToast } from '@/hooks/use-toast';
 import { FOLD_MS, SetupStep, prefersReducedMotion } from '@/components/launch/SetupStep';
 import { InlinePhoneVerify } from '@/components/launch/InlinePhoneVerify';
+import { useOfficeAccessSetup } from '@/hooks/use-office-access';
+import { BusyLabel } from '@/components/ui/busy-label';
+import { missingSetupItems, setupSectionId, type SetupTarget } from '@/lib/setup-checklist';
 
 const labels: Record<keyof LaunchState['details'], string> = {
   officeName: 'Practice name', providerName: 'Provider name', email: 'Contact email', phone: 'Office phone',
@@ -96,26 +99,36 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   const complete = useLaunchWrite('complete');
   const { staffSession } = useSession();
   const [error, setError] = useState('');
+  const [finishError, setFinishError] = useState('');
+  const [finished, setFinished] = useState(false);
   const [restartOpen, setRestartOpen] = useState(false);
   const client = useQueryClient();
   const stripeReturn = useStripeReturnNotice();
   const [, navigate] = useLocation();
   const { fullSetupRequired } = launchData;
   const paymentsDone = paymentsSatisfied(launchData);
-  const ready = fullSetupRequired
-    ? launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready && paymentsDone
-    : launchData.security.ready && paymentsDone;
+  // Finish is offered only when nothing the server checks is still missing;
+  // otherwise the footer lists each item and jumps to it.
+  const access = useOfficeAccessSetup();
+  const missing = missingSetupItems(launchData, access.data);
+  const ready = missing.length === 0;
 
   // Finishing opens the workspace, so take the owner straight into it. This
   // screen is also reachable at /setup after setup is done; staying here
   // would look like nothing happened.
   const finish = async () => {
-    setError('');
+    setFinishError('');
     try {
       const next = await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
+      if (!next?.completedAt) return;
+      setFinished(true);
+      // Activation starts the office's included period: payment status reads
+      // must pick up the new dates rather than wait for their next poll.
+      void client.invalidateQueries({ predicate: (query) => !query.queryKey.includes('launch') &&
+        (query.queryKey[0] === 'office' || (query.queryKey[0] === 'billing' && query.queryKey[1] === 'office')) });
       // The workspace gate plays the "configuring your account" hand-off.
-      if (next?.completedAt) navigate('/');
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not finish setup.'); }
+      navigate('/');
+    } catch (failure) { setFinishError(failure instanceof Error ? failure.message : 'Could not finish setup.'); }
   };
 
   const restart = useMutation({
@@ -159,6 +172,11 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     }, reduced ? 0 : FOLD_MS);
   }, [pendingScroll, launchData]);
   const n = (step: StepId) => stepOrder(launchData).indexOf(step) + 1;
+  const jump = (target: SetupTarget) => {
+    const behavior = prefersReducedMotion() ? 'auto' : 'smooth';
+    const step = target in targets.current ? targets.current[target as StepId] : null;
+    (step ?? document.getElementById(setupSectionId(target)))?.scrollIntoView({ behavior, block: 'start' });
+  };
 
   const isOwner = staffSession?.staffKind === 'provider';
   const canRestart = isOwner && launchData.payments.state !== 'not_started' && launchData.payments.state !== 'ready';
@@ -200,11 +218,23 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     {stripeReturn && <p role="alert" data-testid="stripe-return-error" className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Stripe connection was not completed: {stripeReturn} Try again below.</p>}
     <OfficeAccessSetup />
     {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
-    <footer ref={(el) => { targets.current.finish = el; }} data-setup-step="finish" className="scroll-mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-      {launchData.completedAt
-        ? <Link href="/" className={`${BTN_PRIMARY} h-10 px-4`} data-testid="link-setup-go-to-dashboard">Go to dashboard</Link>
-        : launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : 'Finish setup'}</button>}
-      <p className="text-sm text-muted-foreground">Invitations and training are optional.</p>
+    <footer ref={(el) => { targets.current.finish = el; }} data-setup-step="finish" className="scroll-mt-4 space-y-3 border-t border-border pt-4">
+      {!launchData.completedAt && launchData.canEdit && missing.length > 0 && <div className="rounded-md border border-border bg-card p-4 text-sm" data-testid="setup-missing">
+        <p className="font-semibold">Still needed before you can finish:</p>
+        <ul className="mt-2 space-y-1">{missing.map((item) => <li key={item.id}>
+          <button type="button" className="text-left font-semibold text-primary underline" data-testid={`setup-missing-${item.id}`} onClick={() => jump(item.id)}>{item.label}</button>
+        </li>)}</ul>
+      </div>}
+      <div className="flex flex-wrap items-center gap-3">
+        {launchData.completedAt
+          ? finished
+            ? <p role="status" className="text-sm font-semibold text-emerald-700" data-testid="setup-finished">Setup complete. Opening your dashboard…</p>
+            : <Link href="/" className={`${BTN_PRIMARY} h-10 px-4`} data-testid="link-setup-go-to-dashboard">Go to dashboard</Link>
+          : launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} data-testid="button-finish-setup" disabled={!ready || complete.isPending} onClick={() => void finish()}><BusyLabel busy={complete.isPending} busyLabel="Finishing setup…" label="Finish setup" /></button>}
+        {finishError
+          ? <p role="alert" className="text-sm text-destructive" data-testid="finish-setup-error">{finishError} Refresh the setup status before retrying if another session changed it.</p>
+          : <p className="text-sm text-muted-foreground">Invitations and training are optional.</p>}
+      </div>
     </footer>
 
     {canRestart && (
@@ -231,7 +261,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
               onClick={() => restart.mutate()}
               disabled={restart.isPending}
             >
-              {restart.isPending ? 'Restarting…' : 'Restart setup'}
+              <BusyLabel busy={restart.isPending} busyLabel="Restarting…" label="Restart setup" />
             </button>
           </DialogFooter>
         </DialogContent>
@@ -273,7 +303,7 @@ function DetailsForm({ launchData, onConfirmed, onCancel }: {
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {dirty && launchData.version !== baseline.current && <p role="alert" className="text-sm text-destructive">Setup changed while you were editing. Discard your draft to review the latest details.</p>}
     {dirty && <button type="button" className={`${BTN_SECONDARY} mr-3 h-10 px-4`} onClick={() => { setDirty(false); setError(''); }}>Discard draft</button>}
-    {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={write.isPending}>{write.isPending ? 'Saving…' : 'Confirm practice details'}</button>}
+    {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={write.isPending}><BusyLabel busy={write.isPending} label="Confirm practice details" /></button>}
     {launchData.canEdit && onCancel && <button type="button" className={`${BTN_SECONDARY} ml-3 h-10 px-4`} disabled={write.isPending}
       onClick={() => { setDirty(false); setError(''); onCancel(); }}>Cancel</button>}
   </form>;
@@ -334,7 +364,7 @@ function ProductsForm({ launchData }: { launchData: LaunchState }) {
     {dirty && launchData.version !== baseline.current.version && <p role="alert" className="text-destructive">Setup changed while you were editing. Discard this draft and review the latest product choices.</p>}
     {dirty && <button className={`${BTN_SECONDARY} h-10 px-4`} onClick={() => { setDirty(false); setError(''); }}>Discard product draft</button>}
     {launchData.canEdit && <div className="flex flex-wrap gap-3">
-      <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={write.isPending || !products.length} onClick={() => void save(!custom)}>{write.isPending ? 'Saving…' : custom ? 'Save custom setup' : 'Use suggested setup'}</button>
+      <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={write.isPending || !products.length} onClick={() => void save(!custom)}><BusyLabel busy={write.isPending} label={custom ? 'Save custom setup' : 'Use suggested setup'} /></button>
       <button className={`${BTN_SECONDARY} h-10 px-4`} disabled={write.isPending} onClick={() => setCustom(!custom)}>{custom ? 'Review suggested setup' : 'Customize setup'}</button>
     </div>}
   </div>;

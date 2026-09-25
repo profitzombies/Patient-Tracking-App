@@ -147,3 +147,4 @@
 - [Patient invitation app link](patient-invite-link.md) — invites use PATIENT_INVITE_URL (Expo Go page), not PATIENT_APP_URL; real path is Create New Account → I have an invitation.
 - [Practice setup Stripe gate](practice-launch-stripe-pending.md) — pending Stripe verification counts as done for setup; rule lives in TS, access snapshot, SQL RPC and web together.
 - [New-office setup wizard](setup-wizard.md) — wizard only for first-time full setup; sticky finish screen; server-derived resume; Stripe switch lock; tsconfig paths don't merge.
+- [Patient enrollment safety](patient-enrollment-safety.md) — activate only after GoTrue accepts the password; roll back own login + release code; weak_password 422 shape; client rule mirror.

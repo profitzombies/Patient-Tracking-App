@@ -54,6 +54,8 @@ class FakeBackend {
   adminLogouts: string[] = [];
   othersLogouts: string[] = [];
   failOthersLogout = false;
+  /** Passwords GoTrue refuses as breached (422 weak_password). */
+  weakPasswords = new Set<string>();
   failAdminLogout = false;
   failRevocationWrites = false;
   /** Every Supabase call the API made, as "METHOD /path". */
@@ -88,6 +90,7 @@ class FakeBackend {
     this.adminLogouts = [];
     this.othersLogouts = [];
     this.failOthersLogout = false;
+    this.weakPasswords = new Set();
     this.failAdminLogout = false;
     this.failRevocationWrites = false;
     this.requests = [];
@@ -224,6 +227,10 @@ class FakeBackend {
     if (idMatch && method === "PUT") {
       const user = this.authUsers.get(idMatch[1]);
       if (!user) return json(404, {});
+      const password = (body as Row | null)?.password;
+      if (password && this.weakPasswords.has(String(password))) {
+        return json(422, { code: 422, error_code: "weak_password", msg: "Password is known to be weak", weak_password: { reasons: ["pwned"] } });
+      }
       Object.assign(user, body);
       return json(200, user);
     }
@@ -875,6 +882,26 @@ describe("change password", () => {
     // The code is spent.
     const replay = await api("POST", "/api/security/me/password/complete", { requestId: start.json.requestId, code: start.json.devCode, newPassword: "Another!Pass9" }, auth(phone.token));
     expect(replay.status).not.toBe(200);
+  });
+
+  it("shows the breach message when the new password is refused and lets the same code retry", async () => {
+    const { user, phone } = await seeded();
+    const start = await api("POST", "/api/security/me/password/start", { currentPassword: "OldStrong!Pass" }, auth(phone.token));
+    backend.weakPasswords.add("Password1!");
+    const refused = await api("POST", "/api/security/me/password/complete", { requestId: start.json.requestId, code: start.json.devCode, newPassword: "Password1!" }, auth(phone.token));
+    expect(refused.status).toBe(400);
+    expect(refused.json).toMatchObject({
+      error: "This password has appeared in a data breach — please choose a different one.",
+      field: "newPassword",
+      code: "WEAK_PASSWORD",
+    });
+    expect(user.password).toBe("OldStrong!Pass");
+    expect(backend.tables.account_security_state.find((r) => r.password_changed_at)).toBeUndefined();
+    await settle();
+    expect(backend.emails.filter((e) => /password/i.test(e.subject))).toHaveLength(0);
+    const retry = await api("POST", "/api/security/me/password/complete", { requestId: start.json.requestId, code: start.json.devCode, newPassword: "BrandNew!Pass9" }, auth(phone.token));
+    expect(retry.status).toBe(200);
+    expect(user.password).toBe("BrandNew!Pass9");
   });
 
   it("refuses to change the password when other sessions cannot be signed out, sends no confirmation, and lets the same code retry", async () => {

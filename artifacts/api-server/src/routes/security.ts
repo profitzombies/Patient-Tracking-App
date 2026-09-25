@@ -32,7 +32,7 @@ import { FRESH_CODE_WINDOW_MINUTES, REAUTH_REQUIRED_CODE, STAFF_REAUTH_SCOPE_PRE
 import { acquireSecuritySlot } from "../auth/limits";
 import { clientIp, holdUntilFloor, patchRow, sha256 } from "../auth/ledger";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
-import { updatePatientPassword, verifyPatientPassword } from "../auth/session";
+import { updatePatientPassword, verifyPatientPassword, WeakPasswordError, WEAK_PASSWORD_CODE } from "../auth/session";
 import { DeliveryNotConfiguredError, assertLiveChannelReady, deliveryMode, holdUntilSmsDeliveryFloor, sendClaimEmail } from "../claim/delivery";
 import { normalizeIdentifier, passwordIssue } from "../claim/normalize";
 import { recordAdminAuditEvent, requestIdOf, type AuditActorKind } from "../lib/admin-audit";
@@ -737,7 +737,19 @@ router.post(`${SECURITY_ME_PATH}/password/complete`, async (req, res) => {
       res.status(400).json({ error: CODE_ERROR, field: "code" });
       return;
     }
-    await updatePatientPassword(actor.userId, newPassword as string);
+    try {
+      await updatePatientPassword(actor.userId, newPassword as string);
+    } catch (error) {
+      if (!(error instanceof WeakPasswordError)) throw error;
+      // Nothing moved: give the same code back so the patient can choose a
+      // different password straight away (guarded on this request's stamp).
+      await patchRow(row.id, { verified_at: null, consumed_at: null }, `&consumed_at=eq.${encodeURIComponent(now)}`).catch(
+        (releaseError) => req.log?.error({ err: releaseError }, "password change code release failed"),
+      );
+      audit(req, actor, "security_password_changed", { sessions: "others_signed_out", outcome: "password_rejected" });
+      res.status(400).json({ error: error.userMessage, field: "newPassword", code: WEAK_PASSWORD_CODE });
+      return;
+    }
     await stampPasswordChanged(actor.userId);
     await markRevoked({ userId: actor.userId, reason: "password_changed", exceptSessionId: sessionId }).catch((error) =>
       req.log?.error({ err: error }, "password change ledger revoke failed"),

@@ -1,17 +1,20 @@
 /**
  * Patient signup state machine — invited vs new flows across the choose →
- * contact → code → details phases. The screen is a pure view over this hook.
+ * contact → code → name → password phases. The screen is a pure view over
+ * this hook.
  */
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAppMode } from '@/context/AppModeContext';
 import { completeSignup, signInWithTokenHash, startSignup, verifySignupCode } from '@/lib/auth-api';
 import { normalizePhone } from '@/lib/supabase';
+import { formatUsPhoneInput } from '@/lib/office-roster-api';
+import { passwordChecks, passwordMeetsRules } from '@/lib/password-rules';
 import { attachSignIn } from '@/lib/security-api';
 
 export type SignupFlow = 'invited' | 'new';
-export type SignupPhase = 'choose' | 'contact' | 'code' | 'details';
+export type SignupPhase = 'choose' | 'contact' | 'code' | 'name' | 'password';
 
 const emailOK = (x: string) => /^\S+@\S+\.\S+$/.test(x.trim());
 
@@ -24,7 +27,9 @@ export function usePatientSignup() {
   const [providerCode, setProviderCode] = useState('');
   const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [requestId, setRequestId] = useState<string | null>(null);
   const [signupToken, setSignupToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +65,14 @@ export function usePatientSignup() {
       setPhase('contact');
       return;
     }
-    if (phase === 'details') {
+    if (phase === 'password') {
+      // Back to the name step; what was typed stays put.
+      setPhase('name');
+      return;
+    }
+    if (phase === 'name') {
       setPassword('');
+      setPasswordConfirm('');
       setPhase('contact');
       return;
     }
@@ -129,37 +140,71 @@ export function usePatientSignup() {
       if (!r.ok) setError(r.error);
       else {
         setSignupToken(r.signupToken);
-        setPhase('details');
+        // Invited patients confirm (or edit) the name their office entered;
+        // brand-new patients start blank.
+        setFirstName(flow === 'invited' ? (r.invitedName?.firstName ?? '') : '');
+        setLastName(flow === 'invited' ? (r.invitedName?.lastName ?? '') : '');
+        setPhase('name');
       }
     } finally {
       if (genRef.current === gen) setBusy(false);
     }
   };
 
+  const nameReady = firstName.trim().length > 0 && lastName.trim().length > 0;
+  const checks = useMemo(() => passwordChecks(password), [password]);
+  const passwordReady = passwordMeetsRules(password);
+  const passwordsMatch = passwordConfirm.length > 0 && passwordConfirm === password;
+  const canFinish = passwordReady && passwordsMatch;
+
+  const continueToPassword = () => {
+    if (!firstName.trim()) {
+      setError('Enter your first name.');
+      return;
+    }
+    if (!lastName.trim()) {
+      setError('Enter your last name.');
+      return;
+    }
+    clear();
+    setPhase('password');
+  };
+
   const finish = async () => {
-    if (!signupToken || !password) {
-      setError('Create a password.');
+    if (!signupToken) {
+      setError('Your verification expired. Go back and request a fresh code.');
       return;
     }
-    if (password.length < 8) {
-      setError('Choose a password with at least 8 characters.');
+    if (!nameReady) {
+      setError('Enter your first and last name.');
+      setPhase('name');
       return;
     }
-    const submittedPassword = password;
-    setPassword('');
+    if (!passwordReady) {
+      setError('Choose a password that meets every rule below.');
+      return;
+    }
+    if (!passwordsMatch) {
+      setError('The two passwords don’t match yet.');
+      return;
+    }
     const gen = ++genRef.current;
     setBusy(true);
     setError(null);
     try {
+      // Entered values stay in place: a refused password or a server hiccup
+      // leaves the patient on the right step with nothing to retype.
       const r = await completeSignup({
         signupToken,
-        password: submittedPassword,
-        name: name.trim() || undefined,
+        password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: emailOK(email) ? email.trim() : undefined,
       });
       if (genRef.current !== gen) return;
       if (!r.ok) {
         setError(r.error);
+        if (r.field === 'firstName' || r.field === 'lastName' || r.field === 'name') setPhase('name');
         return;
       }
       const se = await signInWithTokenHash(r.tokenHash);
@@ -169,6 +214,7 @@ export function usePatientSignup() {
         if (r.signInId) void attachSignIn(r.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
         leaveDemo();
         await setMode('patient');
+        // The live entry gate sends a new account on to consent/onboarding.
         router.replace('/today');
       }
     } finally {
@@ -189,21 +235,30 @@ export function usePatientSignup() {
     providerCode,
     otp,
     password,
-    name,
+    passwordConfirm,
+    firstName,
+    lastName,
+    nameReady,
+    checks,
+    passwordsMatch,
+    canFinish,
     error,
     notice,
     devCode,
     busy,
-    setPhone,
+    setPhone: (value: string) => setPhone(formatUsPhoneInput(value)),
     setEmail,
     setProviderCode,
     setOtp,
     setPassword,
-    setName,
+    setPasswordConfirm,
+    setFirstName,
+    setLastName,
     goBack,
     choose,
     start,
     verify,
+    continueToPassword,
     finish,
     openLogin,
   };

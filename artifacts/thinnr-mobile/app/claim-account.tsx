@@ -35,6 +35,7 @@ import {
   getClaimTestHandoff,
   type ClaimTestHandoff,
 } from '@/lib/claim-test-handoff';
+import { PASSWORD_RULES } from '@/lib/password-rules';
 
 function claimTestScenarioLabel(handoff: ClaimTestHandoff): string {
   const action = handoff.mode === 'create' ? 'First-time claim' : 'Password recovery';
@@ -151,17 +152,6 @@ function formatClaimIdentifierInput(value: string): string {
 function displayClaimIdentifier(value: string): string {
   return value.includes('@') ? value : formatClaimIdentifierInput(value);
 }
-
-const PASSWORD_RULES = [
-  { key: 'length', label: 'At least 8 characters', test: (p: string) => p.length >= 8 },
-  { key: 'upper', label: 'An uppercase letter', test: (p: string) => /[A-Z]/.test(p) },
-  { key: 'lower', label: 'A lowercase letter', test: (p: string) => /[a-z]/.test(p) },
-  {
-    key: 'symbol',
-    label: 'A symbol (like ! or #)',
-    test: (p: string) => /[^A-Za-z0-9]/.test(p),
-  },
-] as const;
 
 function FormWrap({ children }: { children: React.ReactNode }) {
   if (Platform.OS !== 'web') return <>{children}</>;

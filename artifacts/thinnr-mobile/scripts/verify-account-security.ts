@@ -139,7 +139,7 @@ async function main() {
 
   await requestPatientPasswordLogin({ identifier: 'a@example.com', password: 'ok' });
   await verifyLoginCode({ requestId: 'x', code: '123456' });
-  await completeSignup({ signupToken: 'x', password: 'Strongpass1' });
+  await completeSignup({ signupToken: 'x', password: 'Strongpass1', firstName: 'Casey', lastName: 'Patient' });
   const deviceCalls = calls.filter(c => ['auth/patient/password/login', 'auth/login/verify', 'auth/signup/complete'].includes(c.path));
   assert('auth calls send stable device and platform headers', deviceCalls.length >= 3 && deviceCalls.every(c => /^inst-[a-f0-9]{24}$/.test(c.headers['x-thinnr-device']) && c.headers['x-thinnr-platform'] === 'web') && new Set(deviceCalls.map(c => c.headers['x-thinnr-device'])).size === 1);
   console.log(`\n${checks - failures}/${checks} checks passed`);

@@ -315,6 +315,41 @@ export function QuietLinkRow({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Live password rules checklist — each rule ticks as it is met. Rules come
+ * from lib/password-rules (the mirror of the server's password check).
+ */
+export function PasswordChecklist({
+  checks,
+  testIDPrefix,
+}: {
+  checks: ReadonlyArray<{ key: string; label: string; met: boolean }>;
+  testIDPrefix: string;
+}) {
+  const colors = useColors();
+  return (
+    <View style={styles.checklist} accessibilityRole="list">
+      {checks.map(rule => (
+        <View
+          key={rule.key}
+          testID={`${testIDPrefix}-${rule.key}`}
+          style={styles.checkRow}
+          accessible
+          accessibilityLabel={`${rule.label}: ${rule.met ? 'done' : 'not yet'}`}
+          accessibilityState={{ checked: rule.met }}
+        >
+          <Feather
+            name={rule.met ? 'check-circle' : 'circle'}
+            size={14}
+            color={rule.met ? colors.activeGreen : colors.labelText}
+          />
+          <Text style={[styles.checkText, { color: rule.met ? colors.navy : colors.subtleText }]}>{rule.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function Footnote({ text }: { text: string }) {
   const colors = useColors();
   return <Text style={[styles.footnote, { color: colors.subtleText }]}>{text}</Text>;
@@ -338,6 +373,9 @@ const styles = StyleSheet.create({
   secondary: { borderWidth: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingVertical: 14 },
   secondaryText: { fontSize: 14, fontFamily: fonts.sansBold, letterSpacing: 0.3 },
   feedback: { marginTop: space.md, gap: space.sm },
+  checklist: { marginTop: space.sm, gap: 6 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  checkText: { fontSize: 12, fontFamily: fonts.sansMedium },
   feedbackText: { fontSize: 13.5, lineHeight: 20, fontFamily: fonts.sans },
   option: {
     flexDirection: 'row',

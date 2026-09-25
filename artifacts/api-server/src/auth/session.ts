@@ -42,6 +42,57 @@ export class PhoneExistsError extends Error {
 }
 
 /**
+ * GoTrue's password policy rejection (HTTP 422, error_code "weak_password").
+ * Supabase checks new passwords against leaked-password lists ("pwned") and
+ * its own length/character rules; `reasons` carries whichever tripped.
+ */
+export function weakPasswordReasons(status: number, json: unknown): string[] | null {
+  const body = (json ?? {}) as {
+    error_code?: unknown;
+    code?: unknown;
+    weak_password?: { reasons?: unknown } | null;
+  };
+  const code = String(body.error_code ?? body.code ?? "");
+  if (code !== "weak_password" && !body.weak_password) return null;
+  if (status < 400) return null;
+  const reasons = Array.isArray(body.weak_password?.reasons)
+    ? body.weak_password!.reasons.map(String)
+    : [];
+  return reasons;
+}
+
+export const BREACHED_PASSWORD_MESSAGE =
+  "This password has appeared in a data breach — please choose a different one.";
+const WEAK_LENGTH_MESSAGE = "Passwords need at least 8 characters.";
+const WEAK_CHARACTERS_MESSAGE =
+  "Use at least one uppercase letter, one lowercase letter and one symbol.";
+const WEAK_GENERIC_MESSAGE = "That password isn't strong enough — please choose a different one.";
+
+/** Machine-readable code the apps can key on alongside `field: "password"`. */
+export const WEAK_PASSWORD_CODE = "WEAK_PASSWORD";
+
+export class WeakPasswordError extends Error {
+  readonly reasons: string[];
+  constructor(reasons: string[]) {
+    super(`password refused by auth policy (${reasons.join(",") || "unspecified"})`);
+    this.reasons = reasons;
+  }
+
+  /** Patient-facing copy; a breach hit wins over rule misses. */
+  get userMessage(): string {
+    if (this.reasons.includes("pwned")) return BREACHED_PASSWORD_MESSAGE;
+    if (this.reasons.includes("characters")) return WEAK_CHARACTERS_MESSAGE;
+    if (this.reasons.includes("length")) return WEAK_LENGTH_MESSAGE;
+    return WEAK_GENERIC_MESSAGE;
+  }
+}
+
+function throwIfWeakPassword(status: number, json: unknown): void {
+  const reasons = weakPasswordReasons(status, json);
+  if (reasons) throw new WeakPasswordError(reasons);
+}
+
+/**
  * Mint a single-use session token hash for an auth user (by their GoTrue
  * email). The client exchanges it for a session via verifyOtp.
  */
@@ -92,10 +143,11 @@ async function createConfirmedUser(input: CreateUserInput): Promise<string> {
       app_metadata: input.appMetadata,
     });
 
-  let res = await attempt(true);
+  const res = await attempt(true);
   if (res.status >= 300 && input.phone && isPhoneExistsError(res.json)) {
     throw new PhoneExistsError();
   }
+  if (res.status >= 300 && input.password) throwIfWeakPassword(res.status, res.json);
   if (res.status >= 300) {
     throw new Error(`auth user creation failed (${res.status})`);
   }
@@ -121,6 +173,7 @@ export async function createConfirmedPatientUser(
 
 export async function updatePatientPassword(userId: string, password: string): Promise<void> {
   const res = await supabaseAdmin("PUT", `/auth/v1/admin/users/${enc(userId)}`, { password });
+  if (res.status >= 300) throwIfWeakPassword(res.status, res.json);
   if (res.status >= 300) throw new Error(`patient password update failed (${res.status})`);
 }
 
@@ -215,6 +268,81 @@ export async function ensurePatientAuthUser(patient: PatientRow): Promise<string
   const linked = await linkGuarded("patients", "id", patient.id, userId);
   await activateInvitedPatient(patient);
   return linked;
+}
+
+/**
+ * Invited-patient enrollment: give the patient a login that already carries
+ * the chosen password, so GoTrue's policy (breach list included) has accepted
+ * it before anything marks the patient activated.
+ *
+ * - An existing link keeps its login; only the password moves.
+ * - Otherwise a new synthetic-email user is created WITH the password and
+ *   linked while the row is still unlinked. A lost link race deletes the new
+ *   user and moves the password onto the winner's login instead.
+ *
+ * `created` tells the caller whether this attempt owns the login (and must
+ * remove it on rollback via undoEnrollmentLogin). Throws WeakPasswordError
+ * with nothing left behind when GoTrue refuses the password.
+ */
+export async function setEnrollmentLogin(
+  patient: PatientRow,
+  password: string,
+): Promise<{ userId: string; created: boolean }> {
+  if (patient.auth_user_id) {
+    await updatePatientPassword(patient.auth_user_id, password);
+    return { userId: patient.auth_user_id, created: false };
+  }
+  const input: CreateUserInput = {
+    email: patientSyntheticEmail(patient.id),
+    phone: patient.phone,
+    password,
+    displayName: patient.name,
+    appMetadata: { thinnr_claim: "patient", thinnr_claim_ref: patient.id },
+  };
+  let userId: string;
+  try {
+    userId = await createConfirmedUser(input);
+  } catch (error) {
+    // Same shared-phone allowance as ensurePatientAuthUser.
+    if (!(error instanceof PhoneExistsError) || patient.activation_status !== "invited") throw error;
+    userId = await createConfirmedUser({ ...input, phone: null });
+  }
+  const patch = await supabaseAdmin(
+    "PATCH",
+    `/rest/v1/patients?id=eq.${enc(patient.id)}&auth_user_id=is.null`,
+    { auth_user_id: userId, claimed_at: new Date().toISOString() },
+    "return=representation",
+  );
+  if (patch.status >= 300) {
+    await deleteAuthUserQuietly(userId);
+    throw new Error(`account linking failed (${patch.status})`);
+  }
+  if (Array.isArray(patch.json) && patch.json.length === 1) return { userId, created: true };
+
+  await deleteAuthUserQuietly(userId);
+  const reread = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${enc(patient.id)}&select=auth_user_id&limit=1`,
+  );
+  const winner = Array.isArray(reread.json) ? (reread.json[0]?.auth_user_id as string | null) : null;
+  if (!winner) throw new Error("account linking race left no login");
+  await updatePatientPassword(winner, password);
+  return { userId: winner, created: false };
+}
+
+/**
+ * Roll back a login this enrollment attempt created: clear the link (only
+ * while it still points at this login) and delete the GoTrue user. Throws
+ * when the unlink write fails so the caller can log a stranded link.
+ */
+export async function undoEnrollmentLogin(patientId: string, userId: string): Promise<void> {
+  const unlink = await supabaseAdmin(
+    "PATCH",
+    `/rest/v1/patients?id=eq.${enc(patientId)}&auth_user_id=eq.${enc(userId)}`,
+    { auth_user_id: null, claimed_at: null },
+  );
+  await deleteAuthUserQuietly(userId);
+  if (unlink.status >= 300) throw new Error(`enrollment unlink failed (${unlink.status})`);
 }
 
 /** Office account ids are canonically bare — locks and the HQ UI strip `acct-`. */

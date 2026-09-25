@@ -84,7 +84,6 @@ import {
 import {
   mintSessionTokenHash,
   getAuthUserEmail,
-  ensurePatientAuthUser,
   ensureStaffAuthUser,
   deleteAuthUserQuietly,
   patientSyntheticEmail,
@@ -92,6 +91,10 @@ import {
   createConfirmedPatientUser,
   updatePatientPassword,
   verifyPatientPassword,
+  setEnrollmentLogin,
+  undoEnrollmentLogin,
+  WeakPasswordError,
+  WEAK_PASSWORD_CODE,
 } from "../auth/session";
 import { passwordIssue } from "../claim/normalize";
 import {
@@ -142,6 +145,55 @@ const STEP_EXPIRED_CODE = "STEP_EXPIRED";
 const PHONE_ON_FILE_MESSAGE = "A verified phone is already on file for this account. Codes go to that number.";
 const PHONE_REQUIRED_MESSAGE = "Enter the mobile number that should receive your sign-in codes.";
 const SERVER_ERROR = "We couldn't process that just now. Please try again in a moment.";
+
+/** GoTrue refused the password (breach list or policy): say so on the field. */
+export function respondWeakPassword(
+  res: { status: (code: number) => { json: (body: unknown) => unknown } },
+  error: WeakPasswordError,
+  field = "password",
+): void {
+  res.status(400).json({ error: error.userMessage, field, code: WEAK_PASSWORD_CODE });
+}
+
+/**
+ * Give back a one-time capability this request reserved (consumed_at stamp)
+ * when the work it guarded did not happen. Guarded on our own stamp so it
+ * can never reopen a row some other request finished.
+ */
+async function releaseReservation(rowId: string, consumedAt: string): Promise<void> {
+  await patchRow(rowId, { consumed_at: null }, `&consumed_at=eq.${encodeURIComponent(consumedAt)}`);
+}
+
+/** First/last name for enrollment: trimmed, single-spaced, 1–80 chars. */
+function cleanNamePart(value: unknown): string {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+interface EnrollmentNameRow {
+  name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+}
+
+async function loadEnrollmentNames(patientId: string): Promise<EnrollmentNameRow | null> {
+  const res = await supabaseAdmin(
+    "GET",
+    `/rest/v1/patients?id=eq.${encodeURIComponent(patientId)}&archived_at=is.null&select=name,first_name,last_name&limit=1`,
+  );
+  if (res.status >= 300) throw new Error(`patient name lookup failed (${res.status})`);
+  const rows = Array.isArray(res.json) ? (res.json as EnrollmentNameRow[]) : [];
+  return rows[0] ?? null;
+}
+
+/** Office-entered name split the same way the roster DTO splits it. */
+async function loadInvitedName(patientId: string): Promise<{ firstName: string; lastName: string } | null> {
+  const row = await loadEnrollmentNames(patientId);
+  if (!row) return null;
+  const whole = String(row.name ?? "").trim().split(/\s+/).filter(Boolean);
+  const firstName = cleanNamePart(row.first_name) || whole[0] || "";
+  const lastName = cleanNamePart(row.last_name) || whole.slice(1).join(" ");
+  return firstName || lastName ? { firstName, lastName } : null;
+}
 
 function patientUniqueConflict(message: string): "email" | "phone" | null {
   if (/patients_email_(?:normalized_)?unique_idx/.test(message)) return "email";
@@ -804,9 +856,19 @@ router.post(AUTH_PATIENT_RECOVERY_COMPLETE_PATH, async (req, res) => {
       if (error instanceof SessionContainmentError) { respondSessionContainmentFailed(res); return; }
       throw error;
     }
-    const consumed = await patchRow(row.id, { consumed_at: new Date().toISOString() }, "&consumed_at=is.null");
+    const consumedAt = new Date().toISOString();
+    const consumed = await patchRow(row.id, { consumed_at: consumedAt }, "&consumed_at=is.null");
     if (consumed !== 1) { res.status(400).json({ error: SESSION_EXPIRED }); return; }
-    await updatePatientPassword(patient!.auth_user_id!, password as string);
+    try {
+      await updatePatientPassword(patient!.auth_user_id!, password as string);
+    } catch (error) {
+      if (!(error instanceof WeakPasswordError)) throw error;
+      // The password never changed: hand the same reset proof back so the
+      // patient can pick another password without a fresh code.
+      await releaseReservation(row.id, consumedAt);
+      respondWeakPassword(res, error);
+      return;
+    }
     await afterRecoveryCompleted(req, {
       userId: patient!.auth_user_id!,
       patientId: String(patient!.id),
@@ -1032,12 +1094,27 @@ router.post(AUTH_SIGNUP_VERIFY_PATH, async (req, res) => {
       return;
     }
     const token = crypto.randomBytes(32).toString("hex");
+    const resolvedRef = row.candidates.length === 1 ? row.candidates[0].ref : null;
     await patchRow(row.id, {
       verified_at: new Date().toISOString(),
       claim_token_hash: sha256(token),
-      resolved_ref: row.candidates.length === 1 ? row.candidates[0].ref : null,
+      resolved_ref: resolvedRef,
     });
-    res.json({ ok: true, mode: "enroll" as const, signupToken: token });
+    // Ownership of the invited contact is proven at this point, so the name
+    // the office entered can come back for the patient to confirm or edit.
+    // A failed lookup only loses the prefill; the token is already minted.
+    const invitedName = resolvedRef
+      ? await loadInvitedName(resolvedRef).catch((error) => {
+          req.log?.error({ err: error }, "auth signup verify name prefill failed");
+          return null;
+        })
+      : null;
+    res.json({
+      ok: true,
+      mode: "enroll" as const,
+      signupToken: token,
+      ...(invitedName ? { invitedName } : {}),
+    });
   } catch (error) {
     req.log?.error({ err: error }, "auth signup verify failed");
     res.status(502).json({ error: SERVER_ERROR });
@@ -1054,9 +1131,11 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
   }
   let createdPatientId: string | null = null;
   try {
-    const { signupToken, name, email, password } = (req.body ?? {}) as {
+    const { signupToken, name, firstName, lastName, email, password } = (req.body ?? {}) as {
       signupToken?: unknown;
       name?: unknown;
+      firstName?: unknown;
+      lastName?: unknown;
       email?: unknown;
       password?: unknown;
     };
@@ -1069,6 +1148,20 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       res.status(400).json({ error: passwordError, field: "password" });
       return;
     }
+    // First + last name (the app's name step); a bare `name` is still
+    // accepted from older clients.
+    const splitName = typeof firstName === "string" || typeof lastName === "string";
+    const first = cleanNamePart(firstName);
+    const last = cleanNamePart(lastName);
+    if (splitName) {
+      if (!first) { res.status(400).json({ error: "Enter your first name.", field: "firstName" }); return; }
+      if (!last) { res.status(400).json({ error: "Enter your last name.", field: "lastName" }); return; }
+      if (first.length > 80) { res.status(400).json({ error: "First name is too long.", field: "firstName" }); return; }
+      if (last.length > 80) { res.status(400).json({ error: "Last name is too long.", field: "lastName" }); return; }
+    }
+    const legacyName = cleanNamePart(name);
+    const fullName = splitName ? `${first} ${last}` : legacyName;
+
     const row = await loadRowByToken(signupToken);
     if (
       !row ||
@@ -1086,36 +1179,72 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
         res.status(400).json({ error: SESSION_EXPIRED });
         return;
       }
-      const cleanName = typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
       const normalizedEmail = normalizeIdentifier(email);
       const fill: Record<string, unknown> = {};
-      if (!patient.name && cleanName) fill.name = cleanName;
+      // A confirmed or edited name replaces the office's version.
+      if (splitName) Object.assign(fill, { first_name: first, last_name: last, name: fullName });
+      else if (!patient.name && legacyName) fill.name = legacyName;
       if (!patient.email && normalizedEmail?.kind === "email") fill.email = normalizedEmail.email;
       if (!patient.phone && row.identifier_kind === "phone") fill.phone = row.identifier;
       if (patient.activation_status === "invited") fill.activation_status = "activated";
+      const priorNames = splitName ? await loadEnrollmentNames(patient.id) : null;
+      const prior: Record<string, unknown> = {};
+      for (const key of Object.keys(fill)) {
+        prior[key] =
+          priorNames && key in priorNames
+            ? priorNames[key as keyof EnrollmentNameRow]
+            : (patient as unknown as Record<string, unknown>)[key] ?? null;
+      }
+
       // Reserve the capability before any patient or GoTrue mutation.  A
       // second completion racing this one sees the same generic expiry and
       // cannot overwrite the winning password.
-      const reserved = await patchRow(
-        row.id,
-        { consumed_at: new Date().toISOString() },
-        "&consumed_at=is.null",
-      );
+      const reservedAt = new Date().toISOString();
+      const reserved = await patchRow(row.id, { consumed_at: reservedAt }, "&consumed_at=is.null");
       if (reserved !== 1) { res.status(400).json({ error: SESSION_EXPIRED }); return; }
-      if (Object.keys(fill).length) {
-        const updated = await supabaseAdmin("PATCH", `/rest/v1/patients?id=eq.${encodeURIComponent(patient.id)}`, fill);
-        if (updated.status >= 300) throw new Error(`patient enrollment update failed (${updated.status})`);
+
+      // Order matters: the password must be accepted by GoTrue (breach list
+      // included) on the login before the patient is marked activated, and
+      // any failure unwinds every step so the same code can be retried.
+      let login: { userId: string; created: boolean } | null = null;
+      let patientTouched = false;
+      try {
+        login = await setEnrollmentLogin(
+          {
+            ...patient,
+            phone: (fill.phone as string | undefined) ?? patient.phone,
+            name: (fill.name as string | undefined) ?? patient.name,
+          },
+          password as string,
+        );
+        const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(login.userId));
+        if (Object.keys(fill).length) {
+          patientTouched = true;
+          const updated = await supabaseAdmin("PATCH", `/rest/v1/patients?id=eq.${encodeURIComponent(patient.id)}`, fill);
+          if (updated.status >= 300) throw new Error(`patient enrollment update failed (${updated.status})`);
+        }
+        const signInId = await noteSignIn(req, { userId: login.userId, realm: "patient", method: "signup" });
+        res.json({ ok: true, tokenHash, signInId });
+        return;
+      } catch (error) {
+        await rollbackInvitedEnrollment({
+          patientId: patient.id,
+          prior: patientTouched ? prior : null,
+          login,
+          rowId: row.id,
+          reservedAt,
+        }).catch((rollbackError) =>
+          req.log?.error({ err: rollbackError, patientId: patient.id }, "auth signup rollback incomplete"),
+        );
+        if (error instanceof WeakPasswordError) {
+          respondWeakPassword(res, error);
+          return;
+        }
+        throw error;
       }
-      const userId = await ensurePatientAuthUser({ ...patient, ...fill });
-      await updatePatientPassword(userId, password as string);
-      const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
-      const tokenHash = await mintSessionTokenHash(await getAuthUserEmail(userId));
-      res.json({ ok: true, tokenHash, signInId });
-      return;
     }
 
-    const cleanName = typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
-    if (cleanName.length < 1 || cleanName.length > 120) {
+    if (fullName.length < 1 || fullName.length > 120) {
       res.status(400).json({ error: "Enter your name.", field: "name" });
       return;
     }
@@ -1160,19 +1289,21 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     const patient = {
       id: patientId,
       provider_id: office.providerId,
-      name: cleanName,
+      name: fullName,
+      ...(splitName ? { first_name: first, last_name: last } : {}),
       email: normalizedEmail.email,
       phone: row.identifier,
       activation_status: "activated",
       created_at: new Date().toISOString(),
     };
 
-    // Auth user first (it can fail on a phone already holding a login),
-    // then the patient row, then the link — with cleanup on every failure.
+    // Auth user first, carrying the password (it can fail on a phone already
+    // holding a login, or on a password GoTrue refuses), then the patient
+    // row, then the link — with cleanup on every failure.
     let userId: string;
     try {
       userId = await createConfirmedPatientUser(
-        { id: patientId, phone: row.identifier, name: cleanName },
+        { id: patientId, phone: row.identifier, name: fullName },
         password as string,
       );
     } catch (error) {
@@ -1180,6 +1311,10 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
         res.status(409).json({
           error: "That phone number already has a login. Go back and sign in instead.",
         });
+        return;
+      }
+      if (error instanceof WeakPasswordError) {
+        respondWeakPassword(res, error);
         return;
       }
       throw error;
@@ -1212,15 +1347,31 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     }
     createdPatientId = patientId;
 
-    await patchRow(row.id, {
-      consumed_at: new Date().toISOString(),
-      resolved_ref: patientId,
-      auth_user_id: userId,
-    });
-
-    const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
-    const tokenHash = await mintSessionTokenHash(patientSyntheticEmail(patientId));
-    res.json({ ok: true, tokenHash, signInId });
+    // From here a failure removes the new row and login and leaves the code
+    // unconsumed, so the patient can simply try again.
+    const consumedAt = new Date().toISOString();
+    let consumed = false;
+    try {
+      consumed = (await patchRow(
+        row.id,
+        { consumed_at: consumedAt, resolved_ref: patientId, auth_user_id: userId },
+        "&consumed_at=is.null",
+      )) === 1;
+      if (!consumed) {
+        await rollbackNewSignup({ patientId, userId, rowId: row.id, consumedAt: null });
+        res.status(400).json({ error: SESSION_EXPIRED });
+        return;
+      }
+      const tokenHash = await mintSessionTokenHash(patientSyntheticEmail(patientId));
+      const signInId = await noteSignIn(req, { userId, realm: "patient", method: "signup" });
+      res.json({ ok: true, tokenHash, signInId });
+    } catch (error) {
+      await rollbackNewSignup({ patientId, userId, rowId: row.id, consumedAt: consumed ? consumedAt : null }).catch(
+        (rollbackError) => req.log?.error({ err: rollbackError, patientId }, "auth signup rollback incomplete"),
+      );
+      createdPatientId = null;
+      throw error;
+    }
   } catch (error) {
     req.log?.error({ err: error, patientId: createdPatientId }, "auth signup complete failed");
     res.status(502).json({ error: SERVER_ERROR });
@@ -1228,6 +1379,64 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
     slot.ok && slot.release();
   }
 });
+
+/**
+ * Unwind a failed invited enrollment: prior patient fields (activation
+ * included) first, then a login this attempt created, then the reserved
+ * code — each attempted even if an earlier step fails.
+ */
+async function rollbackInvitedEnrollment(input: {
+  patientId: string;
+  prior: Record<string, unknown> | null;
+  login: { userId: string; created: boolean } | null;
+  rowId: string;
+  reservedAt: string;
+}): Promise<void> {
+  const failures: unknown[] = [];
+  if (input.prior && Object.keys(input.prior).length) {
+    try {
+      const restored = await supabaseAdmin(
+        "PATCH",
+        `/rest/v1/patients?id=eq.${encodeURIComponent(input.patientId)}`,
+        input.prior,
+      );
+      if (restored.status >= 300) throw new Error(`patient restore failed (${restored.status})`);
+    } catch (error) { failures.push(error); }
+  }
+  if (input.login?.created) {
+    try { await undoEnrollmentLogin(input.patientId, input.login.userId); } catch (error) { failures.push(error); }
+  }
+  try { await releaseReservation(input.rowId, input.reservedAt); } catch (error) { failures.push(error); }
+  if (failures.length) throw failures[0];
+}
+
+/** Unwind a failed provider-code signup after its patient row landed. */
+async function rollbackNewSignup(input: {
+  patientId: string;
+  userId: string;
+  rowId: string;
+  consumedAt: string | null;
+}): Promise<void> {
+  const failures: unknown[] = [];
+  try {
+    const removed = await supabaseAdmin(
+      "DELETE",
+      `/rest/v1/patients?id=eq.${encodeURIComponent(input.patientId)}&auth_user_id=eq.${encodeURIComponent(input.userId)}`,
+    );
+    if (removed.status >= 300) throw new Error(`patient removal failed (${removed.status})`);
+  } catch (error) { failures.push(error); }
+  await deleteAuthUserQuietly(input.userId);
+  if (input.consumedAt) {
+    try {
+      await patchRow(
+        input.rowId,
+        { consumed_at: null, resolved_ref: null, auth_user_id: null },
+        `&consumed_at=eq.${encodeURIComponent(input.consumedAt)}`,
+      );
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length) throw failures[0];
+}
 
 // ── Staff second factor (texted code after the emailed code) ────────────────
 

@@ -54,13 +54,20 @@ export type OfficeLookupResult =
   | { ok: true; officeName: string }
   | { ok: false; error: string };
 
+/** The name the office entered, split for the patient to confirm or edit. */
+export type InvitedName = { firstName: string; lastName: string };
+
 export type SignupVerifyResult =
-  | { ok: true; mode: 'enroll'; signupToken: string }
+  | { ok: true; mode: 'enroll'; signupToken: string; invitedName: InvitedName | null }
   | { ok: false; error: string };
+
+export type SignupField = 'password' | 'firstName' | 'lastName' | 'name' | 'email';
 
 export type SignupCompleteResult =
   | { ok: true; tokenHash: string; signInId: string | null }
-  | { ok: false; error: string; field: 'password' | 'name' | 'email' | null };
+  | { ok: false; error: string; field: SignupField | null };
+
+const SIGNUP_FIELDS: readonly string[] = ['password', 'firstName', 'lastName', 'name', 'email'];
 
 export type ResetVerifyResult =
   | { ok: true; resetToken: string }
@@ -302,7 +309,12 @@ export async function verifySignupCode(input: {
   if ('failed' in result) return { ok: false, error: result.failed };
   const { status, json } = result;
   if (status === 200 && json?.mode === 'enroll' && typeof json.signupToken === 'string') {
-    return { ok: true, mode: 'enroll', signupToken: json.signupToken };
+    const named = json.invitedName as { firstName?: unknown; lastName?: unknown } | null | undefined;
+    const invitedName =
+      named && typeof named.firstName === 'string' && typeof named.lastName === 'string'
+        ? { firstName: named.firstName, lastName: named.lastName }
+        : null;
+    return { ok: true, mode: 'enroll', signupToken: json.signupToken, invitedName };
   }
   return {
     ok: false,
@@ -314,15 +326,16 @@ export async function verifySignupCode(input: {
 export async function completeSignup(input: {
   signupToken: string;
   password: string;
-  name?: string;
+  firstName: string;
+  lastName: string;
   email?: string;
 }): Promise<SignupCompleteResult> {
   const result = await postJson('/auth/signup/complete', input, true);
   if ('failed' in result) return { ok: false, error: result.failed, field: null };
   const { status, json } = result;
   if (status !== 200 || typeof json?.tokenHash !== 'string') {
-    const field = json?.field === 'password' || json?.field === 'name' || json?.field === 'email'
-      ? json.field
+    const field = typeof json?.field === 'string' && SIGNUP_FIELDS.includes(json.field)
+      ? (json.field as SignupField)
       : null;
     return {
       ok: false,

@@ -36,6 +36,11 @@ class FakeBackend {
    *  simulates a rival signup landing between pre-check and insert. */
   onEmailPrecheck: (() => void) | null = null;
   pauseOnce: { pathPrefix: string; gate: Promise<void> } | null = null;
+  /** Passwords GoTrue refuses as breached (422 weak_password, reason pwned). */
+  weakPasswords = new Set<string>();
+  /** Simulated write failures: PATCH matching the predicate / POST to a table. */
+  failPatch: ((table: string, body: Row | null) => boolean) | null = null;
+  failPostTables = new Set<string>();
 
   reset() {
     this.tables = {
@@ -74,6 +79,9 @@ class FakeBackend {
     this.onPasswordGrant = null;
     this.onEmailPrecheck = null;
     this.pauseOnce = null;
+    this.weakPasswords = new Set();
+    this.failPatch = null;
+    this.failPostTables = new Set();
   }
 
   seedAuthUser(overrides: Row = {}): Row {
@@ -201,6 +209,14 @@ class FakeBackend {
       });
     }
     if (method === "POST" && url.pathname === "/auth/v1/admin/users") {
+      if (body?.password && this.weakPasswords.has(String(body.password))) {
+        return json(422, {
+          code: 422,
+          error_code: "weak_password",
+          msg: "Password is known to be weak and easy to guess, please choose a different one.",
+          weak_password: { reasons: ["pwned"] },
+        });
+      }
       const email = body?.email ? String(body.email).toLowerCase() : null;
       const phone = body?.phone ? String(body.phone) : null;
       for (const user of this.authUsers.values()) {
@@ -238,6 +254,14 @@ class FakeBackend {
     if (idMatch && method === "PUT") {
       const user = this.authUsers.get(idMatch[1]);
       if (!user) return json(404, { msg: "User not found" });
+      if (body?.password && this.weakPasswords.has(String(body.password))) {
+        return json(422, {
+          code: 422,
+          error_code: "weak_password",
+          msg: "Password is known to be weak and easy to guess, please choose a different one.",
+          weak_password: { reasons: ["pwned"] },
+        });
+      }
       Object.assign(user, body);
       return json(200, user);
     }
@@ -451,11 +475,13 @@ class FakeBackend {
         ) {
           return json(500, { message: "simulated rejected-send spend failure" });
         }
+        if (this.failPatch?.(table, body)) return json(500, { message: `simulated ${table} update failure` });
         const rows = this.matchRows(table, conditions, orGroups);
         for (const row of rows) Object.assign(row, body);
         return json(200, rows);
       }
       if (method === "POST") {
+        if (this.failPostTables.has(table)) return json(500, { message: `simulated ${table} insert failure` });
         if (table === "patients") {
           // The partial unique indexes the migration created, faked exactly:
           // non-null emails and phones must be unique among patients.
@@ -801,6 +827,166 @@ describe("patient password and enrollment rails", () => {
     const user = backend.authUsers.get(String(patient.auth_user_id))!;
     const winning = results[0].status === 200 ? "WinnerOne!Pass" : "WinnerTwo!Pass";
     expect(user.password).toBe(winning);
+  });
+
+  const BREACHED = "This password has appeared in a data breach — please choose a different one.";
+
+  async function invitedToken(identifier: string): Promise<{ token: string; verify: { json: Row } }> {
+    const start = await api("POST", "/api/auth/signup/start", { flow: "invited", identifier });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(verify.status).toBe(200);
+    return { token: verify.json.signupToken, verify };
+  }
+
+  it("refuses a breached password on the field and leaves the invite retryable with the same code", async () => {
+    const patient = seedPatient({
+      email: "breach@example.com", phone: "+15550003333",
+      activation_status: "invited", auth_user_id: null,
+    });
+    backend.weakPasswords.add("Password1!");
+    const { token } = await invitedToken("breach@example.com");
+    const refused = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Password1!", firstName: "Casey", lastName: "Edited",
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json).toMatchObject({ error: BREACHED, field: "password", code: "WEAK_PASSWORD" });
+    // Nothing half-done: still invited, no login linked or left behind, name untouched.
+    expect(patient.activation_status).toBe("invited");
+    expect(patient.auth_user_id).toBeNull();
+    expect(patient.claimed_at ?? null).toBeNull();
+    expect(patient.name).toBe("Casey Patient");
+    expect(backend.authUsers.size).toBe(0);
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeNull();
+
+    const retry = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Stronger!Pass9", firstName: "Casey", lastName: "Edited",
+    });
+    expect(retry.status).toBe(200);
+    expect(patient.activation_status).toBe("activated");
+    expect(backend.authUsers.get(String(patient.auth_user_id))?.password).toBe("Stronger!Pass9");
+    expect(patient).toMatchObject({ first_name: "Casey", last_name: "Edited", name: "Casey Edited" });
+  });
+
+  it("keeps a pre-existing link on a refused password and sets the password on retry", async () => {
+    const patient = seedPatient({ email: "linked@example.com", activation_status: "invited" });
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+    });
+    patient.auth_user_id = user.id;
+    backend.weakPasswords.add("Password1!");
+    const { token } = await invitedToken("linked@example.com");
+    const refused = await api("POST", "/api/auth/signup/complete", { signupToken: token, password: "Password1!" });
+    expect(refused.status).toBe(400);
+    expect(refused.json.error).toBe(BREACHED);
+    expect(patient.activation_status).toBe("invited");
+    expect(backend.authUsers.has(String(user.id))).toBe(true);
+    const retry = await api("POST", "/api/auth/signup/complete", { signupToken: token, password: "Stronger!Pass9" });
+    expect(retry.status).toBe(200);
+    expect(patient.auth_user_id).toBe(user.id);
+    expect(user.password).toBe("Stronger!Pass9");
+  });
+
+  it("unwinds an invited completion that fails after the login landed", async () => {
+    const patient = seedPatient({
+      email: "unwind@example.com", activation_status: "invited", auth_user_id: null,
+    });
+    const { token } = await invitedToken("unwind@example.com");
+    backend.failPostTables.add("auth_sign_ins");
+    const failed = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Stronger!Pass9", firstName: "Renamed", lastName: "Person",
+    });
+    expect(failed.status).toBe(502);
+    expect(patient).toMatchObject({ activation_status: "invited", auth_user_id: null, claimed_at: null, name: "Casey Patient" });
+    expect(patient.first_name ?? null).toBeNull();
+    expect(backend.authUsers.size).toBe(0);
+    expect(backend.deletedUsers).toHaveLength(1);
+
+    backend.failPostTables.clear();
+    const retry = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Stronger!Pass9", firstName: "Renamed", lastName: "Person",
+    });
+    expect(retry.status).toBe(200);
+    expect(patient.activation_status).toBe("activated");
+  });
+
+  it("returns the office's name after verification for the patient to confirm", async () => {
+    seedPatient({
+      email: "named@example.com", name: "Shannon Marie Strotheide",
+      activation_status: "invited", auth_user_id: null,
+    });
+    const { verify } = await invitedToken("named@example.com");
+    expect(verify.json.invitedName).toEqual({ firstName: "Shannon", lastName: "Marie Strotheide" });
+
+    seedSignupOffice();
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "new", code: "654321", phone: "8135550199", email: "fresh-name@example.com",
+    });
+    const fresh = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    expect(fresh.json.invitedName).toBeUndefined();
+    const missing = await api("POST", "/api/auth/signup/complete", {
+      signupToken: fresh.json.signupToken, password: "Stronger!Pass9", firstName: "Fresh", lastName: " ",
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.json.field).toBe("lastName");
+  });
+
+  it("refuses a breached password on a new signup without leaving a patient or login", async () => {
+    seedSignupOffice();
+    backend.weakPasswords.add("Password1!");
+    const start = await api("POST", "/api/auth/signup/start", {
+      flow: "new", code: "654321", phone: "8135550102", email: "breach-new@example.com",
+    });
+    const verify = await api("POST", "/api/auth/signup/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    const token = verify.json.signupToken;
+    const refused = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Password1!", firstName: "New", lastName: "Patient",
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json).toMatchObject({ error: BREACHED, field: "password" });
+    expect(backend.tables.patients).toHaveLength(0);
+    expect(backend.authUsers.size).toBe(0);
+
+    backend.failPostTables.add("auth_sign_ins");
+    const failed = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Stronger!Pass9", firstName: "New", lastName: "Patient",
+    });
+    expect(failed.status).toBe(502);
+    expect(backend.tables.patients).toHaveLength(0);
+    expect(backend.authUsers.size).toBe(0);
+    expect(backend.tables.claim_verifications[0].consumed_at).toBeNull();
+
+    backend.failPostTables.clear();
+    const retry = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "Stronger!Pass9", firstName: "New", lastName: "Patient",
+    });
+    expect(retry.status).toBe(200);
+    expect(backend.tables.patients[0]).toMatchObject({ first_name: "New", last_name: "Patient", name: "New Patient" });
+  });
+
+  it("shows the breach message on password reset and keeps the reset proof usable", async () => {
+    const { user } = seedPasswordPatient({ email: "reset-breach@example.com" });
+    backend.weakPasswords.add("Password1!");
+    const start = await api("POST", "/api/auth/patient/recovery/start", { identifier: "reset-breach@example.com" });
+    const proof = await api("POST", "/api/auth/patient/recovery/verify", {
+      requestId: start.json.requestId, code: start.json.devCode,
+    });
+    const refused = await api("POST", "/api/auth/patient/recovery/complete", {
+      resetToken: proof.json.resetToken, password: "Password1!",
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json).toMatchObject({ error: BREACHED, field: "password" });
+    expect(user.password).toBe("OldStrong!Pass");
+    const retry = await api("POST", "/api/auth/patient/recovery/complete", {
+      resetToken: proof.json.resetToken, password: "Stronger!Pass9",
+    });
+    expect(retry.status).toBe(200);
+    expect(user.password).toBe("Stronger!Pass9");
   });
 
   it("creates a new signup with both contacts and refuses split contacts", async () => {

@@ -54,23 +54,38 @@ export function isLaunchAllowedPath(url: string) {
 
 /**
  * Whether the office's Stripe connection is far enough along to open the
- * workspace. Stripe still verifying submitted details ("pending") counts: the
- * office has done everything it can, and patient charges stay blocked on their
- * own until Stripe enables them (checkout checks charges_enabled).
+ * workspace. Once the office has submitted Stripe's form ("pending": Stripe
+ * reviewing, or asking for more after submission) it has done its part; the
+ * Overview banner asks for anything Stripe needs later, and patient charges
+ * stay blocked on their own until Stripe enables them (checkout checks
+ * charges_enabled).
  */
 export function paymentsLaunchSatisfied(state: ReturnType<typeof paymentLaunchState>): boolean {
   return state === "ready" || state === "pending";
 }
 
+/**
+ * Stripe disabled reasons that mean the account cannot be used at all (as
+ * opposed to "requirements.*" / "under_review", which Stripe clears once it has
+ * what it needs). Keep in step with complete_practice_launch.
+ */
+export function stripeAccountRejected(reason: unknown): boolean {
+  return typeof reason === "string" && (reason.startsWith("rejected.") || reason === "listed" || reason === "platform_paused");
+}
+
+/**
+ * not_started: no account. action_required: the office still has to act before
+ * setup can finish (form not submitted, account disconnected or rejected).
+ * pending: submitted, but Stripe is still reviewing or has asked for more
+ * details since. ready: charges and payouts on with nothing due.
+ */
 export function paymentLaunchState(account: {details_submitted:boolean;charges_enabled:boolean;payouts_enabled:boolean;requirements:Record<string,unknown>;disconnected_at?:string|null} | null) {
   if (!account) return "not_started" as const;
-  if (account.disconnected_at) return "action_required" as const;
-  const due = ["currently_due","past_due"].some(key => Array.isArray(account.requirements[key]) && (account.requirements[key] as unknown[]).length > 0);
-  if (!account.details_submitted || due) return "action_required" as const;
-  // A disabled/rejected account is never ready or "verification pending",
-  // whatever its stored charge/payout flags say.
+  if (account.disconnected_at || !account.details_submitted) return "action_required" as const;
   const reason = account.requirements.disabled_reason;
-  if (reason && reason !== "requirements.pending_verification") return "action_required" as const;
-  if (account.charges_enabled && account.payouts_enabled) return "ready" as const;
+  // A rejected account is never ready, whatever its stored charge/payout flags say.
+  if (stripeAccountRejected(reason)) return "action_required" as const;
+  const due = ["currently_due","past_due"].some(key => Array.isArray(account.requirements[key]) && (account.requirements[key] as unknown[]).length > 0);
+  if (account.charges_enabled && account.payouts_enabled && !due) return "ready" as const;
   return "pending" as const;
 }

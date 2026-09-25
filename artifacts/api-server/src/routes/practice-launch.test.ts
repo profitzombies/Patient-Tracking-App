@@ -89,7 +89,7 @@ describe("practice launch HTTP boundary",()=>{
    m.policy.mockResolvedValue({allStaff:true});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    m.factor.mockResolvedValue({verifiedAt:"2026-01-01"});
-   m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["bank"]}});
+   m.account.mockResolvedValue({details_submitted:false,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["bank"]}});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
  });
@@ -116,19 +116,37 @@ describe("practice launch HTTP boundary",()=>{
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
    expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/complete_practice_launch",{p_provider_id:"office-a",p_expected_version:2,p_stripe_mode:"test",p_platform_account_id:"acct_test"});
  });
- it("blocks accounts Stripe still needs something from, or has disabled",async()=>{
-   m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}});
-   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
-   m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{disabled_reason:"rejected.fraud"}});
-   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
+ it("lets setup finish once Stripe's form is submitted, even if Stripe asks for more since",async()=>{
+   for (const requirements of [{currently_due:["external_account"]},{past_due:["business_profile.url"],disabled_reason:"requirements.past_due"},{disabled_reason:"under_review"}]) {
+     m.admin.mockClear();
+     m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements});
+     expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
+     expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete_practice_launch"))).toBe(true);
+   }
+ });
+ it("blocks unsubmitted, rejected and disconnected accounts",async()=>{
+   for (const account of [
+     {details_submitted:false,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}},
+     {details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{disabled_reason:"rejected.fraud"}},
+     {details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{disabled_reason:"listed"}},
+     {details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{},disconnected_at:"2026-09-01T00:00:00Z"},
+   ]) {
+     m.account.mockResolvedValue(account);
+     expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
+   }
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
  });
  it("allows ready accounts to submit in the pinned mode",async()=>{
-   m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}});
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{},last_synced_at:new Date().toISOString()});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
-   // Already ready: nothing Stripe says can make it more ready, so no sync.
+   // Ready and read from Stripe moments ago: nothing to refresh, so no sync.
    expect(m.sync).not.toHaveBeenCalled();
    expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/complete_practice_launch",{p_provider_id:"office-a",p_expected_version:2,p_stripe_mode:"test",p_platform_account_id:"acct_test"});
+ });
+ it("re-reads Stripe for a satisfying account whose stored read is too old for the completion check",async()=>{
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{},last_synced_at:new Date(Date.now()-10*60_000).toISOString()});
+   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
+   expect(m.sync).toHaveBeenCalledWith("office-a");
  });
  it("requires legacy offices to confirm Stripe but not details or products",async()=>{
    m.launch.mockResolvedValue({required:false,version:0,details_confirmed:false,products_confirmed:false});
@@ -217,8 +235,8 @@ describe("practice launch HTTP boundary",()=>{
    expect(res.status).toBe(200);
    expect(await res.json()).toMatchObject({productsConfirmed:false});
  });
- it("re-reads Stripe only for an account that does not yet satisfy setup, then lets it finish",async()=>{
-   const due={details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}};
+ it("re-reads Stripe for an account that does not yet satisfy setup, then lets it finish",async()=>{
+   const due={details_submitted:false,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}};
    const ready={details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}};
    // The stored row is behind; the sync brings it up to date.
    m.account.mockResolvedValueOnce(due).mockResolvedValue(ready);

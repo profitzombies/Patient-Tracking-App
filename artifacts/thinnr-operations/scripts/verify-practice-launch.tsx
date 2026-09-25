@@ -159,7 +159,7 @@ assert.match(text(result.root.toJSON()), /Email verified · Texted code not requ
 assert.doesNotMatch(text(result.root.toJSON()), /Review account security/);
 assert.equal(byTestId(result.root, 'button-setup-step-security-edit'), undefined, 'completed security has no pencil');
 assert.ok(byLabel(result.root, 'Edit practice details'), 'confirmed details offer a pencil');
-assert.match(text(result.root.toJSON()), /Stripe is still verifying your account/);
+assert.match(text(result.root.toJSON()), /Stripe is reviewing them/);
 assert.equal(result.root.root.findAllByType('input')[0].props.value, 'Sample Practice');
 
 // Restart Stripe setup

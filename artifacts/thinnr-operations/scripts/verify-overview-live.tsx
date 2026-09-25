@@ -132,13 +132,21 @@ g.fetch = async (input: string | URL | Request) => {
   if (!hit) throw new Error(`unexpected fetch ${url}`);
   return hit[1]();
 };
-function script(overrides: Partial<Record<'roster' | 'overview' | 'trends' | 'dashboard', Reply>> = {}) {
+function stripeStatus(account: Record<string, unknown> | null, canManage = true) {
+  const base = { stripe_account_id: 'acct_1', origin: 'created', details_submitted: true, charges_enabled: true, payouts_enabled: true, disconnected_at: null,
+    requirements: { currently_due: [], past_due: [], eventually_due: [], disabled_reason: null, current_deadline: null } };
+  return { account: account ? { ...base, ...account, requirements: { ...base.requirements, ...((account.requirements as object | undefined) ?? {}) } } : null,
+    offered_products: 0, links: 0, sandbox: true, oauth_available: true,
+    viewer: { office_role: canManage ? 'owner' : 'staff', can_manage: canManage }, office: { provider_id: 'office-1', office_name: 'Beacon Hill' } };
+}
+function script(overrides: Partial<Record<'roster' | 'overview' | 'trends' | 'dashboard' | 'status', Reply>> = {}) {
   requests.length = 0;
   routes = [
     ['/api/office/roster', overrides.roster ?? json(200, ROSTER)],
     ['/api/office/overview', overrides.overview ?? json(200, ROLLUP)],
     ['/api/office/engagement-trends', overrides.trends ?? json(200, TRENDS)],
     ['/api/billing/office/dashboard', overrides.dashboard ?? json(200, dashboard())],
+    ['/api/billing/office/status', overrides.status ?? json(200, stripeStatus({}))],
   ];
 }
 function persona(kind: 'demo' | 'owner' | 'hq') {
@@ -448,6 +456,64 @@ console.log('\nHQ drill-in');
   const dashboardCall = requests.find((url) => url.startsWith('/api/billing/office/dashboard')) ?? '';
   check('dashboard request carries ?office= for the drilled-in account', dashboardCall.includes('office=office-1'), dashboardCall);
   check('HQ sees the same live tiles', metric(root, 'MRR').value === '$1.7k' && metric(root, 'Active Patients').value === '4');
+  renderer.unmount();
+}
+
+console.log('\nStripe review banner');
+{
+  const banners = (root: ReactTestInstance) => ({ reviewing: hasTestId(root, 'banner-stripe-reviewing'), needsInfo: hasTestId(root, 'banner-stripe-needs-info') });
+  const linkHref = (root: ReactTestInstance, id: string) => root.findAll((node) => node.props['data-testid'] === id && node.props.href !== undefined)[0]?.props.href;
+  persona('owner');
+
+  script({ status: json(200, stripeStatus({ charges_enabled: false, payouts_enabled: false, requirements: { disabled_reason: 'requirements.pending_verification' } })) });
+  let { renderer, root } = await render(<Overview />);
+  let text = textOf(root);
+  check('reviewing: calm "Stripe is reviewing" banner', banners(root).reviewing && !banners(root).needsInfo && text.includes('Stripe is reviewing your details.') && text.includes("There's nothing you need to do right now"), text.slice(0, 300));
+  check('reviewing: links to Get paid', linkHref(root, 'link-stripe-reviewing') === '/payments/get-paid', String(linkHref(root, 'link-stripe-reviewing')));
+  renderer.unmount();
+
+  script({ status: json(200, stripeStatus({ charges_enabled: false, payouts_enabled: false, requirements: { currently_due: ['individual.verification.document'], disabled_reason: 'requirements.past_due', current_deadline: '2026-10-20T16:00:00Z' } })) });
+  ({ renderer, root } = await render(<Overview />));
+  text = textOf(root);
+  check('needs more info: separate "needs more from you" banner', banners(root).needsInfo && !banners(root).reviewing && text.includes('Stripe needs a few more details from you.'));
+  check('needs more info: states the deadline', text.includes('Please send them by') && text.includes('2026'), text.slice(0, 400));
+  check('needs more info: button to finish Stripe\'s steps on Get paid', linkHref(root, 'link-stripe-needs-info') === '/payments/get-paid' && text.includes("Finish Stripe's steps"));
+  renderer.unmount();
+
+  script({ status: json(200, stripeStatus({ requirements: { past_due: ['external_account'] } })) });
+  ({ renderer, root } = await render(<Overview />));
+  check('past-due items on an enabled account still ask for more', banners(root).needsInfo);
+  renderer.unmount();
+
+  script({ status: json(200, stripeStatus({ charges_enabled: true, payouts_enabled: false })) });
+  ({ renderer, root } = await render(<Overview />));
+  text = textOf(root);
+  check('charges on, payouts pending: reviewing copy says patients can already pay', banners(root).reviewing && text.includes('Patients can already pay you'));
+  renderer.unmount();
+
+  script();
+  ({ renderer, root } = await render(<Overview />));
+  check('fully enabled account: no banner', !banners(root).reviewing && !banners(root).needsInfo && requests.some((url) => url.startsWith('/api/billing/office/status')));
+  renderer.unmount();
+
+  script({ status: json(200, stripeStatus({ charges_enabled: false, payouts_enabled: false }, false)) });
+  ({ renderer, root } = await render(<Overview />));
+  check('staff who cannot manage payments: no banner', !banners(root).reviewing && !banners(root).needsInfo);
+  renderer.unmount();
+
+  script({ status: json(500, { error: 'offline' }) });
+  ({ renderer, root } = await render(<Overview />));
+  check('status read failing: no banner, page still renders', !banners(root).reviewing && !banners(root).needsInfo && metric(root, 'Active Patients').value === '4');
+  renderer.unmount();
+
+  persona('hq'); script({ status: json(200, stripeStatus({ charges_enabled: false, payouts_enabled: false })) });
+  ({ renderer, root } = await render(<Overview />));
+  check('HQ drill-in: no banner and no status read', !banners(root).reviewing && !requests.some((url) => url.startsWith('/api/billing/office/status')), requests.join(', '));
+  renderer.unmount();
+
+  persona('demo'); script({ status: json(200, stripeStatus({ charges_enabled: false, payouts_enabled: false })) });
+  ({ renderer, root } = await render(<Overview />));
+  check('demo: no banner and no status read', !banners(root).reviewing && !banners(root).needsInfo && requests.length === 0, requests.join(', '));
   renderer.unmount();
 }
 

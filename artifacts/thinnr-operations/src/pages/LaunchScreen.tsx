@@ -204,7 +204,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     <div ref={(el) => { targets.current.payments = el; }} data-setup-step="payments" className="scroll-mt-4"><SectionCard title={`${n('payments')}. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
       <div className="space-y-3 p-5 text-sm">
         <p>{launchData.payments.sandbox ? 'This is Test mode. Test readiness does not confirm Live readiness.' : 'This is Live mode. Review your real business information carefully.'}</p>
-        {launchData.payments.state === 'pending' && <p>Your details are submitted and Stripe is still verifying your account. You can finish setup and start using THINNR now; <strong className="font-semibold text-navy">charging patients turns on once Stripe finishes verifying</strong>.</p>}
+        {launchData.payments.state === 'pending' && <p>Your details are submitted and Stripe is reviewing them. You can finish setup and start using THINNR now; if Stripe needs anything else, your Overview will show what to do. <strong className="font-semibold text-navy">Charging patients turns on once Stripe finishes</strong>.</p>}
         {launchData.canEdit && <div className="flex flex-wrap items-center gap-3">
           <button type="button" className={`${BTN_PRIMARY} h-10 px-4`} onClick={() => document.querySelector('[data-testid="office-access-setup"]')?.scrollIntoView({ behavior: 'smooth' })}>{launchData.payments.state === 'not_started' ? 'Connect payments below' : 'Review Stripe setup below'}</button>
           {canRestart && <button type="button" className={`${BTN_SECONDARY} h-10 px-4`} onClick={() => setRestartOpen(true)}>Restart Stripe setup</button>}

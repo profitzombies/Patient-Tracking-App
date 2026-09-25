@@ -28,6 +28,13 @@ type LaunchRow = Awaited<ReturnType<typeof readLaunch>>;
  * the workspace without pretending any of that is in place: every other field
  * of the snapshot still reports what is actually missing.
  */
+/** Comfortably inside complete_practice_launch's two-minute freshness window. */
+const COMPLETE_SYNC_FRESH_MS=90_000;
+function recentlySynced(at:unknown):boolean {
+  const ms=typeof at==="string" ? Date.parse(at) : NaN;
+  return Number.isFinite(ms) && Date.now()-ms<COMPLETE_SYNC_FRESH_MS;
+}
+
 function launchCompletedAt(launch:LaunchRow, payments:ReturnType<typeof paymentLaunchState>, accessSatisfied:boolean, modeCompletion:string|undefined) {
   return launch.setup_override_at ?? (paymentsLaunchSatisfied(payments) && accessSatisfied ? modeCompletion??null : null);
 }
@@ -136,11 +143,11 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
     if (kind==="complete") {
       const input=z.object({expectedVersion:Version}).parse(req.body);
       const account=await selectOne("billing_connected_accounts",`provider_id=eq.${enc(scope.providerId)}`);
-      // Only an account that does not yet satisfy setup is re-read from
-      // Stripe (its webhook may simply not have landed). One that already
-      // satisfies it cannot become more ready, and the completion RPC re-checks
-      // the stored account itself, so the click is spared a Stripe round-trip.
-      if (account && !paymentsLaunchSatisfied(paymentLaunchState(account))) await syncAccount(scope.providerId);
+      // Re-read Stripe when the stored account does not satisfy setup yet (its
+      // webhook may simply not have landed) or when the stored read is too old
+      // for the completion RPC, which demands a Stripe read from the last two
+      // minutes. A recent, satisfying read spares the click a Stripe round-trip.
+      if (account && (!paymentsLaunchSatisfied(paymentLaunchState(account)) || !recentlySynced(account.last_synced_at))) await syncAccount(scope.providerId);
       const state=await settled(scope,req);
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
        if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");

@@ -37,6 +37,7 @@ import { AreaChart, CHART_COLORS } from "@/components/billing/hq/RevenueCharts";
 import { ChartSkeleton, LoadingRegion, RowsSkeleton } from "@/components/office/ProviderLoading";
 import { Skeleton } from "@/components/ui/skeleton";
 import { greetingName } from "@/lib/greeting-name";
+import { StripeReviewBanner } from "@/components/office/StripeReviewBanner";
 import { useGetOfficeEngagementTrends, getGetOfficeEngagementTrendsQueryKey, type EngagementTrendPoint, useGetOfficeOverview, getGetOfficeOverviewQueryKey } from "@workspace/api-client-react";
 
 function ActionButton({ label, testId, children, onClick }: { label: string; testId?: string; children: ReactNode; onClick: () => void }) {
@@ -827,6 +828,9 @@ export default function Overview() {
         </div>
         )}
       </div>
+
+      {/* Stripe still reviewing, or asking for more, after setup finished. */}
+      <StripeReviewBanner />
 
       {/* Top Metrics */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

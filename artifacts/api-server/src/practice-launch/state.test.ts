@@ -9,9 +9,13 @@ describe("practice launch gates",()=>{
     const account={details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{}};
     expect(paymentLaunchState(null)).toBe("not_started");
     expect(paymentLaunchState({...account,details_submitted:false})).toBe("action_required");
-    expect(paymentLaunchState({...account,requirements:{currently_due:["bank_account"]}})).toBe("action_required");
-    expect(paymentLaunchState({...account,requirements:{past_due:["business_profile"]}})).toBe("action_required");
-    expect(paymentLaunchState({...account,requirements:{disabled_reason:"rejected.fraud"}})).toBe("action_required");
+    // Items Stripe asks for after submission no longer hold setup back.
+    expect(paymentLaunchState({...account,requirements:{currently_due:["bank_account"]}})).toBe("pending");
+    expect(paymentLaunchState({...account,requirements:{past_due:["business_profile"],disabled_reason:"requirements.past_due"}})).toBe("pending");
+    expect(paymentLaunchState({...account,charges_enabled:true,payouts_enabled:true,requirements:{currently_due:["external_account"]}})).toBe("pending");
+    expect(paymentLaunchState({...account,requirements:{disabled_reason:"under_review"}})).toBe("pending");
+    expect(paymentLaunchState({...account,disconnected_at:"2026-09-01T00:00:00Z"})).toBe("action_required");
+    for (const reason of ["rejected.fraud","rejected.other","listed","platform_paused"]) expect(paymentLaunchState({...account,requirements:{disabled_reason:reason}})).toBe("action_required");
     expect(paymentLaunchState({...account,requirements:{disabled_reason:"requirements.pending_verification"}})).toBe("pending");
     expect(paymentLaunchState({...account,charges_enabled:true,payouts_enabled:true})).toBe("ready");
     expect(paymentLaunchState({...account,charges_enabled:true,payouts_enabled:true,requirements:{disabled_reason:"rejected.fraud"}})).toBe("action_required");

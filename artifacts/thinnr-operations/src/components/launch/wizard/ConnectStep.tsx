@@ -1,12 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { ArrowRight, Building2, KeyRound, Lock } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Building2, KeyRound, Loader2, Lock } from 'lucide-react';
 import { ConnectEmbed, ConnectOnboarding } from '@/components/billing/ConnectEmbed';
 import { BTN_PRIMARY, BTN_SECONDARY, LINK_ACTION } from '@/components/patient/heritage';
 import type { LaunchState } from '@/hooks/use-launch';
+import { useStripeStatusCheck } from '@/hooks/use-stripe-status-check';
 import { BillingApiError, officeBilling } from '@/lib/billing-api';
 import type { OfficeBillingStatus } from '@/lib/billing-types';
+import { stripeConnectStatus } from '@/lib/stripe-connect-status';
 import { BrandedLoader, DoneRow, InlineError, StepFrame, WizardFooter, readable } from './ui';
 
 export type OAuthReturn = { kind: 'connected' } | { kind: 'error'; message: string } | null;
@@ -51,11 +53,34 @@ export function ConnectStep({ launch, status, statusLoading, oauthReturn, readOn
   const account = status?.account ?? null;
   const submitted = state === 'pending' || state === 'ready';
   const hasAccount = state !== 'not_started' || createdHere;
+  const accountStatus = stripeConnectStatus(account);
+  // Rejected or disconnected: nothing the office can finish here.
+  const blocked = !submitted && (accountStatus === 'rejected' || accountStatus === 'disconnected') ? accountStatus : null;
   const origin = account?.origin ?? (createdHere ? 'created' : null);
   const oauthAvailable = Boolean(status?.oauth_available);
 
   const refreshAll = () => client.invalidateQueries({ predicate: (query) =>
     query.queryKey[0] === 'office' || (query.queryKey[0] === 'billing' && query.queryKey[1] === 'office') });
+  const stripeCheck = useStripeStatusCheck({ office, onUpdated: refreshAll });
+  const checkWithStripe = () => { if (!readOnly) void stripeCheck.check(); };
+  const checking = stripeCheck.checking && !submitted;
+
+  // An account that already existed when the step opened but is not submitted
+  // yet may simply be waiting on Stripe's webhook: ask Stripe once, on open.
+  const openChecked = useRef(false);
+  useEffect(() => {
+    if (openChecked.current || readOnly || createdHere || submitted || !account || blocked) return;
+    openChecked.current = true;
+    void stripeCheck.check();
+  }, [account, readOnly, createdHere, submitted, blocked, stripeCheck.check]);
+  // Stripe's form closing, or moving past its summary (where it is submitted),
+  // is the moment the stored status goes stale.
+  const onboardingSummary = useRef(false);
+  const onOnboardingStep = (step: string) => {
+    const wasSummary = onboardingSummary.current;
+    onboardingSummary.current = step.startsWith('summary');
+    if (wasSummary && !onboardingSummary.current) checkWithStripe();
+  };
 
   const run = async (kind: Exclude<Busy, null>, work: () => Promise<void>) => {
     setBusy(kind); setError('');
@@ -94,10 +119,19 @@ export function ConnectStep({ launch, status, statusLoading, oauthReturn, readOn
     body = <div className="space-y-4"><DoneRow testId="wizard-connect-done" title="Stripe account connected" detail={account?.business_name ? `${account.business_name} is ready to take patient payments.` : 'Your practice is ready to take patient payments.'} />{lockNote}</div>;
   } else if (state === 'pending') {
     body = <div className="space-y-4">
-      <div className="rounded-lg border border-accent-border bg-accent px-4 py-3.5 text-sm" data-testid="wizard-connect-pending">
+      <div className="rounded-lg border border-accent-border bg-accent px-4 py-3.5 text-sm" data-testid="wizard-connect-pending" data-stripe-status={accountStatus}>
         <p className="font-semibold text-navy">Stripe is reviewing your details</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">This usually takes a few minutes. You can keep going and finish setup now; charging patients turns on once Stripe finishes verifying.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground" data-testid="wizard-connect-reviewing-note">You can keep going; we'll let you know if Stripe needs anything else. Charging patients turns on once Stripe finishes.</p>
+        {accountStatus === 'needs_info' && <p className="mt-2 text-xs text-muted-foreground" data-testid="wizard-connect-needs-info">Stripe has already asked for a few more details. You can add them after setup from Payments → Get paid; your Overview will remind you.</p>}
       </div>{lockNote}</div>;
+  } else if (blocked) {
+    body = <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3.5 text-sm" role="alert" data-testid={`wizard-connect-${blocked}`}>
+      <AlertTriangle size={16} className="mt-0.5 shrink-0 text-destructive" aria-hidden="true" />
+      <div><p className="font-semibold text-navy">{blocked === 'rejected' ? 'Stripe can\'t accept payments for this account' : 'This Stripe account was disconnected'}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{blocked === 'rejected'
+          ? 'Stripe has closed this account to payments, so setup can\'t continue with it.'
+          : 'It is no longer linked to THINNR, so setup can\'t continue with it.'} <Link href="/ai-support" className={LINK_ACTION}>Contact THINNR support</Link> and we'll help you sort it out.</p></div>
+    </div>;
   } else if (busy === 'create' || busy === 'switch-new') {
     body = <BrandedLoader title="Creating your Stripe account" detail="Setting up a secure account for your practice…" />;
   } else if (busy === 'oauth' || busy === 'switch-existing') {
@@ -128,7 +162,7 @@ export function ConnectStep({ launch, status, statusLoading, oauthReturn, readOn
       <div className="rounded-lg border border-card-border bg-card p-5 shadow-soft">
         <p className="font-serif text-lg font-bold text-navy">Stripe needs a few more details</p>
         <p className="mt-1 text-sm text-muted-foreground">Your existing account is linked. Finish what Stripe asks for below.</p>
-        <div className="mt-4"><EmbeddedOnboarding office={office} onExit={() => void refreshAll()} /></div>
+        <div className="mt-4"><EmbeddedOnboarding office={office} onExit={checkWithStripe} onStepChange={onOnboardingStep} /></div>
       </div>
       {!readOnly && <SwitchPanel confirm={confirmSwitch === 'new'} onAsk={() => setConfirmSwitch('new')} onCancel={() => setConfirmSwitch(null)}
         question="Can't finish with this account?" ask="Create a new account instead"
@@ -139,7 +173,7 @@ export function ConnectStep({ launch, status, statusLoading, oauthReturn, readOn
     </div>;
   } else {
     body = <div className="space-y-4">
-      <EmbeddedOnboarding office={office} onExit={() => void refreshAll()} />
+      <EmbeddedOnboarding office={office} onExit={checkWithStripe} onStepChange={onOnboardingStep} />
       {!readOnly && oauthAvailable && <SwitchPanel confirm={confirmSwitch === 'existing'} onAsk={() => setConfirmSwitch('existing')} onCancel={() => setConfirmSwitch(null)}
         question="Already have a Stripe account after all?" ask="Use my existing account"
         warning="This cancels the unfinished new account and takes you to Stripe to sign in."
@@ -152,11 +186,15 @@ export function ConnectStep({ launch, status, statusLoading, oauthReturn, readOn
     sub="THINNR uses Stripe to take patient payments and pay your practice. Choose how you want to connect.">
     {oauthReturn?.kind === 'connected' && !signInFailed && hasAccount && <DoneRow testId="wizard-connect-returned" title="You're back from Stripe" detail="Your Stripe account is linked to THINNR." />}
     {launch.payments.sandbox && <p className="text-xs text-muted-foreground">Test mode: nothing here moves real money.</p>}
+    {checking && <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status" data-testid="wizard-connect-checking">
+      <Loader2 size={13} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Checking with Stripe…</p>}
     {body}
     {lockedMessage !== null && !submitted && lockNote}
     {error && <InlineError message={error} />}
     <WizardFooter onBack={onBack} onContinue={onNext} canContinue={submitted || readOnly}
-      hint={hasAccount ? 'Finish the Stripe form to continue.' : 'Choose how to connect Stripe.'} />
+      hint={checking ? 'Checking with Stripe…'
+        : blocked ? 'Contact THINNR support to continue.'
+        : hasAccount ? 'Finish the Stripe form to continue.' : 'Choose how to connect Stripe.'} />
   </StepFrame>;
 }
 
@@ -191,7 +229,7 @@ function SwitchPanel({ confirm, onAsk, onCancel, onConfirm, question, ask, warni
   </div>;
 }
 
-function EmbeddedOnboarding({ office, onExit }: { office: string | null; onExit: () => void }) {
+function EmbeddedOnboarding({ office, onExit, onStepChange }: { office: string | null; onExit: () => void; onStepChange: (step: string) => void }) {
   const [drawing, setDrawing] = useState(false);
   // Never leave the office staring at nothing if Stripe's start signal is late.
   useEffect(() => { const timer = setTimeout(() => setDrawing(true), 10_000); return () => clearTimeout(timer); }, []);
@@ -200,7 +238,7 @@ function EmbeddedOnboarding({ office, onExit }: { office: string | null; onExit:
     <ConnectEmbed components={['account_onboarding']} office={office} loader={loader}>
       {!drawing && loader}
       <div className={drawing ? 'rounded-lg border border-card-border bg-card p-4 shadow-soft sm:p-6' : 'h-0 overflow-hidden'}>
-        <ConnectOnboarding onExit={onExit} onLoaderStart={() => setDrawing(true)} onLoadError={() => setDrawing(true)} />
+        <ConnectOnboarding onExit={onExit} onStepChange={onStepChange} onLoaderStart={() => setDrawing(true)} onLoadError={() => setDrawing(true)} />
       </div>
     </ConnectEmbed>
   </div>;

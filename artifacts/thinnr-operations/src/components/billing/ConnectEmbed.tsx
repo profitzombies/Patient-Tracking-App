@@ -138,13 +138,16 @@ export function ConnectEmbed({
   return <ConnectComponentsProvider connectInstance={connectInstance}>{children}</ConnectComponentsProvider>;
 }
 
-export function ConnectOnboarding({ onExit, onLoaderStart, onLoadError }: {
+export function ConnectOnboarding({ onExit, onLoaderStart, onLoadError, onStepChange }: {
   onExit: () => void;
   /** Stripe has started drawing its own form; any placeholder above it can go. */
   onLoaderStart?: () => void;
   onLoadError?: () => void;
+  /** Stripe moved the office to another step of its form (e.g. past its summary). */
+  onStepChange?: (step: string) => void;
 }) {
-  return <StripeAccountOnboarding onExit={onExit} onLoaderStart={onLoaderStart} onLoadError={onLoadError} />;
+  return <StripeAccountOnboarding onExit={onExit} onLoaderStart={onLoaderStart} onLoadError={onLoadError}
+    onStepChange={onStepChange ? (change) => onStepChange(change.step) : undefined} />;
 }
 export function ConnectAccountManagement() {
   return <StripeAccountManagement />;

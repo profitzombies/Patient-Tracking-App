@@ -121,7 +121,7 @@ function GetPaidLive({ status }: { status: OfficeBillingStatus }) {
       });
   }, []);
   const account = status.account;
-  const needsOnboarding = account && (!account.details_submitted || account.requirements.currently_due.length > 0);
+  const needsOnboarding = account && (!account.details_submitted || account.requirements.currently_due.length > 0 || account.requirements.past_due.length > 0);
   const chip = accountStatusLabel(account);
   return (
     <div className={PAGE}>

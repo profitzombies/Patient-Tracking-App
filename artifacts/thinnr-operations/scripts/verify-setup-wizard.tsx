@@ -9,6 +9,8 @@ import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as setToken } from './invite-stubs/supabase';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __stripeStub } from './a11y-stubs/stripe-react';
+import { __onboarding } from './a11y-stubs/connect-embed';
+import { setStripeCheckScheduleForTests } from '../src/hooks/use-stripe-status-check';
 import { PracticeLaunchGuard, wizardEligible } from '../src/pages/PracticeLaunch';
 import { firstUnfinishedStep, nextStep, previousStep } from '../src/components/launch/wizard/steps';
 import { DUPLICATE_CARD_MESSAGE } from '../src/components/launch/wizard/PaymentStep';
@@ -59,6 +61,10 @@ let launch = structuredClone(baseLaunch);
 let access = structuredClone(baseAccess);
 let account: any = null;
 let restartLocked = false;
+/** What Stripe reports on a sync: the account submitted (and which extras), or not yet. */
+let syncReply: null | { after: number; account: any } = null;
+let syncGate: Promise<void> | null = null;
+setStripeCheckScheduleForTests([0, 30, 60]);
 let planFails = false;
 let planGate: Promise<void> | null = null;
 const calls: { url: string; method: string; body: any; scope: string | null }[] = [];
@@ -76,6 +82,12 @@ globalThis.fetch = async (input, init) => {
     launch.payments.state = 'action_required';
     account = { stripe_account_id: 'acct_new', origin: 'created', business_name: null };
     return json({ account }, 201);
+  }
+  if (url.startsWith('/api/billing/office/connect/sync')) {
+    if (syncGate) await syncGate;
+    const syncs = calls.filter((call) => call.url.startsWith('/api/billing/office/connect/sync')).length;
+    if (syncReply && syncs >= syncReply.after) { account = syncReply.account; launch.payments.state = 'pending'; }
+    return json({ account });
   }
   if (url.startsWith('/api/billing/office/connect/restart')) {
     if (restartLocked) return json({ error: 'This Stripe account already has payments moving through it.' }, 409);
@@ -129,7 +141,7 @@ async function dispose(root: ReactTestRenderer, client: QueryClient) { await act
 const reset = (launchPatch: Partial<LaunchState> = {}, accessPatch: Partial<OfficeAccessSnapshot> = {}) => {
   launch = { ...structuredClone(baseLaunch), ...structuredClone(launchPatch) } as LaunchState;
   access = { ...structuredClone(baseAccess), ...structuredClone(accessPatch) } as OfficeAccessSnapshot;
-  account = null; restartLocked = false; planFails = false; planGate = null; calls.length = 0; assigned.length = 0; mounted = 0;
+  account = null; syncReply = null; syncGate = null; restartLocked = false; planFails = false; planGate = null; calls.length = 0; assigned.length = 0; mounted = 0;
 };
 
 // ---- Routing: only first-time full setup gets the wizard ----
@@ -233,6 +245,85 @@ await press(view.root, 'wizard-connect-create-instead', 60);
 assert.ok(calls.some((call) => call.url.startsWith('/api/billing/office/connect/create')), '"Create a new account instead" creates one here');
 assert.ok(byTestId(view.root, 'wizard-connect-embed'));
 await dispose(view.root, view.client);
+
+// ---- Just submitted: the step asks Stripe for a fresh status and unlocks ----
+const unsubmitted = { stripe_account_id: 'acct_new', origin: 'created', business_name: null, details_submitted: false, charges_enabled: false, payouts_enabled: false, disconnected_at: null, requirements: { currently_due: ['external_account'], past_due: [], eventually_due: [], disabled_reason: 'requirements.past_due', current_deadline: null } };
+const submittedAccount = { ...unsubmitted, details_submitted: true, requirements: { currently_due: [], past_due: [], eventually_due: [], disabled_reason: 'requirements.pending_verification', current_deadline: null } };
+const syncCalls = () => calls.filter((call) => call.url.startsWith('/api/billing/office/connect/sync'));
+reset({ detailsConfirmed: true, payments: { state: 'action_required', sandbox: true } });
+account = structuredClone(unsubmitted);
+let releaseSync!: () => void;
+syncGate = new Promise((resolve) => { releaseSync = resolve; });
+syncReply = { after: 1, account: submittedAccount };
+view = await render();
+assert.equal(currentStep(view.root), 'connect');
+assert.equal(syncCalls().length, 1, 'an unsubmitted account opening the step is re-read from Stripe once');
+assert.equal(syncCalls()[0].method, 'POST');
+assert.ok(byTestId(view.root, 'wizard-connect-checking'), '"Checking with Stripe…" shows while the status updates');
+assert.equal(byTestId(view.root, 'wizard-hint').children.join(''), 'Checking with Stripe…');
+assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, true);
+await act(async () => { releaseSync(); });
+await tick(60);
+assert.equal(byTestId(view.root, 'wizard-connect-checking'), undefined, 'the checking state clears');
+assert.ok(byTestId(view.root, 'wizard-connect-pending'), 'the step now shows Stripe reviewing');
+assert.match(text(byTestId(view.root, 'wizard-connect-reviewing-note')), /You can keep going; we'll let you know if Stripe needs anything else/);
+assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, false, 'Continue unlocks without a page refresh');
+assert.equal(syncCalls().length, 1, 'polling stops once Stripe reports the form submitted');
+await dispose(view.root, view.client);
+
+// Stripe's form closing (onExit) triggers the check; it polls until submitted.
+reset({ detailsConfirmed: true });
+await (async () => {
+  view = await render();
+  await press(view.root, 'wizard-connect-new', 60);
+  assert.equal(syncCalls().length, 0, 'a just-created account is not re-read on its own');
+  assert.equal(byTestId(view.root, 'wizard-hint').children.join(''), 'Finish the Stripe form to continue.', 'unsubmitted accounts keep the blocking hint');
+  syncReply = { after: 2, account: submittedAccount };
+  await act(async () => { __onboarding.onExit!(); });
+  await tick(150);
+  assert.equal(syncCalls().length, 2, 'the check retries until Stripe reports the form submitted');
+  assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, false, 'Continue unlocks after Stripe\'s form closes');
+  await dispose(view.root, view.client);
+})();
+
+// Moving past Stripe's summary step also triggers the check.
+reset({ detailsConfirmed: true });
+view = await render();
+await press(view.root, 'wizard-connect-new', 60);
+syncReply = { after: 1, account: submittedAccount };
+await act(async () => { __onboarding.onStepChange!('business_type'); });
+assert.equal(syncCalls().length, 0, 'ordinary step changes do not call Stripe');
+await act(async () => { __onboarding.onStepChange!('summary'); });
+await act(async () => { __onboarding.onStepChange!('stripe_user_authentication'); });
+await tick(60);
+assert.equal(syncCalls().length, 1, 'leaving the summary checks with Stripe');
+assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, false);
+await dispose(view.root, view.client);
+
+// Submitted but Stripe has since asked for more: still free to continue.
+reset({ detailsConfirmed: true, payments: { state: 'pending', sandbox: true } }, { steps: baseAccess.steps.map((step) => step.id === 'connect' ? { ...step, status: 'pending' } : step) });
+account = { ...submittedAccount, requirements: { ...submittedAccount.requirements, currently_due: ['individual.verification.document'], disabled_reason: null } };
+view = await render('/setup?step=connect');
+if (currentStep(view.root) !== 'connect') await press(view.root, 'wizard-back');
+assert.equal(currentStep(view.root), 'connect');
+assert.ok(byTestId(view.root, 'wizard-connect-needs-info'), 'items Stripe asked for after submission are explained, not blocking');
+assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, false);
+assert.equal(syncCalls().length, 0, 'a submitted account is not re-read on open');
+await dispose(view.root, view.client);
+
+// Rejected or disconnected accounts still block, with a way to get help.
+for (const [kind, patch] of [['rejected', { details_submitted: true, requirements: { ...submittedAccount.requirements, disabled_reason: 'rejected.fraud' } }], ['disconnected', { details_submitted: true, disconnected_at: '2026-09-01T00:00:00Z' }]] as const) {
+  reset({ detailsConfirmed: true, payments: { state: 'action_required', sandbox: true } });
+  account = { ...submittedAccount, ...patch };
+  view = await render();
+  assert.equal(currentStep(view.root), 'connect');
+  assert.ok(byTestId(view.root, `wizard-connect-${kind}`), `a ${kind} account explains why setup cannot continue`);
+  assert.match(text(byTestId(view.root, `wizard-connect-${kind}`)), /Contact THINNR support/);
+  assert.equal(byTestId(view.root, 'wizard-continue').props.disabled, true, `a ${kind} account cannot continue`);
+  assert.equal(byTestId(view.root, 'wizard-connect-embed'), undefined);
+  assert.equal(syncCalls().length, 0, `a ${kind} account is not polled`);
+  await dispose(view.root, view.client);
+}
 
 // ---- Submitted Stripe account: move on to the plan, which is required ----
 reset({ detailsConfirmed: true, payments: { state: 'pending', sandbox: true } });
@@ -364,4 +455,4 @@ assert.equal(currentStep(view.root), 'connect');
 reducedMotion = false;
 await dispose(view.root, view.client);
 
-console.log('Setup wizard: routing, step order and resume, security auto-skip, new/existing Stripe paths with switching and lock, OAuth return, required optimistic plan, bank/card collection with duplicate rejection, activation, finish, and read-only views passed.');
+console.log('Setup wizard: routing, step order and resume, security auto-skip, new/existing Stripe paths with switching and lock, OAuth return, fresh Stripe status checks (open, form exit, summary) and rejected/disconnected blocks, required optimistic plan, bank/card collection with duplicate rejection, activation, finish, and read-only views passed.');

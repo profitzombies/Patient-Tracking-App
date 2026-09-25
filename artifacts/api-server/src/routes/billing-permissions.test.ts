@@ -211,6 +211,7 @@ let server: http.Server;
 let base = "";
 let launchConfirmed=true;
 let stripeReady=true;
+let stripeSubmitted=true;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -227,7 +228,7 @@ function serviceRows(url: URL): unknown[] {
   const table = url.pathname.split("/").at(-1);
   if (table === "practice_launch") return [{required:false,version:0,completed_at:null}];
   if (table === "practice_launch_completions") return launchConfirmed?[{completed_at:"2026-01-01"}]:[];
-  if (table === "billing_connected_accounts") return [{charges_enabled:stripeReady,payouts_enabled:stripeReady,details_submitted:true,requirements:{}}];
+  if (table === "billing_connected_accounts") return [{charges_enabled:stripeReady,payouts_enabled:stripeReady,details_submitted:stripeSubmitted,requirements:{}}];
   // The office's own payment setup with THINNR is finished for this matrix:
   // the permission outcomes below are about roles, not about the setup gate.
   if (table === "billing_office_access_subscriptions") return [{
@@ -367,13 +368,16 @@ afterAll(async () => {
 });
 
 describe("billing route permission matrix", () => {
-  it("gates grandfathered owners without current confirmation and gates pending verification",async()=>{
+  it("gates grandfathered owners without current confirmation and an unsubmitted Stripe form, but not Stripe's review",async()=>{
     try {
       launchConfirmed=false;
       expect(await request("GET /billing/office/orders","office-read","owner")).toBe(403);
-      launchConfirmed=true;stripeReady=false;
+      launchConfirmed=true;stripeReady=false;stripeSubmitted=false;
       expect(await request("GET /billing/office/orders","office-read","owner")).toBe(403);
-    }finally{launchConfirmed=true;stripeReady=true;}
+      // Submitted and waiting on Stripe's review counts as done for setup.
+      stripeSubmitted=true;
+      expect(await request("GET /billing/office/orders","office-read","owner")).not.toBe(403);
+    }finally{launchConfirmed=true;stripeReady=true;stripeSubmitted=true;}
   });
   it("classifies every real route and rejects stale table entries", () => {
     expect(inventory()).toEqual(Object.keys(ROUTES).sort());

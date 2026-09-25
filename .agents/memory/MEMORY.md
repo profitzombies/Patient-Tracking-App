@@ -145,7 +145,7 @@
 - [Office access gate live proof](office-access-gate-live-proof.md) — prove the setup gate by state transitions on one throwaway office; snapshot reads create the row, attach needs NOT NULL columns, teardown needs replica role.
 - [First-provider Stripe connect](first-provider-connect.md) — new offices need create/OAuth before the embed (409 without account); predicate invalidation; live webhook proof recipe.
 - [Patient invitation app link](patient-invite-link.md) — invites use PATIENT_INVITE_URL (Expo Go page), not PATIENT_APP_URL; real path is Create New Account → I have an invitation.
-- [Practice setup Stripe gate](practice-launch-stripe-pending.md) — pending Stripe verification counts as done for setup; rule lives in TS, access snapshot, SQL RPC and web together.
+- [Practice setup Stripe gate](practice-launch-stripe-pending.md) — submitted, not rejected/disconnected = done for setup; later Stripe asks go to the Overview banner; rule lives in 5 lockstep places.
 - [New-office setup wizard](setup-wizard.md) — wizard only for first-time full setup; sticky finish screen; server-derived resume; Stripe switch lock; tsconfig paths don't merge.
 - [Patient enrollment safety](patient-enrollment-safety.md) — activate only after GoTrue accepts the password; roll back own login + release code; weak_password 422 shape; client rule mirror.
 - [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset re-overlays profile; compare phones via E.164; verified = profile flag + matching value, stamped at signup.

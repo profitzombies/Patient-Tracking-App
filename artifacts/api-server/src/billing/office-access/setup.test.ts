@@ -186,7 +186,7 @@ describe("the setup snapshot", () => {
       ["connect", "pending"], ["bank", "todo"], ["card_primary", "todo"],
       ["card_backup", "todo"], ["plan", "todo"], ["disclosure", "todo"],
     ]);
-    expect(fresh.steps[0].detail).toContain("verifying");
+    expect(fresh.steps[0].detail).toContain("reviewing");
 
     await finishSetup();
     const done = await snapshot();

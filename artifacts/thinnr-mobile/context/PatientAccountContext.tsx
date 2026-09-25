@@ -126,6 +126,9 @@ export interface PatientProfile {
   timezone: string | null;
   programId: string | null;
   programStartDate: string | null;
+  /** The on-file email / phone was proven with a code (signup or profile). */
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   setupComplete: boolean;
 }
 

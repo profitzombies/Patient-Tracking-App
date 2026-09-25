@@ -173,12 +173,14 @@ interface EnrollmentNameRow {
   name: string | null;
   first_name: string | null;
   last_name: string | null;
+  email_verified_at?: string | null;
+  phone_verified_at?: string | null;
 }
 
 async function loadEnrollmentNames(patientId: string): Promise<EnrollmentNameRow | null> {
   const res = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${encodeURIComponent(patientId)}&archived_at=is.null&select=name,first_name,last_name&limit=1`,
+    `/rest/v1/patients?id=eq.${encodeURIComponent(patientId)}&archived_at=is.null&select=name,first_name,last_name,email_verified_at,phone_verified_at&limit=1`,
   );
   if (res.status >= 300) throw new Error(`patient name lookup failed (${res.status})`);
   const rows = Array.isArray(res.json) ? (res.json as EnrollmentNameRow[]) : [];
@@ -193,6 +195,27 @@ async function loadInvitedName(patientId: string): Promise<{ firstName: string; 
   const firstName = cleanNamePart(row.first_name) || whole[0] || "";
   const lastName = cleanNamePart(row.last_name) || whole.slice(1).join(" ");
   return firstName || lastName ? { firstName, lastName } : null;
+}
+
+/**
+ * Which verified-at column the signup code proved: the phone or email the
+ * code was delivered to, but only when that is the contact on the patient row.
+ */
+function provenContactColumn(
+  row: { identifier_kind: string; identifier: string },
+  onFile: { email: string | null | undefined; phone: string | null | undefined },
+): "email_verified_at" | "phone_verified_at" | null {
+  const proven = normalizeIdentifier(row.identifier);
+  if (!proven || proven.kind !== row.identifier_kind) return null;
+  const stored = normalizeIdentifier(proven.kind === "phone" ? onFile.phone : onFile.email);
+  if (!stored || stored.kind !== proven.kind) return null;
+  if (proven.kind === "phone" && stored.kind === "phone") {
+    return proven.e164 === stored.e164 ? "phone_verified_at" : null;
+  }
+  if (proven.kind === "email" && stored.kind === "email") {
+    return proven.email === stored.email ? "email_verified_at" : null;
+  }
+  return null;
 }
 
 function patientUniqueConflict(message: string): "email" | "phone" | null {
@@ -1187,7 +1210,14 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       if (!patient.email && normalizedEmail?.kind === "email") fill.email = normalizedEmail.email;
       if (!patient.phone && row.identifier_kind === "phone") fill.phone = row.identifier;
       if (patient.activation_status === "invited") fill.activation_status = "activated";
-      const priorNames = splitName ? await loadEnrollmentNames(patient.id) : null;
+      const priorNames = await loadEnrollmentNames(patient.id);
+      // The signup code proved this contact, so the details step never asks
+      // for it again. Stamped only when it is the contact actually on file.
+      const provenColumn = provenContactColumn(row, {
+        email: (fill.email as string | undefined) ?? patient.email,
+        phone: (fill.phone as string | undefined) ?? patient.phone,
+      });
+      if (provenColumn && !priorNames?.[provenColumn]) fill[provenColumn] = new Date().toISOString();
       const prior: Record<string, unknown> = {};
       for (const key of Object.keys(fill)) {
         prior[key] =
@@ -1293,6 +1323,8 @@ router.post(AUTH_SIGNUP_COMPLETE_PATH, async (req, res) => {
       ...(splitName ? { first_name: first, last_name: last } : {}),
       email: normalizedEmail.email,
       phone: row.identifier,
+      // The signup code was texted to this phone; the email is still unproven.
+      ...(row.identifier_kind === "phone" ? { phone_verified_at: new Date().toISOString() } : {}),
       activation_status: "activated",
       created_at: new Date().toISOString(),
     };

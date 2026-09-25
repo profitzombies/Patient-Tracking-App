@@ -789,6 +789,9 @@ describe("patient password and enrollment rails", () => {
     expect(patient.provider_id).toBe(SIGNUP_OFFICE_ID);
     expect(patient.activation_status).toBe("activated");
     expect(backend.authUsers.get(String(patient.auth_user_id))?.password).toBe("InviteStrong!Pass");
+    // The emailed code proved the email; the office-entered phone is still unproven.
+    expect(patient.email_verified_at).toEqual(expect.any(String));
+    expect(patient.phone_verified_at ?? null).toBeNull();
   });
 
   it("enrolls an invited phone while preserving its row and office", async () => {
@@ -808,6 +811,38 @@ describe("patient password and enrollment rails", () => {
     expect(complete.status).toBe(200);
     expect(patient.provider_id).toBe(SIGNUP_OFFICE_ID);
     expect(patient.activation_status).toBe("activated");
+    // The texted code proved the phone; the email waits for its own code.
+    expect(patient.phone_verified_at).toEqual(expect.any(String));
+    expect(patient.email_verified_at ?? null).toBeNull();
+  });
+
+  it("carries a signup email onto a phone invite without marking it verified", async () => {
+    const patient = seedPatient({
+      email: null, phone: "+15550004444",
+      activation_status: "invited", auth_user_id: null,
+    });
+    const { token } = await invitedToken("(555) 000-4444");
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "InviteStrong!Pass", email: "Typed@Example.com",
+    });
+    expect(complete.status).toBe(200);
+    expect(patient.email).toBe("typed@example.com");
+    expect(patient.phone_verified_at).toEqual(expect.any(String));
+    expect(patient.email_verified_at ?? null).toBeNull();
+  });
+
+  it("keeps an earlier verified stamp instead of overwriting it", async () => {
+    const patient = seedPatient({
+      email: "kept@example.com", phone: "+15550005555",
+      activation_status: "invited", auth_user_id: null,
+      email_verified_at: "2026-01-02T03:04:05.000Z",
+    });
+    const { token } = await invitedToken("kept@example.com");
+    const complete = await api("POST", "/api/auth/signup/complete", {
+      signupToken: token, password: "InviteStrong!Pass",
+    });
+    expect(complete.status).toBe(200);
+    expect(patient.email_verified_at).toBe("2026-01-02T03:04:05.000Z");
   });
 
   it("allows only one same-token existing-row completion and preserves its winning password", async () => {
@@ -900,6 +935,8 @@ describe("patient password and enrollment rails", () => {
     expect(failed.status).toBe(502);
     expect(patient).toMatchObject({ activation_status: "invited", auth_user_id: null, claimed_at: null, name: "Casey Patient" });
     expect(patient.first_name ?? null).toBeNull();
+    // The unwound attempt leaves no verified stamp behind.
+    expect(patient.email_verified_at ?? null).toBeNull();
     expect(backend.authUsers.size).toBe(0);
     expect(backend.deletedUsers).toHaveLength(1);
 
@@ -1881,6 +1918,9 @@ describe("patient signup", () => {
     expect(patient.activation_status).toBe("activated");
     expect(patient.auth_user_id).toBeTruthy();
     expect(patient.claimed_at).toBeTruthy();
+    // The signup code went to the phone; the email still needs its own code.
+    expect(patient.phone_verified_at).toEqual(expect.any(String));
+    expect(patient.email_verified_at ?? null).toBeNull();
 
     const user = backend.authUsers.get(String(patient.auth_user_id))!;
     expect(user.email).toBe(`pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`);

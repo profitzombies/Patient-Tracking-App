@@ -194,7 +194,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // A fresh start (the welcome screen) must not wipe what a real account
-  // already has on file — otherwise "Tell us about you" opens empty and the
+  // already has on file — otherwise "Confirm your details" opens empty and the
   // prefill effect above never re-runs once the run has begun.
   const reset = useCallback(() => {
     const profile = profileRef.current;

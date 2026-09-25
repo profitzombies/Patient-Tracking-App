@@ -1,19 +1,22 @@
 /**
- * "Tell us about you" (real-account identity step) regression check.
+ * "Confirm your details" (real-account identity step) regression check.
  *
  * Renders the REAL OnboardingProvider, WelcomeStep, and IdentityStep with
  * react-test-renderer under tsx (tsconfig.onboarding-identity.json maps the
  * native modules to the onboarding-gate stubs and the patient store to a
  * profile-carrying stub) and pins:
- *   1. the welcome screen's fresh-start reset keeps the on-file name, email,
- *      and phone, so the identity step opens prefilled;
- *   2. a +1-stored phone matches however it is retyped (10 digits, dashes,
- *      parentheses, +1 prefix) and an on-file gmail.com address is accepted
- *      regardless of case/spacing — both show "Confirmed", not a send button;
- *   3. an untouched, prefilled step continues with exactly one push;
- *   4. the blocked-Next message names the one failing field, and a valid
- *      email is never called invalid;
- *   5. the demo persona's run is unchanged (fresh, empty answers; no
+ *   1. the welcome reset keeps the on-file name, email, and phone; with both
+ *      contacts verified the page is a plain review (name summary, two
+ *      Verified badges, no code actions) and one Confirm advances once;
+ *   2. phone verified at signup, email pending → only "Send email code";
+ *      Confirm explains the email code; the code verifies and Confirm then
+ *      advances — no text code is ever requested;
+ *   3. email verified (email invite), phone pending → only "Send text code";
+ *   4. the name is a read-only summary; Edit opens it, a one-word name blocks
+ *      Confirm with a name message, and an edited name is what gets saved;
+ *   5. a contact on file but never proven with a code still needs one, and a
+ *      missing name opens the field on arrival;
+ *   6. the demo persona's run is unchanged (fresh, empty answers; no
  *      identity step in its flow).
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity
@@ -36,7 +39,7 @@ import {
   visibleSteps,
 } from '../data/onboarding-data';
 import { clearRouterCalls, routerCalls } from './onboarding-gate-stubs/expo-router';
-import { StubPatientProvider } from './onboarding-identity-stubs/patient-context';
+import { setupSaves, StubPatientProvider } from './onboarding-identity-stubs/patient-context';
 
 let checks = 0;
 let failures = 0;
@@ -105,15 +108,37 @@ const ON_FILE: PatientProfile = {
   setupComplete: false,
 };
 
+const VERIFIED: PatientProfile = { ...ON_FILE, emailVerified: true, phoneVerified: true };
+const PHONE_ONLY: PatientProfile = { ...ON_FILE, emailVerified: false, phoneVerified: true };
+const EMAIL_ONLY: PatientProfile = { ...ON_FILE, emailVerified: true, phoneVerified: false };
+
+/** Every profile-contact call the step makes, in order. */
+const apiCalls: Array<{ method: string; input: Record<string, unknown> }> = [];
+/** The profile the next successful code check returns. */
+let verifiedProfile: PatientProfile = VERIFIED;
+
+const stubApi = {
+  requestProfileVerification: async (input: { kind: 'email' | 'phone'; value: string }) => {
+    apiCalls.push({ method: 'request', input });
+    return { requestId: `req-${input.kind}`, message: 'sent', devCode: '123456' };
+  },
+  verifyProfileContact: async (input: { requestId: string; code: string }) => {
+    apiCalls.push({ method: 'verify', input });
+    return { profile: verifiedProfile };
+  },
+} as unknown as PatientDataApi;
+
 const realAccount: PatientAccountState = {
   resolving: false,
-  account: { kind: 'real', patientId: 'patient-identity-test', api: {} as PatientDataApi },
+  account: { kind: 'real', patientId: 'patient-identity-test', api: stubApi },
   accountNotice: null,
   retryResolve: () => {},
 };
 
 async function mount(accountState: PatientAccountState, profile: PatientProfile | null): Promise<Renderer> {
   clearRouterCalls();
+  apiCalls.length = 0;
+  setupSaves.length = 0;
   let renderer!: Renderer;
   await act(async () => {
     renderer = createRenderer(
@@ -179,6 +204,25 @@ function hintText(root: TestInstance): string | null {
   return box.length ? textOf(box[0]) : null;
 }
 
+function has(root: TestInstance, testID: string): boolean {
+  return hosts(root, testID).length > 0;
+}
+
+/** Order of the contact rows on the page. */
+function rowOrder(root: TestInstance): string[] {
+  return root
+    .findAll(n => typeof n.type === 'string' && /^ob-(email|phone)-row$/.test(String(n.props?.testID)))
+    .map(n => String(n.props.testID).replace(/^ob-|-row$/g, ''))
+    .filter((v, i, all) => all.indexOf(v) === i);
+}
+
+async function openStep(profile: PatientProfile): Promise<Renderer> {
+  const r = await mount(realAccount, profile);
+  await show('welcome');
+  await show('identity');
+  return r;
+}
+
 const pushes = () => routerCalls.filter(c => c.method === 'push').map(c => c.target);
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
@@ -208,9 +252,9 @@ async function main() {
   assert('empty emails never match', !contactsMatch('email', '', null));
   assertEqual('stored +1 phone displays in the US mask', formatUsPhone('+15551234567'), '(555) 123-4567');
 
-  // ── 1. Welcome reset keeps the on-file identity; step opens prefilled ─────
+  // ── 1. Both verified: a plain review with one Confirm ─────────────────────
   {
-    const r = await mount(realAccount, ON_FILE);
+    const r = await mount(realAccount, VERIFIED);
     assertEqual('prefill applies before the run begins', onboarding.answers.name, 'Maya Reyes');
     await show('welcome');
     assert('welcome starts a fresh run', onboarding.begun);
@@ -221,94 +265,151 @@ async function main() {
 
     await show('identity');
     const root = r.root;
-    assertEqual('name input is prefilled', inputValue(root, 'ob-name-input'), 'Maya Reyes');
-    assertEqual('email input is prefilled', inputValue(root, 'ob-email-input'), 'maya.reyes@gmail.com');
-    assertEqual('phone input is prefilled', inputValue(root, 'ob-phone-input'), '(555) 123-4567');
-    assertEqual('email shows Confirmed', hosts(root, 'ob-email-confirmed').length, 1);
-    assertEqual('phone shows Confirmed', hosts(root, 'ob-phone-confirmed').length, 1);
-    assertEqual('no email send button when confirmed', hosts(root, 'ob-verify-email').length, 0);
-    assertEqual('no text send button when confirmed', hosts(root, 'ob-verify-phone').length, 0);
+    assertEqual('name is a read-only summary', textOf(hosts(root, 'ob-name-summary')[0] ?? ''), 'Maya Reyes');
+    assert('no name field until Edit', !has(root, 'ob-name-input'));
+    assert('an Edit affordance is offered', has(root, 'ob-name-edit'));
+    assertEqual('email shows Verified', hosts(root, 'ob-email-confirmed').length, 1);
+    assertEqual('phone shows Verified', hosts(root, 'ob-phone-confirmed').length, 1);
+    assertEqual('verified email is shown', textOf(hosts(root, 'ob-email-value')[0] ?? ''), 'maya.reyes@gmail.com');
+    assertEqual('verified phone is shown in the mask', textOf(hosts(root, 'ob-phone-value')[0] ?? ''), '(555) 123-4567');
+    assert('no contact inputs on a review', !has(root, 'ob-email-input') && !has(root, 'ob-phone-input'));
+    assert('no code actions on a review', !has(root, 'ob-verify-email') && !has(root, 'ob-verify-phone'));
     assert(
-      'Confirmed badge is labelled for screen readers',
-      hosts(root, 'ob-email-confirmed')[0]?.props.accessibilityLabel === 'Email confirmed',
+      'Verified badge is labelled for screen readers',
+      hosts(root, 'ob-email-confirmed')[0]?.props.accessibilityLabel === 'Email verified',
     );
+    const confirm = hosts(root, 'ob-identity-next').find(n => typeof n.props.onPress === 'function');
+    assertEqual('the one action reads Confirm', confirm ? textOf(confirm) : null, 'Confirm');
 
-    // ── 2. Retyped formats still match what is on file ─────────────────────
-    for (const typed of ['5551234567', '+1 (555) 123-4567', '555-123-4567', '15551234567']) {
-      await typeText(root, 'ob-phone-input', typed);
-      assertEqual(`retyped "${typed}" shows in the US mask`, inputValue(root, 'ob-phone-input'), '(555) 123-4567');
-      assertEqual(`retyped "${typed}" stays Confirmed`, hosts(root, 'ob-phone-confirmed').length, 1);
-      assertEqual(`retyped "${typed}" hides the text button`, hosts(root, 'ob-verify-phone').length, 0);
-    }
-    await typeText(root, 'ob-email-input', ' Maya.Reyes@Gmail.com ');
-    assertEqual('gmail retyped with case/space stays Confirmed', hosts(root, 'ob-email-confirmed').length, 1);
-
-    // ── 3. Untouched details continue ──────────────────────────────────────
     await tap(root, 'ob-identity-next');
-    assertEqual('no hint on a valid Next', hintText(root), null);
-    assertEqual('valid Next advances exactly once', pushes().length, 1);
+    assertEqual('no hint on a valid Confirm', hintText(root), null);
+    assertEqual('Confirm advances exactly once', pushes().length, 1);
     assertEqual('advances to the next real-account step', pushes()[0], '/onboarding/height');
+    assertEqual('no code is sent for a verified review', apiCalls.length, 0);
     await act(async () => r.unmount());
   }
 
-  // ── 4. Per-field blocked-Next messages ────────────────────────────────────
+  // ── 2. Phone verified at signup, email pending → email code only ──────────
   {
-    const r = await mount(realAccount, ON_FILE);
-    await show('welcome');
-    await show('identity');
+    verifiedProfile = VERIFIED;
+    const r = await openStep(PHONE_ONLY);
     const root = r.root;
+    assertEqual('phone shows Verified', hosts(root, 'ob-phone-confirmed').length, 1);
+    assert('no text code for the signup-verified phone', !has(root, 'ob-verify-phone'));
+    assertEqual('email is prefilled', inputValue(root, 'ob-email-input'), 'maya.reyes@gmail.com');
+    assert('email offers the email code', has(root, 'ob-verify-email'));
+    assert('email is not Verified yet', !has(root, 'ob-email-confirmed'));
+    assertEqual('verified phone reads first, pending email last', rowOrder(root).join(','), 'phone,email');
 
-    await typeText(root, 'ob-name-input', 'Maya');
     await tap(root, 'ob-identity-next');
-    assertEqual('single-word name → name message', hintText(root), 'Enter your first and last name.');
-    assertEqual('blocked name never advances', pushes().length, 0);
-
-    await typeText(root, 'ob-name-input', 'Maya Reyes');
-    assertEqual('hint clears once the name is fixed', hintText(root), null);
+    assertEqual('pending email blocks Confirm', pushes().length, 0);
+    assert('the hint names the email code', /email code/i.test(hintText(root) ?? ''));
 
     await typeText(root, 'ob-email-input', 'maya@');
+    assertEqual('malformed email → email message', hintText(root), 'Enter a valid email address, like you@example.com.');
+    await typeText(root, 'ob-email-input', 'Maya.Reyes@Gmail.com ');
+
+    await tap(root, 'ob-verify-email');
+    assertEqual('one code request', apiCalls.length, 1);
+    assertEqual('it is an email code', apiCalls[0]?.input.kind, 'email');
+    assertEqual('for the canonical email', apiCalls[0]?.input.value, 'maya.reyes@gmail.com');
+    assert('the code field appears', has(root, 'ob-profile-code'));
+    assert('the hint now asks for the emailed code', /6-digit code/i.test(hintText(root) ?? ''));
+
+    await tap(root, 'ob-confirm-profile-code');
+    assertEqual('the code is checked once', apiCalls.filter(c => c.method === 'verify').length, 1);
+    assertEqual('email now shows Verified', hosts(root, 'ob-email-confirmed').length, 1);
+    assert('the code field closes', !has(root, 'ob-profile-code'));
+    assertEqual('hint clears once everything is verified', hintText(root), null);
+    assert('no text code was ever requested', !apiCalls.some(c => c.input.kind === 'phone'));
+
     await tap(root, 'ob-identity-next');
-    assertEqual(
-      'malformed email → email message',
-      hintText(root),
-      'Enter a valid email address, like you@example.com.',
-    );
-    assertEqual('no send button for a malformed email', hosts(root, 'ob-verify-email').length, 0);
-
-    await typeText(root, 'ob-email-input', 'maya.new@gmail.com');
-    assertEqual('a new gmail address offers the email code', hosts(root, 'ob-verify-email').length, 1);
-    assertEqual('a new gmail address is not Confirmed', hosts(root, 'ob-email-confirmed').length, 0);
-    const emailHint = hintText(root) ?? '';
-    assert('a valid gmail address is never called invalid', !/valid email/i.test(emailHint));
-    assert('changed email → names the email code step', /email code/i.test(emailHint));
-
-    await typeText(root, 'ob-email-input', 'maya.reyes@gmail.com');
-    await typeText(root, 'ob-phone-input', '555123');
-    assertEqual(
-      'partial phone → phone message',
-      hintText(root),
-      'Enter a complete phone number, like (555) 123-4567.',
-    );
-    assertEqual('email back on file shows Confirmed again', hosts(root, 'ob-email-confirmed').length, 1);
-
-    await typeText(root, 'ob-phone-input', '5559876543');
-    const phoneHint = hintText(root) ?? '';
-    assert('changed phone → names the text code step', /text code/i.test(phoneHint));
-    assert('changed phone hint never mentions email', !/email/i.test(phoneHint));
-    assertEqual('a changed phone offers the text code', hosts(root, 'ob-verify-phone').length, 1);
-    await tap(root, 'ob-identity-next');
-    assertEqual('unconfirmed phone never advances', pushes().length, 0);
-
-    await typeText(root, 'ob-phone-input', '(555) 123-4567');
-    assertEqual('hint clears when everything matches', hintText(root), null);
-    await tap(root, 'ob-identity-next');
-    assertEqual('then Next advances', pushes().length, 1);
+    assertEqual('then Confirm advances', pushes().length, 1);
     await act(async () => r.unmount());
   }
 
-  // ── 5. Demo persona: unchanged fresh run ──────────────────────────────────
+  // ── 3. Email verified (email invite), phone pending → text code only ──────
   {
-    const r = await mount(DEMO_ACCOUNT_STATE, ON_FILE);
+    verifiedProfile = VERIFIED;
+    const r = await openStep(EMAIL_ONLY);
+    const root = r.root;
+    assertEqual('email shows Verified', hosts(root, 'ob-email-confirmed').length, 1);
+    assert('no email code for the invite-verified email', !has(root, 'ob-verify-email'));
+    assertEqual('phone is prefilled in the mask', inputValue(root, 'ob-phone-input'), '(555) 123-4567');
+    assert('phone offers the text code', has(root, 'ob-verify-phone'));
+    assertEqual('verified email reads first, pending phone last', rowOrder(root).join(','), 'email,phone');
+
+    await tap(root, 'ob-identity-next');
+    const phoneHint = hintText(root) ?? '';
+    assert('the hint names the text code', /text code/i.test(phoneHint));
+    assert('the phone hint never mentions email', !/email/i.test(phoneHint));
+    await typeText(root, 'ob-phone-input', '555123');
+    assertEqual('partial phone → phone message', hintText(root), 'Enter a complete phone number, like (555) 123-4567.');
+
+    await typeText(root, 'ob-phone-input', '+1 555 123 4567');
+    assertEqual('retyped phone keeps the mask', inputValue(root, 'ob-phone-input'), '(555) 123-4567');
+    await tap(root, 'ob-verify-phone');
+    assertEqual('it is a text code', apiCalls[0]?.input.kind, 'phone');
+    assertEqual('for the canonical phone', apiCalls[0]?.input.value, '+15551234567');
+
+    await typeText(root, 'ob-phone-input', '5559876543');
+    assert('changing the phone drops the stale code', !has(root, 'ob-profile-code'));
+    await typeText(root, 'ob-phone-input', '5551234567');
+    await tap(root, 'ob-verify-phone');
+    await tap(root, 'ob-confirm-profile-code');
+    assertEqual('phone now shows Verified', hosts(root, 'ob-phone-confirmed').length, 1);
+    await tap(root, 'ob-identity-next');
+    assertEqual('then Confirm advances', pushes().length, 1);
+    await act(async () => r.unmount());
+  }
+
+  // ── 4. Editing the name ────────────────────────────────────────────────────
+  {
+    const r = await openStep(VERIFIED);
+    const root = r.root;
+    await tap(root, 'ob-name-edit');
+    assertEqual('Edit opens the name, prefilled', inputValue(root, 'ob-name-input'), 'Maya Reyes');
+    await typeText(root, 'ob-name-input', 'Maya');
+    assert('Done is withheld for a one-word name', !has(root, 'ob-name-done'));
+    await tap(root, 'ob-identity-next');
+    assertEqual('one-word name → name message', hintText(root), 'Enter your first and last name.');
+    assertEqual('blocked name never advances', pushes().length, 0);
+
+    await typeText(root, 'ob-name-input', 'Maya Reyes-Cole');
+    assertEqual('hint clears once the name is fixed', hintText(root), null);
+    await tap(root, 'ob-name-done');
+    assertEqual('Done returns to the summary', textOf(hosts(root, 'ob-name-summary')[0] ?? ''), 'Maya Reyes-Cole');
+    assert('the field closes', !has(root, 'ob-name-input'));
+
+    await tap(root, 'ob-identity-next');
+    assertEqual('edited name confirms and advances', pushes().length, 1);
+    const saved = setupSaves[setupSaves.length - 1] as { profile?: { firstName?: string; lastName?: string } } | undefined;
+    assertEqual('the edited first name is saved', saved?.profile?.firstName, 'Maya');
+    assertEqual('the edited last name is saved', saved?.profile?.lastName, 'Reyes-Cole');
+    assertEqual('editing the name sends no code', apiCalls.length, 0);
+    await act(async () => r.unmount());
+  }
+
+  // ── 5. Unproven contacts still need codes; a missing name opens the field ─
+  {
+    const r = await openStep(ON_FILE);
+    const root = r.root;
+    assert('an unproven on-file email is not Verified', !has(root, 'ob-email-confirmed'));
+    assert('an unproven on-file phone is not Verified', !has(root, 'ob-phone-confirmed'));
+    assert('both code actions are offered', has(root, 'ob-verify-email') && has(root, 'ob-verify-phone'));
+    await tap(root, 'ob-identity-next');
+    assertEqual('unproven contacts never advance', pushes().length, 0);
+    await act(async () => r.unmount());
+
+    const r2 = await openStep({ ...VERIFIED, firstName: '', lastName: '' });
+    assert('a missing name opens the field on arrival', has(r2.root, 'ob-name-input'));
+    assert('no empty summary is shown', !has(r2.root, 'ob-name-summary'));
+    await act(async () => r2.unmount());
+  }
+
+  // ── 6. Demo persona: unchanged fresh run ──────────────────────────────────
+  {
+    const r = await mount(DEMO_ACCOUNT_STATE, VERIFIED);
     await show('welcome');
     assert('demo welcome starts a run', onboarding.begun);
     assertEqual('demo run starts with an empty name', onboarding.answers.name, DEFAULT_ANSWERS.name);

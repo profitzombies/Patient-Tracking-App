@@ -24,5 +24,9 @@ export function parsePatientProfile(raw: unknown): PatientProfile {
   ) {
     throw new Error(MALFORMED_PROFILE_MESSAGE);
   }
-  return p as unknown as PatientProfile;
+  return {
+    ...(p as unknown as PatientProfile),
+    emailVerified: p.emailVerified === true,
+    phoneVerified: p.phoneVerified === true,
+  };
 }

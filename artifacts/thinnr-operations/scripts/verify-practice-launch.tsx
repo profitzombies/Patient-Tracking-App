@@ -76,6 +76,7 @@ globalThis.fetch = async (input, init) => {
     snapshot.details = { ...snapshot.details, ...call.body.details };
   }
 
+  if (call.url.includes('/office/launch/complete') && call.method === 'POST') snapshot.completedAt = '2026-02-02T00:00:00Z';
   if (call.method !== 'GET') {
     snapshot.version++;
   }
@@ -171,10 +172,10 @@ assert.equal(detailsPut.length, 1);
 assert.equal(detailsPut[0].body.details.officeName, 'Renamed Practice');
 assert.equal(stepState(result.root, 'details'), 'folded', 'confirmed details fold up');
 assert.match(text(result.root.toJSON()), /Practice details confirmed/);
-assert.match(text(result.root.toJSON()), /2\s+of\s+4\s+essentials confirmed/);
+assert.match(text(result.root.toJSON()), /3\s+of\s+4\s+essentials confirmed/);
 assert.equal(scrolls.length, 0, 'scrolling waits for the fold animation');
 await tick(350);
-assert.deepEqual(scrolls, [{ step: 'payments', behavior: 'smooth' }], 'scrolls to the next unfinished step (security is already done)');
+assert.deepEqual(scrolls, [{ step: 'products', behavior: 'smooth' }], 'scrolls to the next unfinished step (security done, Stripe only verifying)');
 
 // Pencil reopens with the saved values; Cancel folds without saving.
 await act(async () => { byLabel(result.root, 'Edit practice details').props.onClick({ stopPropagation() {} }); });
@@ -204,7 +205,7 @@ result = await render();
 assert.equal(stepState(result.root, 'security'), 'open');
 assert.match(text(result.root.toJSON()), /Account security · Action required/);
 assert.match(text(result.root.toJSON()), /Email verified at sign-in/);
-assert.match(text(result.root.toJSON()), /1\s+of\s+4\s+essentials confirmed/);
+assert.match(text(result.root.toJSON()), /2\s+of\s+4\s+essentials confirmed/);
 assert.equal(byTestId(result.root, 'button-launch-phone-send').props.disabled, true, 'send waits for 10 digits');
 await act(async () => { byTestId(result.root, 'input-launch-phone').props.onChange({ target: { value: '+1 555 123 4567' } }); });
 assert.equal(byTestId(result.root, 'input-launch-phone').props.value, '(555) 123-4567');
@@ -220,8 +221,8 @@ await tick(40);
 assert.deepEqual(calls.filter((c) => c.url.includes('/phone/complete')).at(-1)?.body, { requestId: 'req-fixture', code: '123456' });
 assert.equal(stepState(result.root, 'security'), 'folded', 'verified security folds');
 assert.match(text(result.root.toJSON()), /Email verified · Texts to \(•••\) •••-7788/);
-assert.match(text(result.root.toJSON()), /2\s+of\s+4\s+essentials confirmed/);
-assert.deepEqual(scrolls, [{ step: 'payments', behavior: 'auto' }], 'reduced motion jumps without animating');
+assert.match(text(result.root.toJSON()), /3\s+of\s+4\s+essentials confirmed/);
+assert.deepEqual(scrolls, [{ step: 'products', behavior: 'auto' }], 'reduced motion jumps without animating');
 reducedMotion = false;
 await dispose(result.root, result.client);
 
@@ -253,6 +254,34 @@ result = await render();
 assert.equal(button(result.root, 'Finish setup').props.disabled, false, 'Legacy office can finish setup without details or products');
 assert.match(text(result.root.toJSON()), /2\s+of\s+2\s+essentials confirmed/);
 await dispose(result.root, result.client);
+
+// Stripe still verifying ("pending") does not hold the office: Finish setup
+// is available, and finishing from /setup takes the owner into the workspace
+// instead of leaving them on a screen that looks unchanged.
+{
+  snapshot = { ...structuredClone(state), productsConfirmed: true, payments: { state: 'pending', sandbox: true } };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const location = memoryLocation({ path: '/setup', record: true });
+  let root!: ReactTestRenderer;
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>, { createNodeMock }); });
+  await tick();
+  assert.match(text(root.toJSON()), /4\s+of\s+4\s+essentials confirmed/);
+  assert.equal(button(root, 'Finish setup').props.disabled, false, 'pending Stripe verification can finish setup');
+  await act(async () => { button(root, 'Finish setup').props.onClick(); });
+  await tick();
+  assert.ok(calls.some((c) => c.url.includes('/office/launch/complete')), 'finish posts the completion');
+  assert.equal(location.history!.at(-1), '/', 'finishing moves into the workspace');
+  assert.equal(mounted, 1, 'the workspace opens after finishing');
+  await dispose(root, client);
+  mounted = 0;
+
+  // Coming back to /setup after it is done offers a way out, not a dead button.
+  snapshot = { ...structuredClone(state), productsConfirmed: true, completedAt: '2026-02-02T00:00:00Z' };
+  result = await render('/setup');
+  assert.equal(button(result.root, 'Finish setup'), undefined);
+  assert.ok(byTestId(result.root, 'link-setup-go-to-dashboard'), 'completed setup links to the dashboard');
+  await dispose(result.root, result.client);
+}
 
 snapshot = { ...structuredClone(state), canEdit: false };
 result = await render();

@@ -17,6 +17,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { accessSummary } from "../billing/office-access/admin";
 import { chargeOfficeAccess } from "../billing/office-access/charge";
+import { getBillingModeStatus } from "../billing/mode-state";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 import { loadAccessBillingSettings, revenueSharePercent } from "../billing/office-access/settings";
 import {
   OFFICE_RESTRICTED_CAPABILITIES,
@@ -26,6 +28,19 @@ import {
 
 const router: IRouter = Router();
 const SERVER_ERROR = "Account status is unavailable right now.";
+
+// The access subscription and its instruments are scope-isolated Stripe
+// tables, so every read and charge here runs inside the workspace's selected
+// billing identity — without it the scoped store refuses the read.
+router.use("/office/access", async (req, res, next) => {
+  try {
+    const mode = await getBillingModeStatus();
+    runWithBillingIdentity(mode, next);
+  } catch (error) {
+    req.log?.error({ err: error }, "office access billing mode unavailable");
+    res.status(502).json({ error: SERVER_ERROR });
+  }
+});
 
 async function scoped(req: Request, res: Response) {
   const resolved = await resolveOfficeScope({

@@ -112,7 +112,14 @@ describe("practice launch HTTP boundary",()=>{
    expect(((await(await call("GET")).json()) as {security:unknown}).security).toEqual({ready:true,emailVerified:true,phoneVerified:false,phoneRequired:false,phoneMasked:null});
    expect(m.factor).not.toHaveBeenCalled();
  });
- it("blocks pending external verification",async()=>{
+ it("lets setup finish while Stripe is still verifying the account",async()=>{
+   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(200);
+   expect(m.admin).toHaveBeenCalledWith("POST","/rest/v1/rpc/complete_practice_launch",{p_provider_id:"office-a",p_expected_version:2,p_stripe_mode:"test",p_platform_account_id:"acct_test"});
+ });
+ it("blocks accounts Stripe still needs something from, or has disabled",async()=>{
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{currently_due:["external_account"]}});
+   expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
+   m.account.mockResolvedValue({details_submitted:true,charges_enabled:false,payouts_enabled:false,requirements:{disabled_reason:"rejected.fraud"}});
    expect((await call("POST","/complete",{expectedVersion:2})).status).toBe(400);
    expect(m.admin.mock.calls.some(c=>String(c[1]).includes("/rpc/complete"))).toBe(false);
  });
@@ -127,6 +134,7 @@ describe("practice launch HTTP boundary",()=>{
    const pending=await(await call("GET")).json();
    expect(pending).toMatchObject({required:true,fullSetupRequired:false,completedAt:null});
    expect(pending).not.toHaveProperty("tour");
+   m.account.mockResolvedValue({details_submitted:false,charges_enabled:false,payouts_enabled:false,requirements:{}});
    expect((await call("POST","/complete",{expectedVersion:0})).status).toBe(400);
    m.account.mockResolvedValue({details_submitted:true,charges_enabled:true,payouts_enabled:true,requirements:{}});
    expect((await call("POST","/complete",{expectedVersion:0})).status).toBe(200);

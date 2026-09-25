@@ -25,8 +25,17 @@ function stepOrder(data: LaunchState): StepId[] {
 function stepComplete(data: LaunchState, step: StepId): boolean {
   if (step === 'details') return data.detailsConfirmed;
   if (step === 'security') return data.security.ready;
-  if (step === 'payments') return data.payments.state === 'ready';
+  if (step === 'payments') return paymentsSatisfied(data);
   return data.productsConfirmed;
+}
+
+/**
+ * Stripe still verifying submitted details counts as done for setup: the
+ * office has finished everything it can, and patient charges stay off on
+ * their own until Stripe enables them. Mirrors the server's launch rule.
+ */
+export function paymentsSatisfied(data: LaunchState): boolean {
+  return data.payments.state === 'ready' || data.payments.state === 'pending';
 }
 
 /**
@@ -90,15 +99,25 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   const [restartOpen, setRestartOpen] = useState(false);
   const client = useQueryClient();
   const stripeReturn = useStripeReturnNotice();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
   const { fullSetupRequired } = launchData;
+  const paymentsDone = paymentsSatisfied(launchData);
   const ready = fullSetupRequired
-    ? launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready && launchData.payments.state === 'ready'
-    : launchData.security.ready && launchData.payments.state === 'ready';
+    ? launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready && paymentsDone
+    : launchData.security.ready && paymentsDone;
 
+  // Finishing opens the workspace, so take the owner straight into it. This
+  // screen is also reachable at /setup after setup is done; staying here
+  // would look like nothing happened.
   const finish = async () => {
     setError('');
     try {
-      await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
+      const next = await complete.save({ expectedVersion: launchData.version }, launchData.billingScope);
+      if (next?.completedAt) {
+        toast({ variant: 'success', title: 'Practice setup complete' });
+        navigate('/');
+      }
     } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not finish setup.'); }
   };
 
@@ -119,8 +138,8 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   });
 
   const count = fullSetupRequired
-    ? [launchData.detailsConfirmed, launchData.security.ready, launchData.payments.state === 'ready', launchData.productsConfirmed].filter(Boolean).length
-    : [launchData.security.ready, launchData.payments.state === 'ready'].filter(Boolean).length;
+    ? [launchData.detailsConfirmed, launchData.security.ready, paymentsDone, launchData.productsConfirmed].filter(Boolean).length
+    : [launchData.security.ready, paymentsDone].filter(Boolean).length;
   const total = fullSetupRequired ? 4 : 2;
 
   // Details start folded once confirmed; unconfirmed details are always open.
@@ -170,7 +189,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     <div ref={(el) => { targets.current.payments = el; }} data-setup-step="payments" className="scroll-mt-4"><SectionCard title={`${n('payments')}. Connect payments · ${paymentLabels[launchData.payments.state]}`} sub="Stripe securely collects business, owner and bank details.">
       <div className="space-y-3 p-5 text-sm">
         <p>{launchData.payments.sandbox ? 'This is Test mode. Test readiness does not confirm Live readiness.' : 'This is Live mode. Review your real business information carefully.'}</p>
-        {launchData.payments.state === 'pending' && <p>Currently actionable steps are submitted, but Stripe is still verifying your account. <strong className="font-semibold text-navy">Your account remains gated</strong> — you cannot charge patients or use operational features until payments are ready.</p>}
+        {launchData.payments.state === 'pending' && <p>Your details are submitted and Stripe is still verifying your account. You can finish setup and start using THINNR now; <strong className="font-semibold text-navy">charging patients turns on once Stripe finishes verifying</strong>.</p>}
         {launchData.canEdit && <div className="flex flex-wrap items-center gap-3">
           <button type="button" className={`${BTN_PRIMARY} h-10 px-4`} onClick={() => document.querySelector('[data-testid="office-access-setup"]')?.scrollIntoView({ behavior: 'smooth' })}>{launchData.payments.state === 'not_started' ? 'Connect payments below' : 'Review Stripe setup below'}</button>
           {canRestart && <button type="button" className={`${BTN_SECONDARY} h-10 px-4`} onClick={() => setRestartOpen(true)}>Restart Stripe setup</button>}
@@ -185,7 +204,9 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     <OfficeAccessSetup />
     {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
     <footer ref={(el) => { targets.current.finish = el; }} data-setup-step="finish" className="scroll-mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
-      {launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : launchData.completedAt ? 'Setup complete' : 'Finish setup'}</button>}
+      {launchData.completedAt
+        ? <Link href="/" className={`${BTN_PRIMARY} h-10 px-4`} data-testid="link-setup-go-to-dashboard">Go to dashboard</Link>
+        : launchData.canEdit && <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={!ready || complete.isPending} onClick={() => void finish()}>{complete.isPending ? 'Saving…' : 'Finish setup'}</button>}
       <p className="text-sm text-muted-foreground">Invitations and training are optional.</p>
     </footer>
 

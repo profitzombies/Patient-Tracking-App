@@ -28,7 +28,7 @@ export async function operationalLaunchComplete(providerId:string) {
   const completed=await readModeCompletion(providerId,identity);
   if(!completed) return false;
   const account=await runWithBillingIdentity(identity,()=>selectOne("billing_connected_accounts",`provider_id=eq.${encodeURIComponent(providerId)}`));
-  if (paymentLaunchState(account) !== "ready") return false;
+  if (!paymentsLaunchSatisfied(paymentLaunchState(account))) return false;
   return runWithBillingIdentity(identity,()=>accessGateSatisfied(providerId));
 }
 
@@ -52,14 +52,25 @@ export function isLaunchAllowedPath(url: string) {
     || /^\/billing\/office\/(?:status|connect|access)(?:\/|$)/.test(path);
 }
 
+/**
+ * Whether the office's Stripe connection is far enough along to open the
+ * workspace. Stripe still verifying submitted details ("pending") counts: the
+ * office has done everything it can, and patient charges stay blocked on their
+ * own until Stripe enables them (checkout checks charges_enabled).
+ */
+export function paymentsLaunchSatisfied(state: ReturnType<typeof paymentLaunchState>): boolean {
+  return state === "ready" || state === "pending";
+}
+
 export function paymentLaunchState(account: {details_submitted:boolean;charges_enabled:boolean;payouts_enabled:boolean;requirements:Record<string,unknown>;disconnected_at?:string|null} | null) {
   if (!account) return "not_started" as const;
   if (account.disconnected_at) return "action_required" as const;
   const due = ["currently_due","past_due"].some(key => Array.isArray(account.requirements[key]) && (account.requirements[key] as unknown[]).length > 0);
   if (!account.details_submitted || due) return "action_required" as const;
-  if (account.charges_enabled && account.payouts_enabled) return "ready" as const;
-  // A disabled/rejected account is not "external verification pending".
+  // A disabled/rejected account is never ready or "verification pending",
+  // whatever its stored charge/payout flags say.
   const reason = account.requirements.disabled_reason;
   if (reason && reason !== "requirements.pending_verification") return "action_required" as const;
+  if (account.charges_enabled && account.payouts_enabled) return "ready" as const;
   return "pending" as const;
 }

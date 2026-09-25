@@ -168,6 +168,9 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
   const firstChargeAt = row.paid_through ?? row.included_period_ends_at ?? null;
   const priceCents = accessPriceCents(row, settings);
   const connectDone = input.connect === "ready";
+  // Stripe still verifying submitted details does not hold the office back;
+  // patient charges stay off on their own until Stripe enables them.
+  const connectSatisfied = connectDone || input.connect === "pending";
 
   const steps: AccessSetupStep[] = [
     stepFor("connect", connectDone, input.connect === "pending"
@@ -190,7 +193,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
 
   return {
     office: { providerId: input.providerId, officeName: input.officeName ?? null },
-    complete: facts.satisfied && connectDone,
+    complete: facts.satisfied && connectSatisfied,
     connectAlreadyDone: connectDone,
     steps,
     connect: { state: input.connect, sandbox: input.sandbox },

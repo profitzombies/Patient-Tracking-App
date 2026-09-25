@@ -36,6 +36,7 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
     sql(readFileSync(new URL("../../../../supabase/migrations/20261114000000_mandatory_connect_safe_restart.sql",import.meta.url),"utf8"));
     sql(readFileSync(new URL("../../../../supabase/migrations/20261116010000_connect_guard_implicit_mode_default.sql",import.meta.url),"utf8"));
     sql(readFileSync(new URL("../../../../supabase/migrations/20261127000000_practice_launch_hq_override.sql",import.meta.url),"utf8"));
+    sql(readFileSync(new URL("../../../../supabase/migrations/20261128000000_practice_launch_allow_pending_stripe.sql",import.meta.url),"utf8"));
   },60000);
   afterAll(()=>{if(dir){spawnSync("pg_ctl",["-D",`${dir}/data`,"-m","immediate","stop"],{stdio:"ignore"});rmSync(dir,{recursive:true,force:true});}});
   it("legacy cannot complete pending Stripe, but can complete ready without product review",()=>{
@@ -43,6 +44,23 @@ describe.skipIf(!available)("mandatory launch and safe connection database prote
     sql("update billing_connected_accounts set details_submitted=true,charges_enabled=true,payouts_enabled=true,last_synced_at=clock_timestamp() where provider_id in ('legacy','new')");
     sql("select complete_practice_launch('legacy',0,'test','acct_platform')");
     expect(()=>sql("select complete_practice_launch('new',0,'test','acct_platform')")).toThrow();
+  });
+  it("finishes while Stripe is still verifying, but never for an unsubmitted or disabled account",()=>{
+    // Fixture rows skip the connect-identity trigger (session-local replica
+    // role): this test is about the completion rule, not how rows get made.
+    sql(`set session_replication_role=replica;
+      insert into providers values('pend'),('unsubmitted'),('rejected'),('due'),('flagged');
+      insert into practice_launch(provider_id,required) values('pend',false),('unsubmitted',false),('rejected',false),('due',false),('flagged',false);
+      insert into billing_connected_accounts(provider_id,stripe_account_id,stripe_mode,stripe_platform_account_id,details_submitted,requirements,last_synced_at) values
+        ('pend','acct_pend','test','acct_platform',true,'{"disabled_reason":"requirements.pending_verification","pending_verification":["individual.verification.document"]}',clock_timestamp()),
+        ('unsubmitted','acct_unsub','test','acct_platform',false,'{}',clock_timestamp()),
+        ('rejected','acct_rej','test','acct_platform',true,'{"disabled_reason":"rejected.fraud"}',clock_timestamp()),
+        ('due','acct_due','test','acct_platform',true,'{"currently_due":["external_account"]}',clock_timestamp());
+      insert into billing_connected_accounts(provider_id,stripe_account_id,stripe_mode,stripe_platform_account_id,details_submitted,charges_enabled,payouts_enabled,requirements,last_synced_at) values
+        ('flagged','acct_flag','test','acct_platform',true,true,true,'{"disabled_reason":"rejected.fraud"}',clock_timestamp());`);
+    sql("select complete_practice_launch('pend',0,'test','acct_platform')");
+    expect(sql("select count(*) from practice_launch_completions where provider_id='pend'")).toBe("1");
+    for (const id of ["unsubmitted","rejected","due","flagged"]) expect(()=>sql(`select complete_practice_launch('${id}',0,'test','acct_platform')`)).toThrow();
   });
   it("re-gate preserves Stripe and requires fresh sync plus versioned reconfirmation",()=>{
     sql(`select regate_practice_launch('legacy',1,'${token}')`);

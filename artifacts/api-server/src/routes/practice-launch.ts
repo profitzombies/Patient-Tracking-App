@@ -8,7 +8,7 @@ import { selectOne } from "../billing/store";
 import { syncAccount } from "../billing/accounts";
 import { AccountInput } from "./provider-accounts";
 import { getLaunchProducts, saveLaunchProducts, LaunchProductsError } from "../practice-launch/products";
-import { paymentLaunchState, readLaunch, readModeCompletion } from "../practice-launch/state";
+import { paymentLaunchState, paymentsLaunchSatisfied, readLaunch, readModeCompletion } from "../practice-launch/state";
 import { accessGateFacts } from "../billing/office-access/setup";
 import { currentSecondFactorPolicy, loadStaffSecondFactor, secondFactorRequiredByPolicy } from "../auth/second-factor";
 
@@ -52,7 +52,7 @@ async function snapshot(scope:OfficeScope) {
     // opens the workspace without pretending any of that is in place: every
     // other field below still reports what is actually missing.
     completedAt:launch.setup_override_at
-      ?? (paymentLaunchState(account)==="ready" && access.satisfied ? modeCompletion??null : null),
+      ?? (paymentsLaunchSatisfied(paymentLaunchState(account)) && access.satisfied ? modeCompletion??null : null),
     setupOverride:{active:Boolean(launch.setup_override_at),at:launch.setup_override_at??null,note:launch.setup_override_note??null},
     accessSetup:{
       complete:access.satisfied,
@@ -111,7 +111,7 @@ async function handle(req:Request,res:Response,kind:"read"|"details"|"products"|
       const state=await snapshot(scope);
       if (!state.security.ready) throw new LaunchProductsError("Complete the required account security in Security settings.");
        if (state.fullSetupRequired && !state.productsConfirmed) throw new LaunchProductsError("Confirm product prices in the current payment mode.");
-       if (state.payments.state!=="ready") throw new LaunchProductsError("Stripe must enable both charges and payouts before setup can be confirmed.");
+       if (!paymentsLaunchSatisfied(state.payments.state)) throw new LaunchProductsError("Finish Stripe's steps for your connected account before setup can be confirmed.");
        if (!state.accessSetup.complete) throw new LaunchProductsError(state.accessSetup.bankVerificationOverdue
          ? "Your bank account was not verified in time. Verify it or add a different account before finishing setup."
          : "Add your bank account, both credit cards, a billing plan and accept the access terms before finishing setup.");

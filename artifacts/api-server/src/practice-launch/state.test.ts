@@ -14,5 +14,7 @@ describe("practice launch gates",()=>{
     expect(paymentLaunchState({...account,requirements:{disabled_reason:"rejected.fraud"}})).toBe("action_required");
     expect(paymentLaunchState({...account,requirements:{disabled_reason:"requirements.pending_verification"}})).toBe("pending");
     expect(paymentLaunchState({...account,charges_enabled:true,payouts_enabled:true})).toBe("ready");
+    expect(paymentLaunchState({...account,charges_enabled:true,payouts_enabled:true,requirements:{disabled_reason:"rejected.fraud"}})).toBe("action_required");
+    expect(paymentLaunchState({...account,requirements:{disabled_reason:""}})).toBe("pending");
   });
 });

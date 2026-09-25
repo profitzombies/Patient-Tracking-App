@@ -576,6 +576,14 @@ args = "hq-team-invites-api"
 task = "workflow.run"
 args = "hq-team-invites-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "provider-launch-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "provider-launch-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -1801,6 +1809,7 @@ TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/.pr
 CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
 CLAIM_EMAIL_FROM = "THINNR Dashboard <no-reply@appnotifications.thinnrweightloss.com>"
+OPERATIONS_APP_URL = "https://app.trythinnr.com"
 
 [userenv.development]
 SYSTEM_ALERT_EMAILS = "off"
@@ -3312,6 +3321,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:hq-team && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "provider-launch-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/system/launch-readiness.test.ts src/routes/provider-welcome-resend.test.ts src/claim/delivery.test.ts src/email src/lib/audit-events.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "provider-launch-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = [
   "patient_medication_stopped",
   "provider_account_created",
   "provider_account_updated",
+  "provider_welcome_resent",
   "office_policy_override_updated",
   "office_team_invited",
   "office_team_role_changed",
@@ -157,7 +158,7 @@ export const allowedActions: ReadonlySet<string> = new Set(AUDIT_ACTIONS);
  * free-text fields are deliberately absent.
  */
 export const AUDIT_METADATA_KEYS = [
-  "reason", "role", "status", "field", "fields", "from", "to", "size", "contentType",
+  "reason", "role", "status", "invitation", "field", "fields", "from", "to", "size", "contentType",
   "thread", "kind", "office", "rows", "noteId", "weightId", "visitId", "medicationId", "areaCount", "dateKey",
   "route", "method", "turn", "attachmentId", "mediaKind", "version", "section",
   "policyVersion", "photoAnalysis", "attempt", "step", "objects", "tables", "purgeAfter", "exportId", "requestId",

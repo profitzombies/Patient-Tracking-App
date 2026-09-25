@@ -5,13 +5,15 @@
  * intentionally separate and calls the atomic database function only after the
  * caller has passed the HQ staff guard.
  */
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { sendProviderClaimInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { offboardingStatusOf } from "../lib/office-status";
+import { appBaseUrl } from "../security/alerts";
+import { createLimiter } from "../coach/limits";
 
 const router: IRouter = Router();
 
@@ -260,6 +262,37 @@ function accountDtoFor(identity: StaffIdentity, account: Record<string, unknown>
   return account;
 }
 
+export type WelcomeDelivery = "sent" | "not_configured" | "failed";
+
+/** Where the welcome email's "Sign in to THINNR" button lands: the operations sign-in page. */
+export function providerSignInUrl(): string | null {
+  const base = appBaseUrl("staff");
+  return base ? `${base}/` : null;
+}
+
+/**
+ * Send the owner welcome email and report how it went. The account row is
+ * already committed either way, so HQ is told the truth instead of an error.
+ */
+async function deliverProviderWelcome(
+  req: Request,
+  email: string,
+  input: { officeName: string; providerName: string; providerCode: string },
+): Promise<WelcomeDelivery> {
+  const signInUrl = providerSignInUrl();
+  if (!signInUrl) {
+    req.log?.error({}, "provider welcome email has no operations base URL to link to");
+    return "failed";
+  }
+  try {
+    await sendProviderClaimInvitation(email, { ...input, signInUrl });
+    return "sent";
+  } catch (error) {
+    req.log?.error({ err: error }, "provider welcome email failed");
+    return error instanceof Error && error.name === "DeliveryNotConfiguredError" ? "not_configured" : "failed";
+  }
+}
+
 router.get("/provider-accounts", requireHqPermission("provider_contact_read"), async (req, res) => {
   try {
     const staff = res.locals.staff as StaffIdentity;
@@ -346,17 +379,11 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
 
     const row = Array.isArray(result.json) ? result.json[0] : result.json;
     const accountId = String(row.provider_id);
-    let invitation: "sent" | "not_configured" | "failed" = "sent";
-    try {
-      await sendProviderClaimInvitation(parsed.data.email.toLowerCase(), {
-        officeName: parsed.data.officeName,
-        providerName: parsed.data.providerName,
-        providerCode: String(row.onboarding_code),
-      });
-    } catch (error) {
-      invitation = error instanceof Error && error.name === "DeliveryNotConfiguredError" ? "not_configured" : "failed";
-      req.log?.error({ err: error }, "new provider claim invitation failed");
-    }
+    const invitation = await deliverProviderWelcome(req, parsed.data.email.toLowerCase(), {
+      officeName: parsed.data.officeName,
+      providerName: parsed.data.providerName,
+      providerCode: String(row.onboarding_code),
+    });
     await recordAdminAuditEvent({ action: "provider_account_created", actorUserId: callerId, actorKind: "hq", providerId: accountId, targetKind: "provider_account", targetId: accountId, requestId: req.headers["x-request-id"]?.toString() ?? null }).catch(error => req.log?.error({ err: error }, "provider account create audit failed"));
     res.status(201).json({
       account: {
@@ -394,6 +421,85 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
   } catch (error) {
     req.log?.error({ err: error }, "provider account create failed");
     res.status(502).json({ error: "Could not finish creating the provider account." });
+  }
+});
+
+/**
+ * Re-send the owner welcome email to an office whose owner has never signed
+ * in. Limited per office so a stuck button (or a curious admin) cannot turn
+ * it into a mail cannon; the limiter is process-local, which is enough for a
+ * manual, HQ-only action.
+ */
+const welcomeResendLimit = createLimiter({
+  burst: 3, refillPerMinute: 0.2, maxConcurrent: 5, dailyBudget: 500,
+  dailyMessage: "Too many welcome emails were re-sent today. Try again tomorrow.",
+  busyMessage: "The email service is busy. Try again in a moment.",
+  rapidMessage: "This welcome email was just re-sent. Wait a few minutes before sending it again.",
+});
+
+router.post("/provider-accounts/:id/welcome/resend", requireHqPermission("provider_manage"), async (req, res) => {
+  const accountId = String(req.params.id ?? "").trim();
+  if (!accountId) {
+    res.status(404).json({ error: "Provider account not found." });
+    return;
+  }
+  const slot = welcomeResendLimit(accountId);
+  if (!slot.ok) {
+    res.status(429).json({ error: slot.message });
+    return;
+  }
+  try {
+    const actor = res.locals.staff as StaffIdentity;
+    const id = encodeURIComponent(accountId);
+    const [providers, locks] = await Promise.all([
+      supabaseAdmin(
+        "GET",
+        `/rest/v1/providers?provider_id=eq.${id}&select=provider_id,provider_name,office_name,email,onboarding_code,auth_user_id,access_disabled,offboarding_status&limit=1`,
+      ),
+      supabaseAdmin("GET", `/rest/v1/provider_account_locks?account_id=in.(${id},acct-${id})&select=account_id&limit=1`),
+    ]);
+    if (providers.status >= 300 || !Array.isArray(providers.json) || locks.status >= 300 || !Array.isArray(locks.json)) {
+      throw new Error(`provider welcome resend read failed (${providers.status}/${locks.status})`);
+    }
+    const row = providers.json[0] as Record<string, unknown> | undefined;
+    if (!row) {
+      res.status(404).json({ error: "Provider account not found." });
+      return;
+    }
+    if (row.auth_user_id) {
+      res.status(409).json({ error: "The owner has already signed in, so there is no welcome email to re-send." });
+      return;
+    }
+    if (offboardingStatusOf(row.offboarding_status) !== "active") {
+      res.status(409).json({ error: "This office is being offboarded, so its welcome email cannot be re-sent." });
+      return;
+    }
+    if (row.access_disabled === true || locks.json.length > 0) {
+      res.status(409).json({ error: "This office is locked. Unlock it before re-sending the welcome email." });
+      return;
+    }
+    const email = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
+    const providerCode = effectiveProviderCode(row.onboarding_code, row.provider_id);
+    if (!email || !providerCode) {
+      res.status(409).json({ error: "This office has no owner email or patient code on file. Edit the office details first." });
+      return;
+    }
+    const invitation = await deliverProviderWelcome(req, email, {
+      officeName: String(row.office_name ?? row.provider_name ?? "Your office"),
+      providerName: String(row.provider_name ?? "Provider"),
+      providerCode,
+    });
+    await recordAdminAuditEvent({
+      action: "provider_welcome_resent", actorUserId: actor.userId, actorKind: "hq", providerId: accountId,
+      targetKind: "provider_account", targetId: accountId, requestId: req.headers["x-request-id"]?.toString() ?? null,
+      metadata: { invitation },
+    }).catch(error => req.log?.error({ err: error }, "provider welcome resend audit failed"));
+    res.json({ invitation });
+  } catch (error) {
+    req.log?.error({ err: error }, "provider welcome resend failed");
+    res.status(502).json({ error: "Could not re-send the welcome email right now. Try again in a moment." });
+  } finally {
+    slot.release();
   }
 });
 

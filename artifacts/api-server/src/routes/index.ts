@@ -45,6 +45,7 @@ import officeAuditEventsRouter from "./office-audit-events";
 import patientPrivacyRouter from "./patient-privacy";
 import hqPatientDeletionsRouter from "./hq-patient-deletions";
 import systemJobsRouter from "./system-jobs";
+import launchReadinessRouter from "./launch-readiness";
 import officeLeaderboardRouter from "./office-leaderboard";
 import bloodworkRouter from "./bloodwork";
 import patientCareTeamRouter from "./patient-care-team";
@@ -123,6 +124,7 @@ router.use(hqPatientRetentionRouter);
 router.use(staffConversationsRouter);
 router.use(hqSettingsFilesRouter);
 router.use(systemJobsRouter);
+router.use(launchReadinessRouter);
 router.use(exportsRouter);
 // Provider payments (Stripe Connect). Webhooks mount separately in app.ts
 // (raw body, before the JSON parser).

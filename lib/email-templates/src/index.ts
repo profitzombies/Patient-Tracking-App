@@ -70,11 +70,13 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       providerName: "Avery Example",
       officeName: "Example Wellness Studio",
       providerCode: "731942",
+      signInUrl: "https://operations.example.com/",
     },
     variableLabels: {
       providerName: "Provider name",
       officeName: "Office name",
       providerCode: "Patient onboarding code",
+      signInUrl: "Operations sign-in link",
     },
   },
   {
@@ -386,6 +388,7 @@ export function renderEmailTemplate(
     const providerName = requireVariable(variables, "providerName");
     const officeName = requireVariable(variables, "officeName");
     const providerCode = requireVariable(variables, "providerCode");
+    const signInUrl = requireVariable(variables, "signInUrl");
     const subject = `Your ${officeName} THINNR account is ready`;
     const previewText = `Welcome to THINNR. Your account and patient onboarding code are ready.`;
     const text = [
@@ -394,7 +397,8 @@ export function renderEmailTemplate(
       `${officeName} is now set up in THINNR.`,
       `Patient onboarding code: ${providerCode}`,
       "",
-      "To sign in, open THINNR operations and enter this email address. We will send you a one-time sign-in code, so no password is needed.",
+      `Sign in to THINNR: ${signInUrl}`,
+      "Enter this email address on the sign-in page. We will send you a one-time sign-in code, so no password is needed.",
       "",
       "Share the patient onboarding code only with patients joining your office.",
       "If you did not expect this account, contact THINNR support.",
@@ -411,6 +415,8 @@ export function renderEmailTemplate(
         bodyHtml: `${paragraph(`<strong>${escapeHtml(officeName)}</strong> is now set up in THINNR.`)}
           ${infoPanel("Patient onboarding code", providerCode)}
           ${paragraph("To sign in, open THINNR operations and enter this email address. We’ll send a one-time sign-in code, so there’s no password to remember.")}
+          ${button(signInUrl, "Sign in to THINNR")}
+          ${paragraph(`If the button doesn’t work, copy this link into your browser:<br><a href="${escapeHtml(signInUrl)}" style="color:#315eae;word-break:break-all;">${escapeHtml(signInUrl)}</a>`)}
           ${paragraph("Share the patient onboarding code only with patients joining your office.")}`,
         closing: "If you did not expect this account, contact THINNR support.",
       }),

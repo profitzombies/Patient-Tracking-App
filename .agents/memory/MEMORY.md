@@ -143,3 +143,4 @@
 - [Office restricted for nonpayment](office-nonpayment-restriction.md) — narrowed ≠ locked: state derived from dates at one path-keyed gate, unknown reads never narrow, share percent snapshotted per order.
 - [Office access subscriptions](office-access-subscriptions.md) — offices pay THINNR on the PLATFORM account via direct PaymentIntents (no Stripe dunning); state derives from dates, charges claim in SQL first.
 - [Office access gate live proof](office-access-gate-live-proof.md) — prove the setup gate by state transitions on one throwaway office; snapshot reads create the row, attach needs NOT NULL columns, teardown needs replica role.
+- [First-provider Stripe connect](first-provider-connect.md) — new offices need create/OAuth before the embed (409 without account); predicate invalidation; live webhook proof recipe.

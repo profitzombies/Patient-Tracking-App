@@ -6,6 +6,7 @@ import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { __setSession as setToken } from './invite-stubs/supabase';
 import { __setScope } from './a11y-stubs/provider-scope';
+import { __setSession } from './a11y-stubs/session';
 import { OfficeAccessContent, PaymentMethodForm } from '../src/components/billing/OfficeAccessSetup';
 import { launchRecoveryPath } from '../src/pages/PracticeLaunch';
 import type { OfficeAccessSnapshot } from '../src/lib/billing-types';
@@ -14,10 +15,16 @@ import type { OfficeAccessSnapshot } from '../src/lib/billing-types';
 setToken('fixture');
 __setScope(null);
 let duplicate = false;
-globalThis.fetch = async (input) => new Response(
-  duplicate ? JSON.stringify({ error: 'Duplicate card', code: 'duplicate_card' }) : JSON.stringify(base),
-  { status: duplicate ? 409 : 200, headers: { 'Content-Type': 'application/json' } },
-);
+const calls: Array<{ url: string; method: string; scope: string | null }> = [];
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+globalThis.fetch = async (input, init) => {
+  const url = String(input);
+  calls.push({ url, method: init?.method ?? 'GET', scope: new Headers(init?.headers).get('X-Billing-Scope') });
+  if (url.includes('/api/office/launch')) return json({ billingScope: 'scope-fixture' });
+  if (url.includes('/billing/office/status')) return json({ account: null, oauth_available: true });
+  if (url.includes('/billing/office/connect/create')) return json({ account: { stripe_account_id: 'acct_new' } }, 201);
+  return duplicate ? json({ error: 'Duplicate card', code: 'duplicate_card' }, 409) : json(base);
+};
 const base: OfficeAccessSnapshot = {
   office: { providerId: 'one', officeName: 'Heritage Practice' }, complete: false, connectAlreadyDone: true,
   steps: ['connect', 'bank', 'card_primary', 'card_backup', 'plan', 'disclosure'].map((id) => ({ id: id as any, status: id === 'bank' ? 'pending' : 'done', detail: null })),
@@ -51,6 +58,26 @@ assert.match(output, /\$234\.56/);
 assert.match(output, /April 5, 2027/);
 await act(async () => result.root.unmount()); result.client.clear();
 
+// A brand-new office has no Stripe account, so the embedded onboarding cannot
+// load yet: the owner must be offered both ways to get one right here.
+__setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'owner-1' }, staffSession: { staffKind: 'provider' } });
+result = await render(<OfficeAccessContent snapshot={{ ...base, connectAlreadyDone: false, connect: { state: 'not_started', sandbox: true } }} refresh={() => {}} />);
+await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+output = text(result.root.toJSON());
+assert.doesNotMatch(output, /Loading secure Stripe tools|managed in the Stripe Dashboard/, 'no embedded tools before an account exists');
+assert.doesNotMatch(output, /Refresh connection status/, 'nothing to refresh before an account exists');
+const oauthStart = result.root.root.findAll((node) => node.props['data-testid'] === 'button-oauth-start' && typeof node.type === 'string');
+assert.equal(oauthStart.length, 1, 'existing-account (OAuth) option is offered on the setup screen');
+const createButton = result.root.root.findAll((node) => node.props['data-testid'] === 'button-create-account' && typeof node.type === 'string')[0];
+assert.ok(createButton, 'new-account option is offered on the setup screen');
+assert.equal(createButton.props.disabled, false, 'new-account option is enabled once the billing scope loads');
+await act(async () => { createButton.props.onClick(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+const createCall = calls.find((call) => call.url.includes('/billing/office/connect/create'));
+assert.ok(createCall && createCall.method === 'POST', 'Start setup creates the connected account');
+assert.equal(createCall.scope, 'scope-fixture', 'account creation carries the launch billing scope');
+await act(async () => result.root.unmount()); result.client.clear();
+__setSession({ authStatus: 'signed-out', authRole: null, authUser: null, staffSession: null });
+
 result = await render(<OfficeAccessContent snapshot={{ ...base, bank: { ...base.bank, overdue: true } }} refresh={() => {}} />);
 assert.match(text(result.root.toJSON()), /Bank verification is overdue/);
 await act(async () => result.root.unmount()); result.client.clear();
@@ -67,4 +94,4 @@ await act(async () => { save.props.onClick(); await new Promise((resolve) => set
 assert.match(text(result.root.toJSON()), /same card as the first card/i);
 await act(async () => result.root.unmount()); result.client.clear();
 
-console.log('Office access: absolute gate, duplicate card, bank window/overdue, real plan terms, and staff card management passed.');
+console.log('Office access: absolute gate, first-run Stripe connect choice, duplicate card, bank window/overdue, real plan terms, and staff card management passed.');

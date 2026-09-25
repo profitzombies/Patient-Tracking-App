@@ -1,8 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation, useSearch } from 'wouter';
-import { ArrowRight, Copy, ExternalLink, MoreHorizontal, Package } from 'lucide-react';
-import { useLaunchData } from '@/hooks/use-launch';
+import { ArrowRight, Copy, MoreHorizontal, Package } from 'lucide-react';
 import { MoneyInput, normalizeDollarsInput } from '@/components/billing/MoneyInput';
 import { MetricTile } from '@/components/admin/primitives';
 import {
@@ -31,6 +30,7 @@ import {
   ConnectTaxSettings,
 } from '@/components/billing/ConnectEmbed';
 import { RefundDialog } from '@/components/billing/RefundDialog';
+import { ConnectStartCards } from '@/components/billing/ConnectStart';
 import { RefreshControl } from '@/components/billing/RefreshControl';
 import { CustomerEmailsCard } from '@/components/billing/CustomerEmailsCard';
 import { demoEmailDatasetForOrder } from '@/components/billing/customer-emails-demo';
@@ -87,81 +87,9 @@ import { OfficeActivity, OfficeFulfillment, OfficeRefunds } from './OfficeStatus
 
 function GetPaid() {
   return (
-    <Boundary allowNoAccount demo={demoPage('Get paid', <SetupCards status={null} demo />)}>
+    <Boundary allowNoAccount demo={demoPage('Get paid', <ConnectStartCards status={null} demo />)}>
       {(status) => <GetPaidLive status={status} />}
     </Boundary>
-  );
-}
-
-function SetupCards({ status, demo = false }: { status: OfficeBillingStatus | null; demo?: boolean }) {
-  const { office } = useOfficeBillingScope();
-  const invalidate = useInvalidateOfficeBilling();
-  const { toast } = useToast();
-  const launchQuery = useLaunchData();
-  const scope = launchQuery.data?.billingScope ?? '';
-  const create = useMutation({
-    mutationFn: () => officeBilling.createAccount(scope, office),
-    onSuccess: () => void invalidate(),
-    onError: (error) =>
-      toast({
-        variant: 'destructive',
-        title: 'Account not created',
-        description: error instanceof Error ? error.message : 'Try again.',
-      }),
-  });
-  const oauth = async () => {
-    try {
-      window.location.assign((await officeBilling.oauthStart(scope, office)).url);
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Stripe connection not started',
-        description: error instanceof Error ? error.message : 'Try again.',
-      });
-    }
-  };
-  const oauthAvailable = demo || status?.oauth_available;
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <SectionCard title="Connect an existing Stripe account" sub="Use an account your office already manages.">
-        <div className="p-5">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Authorize THINNR to create charges and deduct the program fee.
-          </p>
-          {oauthAvailable ? (
-            <button
-              data-testid="button-oauth-start"
-              type="button"
-              className={`${BTN_SECONDARY} mt-4 h-9 px-3.5`}
-              disabled={demo}
-              onClick={() => void oauth()}
-            >
-              Connect Stripe <ExternalLink size={13} aria-hidden="true" />
-            </button>
-          ) : (
-            <p data-testid="oauth-unavailable" className="mt-4 text-xs text-muted-foreground">
-              Existing account connection is not configured yet. You can set up a new account now.
-            </p>
-          )}
-        </div>
-      </SectionCard>
-      <SectionCard title="Set up a new account" sub="Create a Stripe account without leaving THINNR.">
-        <div className="p-5">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Stripe securely collects business, owner, and bank details.
-          </p>
-          <button
-            data-testid="button-create-account"
-            type="button"
-            className={`${BTN_PRIMARY} mt-4 h-9 px-3.5`}
-            disabled={demo || create.isPending}
-            onClick={() => create.mutate()}
-          >
-            {create.isPending ? 'Creating…' : 'Start setup'}
-          </button>
-        </div>
-      </SectionCard>
-    </div>
   );
 }
 
@@ -211,7 +139,7 @@ function GetPaidLive({ status }: { status: OfficeBillingStatus }) {
         }
       />
       {!account ? (
-        <SetupCards status={status} />
+        <ConnectStartCards status={status} />
       ) : (
         <>
           <SectionCard title="Stripe account" action={<StatusPill tone={chip.tone}>{chip.label}</StatusPill>}>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { useLaunchWrite, type LaunchState } from '@/hooks/use-launch';
 import { SectionCard, BTN_PRIMARY, BTN_SECONDARY, PANEL_LABEL, INPUT_CLASS } from '@/components/patient/heritage';
 import { parseDollarsToCents, formatCents } from '@/lib/billing-format';
@@ -8,6 +8,7 @@ import { officeRequest } from '@/lib/office-api';
 import { useSession } from '@/contexts/session';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OfficeAccessSetup } from '@/components/billing/OfficeAccessSetup';
+import { useToast } from '@/hooks/use-toast';
 
 const labels: Record<keyof LaunchState['details'], string> = {
   officeName: 'Practice name', providerName: 'Provider name', email: 'Contact email', phone: 'Office phone',
@@ -15,12 +16,44 @@ const labels: Record<keyof LaunchState['details'], string> = {
 };
 export const paymentLabels = { not_started: 'Not started', action_required: 'Action required', pending: 'Submitted — Stripe verification pending', ready: 'Ready' };
 
+/**
+ * Stripe's OAuth callback returns owners to /payments/get-paid?connected=1
+ * (or ?error=…). While practice setup is unfinished that path renders this
+ * screen instead, so announce the result here, refresh the setup state, and
+ * drop the one-shot query so a reload does not repeat it.
+ */
+function useStripeReturnNotice(): string | null {
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const { toast } = useToast();
+  const client = useQueryClient();
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const connected = params.get('connected') === '1';
+    const error = params.get('error');
+    if (!connected && !error) return;
+    if (connected) toast({ variant: 'success', title: 'Stripe account connected' });
+    setFailure(error ? error : null);
+    void client.invalidateQueries({ predicate: (query) =>
+      query.queryKey[0] === 'office' || (query.queryKey[0] === 'billing' && query.queryKey[1] === 'office') });
+    params.delete('connected');
+    params.delete('error');
+    const rest = params.toString();
+    navigate(rest ? `${location}?${rest}` : location, { replace: true });
+    // Runs once per arrival; the navigation above clears the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+  return failure;
+}
+
 export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
   const complete = useLaunchWrite('complete');
   const { staffSession } = useSession();
   const [error, setError] = useState('');
   const [restartOpen, setRestartOpen] = useState(false);
   const client = useQueryClient();
+  const stripeReturn = useStripeReturnNotice();
   const { fullSetupRequired } = launchData;
   const ready = fullSetupRequired
     ? launchData.detailsConfirmed && launchData.productsConfirmed && launchData.security.ready && launchData.payments.state === 'ready'
@@ -83,6 +116,7 @@ export function LaunchScreen({ launchData }: { launchData: LaunchState }) {
     {fullSetupRequired && <SectionCard title={`4. Products and pricing${launchData.productsConfirmed ? ' · Confirmed' : ''}`} sub="Choose the products patients can buy and review every price.">
       <ProductsForm launchData={launchData} />
     </SectionCard>}
+    {stripeReturn && <p role="alert" data-testid="stripe-return-error" className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">Stripe connection was not completed: {stripeReturn} Try again below.</p>}
     <OfficeAccessSetup />
     {error && <p role="alert" className="text-sm text-destructive">{error} Refresh the setup status before retrying if another session changed it. For blocked restarts, please <Link href="/ai-support" className="underline">contact THINNR support</Link>.</p>}
     <footer className="flex flex-wrap items-center gap-3 border-t border-border pt-4">

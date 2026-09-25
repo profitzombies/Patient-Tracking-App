@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { ConnectEmbed, ConnectOnboarding } from '@/components/billing/ConnectEmbed';
+import { ConnectStartCards } from '@/components/billing/ConnectStart';
+import { useOfficeBillingStatus } from '@/hooks/use-billing';
 import { BTN_PRIMARY, BTN_SECONDARY, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
 import { BillingApiError } from '@/lib/billing-api';
 import type { OfficeAccessInstrument, OfficeAccessSlot, OfficeAccessSnapshot } from '@/lib/billing-types';
@@ -41,8 +43,11 @@ export function OfficeAccessContent({ snapshot, refresh, management = false }: {
     {!management && <SectionCard title={`Stripe connection · ${snapshot.steps.find((s) => s.id === 'connect')?.status ?? snapshot.connect.state}`} sub="Stripe securely collects the business and owner information it needs.">
       <div className="p-5">{snapshot.connectAlreadyDone || snapshot.connect.state === 'ready'
         ? <p className="text-sm">Your connected Stripe account is ready.</p>
-        : <ConnectEmbed components={['account_onboarding']}><ConnectOnboarding onExit={refresh} /></ConnectEmbed>}
-        <button className={`${BTN_SECONDARY} mt-3 h-9 px-3`} onClick={refresh}>Refresh connection status</button>
+        : snapshot.connect.state === 'not_started'
+          // No account yet: Stripe's embedded tools need one before they can load.
+          ? <ConnectStart />
+          : <ConnectEmbed components={['account_onboarding']}><ConnectOnboarding onExit={refresh} /></ConnectEmbed>}
+        {snapshot.connect.state !== 'not_started' && <button className={`${BTN_SECONDARY} mt-3 h-9 px-3`} onClick={refresh}>Refresh connection status</button>}
       </div>
     </SectionCard>}
 
@@ -79,6 +84,11 @@ export function OfficeAccessContent({ snapshot, refresh, management = false }: {
         {writes.pay.isError && <InlineError error={writes.pay.error} retry={refresh} />}</div>
     </SectionCard>}
   </div>;
+}
+
+function ConnectStart() {
+  const status = useOfficeBillingStatus();
+  return <ConnectStartCards status={status.data ?? null} />;
 }
 
 function InstrumentCard({ title, slot, item, snapshot, refresh }: {

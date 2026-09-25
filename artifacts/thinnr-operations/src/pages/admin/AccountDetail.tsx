@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
-import { ArrowLeft, ArrowRight, Check, ChevronsUpDown, Copy, Edit2, Lock, MessagesSquare } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronsUpDown, Copy, Edit2, Lock, Mail, MessagesSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog,
@@ -40,7 +40,7 @@ import { formatPercent, hqOfficeRoot, seriesValues } from '@/lib/office-analytic
 import { useGetOfficeAnalytics, getGetOfficeAnalyticsQueryKey } from '@workspace/api-client-react';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
-import { fetchProviderAccountDetail, ProviderAccountError, type UpdateProviderAccountInput } from '@/lib/provider-accounts';
+import { fetchProviderAccountDetail, ProviderAccountError, resendProviderWelcome, type UpdateProviderAccountInput } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPostalCode, usStateName } from '@/lib/us-contact';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -237,6 +237,42 @@ function SetupOverride({ account }: { account: ProviderAccount }) {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * HQ-only re-send of the owner welcome email (sign-in link + patient code),
+ * offered only while the owner has never signed in. The server re-checks
+ * that state, audits the send and rate-limits it per office.
+ */
+function ResendOwnerWelcome({ account }: { account: ProviderAccount }) {
+  const { toast } = useToast();
+  const resend = useMutation({
+    mutationFn: () => resendProviderWelcome(account.id),
+    onSuccess: ({ invitation }) => {
+      if (invitation === 'sent') {
+        toast({ variant: 'success', title: 'Welcome email sent', description: `A new sign-in link went to ${account.email}.` });
+      } else if (invitation === 'not_configured') {
+        toast({ variant: 'destructive', title: 'Email is not set up', description: 'Email sending is not configured on this server, so nothing was sent.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Welcome email failed', description: 'The email service did not accept the message. Try again in a few minutes.' });
+      }
+    },
+    onError: (error) => {
+      toast({ variant: 'destructive', title: 'Could not re-send the welcome email', description: error instanceof Error ? error.message : 'Please try again.' });
+    },
+  });
+  return (
+    <button
+      type="button"
+      className={`${BTN_SECONDARY} h-9 px-3.5`}
+      onClick={() => resend.mutate()}
+      disabled={resend.isPending}
+      data-testid="button-resend-owner-welcome"
+    >
+      <Mail size={14} aria-hidden="true" />
+      {resend.isPending ? 'Sending…' : 'Resend owner invite'}
+    </button>
   );
 }
 
@@ -542,6 +578,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
           <MessagesSquare size={14} aria-hidden="true" />
            Coach conversations
         </Link>
+        {canManageProviderAccounts && account.status === 'needs_setup' && <ResendOwnerWelcome account={account} />}
       </div>
 
       <div className="mb-5">

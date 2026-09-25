@@ -73,6 +73,12 @@ export function useOfficeAccessSetup() {
     queryFn: () => officeBilling.access(scope.liveOffice),
     enabled: scope.liveEnabled,
     staleTime: 0,
+    // Stripe reports onboarding progress by webhook; while the connection is
+    // submitted but not ready, re-read so the status moves on its own.
+    refetchInterval: (query) => {
+      const state = query.state.data?.connect.state;
+      return state === 'pending' || state === 'action_required' ? 20_000 : false;
+    },
   });
 }
 

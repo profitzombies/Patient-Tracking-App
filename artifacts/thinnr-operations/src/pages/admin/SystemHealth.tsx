@@ -47,6 +47,7 @@ import { MetricTile, PageHeader } from '@/components/admin/primitives';
 import { useToast } from '@/hooks/use-toast';
 import { fetchStaffAlertDeliveries } from '@/lib/office-alerts-api';
 import { SystemPerformancePanels } from './SystemPerformance';
+import { LaunchReadinessCard } from '@/components/admin/LaunchReadinessCard';
 import { formatBytes } from '@/components/admin/files/utils';
 
 export const STATUS_LABEL: Record<SystemJobHealthStatus, string> = {
@@ -625,6 +626,8 @@ export default function SystemHealth() {
             <MetricTile label="Running" value={data ? String(running) : '—'} detail="Holding a lease now" testId="metric-jobs-running" />
             <MetricTile label="Healthy" value={data ? String(healthy) : '—'} detail={dataUpdatedAt ? `Checked ${format(new Date(dataUpdatedAt), 'HH:mm:ss')}` : 'Waiting for first read'} testId="metric-jobs-healthy" />
           </div>
+
+          <LaunchReadinessCard enabled={canLoad} />
 
           <section className="mt-6" aria-labelledby="outbox-heading" data-testid="system-health-outbox">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

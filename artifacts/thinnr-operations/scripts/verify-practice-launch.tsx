@@ -128,6 +128,21 @@ assert.equal(productCall.body.products[0].sellPriceCents, 9000, 'suggested setup
 assert.equal(productCall.body.products[0].subscriptionEnabled, false);
 await dispose(result.root, result.client);
 
+// Stripe's OAuth callback lands on /payments/get-paid, which this screen
+// covers while setup is unfinished: the result must still reach the owner
+// and the one-shot query must be dropped so a reload does not repeat it.
+{
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const location = memoryLocation({ path: '/payments/get-paid?error=access_denied', record: true });
+  let root!: ReactTestRenderer;
+  await act(async () => { root = create(<QueryClientProvider client={client}><Router hook={location.hook} searchHook={location.searchHook}><PracticeLaunchGuard><RealOperations /></PracticeLaunchGuard></Router></QueryClientProvider>); });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  assert.equal(mounted, 0, 'an OAuth return does not open the workspace early');
+  assert.match(text(root.toJSON()), /Stripe connection was not completed:\s+access_denied/);
+  assert.equal(location.history!.at(-1), '/payments/get-paid', 'the one-shot OAuth result is removed from the URL');
+  await dispose(root, client);
+}
+
 failed = true;
 result = await render('/patients');
 assert.equal(mounted, 0);
@@ -208,4 +223,4 @@ assert.equal(overrideCall.body.expectedVersion, snapshot.version - 1);
 await dispose(hqRoot, hqClient);
 
 
-console.log('Practice launch: scopes, fail-closed guard, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');
+console.log('Practice launch: scopes, fail-closed guard, OAuth return notice, roles, resume, contract, price preservation, duplicate submission, restart, legacy completion, and HQ control passed.');

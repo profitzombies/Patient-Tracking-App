@@ -24,6 +24,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_medication_stopped: 'Stopped a patient medication',
   provider_account_created: 'Created an office account',
   provider_account_updated: 'Updated an office account',
+  provider_welcome_resent: 'Re-sent an office owner welcome email',
   office_team_invited: 'Invited a teammate',
   office_team_role_changed: 'Changed a teammate role',
   office_team_deactivated: 'Deactivated a teammate',

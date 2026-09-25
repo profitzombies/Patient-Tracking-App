@@ -244,6 +244,19 @@ const healthyPerformance = (): PerformanceFixture => ({
 let performance: PerformanceFixture = healthyPerformance();
 let performanceStatus = 200;
 
+let readinessStatus = 200;
+const readiness = {
+  checkedAt: new Date(NOW).toISOString(),
+  mode: 'test',
+  checks: [
+    { id: 'app_url', section: 'app', label: 'Production app URL', status: 'pass', detail: 'Emailed links open https://app.example.test.', fix: null },
+    { id: 'billing_mode', section: 'stripe_live', label: 'Payments mode', status: 'warn', detail: 'Payments run in Test mode.', fix: 'Switch to Live when ready.' },
+    { id: 'live_webhook_connect', section: 'stripe_live', label: 'Live Connect webhook', status: 'fail', detail: 'Stripe has no webhook endpoint pointing at this site.', fix: 'Add the endpoint.', copyValue: 'https://app.example.test/api/billing/webhooks/live/connect' },
+    { id: 'live_oauth_redirect', section: 'stripe_live', label: 'Live OAuth redirect URL', status: 'manual', detail: 'Confirm it by hand.', fix: 'List this URL in Stripe.', copyValue: 'https://app.example.test/api/billing/oauth/callback' },
+    { id: 'email_domain', section: 'email', label: 'Email sender domain', status: 'pass', detail: 'mail.example.test is verified in Resend.', fix: null },
+  ],
+};
+
 const requests: Array<{ url: string; method: string; body: unknown }> = [];
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -255,6 +268,10 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   if (run && method === 'POST') {
     const answer = runAnswer(decodeURIComponent(run[1]), body?.dryRun === true);
     return json(answer.body, answer.status);
+  }
+  if (url.includes('/api/hq/system-health/launch-readiness')) {
+    if (readinessStatus !== 200) return json({ error: 'The launch readiness check could not run. Try again in a moment.' }, readinessStatus);
+    return json(readiness);
   }
   if (url.includes('/api/hq/system-health/performance')) {
     if (performanceStatus !== 200) return json({ error: 'Could not load performance right now.' }, performanceStatus);
@@ -364,6 +381,24 @@ console.log('\nsystem health: admin board');
       && textOf(rows[0]).includes('Scheduled') && textOf(rows[0]).includes('Failed — 2 items failed')
       && textOf(rows[1]).includes('User action') && textOf(rows[1]).includes('requested 1 · rows removed 1')
       && textOf(rows[2]).includes('Run now · dry run') && textOf(rows[2]).includes('nothing to do'));
+
+  // Provider launch readiness card: read-only checklist grouped by vendor.
+  const readinessCard = byTestId(root, 'system-health-launch-readiness');
+  check('the launch readiness card renders once with its summary', readinessCard.length === 1
+    && textOf(byTestId(root, 'text-launch-readiness-summary')[0]).includes('1 to fix · 2 to confirm or review'),
+    readinessCard[0] ? textOf(byTestId(root, 'text-launch-readiness-summary')[0]) : 'missing');
+  check('each check shows its status, detail, fix and copyable URL',
+    textOf(byTestId(root, 'readiness-status-live_webhook_connect')[0]) === 'Fix needed'
+      && textOf(byTestId(root, 'readiness-status-app_url')[0]) === 'Ready'
+      && textOf(byTestId(root, 'readiness-status-live_oauth_redirect')[0]) === 'Confirm by hand'
+      && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('https://app.example.test/api/billing/webhooks/live/connect')
+      && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('What to do: Add the endpoint.'));
+  const readinessGets = () => requests.filter((r) => r.url.includes('/launch-readiness')).length;
+  check('the readiness check only ever issues GET requests', requests.filter((r) => r.url.includes('/launch-readiness')).every((r) => r.method === 'GET') && readinessGets() >= 1);
+  const readinessBefore = readinessGets();
+  await act(async () => { byTestId(root, 'button-rerun-launch-readiness')[0].props.onClick(); });
+  await settle();
+  check('Re-run check fetches the checklist again', readinessGets() === readinessBefore + 1);
 
   // Run now → POST without dryRun, toast with counts, health refetched.
   const before = requests.length;
@@ -614,7 +649,11 @@ console.log('\nsystem health: external trigger stale in development (timers stil
 console.log('\nsystem health: ledger unavailable');
 {
   healthStatus = 502;
+  readinessStatus = 502;
   const { root } = await render('/admin/system-health', <SystemHealth />);
+  check('a failed readiness check shows its error instead of a checklist',
+    textOf(byTestId(root, 'text-launch-readiness-error')[0] ?? root).includes('could not run') && byTestId(root, 'text-launch-readiness-summary').length === 0);
+  readinessStatus = 200;
   check('a 502 renders the error notice and no job cards', byTestId(root, 'text-system-health-error').length === 1 && root.findAll((node) => typeof node.props['data-testid'] === 'string' && node.props['data-testid'].startsWith('job-')).length === 0);
   check('tiles show dashes rather than zeros', textOf(byTestId(root, 'metric-jobs-failing')[0]) === '—' && textOf(byTestId(root, 'metric-jobs-healthy')[0]) === '—' && textOf(byTestId(root, 'metric-outbox-due')[0]) === '—');
   check('the trigger card shows dashes and no chips or warning without data',

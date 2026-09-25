@@ -176,7 +176,7 @@ export async function sendClaimEmail(to: string, code: string): Promise<void> {
 /** One post-commit invitation for a genuinely new provider. */
 export async function sendProviderClaimInvitation(
   to: string,
-  input: { officeName: string; providerName: string; providerCode: string },
+  input: { officeName: string; providerName: string; providerCode: string; signInUrl: string },
 ): Promise<void> {
   await sendTransactionalEmail(to, "provider-account-ready", input);
 }

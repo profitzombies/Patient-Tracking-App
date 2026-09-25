@@ -3,6 +3,8 @@
 Work through this top to bottom before the first office collects a real
 payment. Every item is either a configuration step outside the code or an
 automated check that already exists. Nothing here changes code.
+For the first internal test office in Test mode, start with
+`docs/first-live-provider.md`.
 
 ## 1. Stripe account (platform)
 
@@ -12,7 +14,7 @@ automated check that already exists. Nothing here changes code.
 - [ ] Connect branding is set (name "THINNR", icon, brand colour) so office
       owners see THINNR on the OAuth screen and on embedded components.
 - [ ] Stripe Connect **OAuth redirect URI** registered:
-      `https://<production origin>/api/billing/connect/callback`
+      `https://app.trythinnr.com/api/billing/oauth/callback`
       (Connect → Settings → Integration → Redirects). Test-mode and live-mode
       lists are separate; add the URI to both.
 - [ ] Stripe Tax is enabled on the platform account if any office intends to

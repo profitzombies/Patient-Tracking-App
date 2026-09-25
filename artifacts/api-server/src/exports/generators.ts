@@ -33,6 +33,7 @@ export const AUDIT_EXPORT_ACTIONS = [
   "patient_follow_up_resolved",
   "provider_account_created",
   "provider_account_updated",
+  "provider_welcome_resent",
   "hq_team_invited",
   "hq_team_updated",
   "hq_team_revoked",

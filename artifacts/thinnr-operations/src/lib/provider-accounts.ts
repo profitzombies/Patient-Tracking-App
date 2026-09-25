@@ -140,12 +140,19 @@ export async function fetchProviderAccountDetail(id: string): Promise<ProviderAc
 
 export async function createProviderAccount(input: NewProviderAccountInput): Promise<{
   account: ProviderAccount;
-  invitation: 'sent' | 'not_configured' | 'failed';
+  invitation: WelcomeDelivery;
 }> {
   return request('/api/provider-accounts', {
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+export type WelcomeDelivery = 'sent' | 'not_configured' | 'failed';
+
+/** HQ-only: re-send the owner welcome email to an office whose owner has never signed in. */
+export async function resendProviderWelcome(id: string): Promise<{ invitation: WelcomeDelivery }> {
+  return request(`/api/provider-accounts/${encodeURIComponent(id)}/welcome/resend`, { method: 'POST' });
 }
 
 export async function updateProviderAccount(id: string, input: UpdateProviderAccountInput): Promise<ProviderAccount> {

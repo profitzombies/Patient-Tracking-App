@@ -55,6 +55,7 @@ describe("transactional email delivery parity", () => {
       providerName: "Avery Example",
       officeName: "Example Wellness Studio",
       providerCode: "731942",
+      signInUrl: "https://operations.test/",
     };
     await expectSharedPayload(
       "provider-account-ready",

@@ -26,7 +26,9 @@ import {
   exportFileName,
   EXPORT_KINDS,
   EXPORT_KIND_LABELS,
+  APP_PAYMENT_KINDS,
   HQ_OFFICE_KINDS,
+  capturesBillingIdentity,
   PATIENT_KINDS,
   RANGED_KINDS,
   resolveExportRequester,
@@ -218,7 +220,7 @@ router.post("/exports", async (req, res) => {
     // Every export moves patient data out of the system: fresh code first.
     if (!(await requireFreshCode(req, res, who.userId))) return;
     const scope = authorized.scope;
-    if (body.kind.startsWith("billing_") || HQ_OFFICE_KINDS.has(body.kind)) {
+    if (capturesBillingIdentity(body.kind)) {
       scope.billingIdentity = await getBillingModeStatus();
     }
 
@@ -583,11 +585,11 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
   const all: ExportKind[] = [...EXPORT_KINDS];
   const kinds =
     who.kind === "office"
-      ? all.filter((kind) => kind !== "provider_directory" && !HQ_OFFICE_KINDS.has(kind) &&
+      ? all.filter((kind) => kind !== "provider_directory" && !HQ_OFFICE_KINDS.has(kind) && !APP_PAYMENT_KINDS.has(kind) &&
           (!kind.startsWith("billing_") || who.officeRole !== "staff") &&
           (!PATIENT_KINDS.has(kind) || who.officeRole !== "staff"))
       : all.filter((kind) => {
-          if (kind.startsWith("billing_")) return hasHqPermission(who.identity, "financial_read");
+          if (kind.startsWith("billing_") || APP_PAYMENT_KINDS.has(kind)) return hasHqPermission(who.identity, "financial_read");
           if (PATIENT_KINDS.has(kind) || HQ_OFFICE_KINDS.has(kind)) return hasHqPermission(who.identity, "provider_manage");
           const role = who.identity.departmentRole;
           if (role === "super_admin" || role === "admin") return true;

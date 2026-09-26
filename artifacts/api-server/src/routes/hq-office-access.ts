@@ -1,7 +1,9 @@
 /**
  * HQ office access subscriptions — what an office pays THINNR.
  *
- *  - GET  /hq/office-access                      the board: every office, its access state and dates
+ *  - GET  /hq/office-access                      the board: every office, its access state, dates and payment methods
+ *  - GET  /hq/office-access/forecast             scheduled charges + revenue forecast for a window (an estimate)
+ *  - GET  /hq/office-access/collected            app revenue actually collected over a past range
  *  - GET  /hq/office-access/:providerId          one office: state, terms, instruments, attempts, history
  *  - POST /hq/office-access/:providerId/included-period   grant / edit / end an included period (or lifetime)
  *  - POST /hq/office-access/:providerId/reset-trial       restart the included period from now
@@ -30,6 +32,14 @@ import {
   setAccessTerms,
   setIncludedPeriod,
 } from "../billing/office-access/admin";
+import {
+  accessOfficeLabel,
+  loadAccessOffices,
+  loadBoardPaymentFacts,
+  loadCollected,
+  loadForecast,
+  type AccessOffice,
+} from "../billing/office-access/app-payments";
 import { accessSetupStatus, listAccessInstruments } from "../billing/office-access/instruments";
 import { loadAccessBillingSettings, type AccessBillingSettings } from "../billing/office-access/settings";
 import { accessPriceCents, deriveAccessState } from "../billing/office-access/state";
@@ -99,26 +109,8 @@ const OfflinePaymentInput = z.object({
   note: z.string().trim().max(400).optional(),
 });
 
-interface OfficeRow {
-  provider_id: string;
-  office_name: string | null;
-  provider_name: string | null;
-  access_disabled?: boolean | null;
-}
-
-/** Live offices (an offboarded office no longer owes for access). */
-async function offices(): Promise<OfficeRow[]> {
-  const result = await supabaseAdmin(
-    "GET",
-    "/rest/v1/providers?select=provider_id,office_name,provider_name,access_disabled&offboarding_status=neq.offboarded&limit=2000",
-  );
-  if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`office list failed (${result.status})`);
-  return result.json as OfficeRow[];
-}
-
-function officeLabel(office: OfficeRow): string {
-  return office.office_name?.trim() || office.provider_name?.trim() || "Office";
-}
+const offices = loadAccessOffices;
+const officeLabel = accessOfficeLabel;
 
 function daysLeft(until: string | null, now: Date): number | null {
   if (!until) return null;
@@ -185,12 +177,16 @@ router.get("/hq/office-access", requireHqPermission("financial_read"), async (re
       loadAccessBillingSettings(),
     ]);
     const byProvider = new Map(rows.map((row) => [row.provider_id, row]));
+    const facts = await loadBoardPaymentFacts(rows, now);
     const items = list.map((office) => {
       const row = byProvider.get(office.provider_id);
       return {
         providerId: office.provider_id,
         officeName: officeLabel(office),
         locked: office.access_disabled === true,
+        ...(facts.get(office.provider_id) ?? {
+          instruments: [], trialDaysLeft: null, nextChargeCents: null, lastPayment: null, paymentFlags: [],
+        }),
         ...(row
           ? terms(row, settings, now)
           : {
@@ -222,6 +218,57 @@ router.get("/hq/office-access", requireHqPermission("financial_read"), async (re
       policy: policyDto(settings),
       trialEndingSoonDays: TRIAL_ENDING_SOON_DAYS,
     });
+  } catch (error) { fail(req, res, error); }
+});
+
+/** `YYYY-MM-DD` → UTC midnight; anything else is not a day. */
+function dayKey(value: unknown): Date | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value ? null : date;
+}
+
+/** Longest window either read accepts: a year plus a little slack for a leap year and a custom range. */
+const MAX_WINDOW_DAYS = 400;
+
+function windowOf(query: Record<string, unknown>): { start: Date; end: Date } | null {
+  const start = dayKey(query.start);
+  const endDay = dayKey(query.end);
+  if (!start || !endDay || endDay.getTime() < start.getTime()) return null;
+  if ((endDay.getTime() - start.getTime()) / DAY_MS + 1 > MAX_WINDOW_DAYS) return null;
+  // The end day is inclusive: run the window to the start of the next day.
+  return { start, end: new Date(endDay.getTime() + DAY_MS) };
+}
+
+const WINDOW_ERROR = `Use start and end dates (YYYY-MM-DD) spanning at most ${MAX_WINDOW_DAYS} days.`;
+
+/**
+ * Scheduled charges and the revenue forecast for a window. An ESTIMATE: it
+ * assumes every office stays on its current plan and price.
+ */
+router.get("/hq/office-access/forecast", requireHqPermission("financial_read"), async (req, res) => {
+  const window = windowOf(req.query as Record<string, unknown>);
+  if (!window) {
+    res.status(400).json({ error: WINDOW_ERROR });
+    return;
+  }
+  const bucket = req.query.bucket === "week" ? "week" : "month";
+  try {
+    // The window end is exclusive; the projection's end is inclusive.
+    const forecast = await loadForecast({ start: window.start, end: new Date(window.end.getTime() - 1) }, bucket, new Date());
+    res.json({ ...forecast, estimate: true });
+  } catch (error) { fail(req, res, error); }
+});
+
+/** App revenue actually collected over a past range, by month and outcome. */
+router.get("/hq/office-access/collected", requireHqPermission("financial_read"), async (req, res) => {
+  const window = windowOf(req.query as Record<string, unknown>);
+  if (!window) {
+    res.status(400).json({ error: WINDOW_ERROR });
+    return;
+  }
+  try {
+    res.json(await loadCollected(window.start, window.end));
   } catch (error) { fail(req, res, error); }
 });
 

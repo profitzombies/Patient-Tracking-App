@@ -892,10 +892,112 @@ export interface OfficeAccessPolicy {
   maxIncludedPeriodDays: number;
 }
 
+/** Problems that would stop an office's next access charge going through first time. */
+export type AppPaymentFlag = 'no_method' | 'card_expiring' | 'bank_unverified';
+
+/** A bank account or card on file for the access subscription (in service only). */
+export interface AppPaymentInstrument {
+  slot: OfficeAccessSlot;
+  kind: 'bank' | 'card';
+  brand: string | null;
+  bankName: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  verificationStatus: 'verified' | 'pending' | 'failed';
+}
+
+export interface AppPaymentLastPayment {
+  at: string;
+  amountCents: number;
+  outcome: 'succeeded' | 'failed' | 'processing' | 'reversed' | 'offline';
+  slot: OfficeAccessSlot | null;
+  failureCode: string | null;
+}
+
 export interface OfficeAccessBoardRow extends OfficeAccessTerms {
   providerId: string;
   officeName: string;
   locked: boolean;
+  /** Payment facts; older servers omit them, so every reader treats them as optional. */
+  instruments?: AppPaymentInstrument[];
+  trialDaysLeft?: number | null;
+  nextChargeCents?: number | null;
+  lastPayment?: AppPaymentLastPayment | null;
+  paymentFlags?: AppPaymentFlag[];
+}
+
+export type AppChargeType = 'trial_conversion' | 'renewal';
+export type AppChargeRisk = AppPaymentFlag | 'past_due' | 'restricted' | 'setup_incomplete';
+
+export interface AppScheduledCharge {
+  providerId: string;
+  officeName: string;
+  /** ISO instant the charge is expected. */
+  date: string;
+  type: AppChargeType;
+  plan: OfficeAccessPlan;
+  amountCents: number;
+  atRisk: boolean;
+  riskReasons: AppChargeRisk[];
+}
+
+export interface AppForecastTotals {
+  totalCents: number;
+  renewalCents: number;
+  trialConversionCents: number;
+  monthlyCents: number;
+  yearlyCents: number;
+  atRiskCents: number;
+  count: number;
+}
+
+export interface AppForecastPeriod extends AppForecastTotals {
+  /** `YYYY-MM` for months, `YYYY-MM-DD` (the Monday) for weeks. */
+  key: string;
+  start: string;
+}
+
+export interface AppOutstandingBalance {
+  providerId: string;
+  officeName: string;
+  state: OfficeAccessState;
+  since: string;
+  plan: OfficeAccessPlan;
+  amountCents: number;
+  inFlight: boolean;
+}
+
+/** GET /hq/office-access/forecast — an estimate at current plans and prices. */
+export interface AppPaymentsForecast {
+  start: string;
+  end: string;
+  bucket: 'week' | 'month';
+  charges: AppScheduledCharge[];
+  periods: AppForecastPeriod[];
+  totals: AppForecastTotals;
+  outstanding: { totalCents: number; offices: AppOutstandingBalance[] };
+  estimate: true;
+}
+
+export interface AppCollectedMonth {
+  key: string;
+  collectedCents: number;
+  offlineCents: number;
+  reversedCents: number;
+  netCents: number;
+  succeededCount: number;
+  failedCount: number;
+  failedCents: number;
+  processingCount: number;
+}
+
+/** GET /hq/office-access/collected — what actually came in over a past range. */
+export interface AppPaymentsCollected {
+  start: string;
+  end: string;
+  months: AppCollectedMonth[];
+  totals: AppCollectedMonth;
 }
 
 export interface OfficeAccessBoard {

@@ -14,6 +14,16 @@ import { withExportBillingIdentity } from "./billing-identity";
 import { loadOfficeRollups, type DateRangeKeys } from "../routes/operational-rollups";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { offboardingStatusOf } from "../lib/office-status";
+import {
+  accessOfficeLabel,
+  loadAccessLedger,
+  loadAccessOffices,
+  loadBoardPaymentFacts,
+  loadForecast,
+} from "../billing/office-access/app-payments";
+import { loadAccessBillingSettings } from "../billing/office-access/settings";
+import { accessPriceCents, deriveAccessState } from "../billing/office-access/state";
+import { selectMany } from "../billing/store";
 
 export interface ExportSheet {
   header: string[];
@@ -401,6 +411,131 @@ async function billingPayouts(scope: ExportScope): Promise<ExportSheet> {
   return { header, rows };
 }
 
+/* --------------------------------------------------------- app payments */
+/*
+ * What offices pay THINNR for the app. Only office-access tables are read —
+ * never patient shop orders, office sales, or the Connect ledger — and every
+ * read runs inside the job's frozen Test/Live billing identity.
+ */
+
+const ACCESS_STATE_WORDS: Record<string, string> = {
+  setup_incomplete: "Setup incomplete",
+  included_period: "In trial",
+  paid_current: "Paid current",
+  past_due: "Past due",
+  restricted: "Restricted",
+};
+const FLAG_WORDS: Record<string, string> = {
+  no_method: "No usable payment method",
+  card_expiring: "Card expires before charge",
+  bank_unverified: "Bank not verified",
+  past_due: "Past due",
+  restricted: "Restricted",
+  setup_incomplete: "Setup incomplete",
+};
+const SLOT_WORDS: Record<string, string> = { bank: "Bank", card_primary: "Primary card", card_backup: "Backup card" };
+
+function rangeInstants(scope: ExportScope): { start: Date; end: Date } {
+  const range = requireRange(scope);
+  const start = new Date(`${range.start}T00:00:00Z`);
+  const end = new Date(Date.parse(`${range.end}T00:00:00Z`) + 86_400_000);
+  return { start, end };
+}
+
+async function appPaymentsOffices(): Promise<ExportSheet> {
+  const now = new Date();
+  const [list, subscriptions, settings] = await Promise.all([
+    loadAccessOffices(),
+    selectMany("billing_office_access_subscriptions", "limit=5000"),
+    loadAccessBillingSettings(),
+  ]);
+  const byProvider = new Map(subscriptions.map((row) => [row.provider_id, row]));
+  const facts = await loadBoardPaymentFacts(subscriptions, now);
+  const header = [
+    "Office", "Provider ID", "State", "Plan", "Price (USD)", "Price override", "Lifetime", "Trial ends", "Trial days left",
+    "Paid through", "Next charge date", "Next charge (USD)", "Bank", "Bank last four", "Bank verification",
+    "Primary card", "Primary card last four", "Primary card expiry", "Backup card", "Backup card last four", "Backup card expiry",
+    "Last payment date", "Last payment result", "Last payment (USD)", "Payment problems",
+  ];
+  const rows = list
+    .map((office) => ({ office, row: byProvider.get(office.provider_id) }))
+    .sort((a, b) => accessOfficeLabel(a.office).localeCompare(accessOfficeLabel(b.office)))
+    .map(({ office, row }): CsvCell[] => {
+      const fact = facts.get(office.provider_id);
+      const slot = (name: string) => fact?.instruments.find((item) => item.slot === name);
+      const bank = slot("bank");
+      const card = (name: string): CsvCell[] => {
+        const item = slot(name);
+        return [
+          item?.brand ?? "", item?.last4 ?? "",
+          item?.expMonth && item.expYear ? `${String(item.expMonth).padStart(2, "0")}/${item.expYear}` : "",
+        ];
+      };
+      const next = row && !row.lifetime ? row.paid_through ?? row.included_period_ends_at : null;
+      return [
+        accessOfficeLabel(office), office.provider_id,
+        row ? ACCESS_STATE_WORDS[deriveAccessState(row, now)] ?? "" : "Not started",
+        row?.plan ?? "", row ? dollars(accessPriceCents(row, settings)) : "",
+        row && row.price_cents_override !== null ? "Yes" : "No", row?.lifetime ? "Yes" : "No",
+        dateOnly(row?.included_period_ends_at) ?? "", fact?.trialDaysLeft ?? "",
+        dateOnly(row?.paid_through) ?? "", dateOnly(next) ?? "",
+        fact?.nextChargeCents !== null && fact?.nextChargeCents !== undefined ? dollars(fact.nextChargeCents) : "",
+        bank?.bankName ?? "", bank?.last4 ?? "", bank?.verificationStatus ?? "",
+        ...card("card_primary"), ...card("card_backup"),
+        fact?.lastPayment?.at ?? "", fact?.lastPayment?.outcome ?? "",
+        fact?.lastPayment ? dollars(fact.lastPayment.amountCents) : "",
+        (fact?.paymentFlags ?? []).map((flag) => FLAG_WORDS[flag] ?? flag).join("; "),
+      ];
+    });
+  return { header, rows };
+}
+
+async function appPaymentsForecast(scope: ExportScope): Promise<ExportSheet> {
+  const { start, end } = rangeInstants(scope);
+  const forecast = await loadForecast({ start, end: new Date(end.getTime() - 1) }, "month", new Date());
+  const header = [
+    "Row type", "Date / month", "Office", "Charge type", "Plan", "Amount (USD)", "Renewals (USD)", "Trial conversions (USD)",
+    "Monthly plans (USD)", "Yearly plans (USD)", "At risk (USD)", "Risk reasons", "Note",
+  ];
+  const rows: CsvCell[][] = forecast.charges.map((charge) => [
+    "Scheduled charge", dateOnly(charge.date) ?? charge.date, charge.officeName,
+    charge.type === "trial_conversion" ? "Trial conversion" : "Renewal", charge.plan, dollars(charge.amountCents),
+    "", "", "", "", charge.atRisk ? dollars(charge.amountCents) : "0.00",
+    charge.riskReasons.map((reason) => FLAG_WORDS[reason] ?? reason).join("; "), "Estimate",
+  ]);
+  const summary = (type: string, label: string, t: typeof forecast.totals): CsvCell[] => [
+    type, label, "", "", "", dollars(t.totalCents), dollars(t.renewalCents), dollars(t.trialConversionCents),
+    dollars(t.monthlyCents), dollars(t.yearlyCents), dollars(t.atRiskCents), "", `${t.count} charges, estimate`,
+  ];
+  for (const period of forecast.periods) rows.push(summary("Month total", period.key, period));
+  rows.push(summary("Window total", `${requireRange(scope).start} to ${requireRange(scope).end}`, forecast.totals));
+  for (const owed of forecast.outstanding.offices) {
+    rows.push([
+      "Outstanding (past due)", dateOnly(owed.since) ?? owed.since, owed.officeName, "", owed.plan, dollars(owed.amountCents),
+      "", "", "", "", "", ACCESS_STATE_WORDS[owed.state] ?? owed.state,
+      owed.inFlight ? "Payment clearing; not future revenue" : "Owed now; not future revenue",
+    ]);
+  }
+  return { header, rows };
+}
+
+async function appPaymentsTransactions(scope: ExportScope): Promise<ExportSheet> {
+  const { start, end } = rangeInstants(scope);
+  const entries = await loadAccessLedger(start, end);
+  const TYPE_WORDS = { charge: "Charge attempt", offline_payment: "Offline payment", reversal: "Reversal", dispute: "Dispute" };
+  const header = [
+    "Date", "Office", "Provider ID", "Type", "Outcome", "Plan", "Period start", "Period end", "Method type", "Slot",
+    "Brand / bank", "Last four", "Amount (USD)", "Net (USD)", "Failure code", "Failure message",
+  ];
+  const rows = entries.map((entry): CsvCell[] => [
+    entry.at, entry.officeName, entry.providerId, TYPE_WORDS[entry.type], entry.outcome, entry.plan ?? "",
+    dateOnly(entry.periodStart) ?? "", dateOnly(entry.periodEnd) ?? "", entry.methodType ?? "",
+    entry.slot ? SLOT_WORDS[entry.slot] ?? entry.slot : "", entry.methodLabel ?? "", entry.last4 ?? "",
+    dollars(entry.amountCents), dollars(entry.netCents), entry.failureCode ?? "", entry.failureMessage ?? "",
+  ]);
+  return { header, rows };
+}
+
 export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<ExportSheet>> = {
   office_comparison: officeComparison,
   patient_activity: patientActivity,
@@ -419,4 +554,7 @@ export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<Expo
   office_bundle: async () => {
     throw new Error("office_bundle is not a CSV export");
   },
+  app_payments_offices: scope => withExportBillingIdentity(scope, () => appPaymentsOffices()),
+  app_payments_forecast: scope => withExportBillingIdentity(scope, () => appPaymentsForecast(scope)),
+  app_payments_transactions: scope => withExportBillingIdentity(scope, () => appPaymentsTransactions(scope)),
 };

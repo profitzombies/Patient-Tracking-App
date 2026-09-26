@@ -48,6 +48,8 @@ interface ExportsPanelProps {
   className?: string;
   /** Optionally limit the server-provided choices and job list to these kinds. */
   kinds?: readonly string[];
+  /** Pages with their own request buttons (and ranges) show only the job list. */
+  hideRequestForm?: boolean;
 }
 
 const PENDING: ReadonlySet<ExportJob['status']> = new Set(['queued', 'running']);
@@ -65,7 +67,7 @@ function formatWhen(iso: string): string {
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
-export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 'Exports', className, kinds }: ExportsPanelProps) {
+export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 'Exports', className, kinds, hideRequestForm = false }: ExportsPanelProps) {
   const { range, mode } = useDateRange();
   const { authUser, authStatus } = useSession();
   const { toast } = useToast();
@@ -163,7 +165,7 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
         </button>
       </div>
 
-      <div className="border-b border-border px-5 py-4">
+      {!hideRequestForm && <div className="border-b border-border px-5 py-4">
         {!signedIn ? (
           <p className="text-xs text-muted-foreground" data-testid="text-exports-signed-out">Sign in with a staff account to request exports.</p>
         ) : listQuery.isPending ? (
@@ -244,12 +246,12 @@ export function ExportsPanel({ officeOptions = [], pinnedOffice = null, title = 
             )}
           </form>
         )}
-      </div>
+      </div>}
 
       <ul className="divide-y divide-border" data-testid="list-export-jobs">
         {signedIn && !listQuery.isPending && !listQuery.isError && jobs.length === 0 && (
           <li className="px-5 py-6 text-center text-xs text-muted-foreground" data-testid="text-export-jobs-empty">
-            No exports yet. Request one above.
+            {hideRequestForm ? 'No reports yet.' : 'No exports yet. Request one above.'}
           </li>
         )}
         {jobs.map((job) => {

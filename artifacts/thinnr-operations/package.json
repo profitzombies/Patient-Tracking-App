@@ -89,7 +89,8 @@
     "test:office-access": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-access.tsx",
     "test:office-access-live": "tsx scripts/verify-office-access-live.ts",
     "test:first-provider-live": "tsx scripts/verify-first-provider-live.ts",
-    "test:patient-invite-live": "tsx scripts/verify-patient-invite-live.ts"
+    "test:patient-invite-live": "tsx scripts/verify-patient-invite-live.ts",
+    "test:app-payments": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-app-payments.tsx"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

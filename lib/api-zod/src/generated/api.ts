@@ -3660,7 +3660,7 @@ export const ListExportsQueryParams = zod.object({
 export const ListExportsResponse = zod.object({
   "jobs": zod.array(zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3701,7 +3701,7 @@ export const ListExportsResponse = zod.object({
   "includeTombstones": zod.boolean().nullable().describe('Office bundles: whether purged-patient tombstones were requested (null for other kinds)')
 })),
   "available": zod.array(zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "ranged": zod.boolean(),
   "needsOffice": zod.boolean(),
@@ -3715,7 +3715,7 @@ export const ListExportsResponse = zod.object({
  * @summary Queue an export (CSV, or a patient's full record archive) scoped to the caller's permissions and office
  */
 export const RequestExportBody = zod.object({
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "office": zod.string().nullish().describe('Office account id (HQ only) - office staff are pinned to their own office'),
   "start": zod.coerce.date().optional(),
   "end": zod.coerce.date().optional(),
@@ -3726,7 +3726,7 @@ export const RequestExportBody = zod.object({
 export const RequestExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3798,7 +3798,7 @@ export const GetExportParams = zod.object({
 export const GetExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -3870,7 +3870,7 @@ export const CancelExportParams = zod.object({
 export const CancelExportResponse = zod.object({
   "job": zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -5780,7 +5780,7 @@ export const GetOfficeOffboardingResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -5882,7 +5882,7 @@ export const StartOfficeOffboardingResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -5988,7 +5988,7 @@ export const RequestOfficeOffboardingBundleResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -6125,7 +6125,7 @@ export const RecordOfficeOffboardingHandoverResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -6227,7 +6227,7 @@ export const SealOfficeOffboardingResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -6329,7 +6329,7 @@ export const CompleteOfficeOffboardingResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({
@@ -6431,7 +6431,7 @@ export const ReactivateOfficeResponse = zod.object({
 }).nullable(),
   "bundle": zod.union([zod.object({
   "id": zod.string(),
-  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle']),
+  "kind": zod.enum(['office_comparison', 'patient_activity', 'audit_events', 'training_completion', 'provider_directory', 'billing_transactions', 'billing_subscriptions', 'billing_payouts', 'patient_record', 'office_bundle', 'app_payments_offices', 'app_payments_forecast', 'app_payments_transactions']),
   "label": zod.string(),
   "status": zod.enum(['queued', 'running', 'ready', 'failed', 'expired', 'cancelled']),
   "scope": zod.object({

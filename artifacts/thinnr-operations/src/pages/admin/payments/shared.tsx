@@ -21,7 +21,7 @@ export const PAYMENT_SECTIONS = [
   { path: '/subscriptions', label: 'Subscriptions' },
   { path: '/emails', label: 'Email outbox' },
   { path: '/providers', label: 'Providers' },
-  { path: '/office-access', label: 'Office access' },
+  { path: '/office-access', label: 'App payments' },
   { path: '/ai-costs', label: 'AI costs' },
   { path: '/catalog', label: 'Product catalog' },
 ] as const;

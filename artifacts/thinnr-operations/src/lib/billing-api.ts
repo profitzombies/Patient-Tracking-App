@@ -42,6 +42,8 @@ import type {
   NotificationContactChange,
   NotificationContactsResponse,
   OfficeAccessBoard,
+  AppPaymentsForecast,
+  AppPaymentsCollected,
   OfficeAccessChange,
   OfficeAccessDetail,
   OfficeAccessPlan,
@@ -306,6 +308,10 @@ export const hqBilling = {
   // Office access subscriptions: what an office pays THINNR. These routes sit
   // under /api/hq/office-access, not the Connect-program /api/billing/hq tree.
   officeAccessBoard: () => officeRequest<OfficeAccessBoard>(`${HQ_ACCESS}`, MESSAGES),
+  appPaymentsForecast: (params: { start: string; end: string; bucket: 'week' | 'month' }) =>
+    officeRequest<AppPaymentsForecast>(`${HQ_ACCESS}/forecast${qs(params)}`, MESSAGES),
+  appPaymentsCollected: (params: { start: string; end: string }) =>
+    officeRequest<AppPaymentsCollected>(`${HQ_ACCESS}/collected${qs(params)}`, MESSAGES),
   officeAccess: (providerId: string) =>
     officeRequest<OfficeAccessDetail>(`${HQ_ACCESS}/${encodeURIComponent(providerId)}`, MESSAGES),
   setIncludedPeriod: (providerId: string, body: { lifetime?: boolean; days?: number; endsAt?: string | null }) =>

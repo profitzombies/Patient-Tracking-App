@@ -34,6 +34,9 @@ export const EXPORT_KINDS = [
   "billing_payouts",
   "patient_record",
   "office_bundle",
+  "app_payments_offices",
+  "app_payments_forecast",
+  "app_payments_transactions",
 ] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
@@ -52,6 +55,9 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   billing_payouts: "Billing payouts",
   patient_record: "Patient record",
   office_bundle: "Entire office record",
+  app_payments_offices: "App payments: billable offices",
+  app_payments_forecast: "App payments: scheduled charges and forecast",
+  app_payments_transactions: "App payments: transactions",
 };
 
 /** Kinds whose rows are bounded by a date range (others ignore start/end). */
@@ -63,7 +69,25 @@ export const RANGED_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "billing_transactions",
   "billing_subscriptions",
   "billing_payouts",
+  "app_payments_forecast",
+  "app_payments_transactions",
 ]);
+
+/**
+ * What offices pay THINNR for the app (office access subscriptions). HQ-only
+ * and network-wide: an office never exports another office's billing with
+ * THINNR, and none of these kinds read patient shop or office sales.
+ */
+export const APP_PAYMENT_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
+  "app_payments_offices",
+  "app_payments_forecast",
+  "app_payments_transactions",
+]);
+
+/** Kinds that must freeze the Test/Live billing identity when requested. */
+export function capturesBillingIdentity(kind: ExportKind): boolean {
+  return kind.startsWith("billing_") || HQ_OFFICE_KINDS.has(kind) || APP_PAYMENT_KINDS.has(kind);
+}
 
 /**
  * Kinds that concern exactly one patient (the request must name one). Office
@@ -159,6 +183,9 @@ const HQ_PERMISSION_FOR_KIND: Record<ExportKind, HqPermission> = {
   billing_payouts: "financial_read",
   patient_record: "provider_manage",
   office_bundle: "provider_manage",
+  app_payments_offices: "financial_read",
+  app_payments_forecast: "financial_read",
+  app_payments_transactions: "financial_read",
 };
 
 /** HQ kinds that may run network-wide (no office named). */
@@ -170,6 +197,9 @@ const NETWORK_WIDE: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "billing_transactions",
   "billing_subscriptions",
   "billing_payouts",
+  "app_payments_offices",
+  "app_payments_forecast",
+  "app_payments_transactions",
 ]);
 
 const NO_ACCESS = "You don't have access to that export.";
@@ -193,7 +223,7 @@ export async function authorizeExport(input: {
   }
 
   if (requester.kind === "office") {
-    if (kind === "provider_directory" || HQ_OFFICE_KINDS.has(kind)) return { kind: "denied", status: 403, message: NO_ACCESS };
+    if (kind === "provider_directory" || HQ_OFFICE_KINDS.has(kind) || APP_PAYMENT_KINDS.has(kind)) return { kind: "denied", status: 403, message: NO_ACCESS };
     if (kind.startsWith("billing_") && requester.officeRole === "staff") {
       return { kind: "denied", status: 403, message: NO_ACCESS };
     }
@@ -232,7 +262,8 @@ export async function authorizeExport(input: {
     }
   }
 
-  if (!input.requestedOffice) {
+  // App payments reports always cover every office.
+  if (!input.requestedOffice || APP_PAYMENT_KINDS.has(kind)) {
     if (!NETWORK_WIDE.has(kind)) {
       return { kind: "denied", status: 400, message: "Choose an office for this export." };
     }

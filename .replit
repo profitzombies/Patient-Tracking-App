@@ -628,6 +628,14 @@ args = "testing-delete-api"
 task = "workflow.run"
 args = "testing-delete-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-payments-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-payments-web"
+
 # Keep the full test collection available without competing with app startup.
 [[workflows.workflow]]
 name = "Validation suites"
@@ -3511,6 +3519,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:testing-hard-delete && pnpm --filter @workspace/thinnr-operations run test:account-danger-zone && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-payments-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/routes/hq-office-access.test.ts src/routes/exports.test.ts src/exports && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-payments-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:app-payments && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

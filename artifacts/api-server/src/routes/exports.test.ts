@@ -12,6 +12,10 @@ vi.mock("../auth/office-scope", () => ({ resolveOfficeScope: mocks.scope }));
 vi.mock("../lib/admin-audit", () => ({ recordAdminAuditEvent: mocks.audit }));
 vi.mock("../lib/objectStorage", () => ({ objectStorage: { signedDownloadURL: mocks.signed } }));
 vi.mock("../exports/worker", () => ({ drainQueuedExports: mocks.drain }));
+/** Financial and HQ-office kinds freeze the Test/Live identity at request time. */
+vi.mock("../billing/mode-state", () => ({
+  getBillingModeStatus: async () => ({ mode: "test", platformAccountId: "acct_TestPlatform", version: 1 }),
+}));
 vi.mock("../lib/staff-auth", async () => {
   const actual = await vi.importActual<typeof import("../lib/staff-auth")>("../lib/staff-auth");
   return { ...actual, verifyStaffToken: (token: string) => Promise.resolve(mocks.staff(token)) };
@@ -307,7 +311,7 @@ describe("requesting exports", () => {
       expect(res.status).toBe(202);
       const body = await res.json() as { job: { kind: string; fileName: string; includeTombstones: boolean; progress: { stage: string; patientsDone: number | null; bytesWritten: number } } };
       expect(body.job.kind).toBe("office_bundle");
-      expect(body.job.fileName).toMatch(/^thinnr_office-bundle_one_\d{4}-\d{2}-\d{2}\.zip$/);
+      expect(body.job.fileName).toMatch(/^thinnr_office-bundle_test_acct-testplatform_one_\d{4}-\d{2}-\d{2}\.zip$/);
       expect(body.job.includeTombstones).toBe(true);
       expect(body.job.progress).toMatchObject({ stage: "collecting", patientsDone: null, bytesWritten: 0 });
       expect(mocks.scope.mock.calls[0][0]).toMatchObject({ explicitOfficeId: "acct-p1", hqPermission: "provider_manage" });
@@ -388,6 +392,53 @@ describe("requesting exports", () => {
         action: "office_bundle_export_downloaded", providerId: "p1", targetKind: "data_export", targetId: JOB_ID,
         metadata: expect.objectContaining({ office: "p1", exportId: JOB_ID, part: 2, parts: 2 }),
       }));
+    });
+  });
+  describe("app payments reports (what offices pay THINNR)", () => {
+    const KINDS = [
+      { kind: "app_payments_offices" },
+      { kind: "app_payments_forecast", start: "2026-10-01", end: "2027-09-30" },
+      { kind: "app_payments_transactions", start: "2026-01-01", end: "2026-09-30" },
+    ];
+    it("queues every kind network-wide for HQ financial readers, frozen to the Test/Live identity, even if an office is named", async () => {
+      mocks.staff.mockReturnValue(hq("admin"));
+      for (const body of KINDS) {
+        adminScript({});
+        const res = await call("/exports", "POST", { ...body, office: "acct-p1" });
+        expect(res.status).toBe(202);
+        const insert = mocks.admin.mock.calls.find(([method, path]) => method === "POST" && path === "/rest/v1/data_exports")!;
+        const row = insert[2] as { kind: string; provider_id: string | null; requester_kind: string; params: Record<string, unknown> };
+        expect(row).toMatchObject({ kind: body.kind, provider_id: null, requester_kind: "hq" });
+        expect(row.params.billingIdentity).toEqual(expect.objectContaining({ mode: "test", platformAccountId: "acct_TestPlatform" }));
+        if (body.start) expect(row.params).toMatchObject({ start: body.start, end: body.end });
+        const job = (await res.json() as { job: { fileName: string } }).job;
+        expect(job.fileName).toMatch(new RegExp(`^thinnr_${body.kind.replace(/_/g, "-")}_test_acct-testplatform_all-offices`));
+      }
+      // No office scope was ever resolved: these reports always cover every office.
+      expect(mocks.scope).not.toHaveBeenCalled();
+    });
+    it("needs a range for the forecast and transactions reports", async () => {
+      mocks.staff.mockReturnValue(hq("admin"));
+      adminScript({});
+      expect((await call("/exports", "POST", { kind: "app_payments_forecast" })).status).toBe(400);
+      expect((await call("/exports", "POST", { kind: "app_payments_transactions" })).status).toBe(400);
+    });
+    it("refuses office owners and HQ without financial_read, and only lists the kinds for HQ financial readers", async () => {
+      mocks.staff.mockReturnValue(null);
+      mocks.scope.mockResolvedValue(officeScope);
+      adminScript({});
+      for (const body of KINDS) expect((await call("/exports", "POST", body)).status).toBe(403);
+      const officeList = await (await call("/exports")).json() as { available: Array<{ kind: string }> };
+      expect(officeList.available.some((k) => k.kind.startsWith("app_payments_"))).toBe(false);
+      mocks.staff.mockReturnValue(hq("clinical"));
+      for (const body of KINDS) expect((await call("/exports", "POST", body)).status).toBe(403);
+      expect(mocks.admin.mock.calls.some(([method]) => method === "POST")).toBe(false);
+      const admin = availableKinds({ kind: "hq", userId: "h", identity: { userId: "h", role: "hq_admin", departmentRole: "admin" } });
+      expect(admin.filter((k) => k.kind.startsWith("app_payments_"))).toEqual([
+        expect.objectContaining({ kind: "app_payments_offices", ranged: false, needsOffice: false }),
+        expect.objectContaining({ kind: "app_payments_forecast", ranged: true, needsOffice: false }),
+        expect.objectContaining({ kind: "app_payments_transactions", ranged: true, needsOffice: false }),
+      ]);
     });
   });
   it("lists only the caller's jobs and the kinds their role may request", async () => {

@@ -20,4 +20,7 @@ export const ExportKind = {
   billing_payouts: 'billing_payouts',
   patient_record: 'patient_record',
   office_bundle: 'office_bundle',
+  app_payments_offices: 'app_payments_offices',
+  app_payments_forecast: 'app_payments_forecast',
+  app_payments_transactions: 'app_payments_transactions',
 } as const;

@@ -12,6 +12,7 @@ import { create, type ReactTestInstance, type ReactTestRenderer } from 'react-te
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { DateRangeProvider } from '../src/contexts/date-range';
 import { __setSession } from './a11y-stubs/session';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { AccountAccessBillingCard } from '../src/components/admin/office-access/AccessBillingCard';
@@ -87,7 +88,7 @@ async function mount(element: React.ReactElement, path = '/admin/accounts/office
   const location = memoryLocation({ path, record: true });
   let renderer!: ReactTestRenderer;
   await act(async () => {
-    renderer = create(<QueryClientProvider client={client}><Router hook={location.hook}>{element}</Router></QueryClientProvider>);
+    renderer = create(<QueryClientProvider client={client}><DateRangeProvider><Router hook={location.hook}>{element}</Router></DateRangeProvider></QueryClientProvider>);
   });
   await settle();
   return { renderer, root: renderer.root, location };
@@ -339,9 +340,17 @@ const board: OfficeAccessBoard = {
   policy: POLICY,
   trialEndingSoonDays: 30,
 };
+const zeroTotals = { totalCents: 0, renewalCents: 0, trialConversionCents: 0, monthlyCents: 0, yearlyCents: 0, atRiskCents: 0, count: 0 };
+const emptyForecast = { start: '', end: '', bucket: 'week', charges: [], periods: [], totals: zeroTotals, outstanding: { totalCents: 0, offices: [] }, estimate: true };
+const zeroMonth = { key: 'total', collectedCents: 0, offlineCents: 0, reversedCents: 0, netCents: 0, succeededCount: 0, failedCount: 0, failedCents: 0, processingCount: 0 };
+const emptyCollected = { start: '', end: '', months: [], totals: zeroMonth };
 {
   persona('hq');
   on('GET', ACCESS, () => ({ status: 200, body: board }));
+  on('GET', `${ACCESS}/forecast`, () => ({ status: 200, body: emptyForecast }));
+  on('GET', `${ACCESS}/collected`, () => ({ status: 200, body: emptyCollected }));
+  on('GET', '/api/exports', () => ({ status: 200, body: { jobs: [], available: [], ttlHours: 24 } }));
+  on('GET', '/api/billing/public/config', () => ({ status: 200, body: { sandbox: false } }));
   const { root, renderer, location } = await mount(
     <Route path="/admin/payments" nest><PaymentsOfficeAccess /></Route>,
     '/admin/payments/office-access',
@@ -377,9 +386,11 @@ const board: OfficeAccessBoard = {
     <Route path="/admin/payments" nest><PaymentsOfficeAccess /></Route>,
     '/admin/payments/office-access',
   );
-  check('the signed-out preview shows the board heading and fetches nothing',
-    JSON.stringify(renderer.toJSON()).includes('Office access billing') && requests.length === 0);
-  check('no office rows are invented for the preview', all(root, 'row-access-office-o1').length === 0);
+  check('the signed-out preview shows the App payments heading and fetches nothing',
+    JSON.stringify(renderer.toJSON()).includes('App payments') && requests.length === 0);
+  check('the preview shows labelled sample offices, never the live fixtures',
+    all(root, 'row-access-office-o1').length === 0 && Boolean(one(root, 'row-access-office-demo-aspen'))
+    && JSON.stringify(renderer.toJSON()).includes('Preview'));
   await act(async () => { renderer.unmount(); });
 }
 

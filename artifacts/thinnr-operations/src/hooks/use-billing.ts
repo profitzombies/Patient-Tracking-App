@@ -441,6 +441,30 @@ export function useHqOfficeAccessBoard() {
   });
 }
 
+/** Scheduled access charges and the revenue forecast for a window (YYYY-MM-DD, end inclusive). */
+export function useHqAppPaymentsForecast(window: { start: string; end: string; bucket: 'week' | 'month' }, active = true) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'office-access', 'forecast', window.start, window.end, window.bucket],
+    queryFn: () => hqBilling.appPaymentsForecast(window),
+    enabled: liveEnabled && active,
+    placeholderData: keepPreviousData,
+    ...refreshOnStaleFocus,
+  });
+}
+
+/** App revenue actually collected over a past range (YYYY-MM-DD, end inclusive). */
+export function useHqAppPaymentsCollected(range: { start: string; end: string }, active = true) {
+  const { liveEnabled, base } = useHqBillingScope();
+  return useQuery({
+    queryKey: [...base, 'office-access', 'collected', range.start, range.end],
+    queryFn: () => hqBilling.appPaymentsCollected(range),
+    enabled: liveEnabled && active,
+    placeholderData: keepPreviousData,
+    ...refreshOnStaleFocus,
+  });
+}
+
 /** One office's access terms, instruments, attempts and change history. */
 export function useHqOfficeAccess(providerId: string | null) {
   const { liveEnabled, base } = useHqBillingScope();

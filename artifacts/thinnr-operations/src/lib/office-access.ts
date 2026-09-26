@@ -123,7 +123,7 @@ export function trialEndingSoon(row: OfficeAccessTerms, withinDays: number, now:
   return left !== null && Date.parse(row.includedPeriodEndsAt) >= now.getTime() && left <= withinDays;
 }
 
-export type BoardSort = 'attention' | 'name' | 'next';
+export type BoardSort = 'attention' | 'name' | 'next' | 'trial' | 'amount';
 
 /** Attention order: the states someone has to act on first, then by date. */
 const ATTENTION_RANK: Record<BoardState, number> = {
@@ -146,5 +146,16 @@ export function sortBoard(rows: OfficeAccessBoardRow[], sort: BoardSort): Office
   const copy = [...rows];
   if (sort === 'name') return copy.sort(byName);
   if (sort === 'next') return copy.sort((a, b) => next(a) - next(b) || byName(a, b));
+  if (sort === 'trial') {
+    // Trials ending first; offices not in an included period sort last.
+    const trial = (row: OfficeAccessBoardRow) =>
+      row.state === 'included_period' && !row.lifetime && row.includedPeriodEndsAt ? Date.parse(row.includedPeriodEndsAt) : Number.MAX_SAFE_INTEGER;
+    return copy.sort((a, b) => trial(a) - trial(b) || byName(a, b));
+  }
+  if (sort === 'amount') {
+    // Biggest next charge first; nothing expected sorts last.
+    const amount = (row: OfficeAccessBoardRow) => (row.lifetime ? -1 : row.nextChargeCents ?? -1);
+    return copy.sort((a, b) => amount(b) - amount(a) || byName(a, b));
+  }
   return copy.sort((a, b) => ATTENTION_RANK[boardState(a)] - ATTENTION_RANK[boardState(b)] || next(a) - next(b) || byName(a, b));
 }

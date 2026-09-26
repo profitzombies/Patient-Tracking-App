@@ -29,6 +29,14 @@ vi.mock("../billing/store", () => {
       if (key === "order") { order = value.split(",").map((part) => part.split(".") as [string, string]); continue; }
       if (key === "limit") { limit = Number(value); continue; }
       if (value === "is.null") { filters.push((row) => row[key] === null || row[key] === undefined); continue; }
+      const inList = /^in\.\((.*)\)$/.exec(value);
+      if (inList) { const set = inList[1].split(","); filters.push((row) => set.includes(String(row[key]))); continue; }
+      const cmp = /^(gte|lt)\.(.*)$/.exec(value);
+      if (cmp) {
+        const bound = decodeURIComponent(cmp[2]);
+        filters.push((row) => (cmp[1] === "gte" ? String(row[key]) >= bound : String(row[key]) < bound));
+        continue;
+      }
       const eq = /^eq\.(.*)$/.exec(value);
       if (!eq) throw new Error(`fake store: unsupported filter ${key}=${value}`);
       filters.push((row) => String(row[key]) === decodeURIComponent(eq[1]));
@@ -217,6 +225,94 @@ describe("the board", () => {
   it("is refused without financial read", async () => {
     expect((await call("GET", "/hq/office-access", { token: "nobody" })).status).toBe(403);
     expect((await call("GET", "/hq/office-access")).status).toBe(403);
+  });
+
+  it("shows what is on file, the trial countdown, next charge amount, last result and flags", async () => {
+    await withIncludedPeriod("office-1", 20);
+    const row = (await findAccessSubscription("office-1"))!;
+    Object.assign(row, { setup_completed_at: new Date().toISOString(), price_cents_override: 15_000 });
+    const later = new Date(Date.now() + 400 * DAY);
+    db.tables.billing_office_access_instruments = [
+      { id: "i1", subscription_id: row.id, provider_id: "office-1", slot: "bank", kind: "bank", bank_name: "Chase", last4: "6789",
+        brand: null, exp_month: null, exp_year: null, verification_status: "pending", removed_at: null, created_at: new Date().toISOString() },
+      { id: "i2", subscription_id: row.id, provider_id: "office-1", slot: "card_primary", kind: "card", bank_name: null, last4: "4242",
+        brand: "visa", exp_month: later.getUTCMonth() + 1, exp_year: later.getUTCFullYear(), verification_status: "verified", removed_at: null,
+        created_at: new Date().toISOString() },
+    ];
+    db.tables.billing_office_access_attempts = [
+      { id: "a1", subscription_id: row.id, provider_id: "office-1", period_start: new Date().toISOString(), period_end: new Date().toISOString(),
+        cycle: 0, slot: "card_primary", plan: "monthly", amount_cents: 15_000, status: "failed", failure_code: "card_declined",
+        failure_message: null, settled_at: null, failed_at: new Date(Date.now() - DAY).toISOString(), created_at: new Date(Date.now() - DAY).toISOString() },
+    ];
+
+    const { body } = await call("GET", "/hq/office-access", { token: "hq-read" });
+    const office = body.offices.find((item: any) => item.providerId === "office-1");
+    expect(office.trialDaysLeft).toBe(20);
+    expect(office.nextChargeCents).toBe(15_000);
+    expect(office.instruments.map((item: any) => [item.slot, item.last4, item.verificationStatus])).toEqual([
+      ["bank", "6789", "pending"], ["card_primary", "4242", "verified"],
+    ]);
+    expect(office.lastPayment).toMatchObject({ outcome: "failed", failureCode: "card_declined", amountCents: 15_000 });
+    // The card still carries the charge; only the unverified bank is flagged.
+    expect(office.paymentFlags).toEqual(["bank_unverified"]);
+    const untouched = body.offices.find((item: any) => item.providerId === "office-3");
+    expect(untouched).toMatchObject({ instruments: [], trialDaysLeft: null, nextChargeCents: null, lastPayment: null, paymentFlags: [] });
+  });
+});
+
+function dayKey(offsetDays: number): string {
+  return new Date(Date.now() + offsetDays * DAY).toISOString().slice(0, 10);
+}
+
+describe("forecast and collected history", () => {
+  it("projects the charges in the window at each office's price and keeps past due as outstanding", async () => {
+    await withIncludedPeriod("office-1", 10);
+    Object.assign((await findAccessSubscription("office-1"))!, { setup_completed_at: new Date().toISOString(), price_cents_override: 15_000 });
+    await restrictedOffice("office-2");
+
+    const { status, body } = await call("GET", `/hq/office-access/forecast?start=${dayKey(0)}&end=${dayKey(29)}&bucket=week`, { token: "hq-read" });
+    expect(status).toBe(200);
+    expect(body.estimate).toBe(true);
+    expect(body.bucket).toBe("week");
+    const office1 = body.charges.filter((c: any) => c.providerId === "office-1");
+    expect(office1).toHaveLength(1);
+    expect(office1[0]).toMatchObject({ type: "trial_conversion", amountCents: 15_000, plan: "monthly" });
+    // The restricted office owes one period now (outstanding); its future renewal is at risk.
+    expect(body.outstanding.offices).toEqual([expect.objectContaining({ providerId: "office-2", amountCents: 20_000, state: "restricted" })]);
+    expect(body.outstanding.totalCents).toBe(20_000);
+    expect(body.totals.totalCents).toBe(body.charges.reduce((s: number, c: any) => s + c.amountCents, 0));
+  });
+
+  it("rejects a missing, reversed or over-long window", async () => {
+    expect((await call("GET", "/hq/office-access/forecast", { token: "hq-read" })).status).toBe(400);
+    expect((await call("GET", `/hq/office-access/forecast?start=${dayKey(10)}&end=${dayKey(0)}`, { token: "hq-read" })).status).toBe(400);
+    expect((await call("GET", `/hq/office-access/forecast?start=${dayKey(0)}&end=${dayKey(500)}`, { token: "hq-read" })).status).toBe(400);
+    expect((await call("GET", `/hq/office-access/collected?start=2026-02-30&end=${dayKey(0)}`, { token: "hq-read" })).status).toBe(400);
+  });
+
+  it("summarizes collected app revenue by month and outcome", async () => {
+    await withIncludedPeriod("office-1", 0);
+    const row = (await findAccessSubscription("office-1"))!;
+    const t = (days: number) => new Date(Date.now() + days * DAY).toISOString();
+    db.tables.billing_office_access_attempts = [
+      { id: "a1", subscription_id: row.id, provider_id: "office-1", period_start: t(-5), period_end: t(25), cycle: 0, slot: "card_primary",
+        plan: "monthly", amount_cents: 20_000, status: "succeeded", failure_code: null, failure_message: null, settled_at: t(-5), failed_at: null, created_at: t(-5) },
+      { id: "a2", subscription_id: row.id, provider_id: "office-1", period_start: t(-6), period_end: t(24), cycle: 0, slot: "bank",
+        plan: "monthly", amount_cents: 20_000, status: "failed", failure_code: "insufficient_funds", failure_message: null, settled_at: null, failed_at: t(-6), created_at: t(-6) },
+    ];
+    db.tables.billing_office_access_events = [
+      { id: 1, subscription_id: row.id, provider_id: "office-1", event: "offline_payment", detail: { amountCents: 7_500 }, created_at: t(-2) },
+      { id: 2, subscription_id: row.id, provider_id: "office-1", event: "hq_terms", detail: {}, created_at: t(-2) },
+    ];
+    const { status, body } = await call("GET", `/hq/office-access/collected?start=${dayKey(-30)}&end=${dayKey(0)}`, { token: "hq-read" });
+    expect(status).toBe(200);
+    expect(body.totals).toMatchObject({ collectedCents: 20_000, offlineCents: 7_500, failedCount: 1, failedCents: 20_000, netCents: 27_500 });
+    expect(body.months.reduce((s: number, m: any) => s + m.netCents, 0)).toBe(27_500);
+  });
+
+  it("is refused without financial read", async () => {
+    expect((await call("GET", `/hq/office-access/forecast?start=${dayKey(0)}&end=${dayKey(29)}`, { token: "nobody" })).status).toBe(403);
+    expect((await call("GET", `/hq/office-access/collected?start=${dayKey(-30)}&end=${dayKey(0)}`)).status).toBe(403);
   });
 });
 

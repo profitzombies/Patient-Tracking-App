@@ -13,11 +13,10 @@
  *   - the print sheet carries the practice name, both codes (or the notice),
  *     and nothing else that could leak; the button is disabled when there is
  *     no code to print.
- *   - the Patients page wiring: signed-in staff read the live HQ value from
- *     the office settings endpoint (HQ drill-ins scope by office) and a
- *     changed HQ link shows a new code on reload; the guided demo shows the
- *     seeded placeholder links without any request; signed-in HQ without an
- *     office scope sees no panel.
+ *   - the Patients page wiring: signed-in provider staff see no panel and
+ *     make no settings request; HQ drill-ins read the live HQ value scoped
+ *     by office; the guided demo shows the seeded placeholder links without
+ *     any request; signed-in HQ without an office scope sees no panel.
  */
 import * as React from 'react';
 import { act } from 'react';
@@ -207,17 +206,9 @@ console.log('Patients page — signed-in provider staff');
   requests.length = 0;
   const { root } = await renderRoster();
   const settingsGets = requests.filter((url) => url.includes('/api/office/settings'));
-  check('staff read the live HQ value from their own office settings (no office param)', settingsGets.length === 1 && !settingsGets[0].includes('office='), settingsGets.join(','));
-  const svgs = qrSvgs(root);
-  check('codes encode the live HQ links, next to the Invite action', svgs.length === 2 && svgs[0].props['data-qr-value'] === APP_STORE && svgs[1].props['data-qr-value'] === PLAY && byTestId(root, 'button-invite-patient').length === 1);
-  check('no demo links leak into the live panel', !svgs.some((svg) => svg.props['data-qr-value'] === DEMO_APP_STORE_URL));
-
-  // HQ changes the Play link; the office reloads and sees a new code.
-  officeSettings = { ...officeSettings, hq: { ...officeSettings.hq, googlePlayUrl: PLAY_V2, appStoreUrl: null } };
-  const reloaded = await renderRoster();
-  const after = qrSvgs(reloaded.root);
-  check('after HQ changes a link, a reload shows the new code and the blank notice', after.length === 1 && after[0].props['data-qr-value'] === PLAY_V2 && byTestId(reloaded.root, 'store-code-missing-appStore').length === 1);
-  check('the new code differs from the old one', qrPath(qrMatrix(PLAY_V2)) !== qrPath(qrMatrix(PLAY)));
+  check('signed-in provider staff see no Get the app panel on their roster', byTestId(root, 'panel-get-the-app').length === 0 && qrSvgs(root).length === 0);
+  check('the Invite action is still there', byTestId(root, 'button-invite-patient').length === 1);
+  check('the hidden panel makes no office settings request', settingsGets.length === 0, settingsGets.join(','));
 }
 
 console.log('Patients page — HQ drill-in and HQ without scope');
@@ -225,6 +216,7 @@ console.log('Patients page — HQ drill-in and HQ without scope');
   __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } });
   __setSupabaseSession('hq-token');
   __setScope({ providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner' });
+  officeSettings = { ...officeSettings, hq: { ...officeSettings.hq, googlePlayUrl: PLAY_V2, appStoreUrl: null } };
   requests.length = 0;
   const { root } = await renderRoster(<OfficeGetTheAppPanel liveEnabled liveOffice="prov-1" />);
   const get = requests.find((url) => url.includes('/api/office/settings'));

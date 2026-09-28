@@ -74,8 +74,8 @@ function PolicyRow({ label, value, help, testId, last = false }: { label: string
 }
 
 /**
- * One HQ store link, echoed for copy/paste into emails and texts. The same
- * link drives the QR code on the Patients page; blank shows HQ's reminder.
+ * One HQ store link, echoed for copy/paste into emails and texts. The
+ * link is set by HQ; blank shows HQ's reminder.
  */
 function StoreLinkRow({ link, last = false }: { link: StoreLink; last?: boolean }) {
   const { toast } = useToast();
@@ -93,7 +93,7 @@ function StoreLinkRow({ link, last = false }: { link: StoreLink; last?: boolean 
     <div className={`flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3.5 ${last ? '' : 'border-b border-border'}`}>
       <div className="min-w-0 max-w-[46ch]">
         <p className={PANEL_LABEL}>{labels.store} link</p>
-        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{labels.device}. Set by HQ; the QR code on your Patients page points here.</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{labels.device}. Set by HQ.</p>
       </div>
       {link.url ? (
         <div className="flex min-w-0 max-w-full items-center gap-2">
@@ -700,7 +700,7 @@ export default function OfficeSettings() {
             />
           </SectionCard>
 
-          <SectionCard title="Get the app" sub="The store listings behind the QR codes on your Patients page. Copy a link to send it by email or text.">
+          <SectionCard title="Get the app" sub="The THINNR app store listings. Copy a link to send it to a patient by email or text.">
             {storeLinksOf(data.hq).map((link, index, all) => (
               <StoreLinkRow key={link.kind} link={link} last={index === all.length - 1} />
             ))}

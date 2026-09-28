@@ -196,17 +196,21 @@ export function GetTheAppPanel({ practiceName, hq, status = 'ready', className =
  * office settings endpoint (HQ drill-ins pass the office they are viewing);
  * the guided demo shows the seeded placeholder links. Signed-in HQ staff who
  * have not drilled into an office see nothing rather than demo links.
+ * Signed-in provider staff do not see the panel on their roster (owner
+ * request, 2026-09-28); their store links stay in Office settings.
  */
 export function OfficeGetTheAppPanel({ liveEnabled, liveOffice, className }: { liveEnabled: boolean; liveOffice: string | null; className?: string }) {
-  const { authStatus, authUser } = useSession();
+  const { authStatus, authRole, authUser } = useSession();
+  const hiddenForProvider = authStatus === 'signed-in' && authRole === 'provider_staff';
   const params = liveOffice ? { office: liveOffice } : undefined;
   const query = useQuery({
     queryKey: [...getGetOfficeSettingsQueryKey(params), authUser?.id],
     queryFn: () => getOfficeSettings(params),
-    enabled: liveEnabled,
+    enabled: liveEnabled && !hiddenForProvider,
     staleTime: 60_000,
   });
 
+  if (hiddenForProvider) return null;
   if (liveEnabled) {
     const data = query.data;
     return (

@@ -1860,7 +1860,7 @@ VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/.private"
 CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
-CLAIM_EMAIL_FROM = "THINNR Dashboard <no-reply@appnotifications.thinnrweightloss.com>"
+CLAIM_EMAIL_FROM = "THINNR Dashboard <hello@appnotifications.thinnrweightloss.com>"
 OPERATIONS_APP_URL = "https://app.trythinnr.com"
 
 [userenv.development]

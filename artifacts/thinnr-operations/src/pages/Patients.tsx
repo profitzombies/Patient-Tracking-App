@@ -38,7 +38,6 @@ import { matchesPhoneQuery } from "@/lib/phone-digits";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
-import { OfficeGetTheAppPanel } from "@/components/office/GetTheAppPanel";
 import { BTN_SECONDARY } from "@/components/patient/heritage";
 import { resendInvitation, type OfficePatient, type OutreachRoster } from "@/lib/office-roster";
 import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivity } from "@/lib/roster-activity";
@@ -572,10 +571,7 @@ export default function Patients() {
             </p>
           )}
         </div>
-        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
-          <OfficeGetTheAppPanel liveEnabled={liveEnabled} liveOffice={liveOffice} />
-          {liveEnabled && <InvitePatientAction office={liveOffice} />}
-        </div>
+        {liveEnabled && <InvitePatientAction office={liveOffice} />}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-soft">

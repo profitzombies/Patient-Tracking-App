@@ -1,5 +1,8 @@
 /**
- * "Get the app" — the front-desk QR panel on the office Patients page.
+ * "Get the app" — a front-desk QR panel (App Store + Google Play codes and a
+ * printable sheet). It was removed from the office Patients roster at the
+ * owner's request (2026-09-28) and is not mounted anywhere right now; offices
+ * copy the same HQ links from Office settings instead.
  *
  * HQ sets the App Store and Google Play listing links once (organization
  * settings); every office renders one QR code per store from exactly that
@@ -13,10 +16,6 @@
  */
 import { useMemo } from 'react';
 import { Printer, Smartphone } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { getGetOfficeSettingsQueryKey, getOfficeSettings } from '@workspace/api-client-react';
-import { useSession } from '@/contexts/session';
-import { demoOfficeSettings } from '@/data/hq/demo-office-settings';
 import { APP_STORE_LABELS, STORE_LINK_MISSING, storeLinksOf, type StoreLink } from '@/lib/org-policy';
 import { escapeAttr, qrMatrix, qrPath, qrSvgMarkup, qrViewBox } from '@/lib/qr';
 import { BTN_SECONDARY, PANEL_LABEL } from '@/components/patient/heritage';
@@ -189,40 +188,4 @@ export function GetTheAppPanel({ practiceName, hq, status = 'ready', className =
       </div>
     </section>
   );
-}
-
-/**
- * The Patients page wiring: signed-in offices read the live HQ value from the
- * office settings endpoint (HQ drill-ins pass the office they are viewing);
- * the guided demo shows the seeded placeholder links. Signed-in HQ staff who
- * have not drilled into an office see nothing rather than demo links.
- * Signed-in provider staff do not see the panel on their roster (owner
- * request, 2026-09-28); their store links stay in Office settings.
- */
-export function OfficeGetTheAppPanel({ liveEnabled, liveOffice, className }: { liveEnabled: boolean; liveOffice: string | null; className?: string }) {
-  const { authStatus, authRole, authUser } = useSession();
-  const hiddenForProvider = authStatus === 'signed-in' && authRole === 'provider_staff';
-  const params = liveOffice ? { office: liveOffice } : undefined;
-  const query = useQuery({
-    queryKey: [...getGetOfficeSettingsQueryKey(params), authUser?.id],
-    queryFn: () => getOfficeSettings(params),
-    enabled: liveEnabled && !hiddenForProvider,
-    staleTime: 60_000,
-  });
-
-  if (hiddenForProvider) return null;
-  if (liveEnabled) {
-    const data = query.data;
-    return (
-      <GetTheAppPanel
-        practiceName={data?.office.officeName ?? 'Your practice'}
-        hq={data?.hq ?? null}
-        status={query.isError ? 'error' : 'loading'}
-        className={className}
-      />
-    );
-  }
-  if (authStatus === 'signed-in') return null;
-  const demo = demoOfficeSettings();
-  return <GetTheAppPanel practiceName={demo.office.officeName} hq={demo.hq} className={className} />;
 }

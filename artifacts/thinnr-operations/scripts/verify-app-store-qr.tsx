@@ -13,10 +13,9 @@
  *   - the print sheet carries the practice name, both codes (or the notice),
  *     and nothing else that could leak; the button is disabled when there is
  *     no code to print.
- *   - the Patients page wiring: signed-in provider staff see no panel and
- *     make no settings request; HQ drill-ins read the live HQ value scoped
- *     by office; the guided demo shows the seeded placeholder links without
- *     any request; signed-in HQ without an office scope sees no panel.
+ *   - the Patients page no longer shows the panel (owner request,
+ *     2026-09-28) for the demo, provider staff, or HQ drill-ins, and makes
+ *     no office settings request for it.
  */
 import * as React from 'react';
 import { act } from 'react';
@@ -34,8 +33,7 @@ import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { qrMatrix, qrPath, qrSvgMarkup } from '../src/lib/qr';
 import { STORE_LINK_MISSING, storeLinkProblem, storeLinksOf } from '../src/lib/org-policy';
 import { demoOfficeSettings } from '../src/data/hq/demo-office-settings';
-import { DEMO_APP_STORE_URL, DEMO_GOOGLE_PLAY_URL } from '../src/data/hq/settings';
-import { GetTheAppPanel, OfficeGetTheAppPanel, buildAppSheetHtml } from '../src/components/office/GetTheAppPanel';
+import { GetTheAppPanel, buildAppSheetHtml } from '../src/components/office/GetTheAppPanel';
 import Patients from '../src/pages/Patients';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -72,7 +70,6 @@ const settle = async (ticks = 10) => { for (let i = 0; i < ticks; i += 1) await 
 
 const APP_STORE = 'https://apps.apple.com/us/app/thinnr/id6740000001';
 const PLAY = 'https://play.google.com/store/apps/details?id=com.thinnr.app';
-const PLAY_V2 = 'https://play.google.com/store/apps/details?id=com.thinnr.app&hl=en_US';
 
 // ─── lib/qr ──────────────────────────────────────────────────────────────────
 
@@ -157,7 +154,7 @@ console.log('print sheet');
 // ─── Patients page wiring ────────────────────────────────────────────────────
 
 const requests: string[] = [];
-let officeSettings: OfficeSettingsDto = { ...demoOfficeSettings(), office: { providerId: 'prov-1', officeName: 'Riverside Wellness' }, hq: { ...demoOfficeSettings().hq, appStoreUrl: APP_STORE, googlePlayUrl: PLAY } };
+const officeSettings: OfficeSettingsDto = { ...demoOfficeSettings(), office: { providerId: 'prov-1', officeName: 'Riverside Wellness' }, hq: { ...demoOfficeSettings().hq, appStoreUrl: APP_STORE, googlePlayUrl: PLAY } };
 const ROSTER = { office: { providerId: 'prov-1', officeName: 'Riverside Wellness', providerCode: '483920' }, patients: [], asOfDate: '2026-09-06', latestActivityDate: null, deleted: [] };
 
 g.fetch = async (input: string | URL | Request) => {
@@ -186,47 +183,21 @@ async function renderRoster(element: React.ReactElement = <Patients />, path = '
   return { renderer: renderer!, root: renderer!.root };
 }
 
-console.log('Patients page — guided demo persona');
-{
-  __setSession({ authStatus: 'signed-out', authRole: null, hqRole: null, authUser: null });
-  __setScope(null);
+const rosterCases: Array<{ label: string; session: Parameters<typeof __setSession>[0]; token: string | null; scope: Parameters<typeof __setScope>[0] }> = [
+  { label: 'guided demo persona', session: { authStatus: 'signed-out', authRole: null, hqRole: null, authUser: null }, token: null, scope: null },
+  { label: 'signed-in provider staff', session: { authStatus: 'signed-in', authRole: 'provider_staff', hqRole: null, providerAccountCode: 'TEST', authUser: { id: 'u-staff' } }, token: 'staff-token', scope: null },
+  { label: 'HQ drill-in', session: { authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } }, token: 'hq-token', scope: { providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner' } },
+];
+
+console.log('Patients page — no Get the app panel for anyone');
+for (const rosterCase of rosterCases) {
+  __setSession(rosterCase.session);
+  if (rosterCase.token) __setSupabaseSession(rosterCase.token);
+  __setScope(rosterCase.scope);
   requests.length = 0;
   const { root } = await renderRoster();
-  const svgs = qrSvgs(root);
-  check('the panel sits on the roster page with the seeded placeholder links', byTestId(root, 'panel-get-the-app').length === 1 && svgs.length === 2 && svgs[0].props['data-qr-value'] === DEMO_APP_STORE_URL && svgs[1].props['data-qr-value'] === DEMO_GOOGLE_PLAY_URL);
-  check('demo makes no request', requests.length === 0);
-  check('demo placeholders look like real listings', DEMO_APP_STORE_URL.startsWith('https://apps.apple.com/') && DEMO_GOOGLE_PLAY_URL.startsWith('https://play.google.com/store/apps/details?id='));
-}
-
-console.log('Patients page — signed-in provider staff');
-{
-  __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', hqRole: null, providerAccountCode: 'TEST', authUser: { id: 'u-staff' } });
-  __setSupabaseSession('staff-token');
-  __setScope(null);
-  requests.length = 0;
-  const { root } = await renderRoster();
-  const settingsGets = requests.filter((url) => url.includes('/api/office/settings'));
-  check('signed-in provider staff see no Get the app panel on their roster', byTestId(root, 'panel-get-the-app').length === 0 && qrSvgs(root).length === 0);
-  check('the Invite action is still there', byTestId(root, 'button-invite-patient').length === 1);
-  check('the hidden panel makes no office settings request', settingsGets.length === 0, settingsGets.join(','));
-}
-
-console.log('Patients page — HQ drill-in and HQ without scope');
-{
-  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', hqRole: 'Admin', authUser: { id: 'u-admin' } });
-  __setSupabaseSession('hq-token');
-  __setScope({ providerId: 'prov-1', officeName: 'Riverside Wellness', providerName: 'Dr. Test', providerRole: 'Owner' });
-  officeSettings = { ...officeSettings, hq: { ...officeSettings.hq, googlePlayUrl: PLAY_V2, appStoreUrl: null } };
-  requests.length = 0;
-  const { root } = await renderRoster(<OfficeGetTheAppPanel liveEnabled liveOffice="prov-1" />);
-  const get = requests.find((url) => url.includes('/api/office/settings'));
-  check('HQ drill-in scopes the settings read by office', get !== undefined && get.includes('office=prov-1'), get);
-  check('drill-in shows the office\'s live codes', qrSvgs(root).length === 1 && qrSvgs(root)[0].props['data-qr-value'] === PLAY_V2);
-
-  __setScope(null);
-  requests.length = 0;
-  const bare = await renderRoster(<OfficeGetTheAppPanel liveEnabled={false} liveOffice={null} />);
-  check('signed-in HQ without an office scope sees no panel and no demo links', byTestId(bare.root, 'panel-get-the-app').length === 0 && requests.length === 0);
+  check(`${rosterCase.label}: no panel and no QR codes on the roster`, byTestId(root, 'panel-get-the-app').length === 0 && qrSvgs(root).length === 0);
+  check(`${rosterCase.label}: the roster makes no office settings request`, !requests.some((url) => url.includes('/api/office/settings')), requests.join(','));
 }
 
 if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }

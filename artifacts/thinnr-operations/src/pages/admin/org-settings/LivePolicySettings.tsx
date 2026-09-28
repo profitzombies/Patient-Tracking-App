@@ -274,12 +274,12 @@ const STORE_LINK_FIELDS: Array<{ kind: AppStoreKind; key: 'appStoreUrl' | 'googl
   {
     kind: 'appStore', key: 'appStoreUrl', testId: 'input-setting-live-app-store-url',
     placeholder: 'https://apps.apple.com/us/app/thinnr/id…',
-    help: 'The App Store listing. Every office’s “Get the app” panel renders its iPhone QR code from this link.',
+    help: 'The App Store listing. Offices copy this link from their settings to send to iPhone patients.',
   },
   {
     kind: 'googlePlay', key: 'googlePlayUrl', testId: 'input-setting-live-google-play-url',
     placeholder: 'https://play.google.com/store/apps/details?id=…',
-    help: 'The Google Play listing. Every office’s “Get the app” panel renders its Android QR code from this link.',
+    help: 'The Google Play listing. Offices copy this link from their settings to send to Android patients.',
   },
 ];
 

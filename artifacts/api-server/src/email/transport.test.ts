@@ -16,15 +16,19 @@ const originalFetch = global.fetch;
 const shipped = { name: "Riley", orderNumber: "TH-1", officeName: "Harbor", carrier: "UPS", trackingNumber: "1Z", trackingLink: "https://track.example.test/1Z" };
 const originalKey = process.env.RESEND_API_KEY;
 const originalFrom = process.env.CLAIM_EMAIL_FROM;
+const originalReplyTo = process.env.EMAIL_REPLY_TO;
 
 beforeEach(() => {
   process.env.RESEND_API_KEY = "re_test";
   process.env.CLAIM_EMAIL_FROM = "THINNR <mail@example.test>";
+  delete process.env.EMAIL_REPLY_TO;
 });
 afterEach(() => {
   global.fetch = originalFetch;
   process.env.RESEND_API_KEY = originalKey;
   process.env.CLAIM_EMAIL_FROM = originalFrom;
+  if (originalReplyTo === undefined) delete process.env.EMAIL_REPLY_TO;
+  else process.env.EMAIL_REPLY_TO = originalReplyTo;
   __setEmailClientForTests(null);
   vi.restoreAllMocks();
 });
@@ -46,6 +50,17 @@ describe("email transport", () => {
     expect(body.subject).toContain("123456");
     expect(body.html).toContain("<!doctype html>");
     expect(body.text).toContain("123456");
+    expect(body).not.toHaveProperty("reply_to");
+  });
+
+  it("points replies at EMAIL_REPLY_TO on every send when it is configured", async () => {
+    process.env.EMAIL_REPLY_TO = " support@example.test ";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-2" }), { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    await sendTemplatedEmail({ to: "riley@example.test", templateId: "verification-code", variables: { code: "123456" }, sender: "configured" });
+    await sendTemplatedEmail({ to: "riley@example.test", templateId: "order-shipped", variables: shipped });
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call as unknown as [string, RequestInit])[1].body)) as { reply_to?: string });
+    expect(bodies.map((body) => body.reply_to)).toEqual(["support@example.test", "support@example.test"]);
   });
 
   it("brands billing and staff mail while sign-in mail keeps the configured sender verbatim", async () => {

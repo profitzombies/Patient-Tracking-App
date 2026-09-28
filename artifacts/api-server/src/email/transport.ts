@@ -37,6 +37,8 @@ export interface OutboundEmail {
   subject: string;
   html: string;
   text: string;
+  /** Where replies go; omitted when no reply address is configured. */
+  replyTo?: string;
 }
 
 export interface EmailClient {
@@ -75,6 +77,8 @@ export function brandedFromAddress(configured: string): string {
 export interface EmailConfig {
   apiKey: string;
   from: string;
+  /** Optional EMAIL_REPLY_TO: a real inbox for replies, since the sending address has none. */
+  replyTo: string | null;
 }
 
 /** Reads the vendor credentials at call time so tests and restarts see the current environment. */
@@ -82,7 +86,8 @@ export function emailConfig(): EmailConfig | null {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.CLAIM_EMAIL_FROM;
   if (!apiKey || !from) return null;
-  return { apiKey, from };
+  const replyTo = process.env.EMAIL_REPLY_TO?.trim() || null;
+  return { apiKey, from, replyTo };
 }
 
 export function isEmailConfigured(): boolean {
@@ -96,7 +101,14 @@ export function createResendEmailClient(apiKey: () => string): EmailClient {
       const response = await fetch(RESEND_SEND_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: message.from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
+        body: JSON.stringify({
+          from: message.from,
+          to: [message.to],
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+          ...(message.replyTo ? { reply_to: message.replyTo } : {}),
+        }),
         signal: AbortSignal.timeout(EMAIL_SEND_TIMEOUT_MS),
       });
       if (!response.ok) throw new EmailSendError(response.status);
@@ -177,7 +189,14 @@ export async function sendTemplatedEmail(input: SendEmailInput): Promise<SendEma
   const rendered = renderEmailTemplate(input.templateId, input.variables);
   const from = (input.sender ?? "branded") === "configured" ? config.from : brandedFromAddress(config.from);
   try {
-    const result = await client.send({ from, to: input.to, subject: rendered.subject, html: rendered.html, text: rendered.text });
+    const result = await client.send({
+      from,
+      to: input.to,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      ...(config.replyTo ? { replyTo: config.replyTo } : {}),
+    });
     const messageId = result?.id ?? null;
     logger.info({ ...log, outcome: "sent", messageId, durationMs: Date.now() - startedAt }, "email send");
     return { messageId, phiClass, subject: rendered.subject };

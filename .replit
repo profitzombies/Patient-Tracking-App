@@ -1862,6 +1862,7 @@ CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
 CLAIM_EMAIL_FROM = "THINNR Dashboard <hello@appnotifications.thinnrweightloss.com>"
 OPERATIONS_APP_URL = "https://app.trythinnr.com"
+EMAIL_REPLY_TO = "support@thinnrweightloss.com"
 
 [userenv.development]
 SYSTEM_ALERT_EMAILS = "off"

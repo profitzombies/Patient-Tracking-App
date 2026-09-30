@@ -1,13 +1,14 @@
--- Remove the sample sandbox transactions written by sample-transactions.sql.
+-- Remove the sample sandbox transactions written by sample-transactions.sql
+-- and sample-transactions-fill.sql.
 --
--- Only rows carrying the seed tag are touched: the orders, their items,
+-- Only rows carrying one of the seed tags are touched: the orders, their items,
 -- shipments, ledger entries and refunds, plus the subscriptions those orders
 -- belong to. Nothing that came from a real charge matches the tag.
 --
 -- Safe to run when the batch is absent; it reports that it found nothing.
 do $$
 declare
-  v_tag      constant text := 'sample-2026-09';
+  v_tags     constant text[] := array['sample-2026-09', 'sample-2026-09-fill'];
   v_provider constant text := 'live-74913542d0cf4f5292642ceee81dcfc2';
   v_ids  uuid[];
   v_subs uuid[];
@@ -16,10 +17,10 @@ begin
   select array_agg(id), array_remove(array_agg(subscription_id), null)
     into v_ids, v_subs
     from public.billing_orders
-    where metadata->>'sample_seed' = v_tag;
+    where metadata->>'sample_seed' = any(v_tags);
   n_orders := coalesce(array_length(v_ids, 1), 0);
   if n_orders = 0 then
-    raise notice 'No sample transactions tagged % to remove.', v_tag;
+    raise notice 'No sample transactions tagged % to remove.', v_tags;
     return;
   end if;
 
@@ -57,5 +58,5 @@ begin
   alter table public.billing_refunds enable trigger user;
   alter table public.billing_subscriptions enable trigger user;
 
-  raise notice 'Removed % sample orders tagged %.', n_orders, v_tag;
+  raise notice 'Removed % sample orders tagged %.', n_orders, v_tags;
 end $$;

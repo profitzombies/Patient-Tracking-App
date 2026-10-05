@@ -28,7 +28,7 @@ Keep the ordinary Run-button group limited to managed artifact services. A manua
 
 **Why:** The workspace can retain validation suites in its normal Project startup group. Starting the project then launches the entire test collection alongside Expo and the API, exhausting the container's process/thread limit before the app starts. This has produced exit-134 aborts and EAGAIN without any application-code regression.
 
-**How to apply:** When diagnosing an artifact startup abort, inspect the Run-button group's membership as well as current process pressure. Adding a validation command must not silently restore tests to ordinary app startup. A successful server restart alone does not prevent the next startup overload if the group still includes the test collection.
+**How to apply:** When diagnosing an artifact startup abort, inspect the Run-button group's membership as well as current process pressure. Adding a validation command must not silently restore tests to ordinary app startup. A successful server restart alone does not prevent the next startup overload if the group still includes the test collection. This has recurred (2026-10-05: 151 suites back in the Run group; stuck runs held slots ~90 min): stop the non-artifact running workflows, trim the group to the four artifact services, then restart API + web.
 
 ## Missing completion runs
 

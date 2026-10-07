@@ -37,7 +37,7 @@ function ctx(dryRun = false) {
 }
 const sub = (id: string, next: string | null, over: Record<string, unknown> = {}) => ({
   id, provider_id: "office-1", stripe_subscription_id: `sub_${id}`, status: "active", paused_at: null,
-  cancel_at_period_end: false, next_shipment_at: next, ...over,
+  cancel_at_period_end: false, next_shipment_at: next, livemode: true, ...over,
 });
 
 beforeEach(() => { rows.length = 0; notify.mockClear(); });
@@ -72,5 +72,12 @@ describe("renewal reminder job", () => {
     expect(notify).toHaveBeenCalledOnce();
     expect(notify.mock.calls[0][1]).toMatchObject({ card: { last4: "4242" } });
     expect(live.counts).toEqual({ due: 1, sent: 1 });
+  });
+  it("never reminds a test-mode (sandbox) subscription, even when it is due", async () => {
+    rows.push(sub("sandbox", "2026-10-12T14:00:00.000Z", { livemode: false }));
+    const live = ctx(false);
+    await sendRenewalReminders(live.c);
+    expect(notify).not.toHaveBeenCalled();
+    expect(live.counts).toEqual({ due: 1, skipped_test: 1 });
   });
 });

@@ -10,6 +10,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const migrationNames = [
+  // Applied to development by hand before this list existed; production
+  // receives it here (it was missing there until 2026-10-07).
+  "20260926000000_patient_rewards.sql",
   "20261008000000_coach_conversations.sql",
   "20261008010000_coach_memory.sql",
   "20261008020000_coach_privacy.sql",
@@ -36,6 +39,7 @@ const migrationNames = [
   "20261113030000_practice_launch_trigger_permissions.sql",
   "20261201000000_coach_chat_flags.sql",
   "20261201000001_coach_chat_flags_closure.sql",
+  "20261201000002_patient_rewards_closure.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.

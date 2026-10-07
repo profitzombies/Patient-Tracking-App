@@ -85,7 +85,7 @@ beforeEach(() => {
     { id: P1, provider_id: "office-1", auth_user_id: "auth-1", activation_status: "activated", program_id: "thinnr", program_start_date: "2026-06-01", first_name: "Pat", last_name: "Example", email: "pat@example.com", deletion_requested_at: null },
     { id: P2, provider_id: "office-1", auth_user_id: "auth-2", activation_status: "activated", program_id: "glp", first_name: "Other", deletion_requested_at: null },
   );
-  for (const table of ["providers", "patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags", "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections", "patient_bloodwork_extraction_pages"]) {
+  for (const table of ["providers", "patient_diary_entries", "patient_water_days", "patient_target_overrides", "patient_food_prefs", "patient_custom_foods", "patient_saved_recipes", "patient_check_ins", "patient_health_measurements", "patient_body_measurements", "patient_staff_weights", "patient_medications", "patient_medication_dose_logs", "patient_progress_photos", "patient_media", "patient_chat_conversations", "patient_chat_messages", "patient_flags", "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections", "patient_bloodwork_extraction_pages", "patient_reward_state", "patient_reward_events", "patient_reward_awards"]) {
     mocks.supabase.tables[table] = [];
   }
   mocks.supabase.tables.providers.push({ provider_id: "office-1", office_name: "Riverside Health" });
@@ -96,6 +96,10 @@ beforeEach(() => {
     { patient_id: P2, entry_id: "e2", date_key: "2026-09-01", name: "SECRET OTHER FOOD", calories: 900 },
   );
   mocks.supabase.tables.patient_progress_photos.push({ patient_id: P1, photo_id: "ph1", date_key: "2026-09-01", object_path: `/objects/patient-media/${P1}/photo-1.jpg` });
+  mocks.supabase.tables.patient_reward_events.push(
+    { patient_id: P1, event_key: "daily:2026-09-01:food", category: "daily", label: "Logged a meal", xp: 10, occurred_on: "2026-09-01", created_at: "2026-09-01T12:00:00Z" },
+    { patient_id: P2, event_key: "daily:2026-09-01:food", category: "daily", label: "SECRET OTHER EVENT", xp: 10, occurred_on: "2026-09-01", created_at: "2026-09-01T12:00:00Z" },
+  );
   mocks.supabase.tables.patient_flags.push({ patient_id: P1, onboarding_answers: { goal: "lose", password: "hunter2" }, notification_prefs: {}, coach_product_opt_out: true, coach_product_suggestions: { "creatine-plus": "2026-09-01T00:00:00Z" } });
   mocks.supabase.tables.patient_medications.push(
     { id: fakeUuid(701), patient_id: P1, name: "THINNR Protocol drops", form: "drops", schedule_kind: "daily", times: ["08:00"], start_date: "2026-09-01" },
@@ -340,8 +344,10 @@ describe("data export", () => {
     const medications = JSON.parse(await zip.file("medications.json")!.async("string")) as { list: Array<{ name: string }>; doseLogs: Array<{ status: string }> };
     expect(medications.list.map((m) => m.name)).toEqual(["THINNR Protocol drops"]);
     expect(medications.doseLogs.map((d) => d.status)).toEqual(["taken"]);
+    const rewards = JSON.parse(await zip.file("rewards.json")!.async("string")) as { events: Array<{ label: string }> };
+    expect(rewards.events.map((e) => e.label)).toEqual(["Logged a meal"]);
     const all = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => zip.file(n)!.async("string")));
-    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|SECRET OTHER NOTE|hunter2/);
+    expect(all.join("\n")).not.toMatch(/SECRET OTHER FOOD|SECRET OTHER MED|SECRET OTHER NOTE|SECRET OTHER EVENT|hunter2/);
     const preferences = await zip.file("preferences.json")!.async("string");
     expect(preferences).toContain('"goal": "lose"');
     // Coach product-suggestion state is patient-owned data and rides the export.

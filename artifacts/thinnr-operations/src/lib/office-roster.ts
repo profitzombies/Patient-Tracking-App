@@ -124,6 +124,9 @@ export interface OfficePatient {
 
   medicationAdherence?: MedicationAdherenceDto | null;
 
+  /** Office-defined patient group ids this patient belongs to (empty when none). */
+  groupIds?: string[];
+
   /**
    * Shop subscription signal: true when the patient has an active, past-due,
    * or unpaid subscription at this office; null when the billing tables could
@@ -349,6 +352,8 @@ export interface OfficePatientDetail {
     deletion?: PatientDeletionState | null;
     legalHold?: boolean;
     closure: { closedAt: string; recordRetainUntil: string } | null;
+    /** Office-defined patient group ids this patient belongs to (empty when none). */
+    groupIds?: string[];
   };
   diary: {
     entries: OfficeDiaryEntry[];
@@ -455,6 +460,57 @@ export async function fetchOfficePatient(patientId: string, office?: string | nu
   return request<OfficePatientDetail>(
     `/api/office/patients/${encodeURIComponent(patientId)}${officeQuery(office)}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Patient groups (office-defined operational labels)
+// ---------------------------------------------------------------------------
+
+export interface PatientGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatientGroupList {
+  office: { providerId: string; officeName: string };
+  /** False under HQ drill-in: groups are visible but read-only. */
+  canEdit: boolean;
+  groups: PatientGroup[];
+}
+
+export interface PatientGroupInput {
+  name: string;
+  description?: string | null;
+}
+
+const groupsPath = (office?: string | null, suffix = '') => `/api/office/patient-groups${suffix}${officeQuery(office)}`;
+
+export async function fetchOfficePatientGroups(office?: string | null): Promise<PatientGroupList> {
+  return request<PatientGroupList>(groupsPath(office));
+}
+
+export async function createOfficePatientGroup(input: PatientGroupInput, office?: string | null): Promise<{ group: PatientGroup }> {
+  return request<{ group: PatientGroup }>(groupsPath(office), { method: 'POST', body: JSON.stringify(input) });
+}
+
+export async function updateOfficePatientGroup(groupId: string, input: Partial<PatientGroupInput>, office?: string | null): Promise<{ group: PatientGroup }> {
+  return request<{ group: PatientGroup }>(groupsPath(office, `/${encodeURIComponent(groupId)}`), { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export async function deleteOfficePatientGroup(groupId: string, office?: string | null): Promise<{ deleted: boolean; memberCount: number }> {
+  return request<{ deleted: boolean; memberCount: number }>(groupsPath(office, `/${encodeURIComponent(groupId)}`), { method: 'DELETE' });
+}
+
+export async function addOfficePatientGroupMember(groupId: string, patientId: string, office?: string | null): Promise<{ membership: { groupId: string; patientId: string; added: boolean } }> {
+  return request<{ membership: { groupId: string; patientId: string; added: boolean } }>(groupsPath(office, `/${encodeURIComponent(groupId)}/members/${encodeURIComponent(patientId)}`), { method: 'PUT' });
+}
+
+export async function removeOfficePatientGroupMember(groupId: string, patientId: string, office?: string | null): Promise<{ membership: { groupId: string; patientId: string; removed: boolean } }> {
+  return request<{ membership: { groupId: string; patientId: string; removed: boolean } }>(groupsPath(office, `/${encodeURIComponent(groupId)}/members/${encodeURIComponent(patientId)}`), { method: 'DELETE' });
 }
 
 export type OfficePhotoSize = 'thumb' | 'medium' | 'original';

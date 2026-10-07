@@ -329,6 +329,11 @@ class FakeBackend {
     const tableMatch = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (tableMatch) {
       const table = tableMatch[1];
+      // Office routes sit behind the practice-setup gate; every office here
+      // carries HQ's waiver so the sessions and sign-out rules stay the subject.
+      if (table === "practice_launch" && method === "GET") {
+        return json(200, [{ provider_id: url.searchParams.get("provider_id")?.replace(/^eq\./, "") ?? null, required: false, version: 0, completed_at: null, setup_override_at: "2026-01-01T00:00:00Z" }]);
+      }
       if (!(table in this.tables)) return json(404, { message: `fake: no table ${table}` });
       if (method === "GET") return json(200, this.match(table, url));
       if (method === "PATCH") {

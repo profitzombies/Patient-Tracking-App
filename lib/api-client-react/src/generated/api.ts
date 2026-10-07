@@ -21,6 +21,7 @@ import type {
 
 import type {
   AddOfficeConversationNoteParams,
+  AddOfficePatientGroupMemberParams,
   AppUsageInsights,
   AppUsageResult,
   AssignOfficeConversationParams,
@@ -77,7 +78,10 @@ import type {
   ConversationStatusInput,
   ConversationSummaryResult,
   CorrectBloodworkResultParams,
+  CreateOfficePatientGroupParams,
   DeleteBloodworkReportParams,
+  DeleteOfficePatientGroup200,
+  DeleteOfficePatientGroupParams,
   EngagementTrendResult,
   EscalateOfficeConversationParams,
   ExportDownloadResult,
@@ -178,6 +182,7 @@ import type {
   ListOfficePatientCoachConversationsParams,
   ListOfficePatientCoachMemoriesParams,
   ListOfficePatientEditHistoryParams,
+  ListOfficePatientGroupsParams,
   ListPatientCoachConversationsParams,
   ListPatientCoachMemoriesParams,
   MarkOfficeAlertSeen200,
@@ -214,10 +219,16 @@ import type {
   PatientCareTeamStartInput,
   PatientCareTeamStartResult,
   PatientEditHistoryPage,
+  PatientGroupInput,
+  PatientGroupListResult,
+  PatientGroupMembershipResult,
+  PatientGroupResult,
+  PatientGroupUpdateInput,
   PatientRetentionResult,
   ProgressPhotoFileParams,
   ReadOfficeConversationParams,
   RegisterStaffNotificationDeviceBody,
+  RemoveOfficePatientGroupMemberParams,
   ReplyOfficeConversationParams,
   RetryBloodworkExtractionParams,
   ReviewBloodworkReportParams,
@@ -257,6 +268,7 @@ import type {
   UpdateOfficeAlertPreferencesBody,
   UpdateOfficeAlertSettingsParams,
   UpdateOfficePatientFollowUpParams,
+  UpdateOfficePatientGroupParams,
   UpdateOfficeSettingsOverridesParams
 } from './api.schemas';
 
@@ -3979,6 +3991,495 @@ export function useGetOfficeRoster<TData = Awaited<ReturnType<typeof getOfficeRo
 
 
 
+
+export const getListOfficePatientGroupsUrl = (params?: ListOfficePatientGroupsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups?${stringifiedParams}` : `/api/office/patient-groups`
+}
+
+/**
+ * Operational labels an office invents for its roster (an employer cohort, a clinic day). Provider staff are scoped to their own office; HQ must name an office and sees the list read-only (canEdit false).
+ * @summary List an office's staff-defined patient groups
+ */
+export const listOfficePatientGroups = async (params?: ListOfficePatientGroupsParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientGroupListResult> => {
+
+  return customFetch<PatientGroupListResult>(getListOfficePatientGroupsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOfficePatientGroupsQueryKey = (params?: ListOfficePatientGroupsParams,) => {
+    return [
+    `/api/office/patient-groups`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListOfficePatientGroupsQueryOptions = <TData = Awaited<ReturnType<typeof listOfficePatientGroups>>, TError = ErrorType<void>>(params?: ListOfficePatientGroupsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOfficePatientGroupsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOfficePatientGroups>>> = ({ signal }) => listOfficePatientGroups(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientGroups>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOfficePatientGroupsQueryResult = NonNullable<Awaited<ReturnType<typeof listOfficePatientGroups>>>
+export type ListOfficePatientGroupsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List an office's staff-defined patient groups
+ */
+
+export function useListOfficePatientGroups<TData = Awaited<ReturnType<typeof listOfficePatientGroups>>, TError = ErrorType<void>>(
+ params?: ListOfficePatientGroupsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOfficePatientGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOfficePatientGroupsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateOfficePatientGroupUrl = (params?: CreateOfficePatientGroupParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups?${stringifiedParams}` : `/api/office/patient-groups`
+}
+
+/**
+ * @summary Create a patient group for the office
+ */
+export const createOfficePatientGroup = async (patientGroupInput: PatientGroupInput,
+    params?: CreateOfficePatientGroupParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientGroupResult> => {
+
+  return customFetch<PatientGroupResult>(getCreateOfficePatientGroupUrl(params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(patientGroupInput)
+  }
+);}
+
+
+
+
+
+export const getCreateOfficePatientGroupMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createOfficePatientGroup>>, TError,{data: BodyType<PatientGroupInput>;params?: CreateOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createOfficePatientGroup>>, TError,{data: BodyType<PatientGroupInput>;params?: CreateOfficePatientGroupParams}, TContext> => {
+
+const mutationKey = ['createOfficePatientGroup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createOfficePatientGroup>>, {data: BodyType<PatientGroupInput>;params?: CreateOfficePatientGroupParams}> = (props) => {
+          const {data,params} = props ?? {};
+
+          return  createOfficePatientGroup(data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateOfficePatientGroupMutationResult = NonNullable<Awaited<ReturnType<typeof createOfficePatientGroup>>>
+    export type CreateOfficePatientGroupMutationBody = BodyType<PatientGroupInput>
+    export type CreateOfficePatientGroupMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a patient group for the office
+ */
+export const useCreateOfficePatientGroup = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createOfficePatientGroup>>, TError,{data: BodyType<PatientGroupInput>;params?: CreateOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createOfficePatientGroup>>,
+        TError,
+        {data: BodyType<PatientGroupInput>;params?: CreateOfficePatientGroupParams},
+        TContext
+      > => {
+      return useMutation(getCreateOfficePatientGroupMutationOptions(options));
+    }
+
+export const getUpdateOfficePatientGroupUrl = (groupId: string,
+    params?: UpdateOfficePatientGroupParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups/${groupId}?${stringifiedParams}` : `/api/office/patient-groups/${groupId}`
+}
+
+/**
+ * @summary Rename or re-describe a patient group
+ */
+export const updateOfficePatientGroup = async (groupId: string,
+    patientGroupUpdateInput: PatientGroupUpdateInput,
+    params?: UpdateOfficePatientGroupParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientGroupResult> => {
+
+  return customFetch<PatientGroupResult>(getUpdateOfficePatientGroupUrl(groupId,params),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(patientGroupUpdateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateOfficePatientGroupMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientGroup>>, TError,{groupId: string;data: BodyType<PatientGroupUpdateInput>;params?: UpdateOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientGroup>>, TError,{groupId: string;data: BodyType<PatientGroupUpdateInput>;params?: UpdateOfficePatientGroupParams}, TContext> => {
+
+const mutationKey = ['updateOfficePatientGroup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateOfficePatientGroup>>, {groupId: string;data: BodyType<PatientGroupUpdateInput>;params?: UpdateOfficePatientGroupParams}> = (props) => {
+          const {groupId,data,params} = props ?? {};
+
+          return  updateOfficePatientGroup(groupId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateOfficePatientGroupMutationResult = NonNullable<Awaited<ReturnType<typeof updateOfficePatientGroup>>>
+    export type UpdateOfficePatientGroupMutationBody = BodyType<PatientGroupUpdateInput>
+    export type UpdateOfficePatientGroupMutationError = ErrorType<void>
+
+    /**
+ * @summary Rename or re-describe a patient group
+ */
+export const useUpdateOfficePatientGroup = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateOfficePatientGroup>>, TError,{groupId: string;data: BodyType<PatientGroupUpdateInput>;params?: UpdateOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateOfficePatientGroup>>,
+        TError,
+        {groupId: string;data: BodyType<PatientGroupUpdateInput>;params?: UpdateOfficePatientGroupParams},
+        TContext
+      > => {
+      return useMutation(getUpdateOfficePatientGroupMutationOptions(options));
+    }
+
+export const getDeleteOfficePatientGroupUrl = (groupId: string,
+    params?: DeleteOfficePatientGroupParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups/${groupId}?${stringifiedParams}` : `/api/office/patient-groups/${groupId}`
+}
+
+/**
+ * @summary Delete a patient group and its memberships
+ */
+export const deleteOfficePatientGroup = async (groupId: string,
+    params?: DeleteOfficePatientGroupParams, options?: Parameters<typeof customFetch>[1]): Promise<DeleteOfficePatientGroup200> => {
+
+  return customFetch<DeleteOfficePatientGroup200>(getDeleteOfficePatientGroupUrl(groupId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteOfficePatientGroupMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOfficePatientGroup>>, TError,{groupId: string;params?: DeleteOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteOfficePatientGroup>>, TError,{groupId: string;params?: DeleteOfficePatientGroupParams}, TContext> => {
+
+const mutationKey = ['deleteOfficePatientGroup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteOfficePatientGroup>>, {groupId: string;params?: DeleteOfficePatientGroupParams}> = (props) => {
+          const {groupId,params} = props ?? {};
+
+          return  deleteOfficePatientGroup(groupId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteOfficePatientGroupMutationResult = NonNullable<Awaited<ReturnType<typeof deleteOfficePatientGroup>>>
+
+    export type DeleteOfficePatientGroupMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a patient group and its memberships
+ */
+export const useDeleteOfficePatientGroup = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOfficePatientGroup>>, TError,{groupId: string;params?: DeleteOfficePatientGroupParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteOfficePatientGroup>>,
+        TError,
+        {groupId: string;params?: DeleteOfficePatientGroupParams},
+        TContext
+      > => {
+      return useMutation(getDeleteOfficePatientGroupMutationOptions(options));
+    }
+
+export const getAddOfficePatientGroupMemberUrl = (groupId: string,
+    patientId: string,
+    params?: AddOfficePatientGroupMemberParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups/${groupId}/members/${patientId}?${stringifiedParams}` : `/api/office/patient-groups/${groupId}/members/${patientId}`
+}
+
+/**
+ * @summary Add an office patient to a group (idempotent)
+ */
+export const addOfficePatientGroupMember = async (groupId: string,
+    patientId: string,
+    params?: AddOfficePatientGroupMemberParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientGroupMembershipResult> => {
+
+  return customFetch<PatientGroupMembershipResult>(getAddOfficePatientGroupMemberUrl(groupId,patientId,params),
+  {
+    ...options,
+    method: 'PUT'
+
+
+  }
+);}
+
+
+
+
+
+export const getAddOfficePatientGroupMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: AddOfficePatientGroupMemberParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: AddOfficePatientGroupMemberParams}, TContext> => {
+
+const mutationKey = ['addOfficePatientGroupMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addOfficePatientGroupMember>>, {groupId: string;patientId: string;params?: AddOfficePatientGroupMemberParams}> = (props) => {
+          const {groupId,patientId,params} = props ?? {};
+
+          return  addOfficePatientGroupMember(groupId,patientId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddOfficePatientGroupMemberMutationResult = NonNullable<Awaited<ReturnType<typeof addOfficePatientGroupMember>>>
+
+    export type AddOfficePatientGroupMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Add an office patient to a group (idempotent)
+ */
+export const useAddOfficePatientGroupMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: AddOfficePatientGroupMemberParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addOfficePatientGroupMember>>,
+        TError,
+        {groupId: string;patientId: string;params?: AddOfficePatientGroupMemberParams},
+        TContext
+      > => {
+      return useMutation(getAddOfficePatientGroupMemberMutationOptions(options));
+    }
+
+export const getRemoveOfficePatientGroupMemberUrl = (groupId: string,
+    patientId: string,
+    params?: RemoveOfficePatientGroupMemberParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patient-groups/${groupId}/members/${patientId}?${stringifiedParams}` : `/api/office/patient-groups/${groupId}/members/${patientId}`
+}
+
+/**
+ * @summary Remove an office patient from a group (idempotent)
+ */
+export const removeOfficePatientGroupMember = async (groupId: string,
+    patientId: string,
+    params?: RemoveOfficePatientGroupMemberParams, options?: Parameters<typeof customFetch>[1]): Promise<PatientGroupMembershipResult> => {
+
+  return customFetch<PatientGroupMembershipResult>(getRemoveOfficePatientGroupMemberUrl(groupId,patientId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveOfficePatientGroupMemberMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: RemoveOfficePatientGroupMemberParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: RemoveOfficePatientGroupMemberParams}, TContext> => {
+
+const mutationKey = ['removeOfficePatientGroupMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeOfficePatientGroupMember>>, {groupId: string;patientId: string;params?: RemoveOfficePatientGroupMemberParams}> = (props) => {
+          const {groupId,patientId,params} = props ?? {};
+
+          return  removeOfficePatientGroupMember(groupId,patientId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveOfficePatientGroupMemberMutationResult = NonNullable<Awaited<ReturnType<typeof removeOfficePatientGroupMember>>>
+
+    export type RemoveOfficePatientGroupMemberMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove an office patient from a group (idempotent)
+ */
+export const useRemoveOfficePatientGroupMember = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientGroupMember>>, TError,{groupId: string;patientId: string;params?: RemoveOfficePatientGroupMemberParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeOfficePatientGroupMember>>,
+        TError,
+        {groupId: string;patientId: string;params?: RemoveOfficePatientGroupMemberParams},
+        TContext
+      > => {
+      return useMutation(getRemoveOfficePatientGroupMemberMutationOptions(options));
+    }
 
 export const getGetOfficeAlertsUrl = (params?: GetOfficeAlertsParams,) => {
   const normalizedParams = new URLSearchParams();

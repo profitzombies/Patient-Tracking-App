@@ -34,6 +34,11 @@ export const AUDIT_ACTIONS = [
   "patient_medication_added",
   "patient_medication_updated",
   "patient_medication_stopped",
+  "patient_group_created",
+  "patient_group_renamed",
+  "patient_group_deleted",
+  "patient_group_member_added",
+  "patient_group_member_removed",
   "provider_account_created",
   "provider_account_updated",
   "provider_welcome_resent",
@@ -172,6 +177,7 @@ export const AUDIT_METADATA_KEYS = [
   "reportId", "conversationId", "photos",
   "choice", "patients", "sessions", "sealed", "held", "destroyed", "retainUntil",
   "lifetime", "endsAt", "restart", "plan", "priceCentsOverride", "paidThrough", "amountCents",
+  "groupId", "patientId",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -194,6 +200,11 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_medication_added",
   "patient_medication_updated",
   "patient_medication_stopped",
+  "patient_group_created",
+  "patient_group_renamed",
+  "patient_group_deleted",
+  "patient_group_member_added",
+  "patient_group_member_removed",
   "provider_account_created",
   "provider_account_updated",
   "office_policy_override_updated",
@@ -373,6 +384,7 @@ function personName(row: Record<string, unknown>): string {
 const TARGET_SOURCES: Record<string, { table: string; select: string }> = {
   patient: { table: "patients", select: "id,first_name,last_name,name" },
   patient_follow_up: { table: "patients", select: "id,first_name,last_name,name" },
+  patient_group: { table: "patient_groups", select: "id,name" },
   patient_chat_conversation: { table: "patients", select: "id,first_name,last_name,name" },
   team_member: { table: "team_members", select: "id,name" },
   hq_member: { table: "hq_memberships", select: "id,display_name" },
@@ -465,6 +477,7 @@ const ACTOR_KIND_LABEL: Record<string, string> = {
 const TARGET_KIND_LABEL: Record<string, string> = {
   patient: "Patient",
   patient_follow_up: "Patient follow-up",
+  patient_group: "Patient group",
   patient_chat_conversation: "Patient conversation",
   team_member: "Teammate",
   hq_member: "HQ member",

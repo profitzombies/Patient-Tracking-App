@@ -10,6 +10,8 @@ import type { OfficePatientRecordPatientIdentity } from './officePatientRecordPa
 import type { PatientProgram } from './patientProgram';
 
 export type OfficePatientRecordPatient = {
+  /** Ids of the office's patient groups this patient belongs to. */
+  groupIds: string[];
   identity: OfficePatientRecordPatientIdentity;
   program: PatientProgram;
   closure: OfficePatientRecordPatientClosure;

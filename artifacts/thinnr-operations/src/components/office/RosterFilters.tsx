@@ -34,6 +34,8 @@ import {
   encodeCondition,
   fieldDefinition,
   isCompleteCondition,
+  optionsForField,
+  type DynamicFieldOptions,
   type FieldOption,
   type FilterCondition,
   type FilterField,
@@ -95,9 +97,10 @@ export function RosterQuickSets({ sets, activeId, onSelect, onRemove }: {
 // Chips
 // ---------------------------------------------------------------------------
 
-export function RosterFilterChips({ conditions, programOptions, onRemove, onClearAll }: {
+export function RosterFilterChips({ conditions, options, onRemove, onClearAll }: {
   conditions: readonly FilterCondition[];
-  programOptions: readonly FieldOption[];
+  /** Runtime enum options (programs, groups) for chip text. */
+  options: DynamicFieldOptions;
   onRemove: (index: number) => void;
   onClearAll: () => void;
 }) {
@@ -106,7 +109,7 @@ export function RosterFilterChips({ conditions, programOptions, onRemove, onClea
     <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5" data-testid="roster-filter-chips">
       <ul aria-label="Active filters" className="contents">
         {conditions.map((condition, index) => {
-          const text = describeCondition(condition, programOptions);
+          const text = describeCondition(condition, options);
           return (
             <li key={`${encodeCondition(condition)}-${index}`} className="contents">
               <Badge variant="outline" className="h-7 gap-1 rounded-full border-accent-border bg-accent pl-2.5 pr-1 text-[11px] font-semibold text-primary" data-testid={`filter-chip-${index}`}>
@@ -315,17 +318,20 @@ function RangePickerButton({ label, value, onChange, testId }: {
   );
 }
 
-function ValueEditor({ index, condition, programOptions, onChange }: {
+function ValueEditor({ index, condition, dynamicOptions, onChange }: {
   index: number;
   condition: FilterCondition;
-  programOptions: readonly FieldOption[];
+  dynamicOptions: DynamicFieldOptions;
   onChange: (value: string) => void;
 }) {
   const field = fieldDefinition(condition.field);
   const label = `Value for filter ${index + 1}`;
   const testId = `filter-value-${index}`;
   if (field.kind === 'enum' || field.kind === 'boolean') {
-    const options = condition.field === 'program' ? programOptions : field.options ?? [];
+    const options = optionsForField(condition.field, dynamicOptions);
+    if (condition.field === 'group' && options.length === 0) {
+      return <p className="flex h-9 items-center text-xs text-muted-foreground" data-testid={testId}>No groups yet — create one from the Groups button.</p>;
+    }
     if (options.length <= 3) {
       return (
         <Select value={condition.value || undefined} onValueChange={onChange}>
@@ -389,10 +395,10 @@ function carriedValue(field: FilterField, previous: FilterOperator, next: Filter
   return shape(previous) === shape(next) ? value : '';
 }
 
-function BuilderPanel({ draft, setDraft, programOptions, onClearAll, onSaveQuickSet, onDone, matchCount }: {
+function BuilderPanel({ draft, setDraft, options, onClearAll, onSaveQuickSet, onDone, matchCount }: {
   draft: FilterCondition[];
   setDraft: (next: FilterCondition[]) => void;
-  programOptions: readonly FieldOption[];
+  options: DynamicFieldOptions;
   onClearAll: () => void;
   onSaveQuickSet: (name: string) => void;
   onDone: () => void;
@@ -459,7 +465,7 @@ function BuilderPanel({ draft, setDraft, programOptions, onClearAll, onSaveQuick
                 </SelectContent>
               </Select>
               <div className="col-span-2 min-w-0 sm:col-span-1">
-                <ValueEditor index={index} condition={condition} programOptions={programOptions} onChange={(value) => update(index, { ...condition, value })} />
+                <ValueEditor index={index} condition={condition} dynamicOptions={options} onChange={(value) => update(index, { ...condition, value })} />
               </div>
               <button
                 type="button"
@@ -532,10 +538,11 @@ function BuilderPanel({ draft, setDraft, programOptions, onClearAll, onSaveQuick
   );
 }
 
-export function RosterFilterButton({ applied, onApply, programOptions, onSaveQuickSet, matchCount }: {
+export function RosterFilterButton({ applied, onApply, options, onSaveQuickSet, matchCount }: {
   applied: readonly FilterCondition[];
   onApply: (conditions: FilterCondition[]) => void;
-  programOptions: readonly FieldOption[];
+  /** Runtime enum options (programs the office runs, groups it defined). */
+  options: DynamicFieldOptions;
   onSaveQuickSet: (name: string) => void;
   matchCount: number;
 }) {
@@ -582,7 +589,7 @@ export function RosterFilterButton({ applied, onApply, programOptions, onSaveQui
     <BuilderPanel
       draft={draft}
       setDraft={setDraft}
-      programOptions={programOptions}
+      options={options}
       onClearAll={() => setDraft([])}
       onSaveQuickSet={onSaveQuickSet}
       onDone={() => setOpen(false)}

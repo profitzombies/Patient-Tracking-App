@@ -13,3 +13,5 @@ The detailed durable lessons remain in the original topic pages:
 - [Office offboarding live proof](office-offboarding-live-proof.md)
 - [Office bundle live proof](office-bundle-live-proof.md)
 - [Patient edit history live proof](patient-edit-history-live-proof.md)
+- [Office patient groups live proof](patient-groups.md)
+

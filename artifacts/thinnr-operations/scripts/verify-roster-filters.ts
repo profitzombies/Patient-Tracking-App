@@ -8,6 +8,8 @@
  */
 import assert from 'node:assert/strict';
 import {
+  EMPTY_DYNAMIC_OPTIONS,
+  FILTER_FIELDS,
   activeQuickSet,
   builtInQuickSets,
   decodeCondition,
@@ -18,8 +20,10 @@ import {
   loadCustomQuickSets,
   matchesAllConditions,
   matchesCondition,
+  optionsForField,
   parseRosterView,
   programDayOn,
+  pruneUnknownGroupConditions,
   removeCustomQuickSet,
   saveCustomQuickSet,
   serializeRosterView,
@@ -48,6 +52,7 @@ const base: RosterFilterRow = {
   lastLogDate: '2026-09-15',
   loggingLapsed: true,
   attentionReasons: ['logging_lapsed'],
+  groupIds: ['grp_mjh'],
 };
 
 const invited: RosterFilterRow = {
@@ -55,7 +60,7 @@ const invited: RosterFilterRow = {
   closure: null,
   joinDate: '2026-09-16', programStartDate: null, startingWeight: null, currentWeight: null,
   spentCents: 0, lastPaidDate: null, activeSubscription: false, lastActivityDate: null,
-  lastLogDate: null, loggingLapsed: null, attentionReasons: [],
+  lastLogDate: null, loggingLapsed: null, attentionReasons: [], groupIds: [],
 };
 
 const unknownSpend: RosterFilterRow = { ...base, spentCents: null, lastPaidDate: null, activeSubscription: null };
@@ -258,6 +263,59 @@ section('built-in quick sets and active detection', () => {
   assert.equal(describeCondition(c('spent', 'gt', '500')), 'Total spent ($) more than $500');
   assert.equal(describeCondition(c('join_date', 'in_last', '30')), 'Join date in the last 30 days');
   assert.equal(describeCondition(c('program', 'is', 'glp1')), 'Program is GLP-1 Support');
+});
+
+section('group is / is not — dynamic options, URL, prune, chips', () => {
+  const groups = [{ value: 'grp_mjh', label: 'MJH' }, { value: 'grp_tue', label: 'Tuesday clinic' }];
+  const field = FILTER_FIELDS.find((definition) => definition.key === 'group')!;
+  assert.equal(field.kind, 'enum');
+  assert.deepEqual([...field.operators], ['is', 'is_not']);
+  assert.deepEqual(optionsForField('group', EMPTY_DYNAMIC_OPTIONS), [], 'no static options');
+  assert.deepEqual(optionsForField('group', { group: groups }), groups, 'options come from the office list');
+  assert.deepEqual(optionsForField('status'), optionsForField('status', { group: groups }), 'static fields ignore dynamic options');
+
+  hit(base, c('group', 'is', 'grp_mjh'), true, 'member');
+  hit(base, c('group', 'is', 'grp_tue'), false, 'other group');
+  hit(base, c('group', 'is_not', 'grp_tue'), true, 'is_not another group');
+  hit(base, c('group', 'is_not', 'grp_mjh'), false, 'is_not own group');
+  hit(invited, c('group', 'is', 'grp_mjh'), false, 'no groups never is');
+  hit(invited, c('group', 'is_not', 'grp_mjh'), true, 'membership is always known: no groups is_not any group');
+  hit({ ...base, groupIds: ['grp_tue', 'grp_mjh'] }, c('group', 'is', 'grp_mjh'), true, 'any of several');
+
+  // Stacks with every other condition under AND.
+  assert.equal(matchesAllConditions(base, [c('group', 'is', 'grp_mjh'), c('status', 'is', 'active'), c('spent', 'gt', '500')], TODAY), true);
+  assert.equal(matchesAllConditions(base, [c('group', 'is', 'grp_mjh'), c('status', 'is', 'paused')], TODAY), false);
+
+  // URL codec.
+  assert.equal(encodeCondition(c('group', 'is', 'grp_mjh')), 'group:is:grp_mjh');
+  assert.deepEqual(decodeCondition('group:is:grp_mjh'), c('group', 'is', 'grp_mjh'));
+  assert.deepEqual(decodeCondition('group:is_not:grp_tue'), c('group', 'is_not', 'grp_tue'));
+  assert.equal(decodeCondition('group:gt:grp_mjh'), null, 'numeric operator rejected');
+  assert.equal(decodeCondition('group:is:'), null, 'empty group id rejected');
+  const view = parseRosterView('?f=group:is:grp_mjh&f=status:is:active');
+  assert.deepEqual(view.conditions, [c('group', 'is', 'grp_mjh'), c('status', 'is', 'active')]);
+  assert.equal(serializeRosterView('', view), '?f=group%3Ais%3Agrp_mjh&f=status%3Ais%3Aactive');
+  assert.equal(isCompleteCondition(c('group', 'is', 'grp_mjh')), true);
+  assert.equal(isCompleteCondition(c('group', 'is', '')), false);
+
+  // Quick sets round-trip the group condition.
+  const memory = new Map<string, string>();
+  const storage: QuickSetStorage = { getItem: (key) => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value) };
+  const saved = saveCustomQuickSet(storage, 'MJH cohort', view);
+  assert.deepEqual(loadCustomQuickSets(storage)[0].conditions, view.conditions);
+  assert.equal(activeQuickSet([...builtInQuickSets(TODAY), ...saved], view)?.id, saved[0].id);
+
+  // A deleted group's condition is dropped as invalid, other conditions kept.
+  const known = new Set(['grp_tue']);
+  assert.deepEqual(pruneUnknownGroupConditions(view.conditions, known), [c('status', 'is', 'active')]);
+  assert.deepEqual(pruneUnknownGroupConditions(view.conditions, new Set(['grp_mjh'])), view.conditions, 'known group kept');
+  assert.deepEqual(pruneUnknownGroupConditions([c('spent', 'gt', '1')], new Set()), [c('spent', 'gt', '1')], 'non-group conditions untouched');
+
+  // Chips name the group.
+  assert.equal(describeCondition(c('group', 'is', 'grp_mjh'), { group: groups }), 'Group is MJH');
+  assert.equal(describeCondition(c('group', 'is_not', 'grp_tue'), { group: groups }), 'Group is not Tuesday clinic');
+  assert.equal(describeCondition(c('group', 'is', 'grp_gone'), { group: groups }), 'Group is a removed group');
+  assert.equal(describeCondition(c('program', 'is', 'glp1'), { group: groups }), 'Program is GLP-1 Support', 'program labels still resolve');
 });
 
 section('custom quick sets persist in the given storage', () => {

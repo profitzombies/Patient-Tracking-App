@@ -26,6 +26,7 @@ const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/
 const BILLING_CARTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261022000200_billing_carts_privacy.sql");
 const LEGAL_HOLDS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_legal_holds.sql");
 const ACCOUNT_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000000_account_closure.sql");
+const PATIENT_GROUPS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000000_patient_groups.sql");
 const CHAT_FLAGS_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000001_coach_chat_flags_closure.sql");
 const REWARDS_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000002_patient_rewards_closure.sql");
 
@@ -204,10 +205,11 @@ function seedPatients() {
       public.patient_chat_read_markers, public.patient_chat_messages,
       public.patient_chat_conversations, public.patient_media, public.patient_diary_entries, public.patient_flags,
       public.patient_push_tokens, public.patient_notifications, public.office_attention_digests, public.staff_notifications,
-      public.patient_consents, public.patient_data_exports,
+      public.patient_consents, public.patient_data_exports, public.patient_group_members, public.patient_groups,
       public.patient_deletion_requests, public.patient_tombstones, public.analytics_events, public.patients cascade;
     insert into public.providers (provider_id) values ('office-1') on conflict do nothing;
     insert into public.billing_products (id, name) values ('${uuid(800)}', 'Product');
+    insert into public.patient_groups (id, provider_id, name) values ('${uuid(850)}', 'office-1', 'MJH');
     insert into public.patients (id, provider_id, auth_user_id, first_name, last_name, email, activation_status, program_id, program_start_date, created_at)
       values ('${PATIENT}', 'office-1', '${AUTH_USER}', 'Pat', 'Example', 'pat@example.com', 'activated', 'thinnr', '2026-06-01', '2026-05-20'),
              ('${OTHER}', 'office-1', null, 'Other', 'Person', 'other@example.com', 'invited', 'glp', null, now());
@@ -264,6 +266,7 @@ function seedEverything() {
       insert into public.patient_consents (patient_id, policy_version, terms_accepted, privacy_accepted, health_data_accepted, photo_analysis_accepted)
         values ('${pid}', '2026-09-01', true, true, true, false);
       insert into public.patient_data_exports (patient_id, status, expires_at) values ('${pid}', 'ready', now() + interval '1 day');
+      insert into public.patient_group_members (group_id, patient_id, provider_id) values ('${uuid(850)}', '${pid}', 'office-1');
       insert into public.analytics_events (kind, patient_id, provider_id) values ('diary_logged', '${pid}', 'office-1'), ('check_in', '${pid}', 'office-1');
     `);
   }
@@ -304,7 +307,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     );
     const schemaFile = path.join(dir, "schema.sql");
     writeFileSync(schemaFile, SCHEMA);
-    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION, BILLING_CARTS_PRIVACY_MIGRATION]) {
+    for (const file of [schemaFile, MIGRATION, BILLING_PRIVACY_MIGRATION, STAFF_ALERTS_PRIVACY_MIGRATION, BILLING_CARTS_PRIVACY_MIGRATION, PATIENT_GROUPS_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((a) => a !== "-At"), "-f", file], { stdio: "pipe", encoding: "utf8" });
     }
   }, 60_000);
@@ -425,7 +428,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
       "patient_chat_conversations", "patient_media", "patient_flags", "billing_orders", "billing_subscriptions",
       "billing_payers", "billing_payment_links", "billing_carts", "analytics_events",
       "patient_bloodwork_reports", "patient_bloodwork_files", "patient_bloodwork_results", "patient_bloodwork_corrections",
-      "patient_edit_history",
+      "patient_edit_history", "patient_group_members",
     ]));
     for (const table of tables) expect(countFor(table, PATIENT), table).toBeGreaterThanOrEqual(table === "patient_deletion_requests" ? 0 : 1);
 
@@ -447,6 +450,9 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect(purgedTables.patient_diary_entries).toBe(2);
     // Prior-value history is patient-owned clinical data: it goes with the record.
     expect(purgedTables.patient_edit_history).toBe(1);
+    // Office-defined group memberships go with the patient; the group itself stays for the office.
+    expect(purgedTables.patient_group_members).toBe(1);
+    expect(Number(scalar<string>(`select count(*) from public.patient_groups where id = '${uuid(850)}'`))).toBe(1);
     expect(purgedTables.billing_orders_anonymized).toBe(1);
     expect(purgedTables.billing_payers_anonymized).toBe(1);
     expect(purgedTables.billing_carts).toBe(1);

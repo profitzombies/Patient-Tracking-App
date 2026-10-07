@@ -470,7 +470,7 @@ router.get("/office/roster", async (req, res) => {
     const patientVisibility = includeArchived
       ? "archived_into_patient_id=is.null"
       : "archived_at=is.null";
-    const [rows, archivedRows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient] = await Promise.all([
+    const [rows, archivedRows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient, groupMembers] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&${patientVisibility}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -503,8 +503,17 @@ router.get("/office/roster", async (req, res) => {
         req.log?.warn({ err: error }, "roster spend aggregate unavailable");
         return null;
       }),
+      // Office-defined group memberships ride the roster row so the client
+      // can render tags and filter by group without a per-row fetch.
+      supabaseAdmin("GET", `/rest/v1/patient_group_members?provider_id=eq.${enc(scope.providerId)}&select=group_id,patient_id,added_at&order=added_at.asc&limit=10000`),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
+    if (groupMembers.status >= 300 || !Array.isArray(groupMembers.json)) throw new Error(`group membership roster load failed (${groupMembers.status})`);
+    const groupIdsByPatient = new Map<string, string[]>();
+    for (const member of groupMembers.json as OperationalRow[]) {
+      const id = String(member.patient_id);
+      groupIdsByPatient.set(id, [...(groupIdsByPatient.get(id) ?? []), String(member.group_id)]);
+    }
     if (archivedRows.status >= 300 || !Array.isArray(archivedRows.json)) {
       throw new Error(`archived roster count failed (${archivedRows.status})`);
     }
@@ -558,6 +567,7 @@ router.get("/office/roster", async (req, res) => {
         // Lifetime paid / refunded / net cents and the last paid moment at
         // this office; a patient with no paid order is a real zero.
         spend: spendByPatient ? spendByPatient.get(String(row.id)) ?? ZERO_SPEND : null,
+        groupIds: groupIdsByPatient.get(String(row.id)) ?? [],
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted
@@ -646,7 +656,7 @@ router.get("/office/patients/:id", async (req, res) => {
     }
 
     const pid = enc(patientId);
-    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion] =
+    const [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion, groupMemberships] =
       await Promise.all([
         supabaseAdmin(
           "GET",
@@ -711,8 +721,12 @@ router.get("/office/patients/:id", async (req, res) => {
           "GET",
           `/rest/v1/patient_deletion_requests?patient_id=eq.${pid}&status=in.(pending,held)&select=patient_id,requested_at,purge_after&limit=1`,
         ),
+        supabaseAdmin(
+          "GET",
+          `/rest/v1/patient_group_members?patient_id=eq.${pid}&provider_id=eq.${enc(scope.providerId)}&select=group_id,added_at&order=added_at.asc&limit=500`,
+        ),
       ]);
-    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion];
+    const results = [entries, water, targets, prefs, foods, recipes, photos, checkIns, flags, notes, staffWeights, measurementVisits, pendingDeletion, groupMemberships];
     if (results.some((result) => result.status >= 300 || !Array.isArray(result.json))) {
       throw new Error("patient record history load failed");
     }
@@ -853,6 +867,7 @@ router.get("/office/patients/:id", async (req, res) => {
         closure: patientDto(patient).closure,
         version: recordVersion(patient),
         deletion: recordDeletionDto(patient, (pendingDeletion.json as OperationalRow[])[0]),
+        groupIds: (groupMemberships.json as OperationalRow[]).map((row) => String(row.group_id)),
       },
       providerNotes,
       staffWeights: staffWeightList,

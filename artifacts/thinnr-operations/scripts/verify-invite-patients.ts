@@ -231,7 +231,7 @@ async function main() {
     // Live write controls exist now, but only behind the shared edit gate —
     // the live view never touches the demo session or synthetic anchors.
     const liveSection = detailSource.match(/function LivePatientDetail[\s\S]*?export default function PatientDetail/)?.[0] ?? '';
-    assert.match(liveSection, /useCanEditLiveRecord\(\)/);
+    assert.match(liveSection, /useCanEditLiveRecord\(/);
     assert.doesNotMatch(liveSection, /addWeightEntry|usePatientSession|ANCHOR_ISO|Synthetic record/);
   });
 

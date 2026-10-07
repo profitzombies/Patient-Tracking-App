@@ -156,6 +156,7 @@ beforeEach(() => {
     }
     if (url.pathname === "/auth/v1/admin/users") return response({ users: [] });
     if (url.pathname === "/rest/v1/practice_launch") return response([{required:false,version:0,completed_at:null,setup_override_at:"2026-01-01T00:00:00Z"}]);
+    if (url.pathname === "/rest/v1/patient_group_members") return response([]);
     if (url.pathname === "/rest/v1/providers") return response(matching(providers, url.searchParams, ["auth_user_id", "provider_id", "email"]));
     if (url.pathname === "/rest/v1/team_members") {
       if (method === "GET") return response(matching(teamMembers, url.searchParams, ["auth_user_id", "provider_id", "id", "email"]));

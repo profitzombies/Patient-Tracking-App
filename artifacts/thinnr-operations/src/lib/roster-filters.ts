@@ -49,6 +49,8 @@ export interface RosterFilterRow {
   /** null when the activity signals did not load (never treated as lapsed or not lapsed). */
   loggingLapsed: boolean | null;
   attentionReasons: readonly string[];
+  /** Office-defined group ids the patient belongs to (always known; empty when none). */
+  groupIds: readonly string[];
 }
 
 export type FilterField =
@@ -57,7 +59,7 @@ export type FilterField =
   | 'weight_lost_lb' | 'weight_lost_pct' | 'current_weight'
   | 'spent' | 'last_purchase' | 'active_subscription'
   | 'last_activity' | 'last_log' | 'logging_lapsed'
-  | 'reason';
+  | 'reason' | 'group';
 
 export type FilterOperator =
   | 'is' | 'is_not'
@@ -82,12 +84,32 @@ export interface FieldOption {
   label: string;
 }
 
+/**
+ * Enum options that are only known at runtime: the programs an office runs
+ * and the patient groups it has defined. Threaded through the builder, the
+ * chips and the descriptions the same way, so the demo and the live roster
+ * render identically.
+ */
+export interface DynamicFieldOptions {
+  program: readonly FieldOption[];
+  group: readonly FieldOption[];
+}
+
+export const EMPTY_DYNAMIC_OPTIONS: DynamicFieldOptions = { program: [], group: [] };
+
+/** Options for an enum/boolean field, static or dynamic. */
+export function optionsForField(field: FilterField, dynamic: Partial<DynamicFieldOptions> = {}): readonly FieldOption[] {
+  if (field === 'program') return dynamic.program ?? [];
+  if (field === 'group') return dynamic.group ?? [];
+  return fieldDefinition(field).options ?? [];
+}
+
 export interface FieldDefinition {
   key: FilterField;
   label: string;
   kind: FieldKind;
   operators: readonly FilterOperator[];
-  /** Static options for enum fields (program options come from the roster). */
+  /** Static options for enum fields (program and group options come from the roster — see DynamicFieldOptions). */
   options?: readonly FieldOption[];
   /** Unit shown next to numeric inputs. */
   unit?: string;
@@ -154,6 +176,7 @@ export const FILTER_FIELDS: readonly FieldDefinition[] = [
   { key: 'last_log', label: 'Last log', kind: 'date', operators: RECENCY_OPERATORS },
   { key: 'logging_lapsed', label: 'Logging lapsed', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
   { key: 'reason', label: 'Attention reason', kind: 'enum', operators: ['is'], options: REASON_OPTIONS },
+  { key: 'group', label: 'Group', kind: 'enum', operators: ['is', 'is_not'] },
 ];
 
 const FIELD_BY_KEY = new Map(FILTER_FIELDS.map((field) => [field.key, field]));
@@ -350,6 +373,10 @@ export function matchesCondition(row: RosterFilterRow, condition: FilterConditio
     }
     case 'reason':
       return row.attentionReasons.includes(value);
+    case 'group': {
+      const hit = row.groupIds.includes(value);
+      return operator === 'is_not' ? !hit : hit;
+    }
     case 'active_subscription':
       return row.activeSubscription != null && row.activeSubscription === (value === 'yes');
     case 'logging_lapsed':
@@ -394,6 +421,16 @@ export function completeConditions(conditions: readonly FilterCondition[]): Filt
   return conditions.filter(isCompleteCondition);
 }
 
+/**
+ * Drop group conditions that reference a group the office no longer has
+ * (deleted since the link or quick set was saved). Only call this once the
+ * group list is actually known — pass the live or demo ids, never an empty
+ * set while loading — so a slow fetch cannot strip a valid filter.
+ */
+export function pruneUnknownGroupConditions(conditions: readonly FilterCondition[], knownGroupIds: ReadonlySet<string>): FilterCondition[] {
+  return conditions.filter((condition) => condition.field !== 'group' || knownGroupIds.has(condition.value));
+}
+
 // ---------------------------------------------------------------------------
 // Display
 // ---------------------------------------------------------------------------
@@ -413,12 +450,16 @@ function formatNumber(raw: string, field: FieldDefinition): string {
 }
 
 /** Human text for the value part of a chip, e.g. "$500", "Sep 1, 2026 – Sep 18, 2026", "30 days". */
-export function describeConditionValue(condition: FilterCondition, programOptions: readonly FieldOption[] = []): string {
+export function describeConditionValue(condition: FilterCondition, dynamic: Partial<DynamicFieldOptions> = {}): string {
   const field = fieldDefinition(condition.field);
   const { operator, value } = condition;
   if (field.kind === 'enum' || field.kind === 'boolean') {
-    const options = condition.field === 'program' ? programOptions : field.options ?? [];
-    return options.find((option) => option.value === value)?.label ?? (condition.field === 'program' ? programLabel(value) : value);
+    const options = optionsForField(condition.field, dynamic);
+    const label = options.find((option) => option.value === value)?.label;
+    if (label != null) return label;
+    if (condition.field === 'program') return programLabel(value);
+    if (condition.field === 'group') return 'a removed group';
+    return value;
   }
   if (operator === 'in_last') {
     const days = parseNumber(value);
@@ -435,9 +476,9 @@ export function describeConditionValue(condition: FilterCondition, programOption
 }
 
 /** Full sentence for one chip: "Total spent more than $500". */
-export function describeCondition(condition: FilterCondition, programOptions: readonly FieldOption[] = []): string {
+export function describeCondition(condition: FilterCondition, dynamic: Partial<DynamicFieldOptions> = {}): string {
   const field = fieldDefinition(condition.field);
-  return `${field.label} ${OPERATOR_SPOKEN[condition.operator]} ${describeConditionValue(condition, programOptions)}`;
+  return `${field.label} ${OPERATOR_SPOKEN[condition.operator]} ${describeConditionValue(condition, dynamic)}`;
 }
 
 // ---------------------------------------------------------------------------

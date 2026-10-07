@@ -3429,6 +3429,8 @@ export interface OfficeRosterPatient {
   verified: boolean;
   /** @nullable */
   createdAt: string | null;
+  /** Ids of the office's patient groups this patient belongs to (see /office/patient-groups). */
+  groupIds: string[];
   closure: OfficeRosterPatientClosure;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;
@@ -3918,6 +3920,64 @@ export interface OfficeRosterOperationalSummary {
   asOf: string;
 }
 
+export interface PatientGroup {
+  id: string;
+  name: string;
+  /** @nullable */
+  description: string | null;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PatientGroupListResult {
+  office: OfficeSummary;
+  /** False for HQ drill-in, which may read groups but never change them. */
+  canEdit: boolean;
+  groups: PatientGroup[];
+}
+
+export interface PatientGroupInput {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  description?: string | null;
+}
+
+export interface PatientGroupUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name?: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  description?: string | null;
+}
+
+export interface PatientGroupResult {
+  group: PatientGroup;
+}
+
+export type PatientGroupMembershipResultMembership = {
+  groupId: string;
+  patientId: string;
+  added?: boolean;
+  removed?: boolean;
+};
+
+export interface PatientGroupMembershipResult {
+  membership: PatientGroupMembershipResultMembership;
+}
+
 export interface OfficeRosterResult {
   office: OfficeSummary;
   patients: OfficeRosterPatient[];
@@ -4076,6 +4136,8 @@ export type OfficePatientRecordPatientClosure = {
 } | null;
 
 export type OfficePatientRecordPatient = {
+  /** Ids of the office's patient groups this patient belongs to. */
+  groupIds: string[];
   identity: OfficePatientRecordPatientIdentity;
   program: PatientProgram;
   closure: OfficePatientRecordPatientClosure;
@@ -5313,6 +5375,53 @@ offset?: number;
 };
 
 export type GetOfficeRosterParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ListOfficePatientGroupsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type CreateOfficePatientGroupParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type UpdateOfficePatientGroupParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type DeleteOfficePatientGroupParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type DeleteOfficePatientGroup200 = {
+  deleted: boolean;
+  memberCount: number;
+};
+
+export type AddOfficePatientGroupMemberParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type RemoveOfficePatientGroupMemberParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped
  */

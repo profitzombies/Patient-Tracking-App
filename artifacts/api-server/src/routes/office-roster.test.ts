@@ -63,6 +63,7 @@ let patchFailures = 0;
 let operationalFacts: Row[] | null = null;
 let activityRequests: Array<{ p_provider_id: string; p_at: string }> = [];
 let operationalFollowUps: Row[] = [];
+let groupMembers: Row[] = [];
 let outreachStates: Row[] = [];
 let deletionRequests: Row[] = [];
 let tombstones: Row[] = [];
@@ -187,6 +188,7 @@ beforeEach(() => {
   operationalFacts = null;
   activityRequests = [];
   operationalFollowUps = [];
+  groupMembers = [];
   outreachStates = [];
   deletionRequests = [];
   tombstones = [];
@@ -284,6 +286,11 @@ beforeEach(() => {
     if (url.pathname === "/rest/v1/patient_deletion_requests" || url.pathname === "/rest/v1/patient_tombstones") {
       const source = url.pathname.endsWith("requests") ? deletionRequests : tombstones;
       return response(source.filter((row) => [...url.searchParams.entries()].every(([key, raw]) => !raw.startsWith("eq.") || String(row[key]) === raw.slice(3))));
+    }
+    if (url.pathname === "/rest/v1/patient_group_members") {
+      const providerId = url.searchParams.get("provider_id")?.replace("eq.", "");
+      const patientId = url.searchParams.get("patient_id")?.replace("eq.", "");
+      return response(groupMembers.filter((row) => (!providerId || row.provider_id === providerId) && (!patientId || row.patient_id === patientId)));
     }
     if (url.pathname === "/rest/v1/patient_operational_follow_ups") {
       const providerId = url.searchParams.get("provider_id")?.replace("eq.", "");
@@ -652,6 +659,20 @@ describe("office scope", () => {
     expect(JSON.stringify(followUps)).not.toContain("secret");
   });
 
+  it("carries each patient's office group ids on the roster row and the record, scoped to the office", async () => {
+    groupMembers = [
+      { provider_id: "office-1", patient_id: "pat-own", group_id: "grp-mjh", added_at: "2026-02-01T00:00:00Z" },
+      { provider_id: "office-1", patient_id: "pat-own", group_id: "grp-tue", added_at: "2026-02-02T00:00:00Z" },
+      { provider_id: "office-2", patient_id: "pat-other", group_id: "grp-other", added_at: "2026-02-02T00:00:00Z" },
+    ];
+    const roster = await (await api("/office/roster", "provider-token")).json() as { patients: Array<{ id: string; groupIds: string[] }> };
+    expect(roster.patients.find((row) => row.id === "pat-own")?.groupIds).toEqual(["grp-mjh", "grp-tue"]);
+    expect(roster.patients.every((row) => Array.isArray(row.groupIds))).toBe(true);
+    expect(roster.patients.filter((row) => row.id !== "pat-own").every((row) => row.groupIds.length === 0)).toBe(true);
+    const record = await (await api("/office/patients/pat-own", "provider-token")).json() as { patient: { groupIds: string[] } };
+    expect(record.patient.groupIds).toEqual(["grp-mjh", "grp-tue"]);
+  });
+
   it("returns a zero operational summary for an empty scoped office", async () => {
     patients = patients.filter((patient) => patient.provider_id !== "office-2");
     const res = await api("/office/roster?office=office-2", "hq-token");
@@ -771,6 +792,7 @@ describe("live patient records", () => {
     expect(body.staffWeights).toEqual([]);
     expect(body.bodyMeasurements).toEqual([]);
     expect(body.patient.version).toBeNull();
+    expect(body.patient.groupIds).toEqual([]);
     expect(body.progressPhotos).toEqual([]);
     expect(body.account).toMatchObject({
       favorites: [],

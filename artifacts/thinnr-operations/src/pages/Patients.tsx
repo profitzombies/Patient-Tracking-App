@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { Search, ArrowUpDown, ChevronRight, Check, ShoppingBag, X } from "lucide-react";
@@ -20,10 +20,12 @@ import {
   parseRosterView,
   programDayOn,
   programLabel,
+  pruneUnknownGroupConditions,
   removeCustomQuickSet,
   saveCustomQuickSet,
   serializeRosterView,
   toRosterStatus,
+  type DynamicFieldOptions,
   type FilterCondition,
   type QuickSet,
   type RosterFilterRow,
@@ -37,6 +39,8 @@ import { isAttentionFirst, pinFlaggedFirst, withoutAttentionFirst } from "@/lib/
 import { matchesPhoneQuery } from "@/lib/phone-digits";
 import { usePatientSession } from "@/contexts/patient-session";
 import { useLiveRoster } from "@/hooks/use-live-roster";
+import { usePatientGroups } from "@/hooks/use-patient-groups";
+import { PatientGroupsButton, PatientGroupTags, type GroupRosterEntry } from "@/components/office/PatientGroups";
 import { InvitePatientAction, InvitationChip, officeRosterQueryKey } from "@/components/office/LiveRoster";
 import { BTN_SECONDARY } from "@/components/patient/heritage";
 import { resendInvitation, type OfficePatient, type OutreachRoster } from "@/lib/office-roster";
@@ -254,6 +258,9 @@ export default function Patients() {
   // HQ drill-in on an explicitly scoped account. Demo personas never call
   // the live endpoints, so the seeded demo stays untouched.
   const { data: liveRosterData, isLoading: liveRosterIsLoading, isError: liveRosterIsError, error: liveRosterError, liveEnabled, liveOffice } = useLiveRoster(archivedRequested);
+  // Office-defined patient groups: the live office list (or the seeded demo
+  // groups), chosen by the same auth state as the roster itself.
+  const groupsApi = usePatientGroups({ live: liveEnabled, office: liveOffice });
   // Base-aware navigate: resolves against the mount point exactly like the
   // roster's <Link>s, so row clicks stay inside the HQ drill-in scope too.
   // Attention-first ordering lives in the URL only (`?attention=first`, set
@@ -398,6 +405,7 @@ export default function Patients() {
           // The server's own lapsed verdict; unknown when the aggregate had no row.
           loggingLapsed: activity.kind === 'unknown' ? null : isLiveLapsed(activity),
           attentionReasons: p.operational?.reasons ?? [],
+          groupIds: p.groupIds ?? [],
         };
 
         return {
@@ -457,6 +465,7 @@ export default function Patients() {
         lastLogDate: stats.daysSinceLastLog == null ? null : addDaysToKey(DEMO_TODAY_KEY, -stats.daysSinceLastLog),
         loggingLapsed: isLapsed(stats),
         attentionReasons: [],
+        groupIds: groupsApi.demoGroupIdsByPatient.get(p.id) ?? [],
       };
       return {
         id: p.id,
@@ -487,13 +496,29 @@ export default function Patients() {
         closure: p.closure ?? null,
       };
     });
-  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoSpend, demoFlagged, today]);
+  }, [liveEnabled, liveRosterData, patients, providers, getCurrentWeight, statsById, demoSubscriptionActive, demoSpend, demoFlagged, today, groupsApi.demoGroupIdsByPatient]);
 
-  // Program options come from the roster itself (whatever programs the office runs).
-  const programOptions = useMemo(() => {
+  // Program options come from the roster itself (whatever programs the office
+  // runs); group options from the office's group list.
+  const dynamicOptions = useMemo<DynamicFieldOptions>(() => {
     const ids = Array.from(new Set(unifiedRows.map((row) => row.filterRow.programId).filter((id): id is string => id != null))).sort();
-    return ids.map((id) => ({ value: id, label: programLabel(id) }));
-  }, [unifiedRows]);
+    return { program: ids.map((id) => ({ value: id, label: programLabel(id) })), group: groupsApi.options };
+  }, [unifiedRows, groupsApi.options]);
+
+  // A filter naming a group that no longer exists is dropped from the URL as
+  // invalid instead of silently matching nothing — but only once the group
+  // list is actually known (never while it is still loading or errored).
+  useEffect(() => {
+    if (!groupsApi.ready) return;
+    const pruned = pruneUnknownGroupConditions(conditions, new Set(groupsApi.groups.map((group) => group.id)));
+    if (pruned.length !== conditions.length) setView({ conditions: pruned, sort: view.sort });
+  }, [groupsApi.ready, groupsApi.groups, conditions, setView, view.sort]);
+
+  // What the Groups manager needs from each roster row.
+  const groupRoster = useMemo<GroupRosterEntry[]>(
+    () => unifiedRows.filter((row) => row.closure == null).map((row) => ({ id: row.id, name: row.name, email: row.email ?? null, groupIds: row.filterRow.groupIds })),
+    [unifiedRows],
+  );
 
   const filteredAndSortedPatients = useMemo(() => {
     let result = unifiedRows.filter(p => {
@@ -607,10 +632,11 @@ export default function Patients() {
                 <X size={12} aria-hidden="true" />
               </button>
             )}
+            <PatientGroupsButton api={groupsApi} roster={groupRoster} />
             <RosterFilterButton
               applied={conditions}
               onApply={setConditions}
-              programOptions={programOptions}
+              options={dynamicOptions}
               onSaveQuickSet={saveQuickSet}
               matchCount={filteredAndSortedPatients.length}
             />
@@ -621,7 +647,7 @@ export default function Patients() {
         <RosterQuickSets sets={quickSets} activeId={currentQuickSet?.id ?? null} onSelect={applyQuickSet} onRemove={removeQuickSet} />
         <RosterFilterChips
           conditions={conditions}
-          programOptions={programOptions}
+          options={dynamicOptions}
           onRemove={(index) => setConditions(conditions.filter((_, i) => i !== index))}
           onClearAll={() => setConditions([])}
         />
@@ -645,6 +671,7 @@ export default function Patients() {
                         {patient.outreachChip && <NudgeChip outreach={patient.outreachChip} />}
                       </span>
                       <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">{patient.providerName}</span>
+                      <PatientGroupTags groupIds={patient.filterRow.groupIds} groups={groupsApi.groups} className="mt-1" />
                     </div>
                   </div>
                   <StatusCell patient={patient} office={liveOffice} align="right" />
@@ -788,6 +815,7 @@ export default function Patients() {
                             {patient.email}
                             {patient.providerName !== '—' && <span> · {patient.providerName}</span>}
                           </span>
+                          <PatientGroupTags groupIds={patient.filterRow.groupIds} groups={groupsApi.groups} className="mt-1" />
                         </div>
                       </div>
                     </td>

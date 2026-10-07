@@ -457,7 +457,9 @@ console.log('roster: demo attention-first');
   const seededFlagged = new Set(buildDemoAttentionItems(MOCK_PATIENTS).map((item) => item.patientId));
   const plain = await renderRoster('/patients');
   const plainIds = tableRowIds(plain.root);
-  check('demo rows expose their record links', plainIds.length === MOCK_PATIENTS.length && !plainIds.includes('?'), `${plainIds.length} rows`);
+  // The default view excludes sealed (closed) charts; those live under Archived.
+  const openDemoPatients = MOCK_PATIENTS.filter((patient) => patient.closure == null).length;
+  check('demo rows expose their record links', plainIds.length === openDemoPatients && !plainIds.includes('?'), `${plainIds.length} rows`);
   plain.renderer.unmount();
   const pinned = await renderRoster('/patients?attention=first');
   const pinnedIds = tableRowIds(pinned.root);

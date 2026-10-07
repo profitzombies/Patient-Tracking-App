@@ -1345,6 +1345,113 @@ paths:
         "401": { description: Missing or invalid staff session }
         "403": { description: Not authorized for provider reads }
         "404": { description: Office unavailable }
+  /office/patient-groups:
+    get:
+      operationId: listOfficePatientGroups
+      tags: [office]
+      summary: List an office's staff-defined patient groups
+      description: >-
+        Operational labels an office invents for its roster (an employer
+        cohort, a clinic day). Provider staff are scoped to their own office;
+        HQ must name an office and sees the list read-only (canEdit false).
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Groups sorted by name with member counts
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupListResult" } } }
+        "401": { description: Missing or invalid staff session }
+        "403": { description: Not authorized for provider reads }
+    post:
+      operationId: createOfficePatientGroup
+      tags: [office]
+      summary: Create a patient group for the office
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatientGroupInput" }
+      responses:
+        "201":
+          description: The new group
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupResult" } } }
+        "400": { description: Name missing or too long }
+        "403": { description: HQ drill-in or a disabled teammate or a locked office }
+        "409": { description: A group with that name (ignoring case) already exists }
+  /office/patient-groups/{groupId}:
+    patch:
+      operationId: updateOfficePatientGroup
+      tags: [office]
+      summary: Rename or re-describe a patient group
+      parameters:
+        - $ref: "#/components/parameters/PatientGroupId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatientGroupUpdateInput" }
+      responses:
+        "200":
+          description: The updated group
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupResult" } } }
+        "403": { description: HQ drill-in or a disabled teammate or a locked office }
+        "404": { description: No group found for this office }
+        "409": { description: A group with that name (ignoring case) already exists }
+    delete:
+      operationId: deleteOfficePatientGroup
+      tags: [office]
+      summary: Delete a patient group and its memberships
+      parameters:
+        - $ref: "#/components/parameters/PatientGroupId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Deleted with how many patients it held
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, memberCount]
+                properties:
+                  deleted: { type: boolean }
+                  memberCount: { type: number }
+        "403": { description: HQ drill-in or a disabled teammate or a locked office }
+        "404": { description: No group found for this office }
+  /office/patient-groups/{groupId}/members/{patientId}:
+    put:
+      operationId: addOfficePatientGroupMember
+      tags: [office]
+      summary: Add an office patient to a group (idempotent)
+      parameters:
+        - $ref: "#/components/parameters/PatientGroupId"
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Already a member
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupMembershipResult" } } }
+        "201":
+          description: Added
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupMembershipResult" } } }
+        "403": { description: HQ drill-in or a disabled teammate or a locked office }
+        "404": { description: No group or active patient record for this office }
+    delete:
+      operationId: removeOfficePatientGroupMember
+      tags: [office]
+      summary: Remove an office patient from a group (idempotent)
+      parameters:
+        - $ref: "#/components/parameters/PatientGroupId"
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200":
+          description: Removed or was not a member
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientGroupMembershipResult" } } }
+        "403": { description: HQ drill-in or a disabled teammate or a locked office }
+        "404": { description: No group found for this office }
   /office/alerts:
     get:
       operationId: getOfficeAlerts
@@ -5336,7 +5443,7 @@ components:
         finalizedAt: { type: ["string", "null"], format: date-time }
     OfficeRosterPatient:
       type: object
-      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, closure, program, invitation, attention, operational]
+      required: [id, name, email, phone, phoneDisplay, activationStatus, verified, createdAt, closure, program, invitation, attention, operational, groupIds]
       properties:
         id: { type: string }
         name: { type: string }
@@ -5346,6 +5453,10 @@ components:
         activationStatus: { type: ["string", "null"] }
         verified: { type: boolean }
         createdAt: { type: ["string", "null"] }
+        groupIds:
+          type: array
+          items: { type: string }
+          description: Ids of the office's patient groups this patient belongs to (see /office/patient-groups).
         closure:
           oneOf:
             - type: "null"
@@ -5796,6 +5907,55 @@ components:
         checkInsOverdue: { type: number }
         loggingLapsed: { type: number }
         asOf: { type: string, format: date }
+    PatientGroup:
+      type: object
+      required: [id, name, description, memberCount, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: ["string", "null"] }
+        memberCount: { type: number }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    PatientGroupListResult:
+      type: object
+      required: [office, canEdit, groups]
+      properties:
+        office: { $ref: "#/components/schemas/OfficeSummary" }
+        canEdit:
+          type: boolean
+          description: False for HQ drill-in, which may read groups but never change them.
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/PatientGroup" }
+    PatientGroupInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: ["string", "null"], maxLength: 200 }
+    PatientGroupUpdateInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: ["string", "null"], maxLength: 200 }
+    PatientGroupResult:
+      type: object
+      required: [group]
+      properties:
+        group: { $ref: "#/components/schemas/PatientGroup" }
+    PatientGroupMembershipResult:
+      type: object
+      required: [membership]
+      properties:
+        membership:
+          type: object
+          required: [groupId, patientId]
+          properties:
+            groupId: { type: string }
+            patientId: { type: string }
+            added: { type: boolean }
+            removed: { type: boolean }
     OfficeRosterResult:
       type: object
       required: [office, patients, summary]
@@ -5918,8 +6078,12 @@ components:
           $ref: "#/components/schemas/PatientActivitySignals"
         patient:
           type: object
-          required: [identity, program, closure]
+          required: [identity, program, closure, groupIds]
           properties:
+            groupIds:
+              type: array
+              items: { type: string }
+              description: Ids of the office's patient groups this patient belongs to.
             identity:
               type: object
               required: [id, name, email, phone, phoneDisplay, activationStatus, verified, dateOfBirth, height, timezone, createdAt, claimedAt, lastLoginAt]
@@ -7183,6 +7347,11 @@ components:
       schema: { type: string, pattern: "^[0-9a-fA-F-]{36}$" }
     OfficePatientId:
       name: patientId
+      in: path
+      required: true
+      schema: { type: string }
+    PatientGroupId:
+      name: groupId
       in: path
       required: true
       schema: { type: string }

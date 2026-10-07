@@ -30,6 +30,8 @@ import { useHqCanManageEmails } from "@/hooks/use-billing";
 import type { PatientPurchasesSummary } from "@/lib/billing-types";
 import { DeletedRecordNotice, DeletionBanner } from "@/components/office/AccountDeletion";
 import { PatientRecordExport } from "@/components/office/PatientRecordExport";
+import { PatientGroupsControl } from "@/components/office/PatientGroups";
+import { usePatientGroups } from "@/hooks/use-patient-groups";
 import { PatientEditHistory } from "@/components/office/PatientEditHistory";
 import type { MeasurementVisit } from "@/lib/body-measurements";
 import { NutritionLifestyle } from "@/components/patient/NutritionLifestyle";
@@ -137,6 +139,8 @@ function DemoPatientDetail() {
   const [manageOpen, setManageOpen] = useState(false);
   const noteSequenceRef = useRef(0);
   const sealed = patient?.closure ?? null;
+  // Seeded office groups, mutated for this session only.
+  const groupsApi = usePatientGroups({ live: false, office: null });
 
   useEffect(() => {
     setProfile({ email: patient?.email ?? "", phone: patient?.phone ?? "" });
@@ -214,6 +218,7 @@ function DemoPatientDetail() {
               </div>
               <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{patient.id.replace("pat_", "")}</span> · Provider: <b className="text-foreground">{provider?.name ?? "Unassigned"}</b></p>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{profile.email}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{profile.phone}</span></div>
+              <div className="mt-3"><PatientGroupsControl api={groupsApi} patientId={patient.id} patientName={patient.name} groupIds={groupsApi.demoGroupIdsByPatient.get(patient.id) ?? []} readOnly={Boolean(sealed)} /></div>
             </div>
           </div>
           {!sealed && <div className="flex gap-2"><button type="button" disabled className={`${BTN_SECONDARY} h-9 px-4`} data-testid="button-sell-to-patient">Sell to patient</button><button onClick={() => setIsEditing((open) => !open)} className={`${BTN_SECONDARY} h-9 px-4`}><Edit2 size={14} className="text-primary" />{isEditing ? "Close editor" : "Edit patient"}</button></div>}
@@ -445,6 +450,8 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
     refetchInterval: 30_000,
   });
   const canEdit = useCanEditLiveRecord(detail.data?.patient);
+  // The office's groups (read-only under HQ drill-in; every request carries ?office=).
+  const groupsApi = usePatientGroups({ live: true, office });
   const canManageEmails = useHqCanManageEmails();
   const notificationTimeline = useQuery({
     queryKey: ['office-patient-notifications', office ?? 'own', id],
@@ -534,6 +541,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
               <div className="flex flex-wrap items-center gap-3"><h1 className="font-serif text-[30px] font-bold leading-none text-navy" data-testid="text-live-patient-name">{identity.name}</h1><StatusBadge status={headerStatus === 'activated' ? 'active' : headerStatus} />{!isHq && record.patient.legalHold && <LegalHoldBadge />}</div>
               <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
+              <div className="mt-3"><PatientGroupsControl api={groupsApi} patientId={identity.id} patientName={identity.name} groupIds={record.patient.groupIds ?? []} readOnly={isHq || Boolean(closure)} /></div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

@@ -40,6 +40,7 @@ const migrationNames = [
   "20261201000000_coach_chat_flags.sql",
   "20261201000001_coach_chat_flags_closure.sql",
   "20261201000002_patient_rewards_closure.sql",
+  "20261201000000_patient_groups.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -240,6 +241,20 @@ await query(`
             and conname = 'auth_sign_ins_method_check'
             and pg_get_constraintdef(oid) like '%email_sms_code%'
        )
+       -- Office patient groups: the roster and patient-record reads join the
+       -- membership table, so publishing without it breaks every office.
+       or to_regclass('public.patient_groups') is null
+       or to_regclass('public.patient_group_members') is null
+       or not exists (
+         select 1 from pg_indexes
+          where schemaname = 'public' and tablename = 'patient_groups' and indexname = 'patient_groups_provider_name_ci_idx'
+       )
+       or not exists (
+         select 1 from pg_trigger
+          where tgrelid = 'public.patient_group_members'::regclass and tgname = 'patient_identity_write_guard' and not tgisinternal
+       )
+       or has_table_privilege('anon', 'public.patient_group_members', 'SELECT')
+       or has_table_privilege('authenticated', 'public.patient_groups', 'SELECT')
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

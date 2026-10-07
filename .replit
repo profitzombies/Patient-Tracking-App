@@ -32,6 +32,14 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-groups-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "patient-groups-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -2950,6 +2958,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:app-payments && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-groups-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/patient-groups.sql.test.ts src/routes/office-patient-groups.test.ts src/routes/office-roster.test.ts src/privacy/purge.sql.test.ts src/routes/office-audit-events.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "patient-groups-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-groups && pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:roster-activity && pnpm --filter @workspace/thinnr-operations run test:patients-badge && pnpm --filter @workspace/thinnr-operations run test:invite-patients && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

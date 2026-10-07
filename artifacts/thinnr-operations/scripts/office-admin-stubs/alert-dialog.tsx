@@ -23,7 +23,7 @@ export function AlertDialogContent({ children, className }: { children: ReactNod
 export function AlertDialogHeader({ children, className }: { children: ReactNode; className?: string }) { return <div className={className}>{children}</div>; }
 export function AlertDialogFooter({ children, className }: { children: ReactNode; className?: string }) { return <div className={className}>{children}</div>; }
 export function AlertDialogTitle({ children, className }: { children: ReactNode; className?: string }) { return <h2 className={className}>{children}</h2>; }
-export function AlertDialogDescription({ children, className }: { children: ReactNode; className?: string }) { return <p className={className}>{children}</p>; }
+export function AlertDialogDescription({ children, ...props }: { children: ReactNode; className?: string; 'data-testid'?: string }) { return <p {...props}>{children}</p>; }
 export function AlertDialogAction({ children, onClick, ...props }: { children: ReactNode; onClick?: (event: MouseEvent<HTMLButtonElement>) => void; className?: string; disabled?: boolean; 'data-testid'?: string }) {
   return <button type="button" onClick={onClick} {...props}>{children}</button>;
 }

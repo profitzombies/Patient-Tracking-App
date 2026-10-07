@@ -26,6 +26,8 @@ export interface OfficeRosterPatient {
   verified: boolean;
   /** @nullable */
   createdAt: string | null;
+  /** Ids of the office's patient groups this patient belongs to (see /office/patient-groups). */
+  groupIds: string[];
   closure: OfficeRosterPatientClosure;
   program: PatientProgram;
   invitation: OfficeRosterPatientInvitation;

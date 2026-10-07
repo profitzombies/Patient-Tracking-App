@@ -1575,6 +1575,7 @@ export const GetOfficeRosterResponse = zod.object({
   "activationStatus": zod.string().nullable(),
   "verified": zod.boolean(),
   "createdAt": zod.string().nullable(),
+  "groupIds": zod.array(zod.string()).describe('Ids of the office\'s patient groups this patient belongs to (see \/office\/patient-groups).'),
   "closure": zod.union([zod.null(),zod.object({
   "closedAt": zod.coerce.date(),
   "recordRetainUntil": zod.coerce.date()
@@ -1667,6 +1668,157 @@ export const GetOfficeRosterResponse = zod.object({
   "checkInsOverdue": zod.number(),
   "loggingLapsed": zod.number(),
   "asOf": zod.coerce.date()
+})
+})
+
+
+/**
+ * Operational labels an office invents for its roster (an employer cohort, a clinic day). Provider staff are scoped to their own office; HQ must name an office and sees the list read-only (canEdit false).
+ * @summary List an office's staff-defined patient groups
+ */
+export const ListOfficePatientGroupsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const ListOfficePatientGroupsResponse = zod.object({
+  "office": zod.object({
+  "providerId": zod.string(),
+  "officeName": zod.string(),
+  "providerCode": zod.string()
+}),
+  "canEdit": zod.boolean().describe('False for HQ drill-in, which may read groups but never change them.'),
+  "groups": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "memberCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Create a patient group for the office
+ */
+export const CreateOfficePatientGroupQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const createOfficePatientGroupBodyNameMax = 60;
+
+export const createOfficePatientGroupBodyDescriptionMax = 200;
+
+
+
+export const CreateOfficePatientGroupBody = zod.object({
+  "name": zod.string().min(1).max(createOfficePatientGroupBodyNameMax),
+  "description": zod.string().max(createOfficePatientGroupBodyDescriptionMax).nullish()
+})
+
+export const CreateOfficePatientGroupResponse = zod.object({
+  "group": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "memberCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Rename or re-describe a patient group
+ */
+export const UpdateOfficePatientGroupParams = zod.object({
+  "groupId": zod.coerce.string()
+})
+
+export const UpdateOfficePatientGroupQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const updateOfficePatientGroupBodyNameMax = 60;
+
+export const updateOfficePatientGroupBodyDescriptionMax = 200;
+
+
+
+export const UpdateOfficePatientGroupBody = zod.object({
+  "name": zod.string().min(1).max(updateOfficePatientGroupBodyNameMax).optional(),
+  "description": zod.string().max(updateOfficePatientGroupBodyDescriptionMax).nullish()
+})
+
+export const UpdateOfficePatientGroupResponse = zod.object({
+  "group": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "memberCount": zod.number(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+})
+
+
+/**
+ * @summary Delete a patient group and its memberships
+ */
+export const DeleteOfficePatientGroupParams = zod.object({
+  "groupId": zod.coerce.string()
+})
+
+export const DeleteOfficePatientGroupQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const DeleteOfficePatientGroupResponse = zod.object({
+  "deleted": zod.boolean(),
+  "memberCount": zod.number()
+})
+
+
+/**
+ * @summary Add an office patient to a group (idempotent)
+ */
+export const AddOfficePatientGroupMemberParams = zod.object({
+  "groupId": zod.coerce.string(),
+  "patientId": zod.coerce.string()
+})
+
+export const AddOfficePatientGroupMemberQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const AddOfficePatientGroupMemberResponse = zod.object({
+  "membership": zod.object({
+  "groupId": zod.string(),
+  "patientId": zod.string(),
+  "added": zod.boolean().optional(),
+  "removed": zod.boolean().optional()
+})
+})
+
+
+/**
+ * @summary Remove an office patient from a group (idempotent)
+ */
+export const RemoveOfficePatientGroupMemberParams = zod.object({
+  "groupId": zod.coerce.string(),
+  "patientId": zod.coerce.string()
+})
+
+export const RemoveOfficePatientGroupMemberQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const RemoveOfficePatientGroupMemberResponse = zod.object({
+  "membership": zod.object({
+  "groupId": zod.string(),
+  "patientId": zod.string(),
+  "added": zod.boolean().optional(),
+  "removed": zod.boolean().optional()
 })
 })
 
@@ -1963,6 +2115,7 @@ export const GetOfficePatientRecordResponse = zod.object({
 })).max(getOfficePatientRecordResponseEngagementTopSideEffectsTwoMax)]).describe('Up to three side effects from the 30-day window, most frequent first (ties alphabetical).')
 }).describe('Activity signals computed over the diary, water and checkIns rows below for the patient\'s local day — the same definitions as the roster\'s `operational.activity`.'),
   "patient": zod.object({
+  "groupIds": zod.array(zod.string()).describe('Ids of the office\'s patient groups this patient belongs to.'),
   "identity": zod.object({
   "id": zod.string(),
   "name": zod.string(),

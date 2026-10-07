@@ -34,6 +34,8 @@ const migrationNames = [
   "20261113010000_practice_launch_products.sql",
   "20261113020000_practice_launch_mode_completion.sql",
   "20261113030000_practice_launch_trigger_permissions.sql",
+  "20261201000000_coach_chat_flags.sql",
+  "20261201000001_coach_chat_flags_closure.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -85,10 +87,17 @@ const launchPostconditions = `
     then raise exception 'Practice launch state/identity contract missing'; end if;
   end $launch_proof$;
 `;
+// Targets the workspace project (development) unless a ref is named
+// explicitly: `node scripts/apply-coach-migrations.mjs --project <ref>` is how
+// a migration reaches production after it has been applied to development.
+const projectArg = process.argv.indexOf("--project");
+const explicitRef = projectArg === -1 ? null : process.argv[projectArg + 1];
+if (projectArg !== -1 && !/^[a-z]{20}$/.test(explicitRef ?? "")) throw new Error("--project needs a Supabase project ref.");
 const url = process.env.SUPABASE_URL;
 const token = process.env.SUPABASE_ACCESS_TOKEN;
-if (!url || !token) throw new Error("Supabase migration configuration is missing.");
-const ref = new URL(url).hostname.split(".")[0];
+if ((!url && !explicitRef) || !token) throw new Error("Supabase migration configuration is missing.");
+const ref = explicitRef ?? new URL(url).hostname.split(".")[0];
+console.log(`Applying application migrations to Supabase project ${ref}.`);
 
 // Only statuses the management API returns BEFORE running the statement are
 // retried (maintenance / rate limit). Anything else could have executed

@@ -79,6 +79,8 @@ class FakeBackend {
       patient_notifications: [],
       auth_session_revocations: [],
       staff_second_factors: [],
+      // Office scope consults practice setup; synthetic offices here have the gate waived.
+      practice_launch: [],
       hq_organization_settings: [
         { singleton: true, second_factor_hq_users: false, second_factor_office_managers: false, second_factor_all_staff: false },
       ],
@@ -437,6 +439,7 @@ function seedOffice(): { provider: Row; user: Row } {
   const user = backend.seedAuthUser({ email: "rivera@clinic.example" });
   const provider: Row = { provider_id: "20002", provider_name: "Dr. Rivera", office_name: "Rivera Wellness", email: "rivera@clinic.example", onboarding_code: "RIV-1", access_disabled: false, auth_user_id: user.id };
   backend.tables.providers.push(provider);
+  backend.tables.practice_launch.push({ provider_id: provider.provider_id, required: false, version: 0, completed_at: null, setup_override_at: "2026-01-01T00:00:00Z" });
   return { provider, user };
 }
 
@@ -1125,6 +1128,7 @@ describe("HQ views", () => {
 
     // Wrong office for the patient reads as not found — same as an unknown id.
     backend.tables.providers.push({ provider_id: "30003", provider_name: "Other", office_name: "Other", email: "o@x.example", onboarding_code: null, access_disabled: false, auth_user_id: null });
+    backend.tables.practice_launch.push({ provider_id: "30003", required: false, version: 0, completed_at: null, setup_override_at: "2026-01-01T00:00:00Z" });
     const wrongOffice = await api("GET", `/api/office/patients/${patient.id}/sessions?office=30003`, undefined, auth(hqSession.token));
     const unknownId = await api("GET", `/api/office/patients/PT-NOPE/sessions?office=30003`, undefined, auth(hqSession.token));
     expect(wrongOffice.status).toBe(404);

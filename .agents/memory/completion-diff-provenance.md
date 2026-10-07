@@ -11,6 +11,10 @@ description: Mid-session commits from the main workspace can get swept into a ta
 
 **How to apply:** do not try to revert or fetch around upstream commits (manual fetch of the main-repl remote needs interactive auth and syncing is platform-managed). Instead: state the provenance of any swept-in upstream content explicitly in the completion drift_reason, do only the cleanups the reviewer sanctioned as yours, and re-run completion.
 
+**Which "main":** inside a task environment the local `main` branch IS the task branch (HEAD = main). The user's real main is `main-repl/main`; the true completion diff is `git diff $(git merge-base HEAD main-repl/main) HEAD`. Commits between your remembered "pre-task rev" and that merge-base are already upstream, not yours.
+
+**Config-only tasks — prove env-independence:** when a task only changes env/preload/config, re-run each red suite with every new knob removed (`env -u NODE_OPTIONS -u <each new var> …`). Identical failure counts in both runs (and no diff on the code path) mean the failure predates the task.
+
 Also: auto-generated files (e.g. mockup-sandbox src/.generated/mockup-components.ts) reorder themselves whenever their dev server rescans. Diff working-tree noise before completing and git-checkout unrelated generated churn so it stays out of the task diff.
 
 Swept-in commits also bring their VALIDATION COMMANDS, dependency additions, and stale dev servers: completion validation runs the upstream feature's live checks against YOUR environment. Repair before re-completing — `pnpm install` (new package.json deps), restart the dev-server workflows the checks probe (a server started before the sweep lacks the new routes), then re-run the failing command locally to confirm green.

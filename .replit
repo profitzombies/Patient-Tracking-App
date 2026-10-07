@@ -1248,22 +1248,35 @@ timeoutMs = 600000
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
-EXPO_PUBLIC_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
-VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
-VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
-TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/.private"
 CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
 CLAIM_EMAIL_FROM = "THINNR Dashboard <hello@appnotifications.thinnrweightloss.com>"
-OPERATIONS_APP_URL = "https://app.trythinnr.com"
 EMAIL_REPLY_TO = "support@thinnrweightloss.com"
 
 [userenv.development]
 SYSTEM_ALERT_EMAILS = "off"
+BILLING_DEPLOYMENT_ID = "thinnr-development"
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_YFBQz1axiT3iNVJ2-tqVgQ_5nh3E_Mv"
+EXPO_PUBLIC_SUPABASE_URL = "https://hempvunqnyutzbrgcaqr.supabase.co"
+PRIVATE_OBJECT_DIR = "/replit-objstore-a174ad4f-fa99-4d67-aa60-4a2760b70ba1/dev"
+SUPABASE_ANON_KEY = "sb_publishable_YFBQz1axiT3iNVJ2-tqVgQ_5nh3E_Mv"
+SUPABASE_URL = "https://hempvunqnyutzbrgcaqr.supabase.co"
+TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/dev"
+VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_YFBQz1axiT3iNVJ2-tqVgQ_5nh3E_Mv"
+VITE_SUPABASE_URL = "https://hempvunqnyutzbrgcaqr.supabase.co"
+NODE_OPTIONS = "--import /home/runner/workspace/scripts/dev-environment.mjs"
 
 [userenv.production]
 PATIENT_INVITE_URL = "https://app.trythinnr.com/thinnr-mobile/"
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
+EXPO_PUBLIC_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
+OPERATIONS_APP_URL = "https://app.trythinnr.com"
+TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/.private"
+VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_x_jS0otm2b7K8wc_HLXbUg_6Dq3_Haz"
+VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
+JOBS_DISABLED = "1"
+NOTIFICATIONS_DISABLED = "1"
+SYSTEM_ALERT_EMAILS = "on"
 
 [nix]
 channel = "stable-25_05"
@@ -1287,7 +1300,6 @@ externalPort = 3001
 [[ports]]
 localPort = 19713
 externalPort = 80
-exposeLocalhost = true
 
 [[ports]]
 localPort = 21456

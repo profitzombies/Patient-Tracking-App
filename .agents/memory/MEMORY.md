@@ -155,3 +155,5 @@
 - [Resend tracking vs spam](resend-tracking-deliverability.md) — keep open/click tracking off on the sending domain; it put code emails in spam. App mail stays on the subdomain.
 - [App payments forecast](app-payments-forecast.md) — forecast mirrors the charger; overdue anchors are outstanding not future; export kinds avoid billing_ prefix (admits owners).
 - [Coach chat safety flags](coach-chat-safety-flags.md) — urgent-only screen; alert = PHI-free "needs review" + deep link; office-scope launch gate 502s suites lacking a waived practice_launch row.
+- [Supabase host network outage](supabase-host-outage.md) — "healthy" status but db/rest/auth unhealthy + DNS/WAL failures = host lost network; project restart fixes; logs endpoint table is `logs`.
+- [Prod/dev Supabase split](prod-dev-split.md) — stale live suites ≠ split regressions (check git dates); killed runs leave dev fixtures; Stripe test events broadcast to prod.

@@ -40,6 +40,9 @@ describe("thresholds", () => {
         { family: "office/roster", requests: 40, p95Ms: 5_000 },
         { family: "office/conversations/stream", requests: 64, p95Ms: 3_600_000 },
         { family: "hq/conversations/stream", requests: 30, p95Ms: 1_800_000 },
+        // Production's every-minute trigger: ticks run due jobs inline (p95 seen 23.75 s).
+        { family: "internal/jobs", requests: 120, p95Ms: 23_750 },
+        { family: "internal/notifications", requests: 120, p95Ms: 50_000 },
       ],
       growth: null,
     });

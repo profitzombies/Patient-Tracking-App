@@ -16,7 +16,9 @@
  * run still evaluates, logs, and tallies, but queues nothing and records
  * `alertsMuted` instead. Development sets it off because the shared dev
  * server also carries the automated test load, which crosses the production
- * latency limits on its own; production leaves it unset (on).
+ * latency limits on its own. Production sets it `on` explicitly
+ * (`.replit` → `[userenv.production]`): the production deployment was found
+ * muted on 2026-10-06, even though "off" is set only in the development section.
  */
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import { readPerformance, type PerformanceReaders } from "../../system/performance";

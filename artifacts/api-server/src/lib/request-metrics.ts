@@ -55,6 +55,18 @@ export const STREAMING_FAMILIES = new Set([
  */
 export const LONG_LIVED_FAMILIES: ReadonlySet<string> = new Set(LONG_LIVED_FAMILIES_LIST);
 
+/**
+ * The trigger's tick routes (`POST /api/internal/jobs/tick` and
+ * `/api/internal/notifications/tick`) run every due job before they answer,
+ * so their duration is background work, not a wait anyone sees. Production's
+ * every-minute trigger made them the slowest family (p95 ≈ 24 s) and would
+ * have emailed HQ a "slow route" every day. Like the long-lived streams they
+ * get no budget: never logged slow, never a threshold finding. Job health has
+ * its own signals: failed runs on System health and the External trigger
+ * staleness check.
+ */
+export const BACKGROUND_TICK_FAMILIES: ReadonlySet<string> = new Set(["internal/jobs", "internal/notifications"]);
+
 export interface LatencyBudget {
   amberMs: number;
   redMs: number;
@@ -62,7 +74,7 @@ export interface LatencyBudget {
 
 /** Amber = worth a look; red = users are waiting. Env knobs blank-check before parsing. */
 export function latencyBudget(family: string): LatencyBudget {
-  if (LONG_LIVED_FAMILIES.has(family)) {
+  if (LONG_LIVED_FAMILIES.has(family) || BACKGROUND_TICK_FAMILIES.has(family)) {
     return { amberMs: Number.POSITIVE_INFINITY, redMs: Number.POSITIVE_INFINITY };
   }
   if (STREAMING_FAMILIES.has(family)) {

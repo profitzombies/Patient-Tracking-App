@@ -60,6 +60,15 @@ describe("latency budgets", () => {
     expect(isSlowRequest("hq/conversations/stream", 3_600_000)).toBe(false);
     expect(isSlowRequest("hq/system-health", 200)).toBe(false);
   });
+
+  it("gives the trigger's tick routes no budget: running due jobs inline is never a slow route", () => {
+    expect(routeFamily("/api/internal/jobs/tick")).toBe("internal/jobs");
+    expect(routeFamily("/api/internal/notifications/tick")).toBe("internal/notifications");
+    expect(latencyBudget("internal/jobs")).toEqual({ amberMs: Number.POSITIVE_INFINITY, redMs: Number.POSITIVE_INFINITY });
+    expect(latencyBudget("internal/notifications")).toEqual({ amberMs: Number.POSITIVE_INFINITY, redMs: Number.POSITIVE_INFINITY });
+    expect(isSlowRequest("internal/jobs", 50_000)).toBe(false);
+    expect(isSlowRequest("internal/notifications", 50_000)).toBe(false);
+  });
 });
 
 describe("histogram", () => {

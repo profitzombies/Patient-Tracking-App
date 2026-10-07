@@ -31,7 +31,6 @@
  * requestCounts()/requests() without exposing request headers or tokens.
  */
 
-const DEFAULT_SUPABASE_URL = 'https://xkdhmqexlvkipwgkaiyk.supabase.co';
 const DEFAULT_PATIENT_ID = '00000000-0000-4524-8524-000000000524';
 const DEFAULT_USER_ID = '00000000-0000-4524-8524-000000000525';
 const DEFAULT_CONVERSATION_ID = 'synthetic-coach-001';
@@ -379,7 +378,10 @@ function createCoachBrowserFixture(targetOrOptions, maybeOptions) {
       })(),
     'apiOrigin',
   );
-  const supabaseUrl = options.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  // No built-in default: the URL must come from the environment so the fixture
+  // always follows the workspace's (development) Supabase project.
+  const supabaseUrl = options.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error('EXPO_PUBLIC_SUPABASE_URL is not set');
   const storageKey =
     options.storageKey || `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
   const patientId = options.patientId || DEFAULT_PATIENT_ID;

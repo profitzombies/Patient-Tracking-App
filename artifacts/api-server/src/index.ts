@@ -11,6 +11,18 @@ import { installModelUsageLedger } from "./ai-usage/ledger";
 import { modelAssignments } from "./ai/models";
 import { COLD_ARCHIVE_ENV, coldArchiveObjectDir, validateColdArchiveStartup } from "./lib/cold-archive";
 import { loadOrgPolicy } from "./lib/org-policy";
+import { developmentSettingsInDeployment } from "./lib/deployment-environment";
+
+// The published app must never start on development settings (replit.md →
+// "Production vs development"). Throwing before listen fails the publish,
+// which keeps the previous version serving.
+const developmentSettings = developmentSettingsInDeployment();
+if (developmentSettings.length > 0) {
+  throw new Error(
+    `Refusing to start the published app: ${developmentSettings.join(", ")} carry development values. ` +
+      "Check Publishing → Production app secrets and the [userenv.production] section of .replit.",
+  );
+}
 
 const rawPort = process.env["PORT"];
 

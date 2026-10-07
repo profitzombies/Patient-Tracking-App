@@ -99,6 +99,12 @@ async function main() {
     resolveNotificationRoute({ kind: 'staff_attention_digest', route: 'https://evil.example' }),
     '/(tabs)/patients',
   );
+  // A coach chat safety flag lands on the same Patients tab; its data carries
+  // ids only, so nothing in it can change where the tap goes.
+  assert.equal(
+    resolveNotificationRoute({ kind: 'coach_chat_flag', flagId: 'flag-1', providerId: 'office-1', route: 'https://evil.example' }),
+    '/(tabs)/patients',
+  );
 
   const demoCount = demoAttentionCount(MOCK_PATIENTS);
   assert(demoCount > 0);

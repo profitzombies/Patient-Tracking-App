@@ -26,18 +26,19 @@ function opaqueSessionScope(sessionObject: object): string {
 }
 
 /** A provider read surface. It deliberately has no mutation/archive controls. */
-export function CoachReviewPanel({ patientId, office, isHq: _isHq }: { patientId: string; office: string | null; isHq?: boolean }) {
+export function CoachReviewPanel({ patientId, office, isHq: _isHq, initialConversationId = null }: { patientId: string; office: string | null; isHq?: boolean; initialConversationId?: string | null }) {
   const { providerAccountCode, authUser } = useSession();
   // Remounting clears private, in-flight selections before a new scope can paint.
   // The opaque WeakMap id changes on a new auth-session object without ever
   // placing an access token (or a token derivative) in TanStack cache keys.
   const scopeKey = `${authUser ? opaqueSessionScope(authUser) : "signed-out"}:${authUser?.id ?? "none"}:${providerAccountCode ?? "none"}:${office ?? "own"}:${patientId}`;
-  return <CoachReviewPanelScope key={scopeKey} patientId={patientId} office={office} sessionKey={scopeKey} authorized={!!authUser} />;
+  return <CoachReviewPanelScope key={scopeKey} patientId={patientId} office={office} sessionKey={scopeKey} authorized={!!authUser} initialConversationId={initialConversationId} />;
 }
 
-function CoachReviewPanelScope({ patientId, office, sessionKey, authorized }: { patientId: string; office: string | null; sessionKey: string; authorized: boolean }) {
+function CoachReviewPanelScope({ patientId, office, sessionKey, authorized, initialConversationId }: { patientId: string; office: string | null; sessionKey: string; authorized: boolean; initialConversationId: string | null }) {
   const [activeTab, setActiveTab] = useState<"conversations" | "memories">("conversations");
-  const [selected, setSelected] = useState<SelectedConversation | null>(null);
+  // A deep link (flagged chat) opens its transcript first; Back returns to the list.
+  const [selected, setSelected] = useState<SelectedConversation | null>(initialConversationId ? { id: initialConversationId } : null);
   const [convOffset, setConvOffset] = useState(0);
   const [memOffset, setMemOffset] = useState(0);
   const [conversationPages, setConversationPages] = useState<any[]>([]);

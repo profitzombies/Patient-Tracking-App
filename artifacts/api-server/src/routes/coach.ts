@@ -51,6 +51,8 @@ import { memoryPrompt, type RecallMemory } from "../coach/memory";
 import { recallHistoricalExcerpts } from "../coach/historical-excerpts";
 import { modelFor } from "../ai/models";
 import { attributeModelUsage } from "../ai-usage/context";
+import { screenCoachMessage } from "../coach/safety-screen";
+import { recordCoachChatFlag } from "../alerts/coach-chat-flags";
 
 const router: IRouter = Router();
 
@@ -365,6 +367,22 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         });
         return;
       }
+    }
+
+    // Safety screen for real patients: a small background read of this one
+    // message for the short list of urgent concerns a provider must hear
+    // about today. It never shapes the reply and never blocks the turn;
+    // every failure resolves to "nothing found". The demo persona is never
+    // screened (nobody to alert, nothing real said).
+    if (authenticatedPatientId !== null && signedIn?.providerId && typeof latest.content === "string" && latest.content.trim()) {
+      const screened = { patientId: authenticatedPatientId, providerId: signedIn.providerId, conversationId: typeof submittedConversationId === "string" ? submittedConversationId : null, text: latest.content };
+      void screenCoachMessage({ text: screened.text, log: req.log })
+        .then(async (finding) => {
+          if (!finding) return;
+          const recorded = await recordCoachChatFlag({ patientId: screened.patientId, providerId: screened.providerId, conversationId: screened.conversationId, finding, messageText: screened.text });
+          req.log.info({ category: finding.category, outcome: recorded.outcome }, "coach safety screen flagged a message");
+        })
+        .catch((error) => req.log.error({ err: error }, "coach safety flag recording failed"));
     }
 
     // Replies the patient stopped mid-stream arrive flagged; annotate them

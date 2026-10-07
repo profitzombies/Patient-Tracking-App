@@ -122,11 +122,59 @@ export function renderStaffDigestEmail(row: StaffNotificationRow): RenderedEmail
   const email = staffDigestEmail(row);
   return renderEmailTemplate(email.templateId, email.variables);
 }
+/** The kind a coach chat safety flag alert carries. */
+export const COACH_CHAT_FLAG_ROW_KIND = "coach_chat_flag";
+export function isCoachChatFlagRow(row: StaffNotificationRow): boolean {
+  return row.kind === COACH_CHAT_FLAG_ROW_KIND;
+}
+/**
+ * The coach chat flag email: the office, the day, and a sign-in link that
+ * lands on the flag. Deliberately says nothing about the patient or what was
+ * said — that lives behind sign-in. The link carries the flag id only.
+ */
+export function coachChatFlagEmail(row: StaffNotificationRow): StaffEmail {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  const origin = publicOrigin();
+  const flagId = typeof data.flagId === "string" ? data.flagId : "";
+  return { templateId: "coach-chat-flag", variables: {
+    name: typeof data.recipientName === "string" ? data.recipientName : "",
+    officeName: typeof data.officeName === "string" && data.officeName ? data.officeName : "Your office",
+    day: digestDateLabel(String(data.day ?? "")),
+    reviewLink: flagId ? `${origin}/alerts?chat=${encodeURIComponent(flagId)}` : `${origin}/alerts`,
+    settingsLink: `${origin}/settings`,
+  } };
+}
+export function renderCoachChatFlagEmail(row: StaffNotificationRow): RenderedEmail {
+  const email = coachChatFlagEmail(row);
+  return renderEmailTemplate(email.templateId, email.variables);
+}
+/** Push payload per kind: ids and a route only; the row snapshot stays server-side. */
+export function staffPushContent(row: StaffNotificationRow): { title: string; body: string; data: Record<string, unknown> } {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  if (isCoachChatFlagRow(row)) {
+    return {
+      title: row.title, body: row.body,
+      data: {
+        route: "/(tabs)/patients", kind: COACH_CHAT_FLAG_ROW_KIND, category: "staff_alerts", notificationId: row.id,
+        providerId: row.provider_id, flagId: typeof data.flagId === "string" ? data.flagId : null,
+      },
+    };
+  }
+  const flaggedCount = Number(data.flaggedCount ?? 0);
+  return {
+    title: STAFF_DIGEST_PUSH_TITLE, body: staffDigestPushBody(flaggedCount),
+    data: {
+      route: "/(tabs)/patients", kind: "staff_attention_digest", category: "staff_alerts", notificationId: row.id,
+      providerId: row.provider_id, digestDate: typeof data.digestDate === "string" ? data.digestDate : null, flaggedCount,
+    },
+  };
+}
 async function sendEmail(row: StaffNotificationRow): Promise<void> {
   if (!row.email) throw new Error("staff email delivery is not configured");
   const email = isOfficeAccessRestrictedRow(row)
     ? officeAccessRestrictedEmail(row)
-    : isSystemThresholdRow(row) ? systemThresholdEmail(row) : staffDigestEmail(row);
+    : isSystemThresholdRow(row) ? systemThresholdEmail(row)
+      : isCoachChatFlagRow(row) ? coachChatFlagEmail(row) : staffDigestEmail(row);
   await sendTemplatedEmail({
     to: row.email, templateId: email.templateId, variables: email.variables, sender: "branded",
     refs: { notificationId: row.id, kind: row.kind ?? null, providerId: row.provider_id },
@@ -194,14 +242,10 @@ export async function runStaffNotificationTick(input: {
       if (!tokens.length) { if (await finish(input.store, row, input.owner, "suppressed", now, "no_device", summary)) summary.suppressed += 1; continue; }
       // Only ids and a route ride along: the row snapshot (office name,
       // recipient name, per-reason counts) stays server-side.
-      const data = (row.data ?? {}) as Record<string, unknown>;
-      const flaggedCount = Number(data.flaggedCount ?? 0);
+      const content = staffPushContent(row);
       const messages: PushMessage[] = tokens.map((token) => ({
-        to: token.token, title: STAFF_DIGEST_PUSH_TITLE, body: staffDigestPushBody(flaggedCount), sound: "default", channelId: "thinnr-messages", priority: "high",
-        data: {
-          route: "/(tabs)/patients", kind: "staff_attention_digest", category: "staff_alerts", notificationId: row.id,
-          providerId: row.provider_id, digestDate: typeof data.digestDate === "string" ? data.digestDate : null, flaggedCount,
-        },
+        to: token.token, title: content.title, body: content.body, sound: "default", channelId: "thinnr-messages", priority: "high",
+        data: content.data,
       }));
       let tickets;
       try {

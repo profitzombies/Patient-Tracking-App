@@ -1373,6 +1373,26 @@ paths:
         - { name: date, in: query, schema: { type: string, format: date } }
       responses:
         "200": { description: Recent daily digests, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeAlertDigestsResult" } } } }
+  /office/alerts/chat-flags:
+    get:
+      operationId: getOfficeChatFlags
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: status, in: query, schema: { type: string, enum: [open, all] } }
+      responses:
+        "200": { description: Coach chat safety flags for the office, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeChatFlagsResult" } } } }
+  /office/alerts/chat-flags/{flagId}/reviewed:
+    post:
+      operationId: markOfficeChatFlagReviewed
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+        - { name: flagId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Flag marked reviewed, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeChatFlag" } } } }
+        "403": { description: HQ users cannot review office flags }
+        "404": { description: Flag not found }
   /office/alerts/settings:
     get:
       operationId: getOfficeAlertSettings
@@ -5244,6 +5264,28 @@ components:
         dates: { type: array, items: { type: string, format: date } }
         digest: { oneOf: [{ type: "null" }, { $ref: "#/components/schemas/OfficeAttentionDigest" }] }
         latestDate: { type: ["string", "null"], format: date }
+    OfficeChatFlag:
+      type: object
+      required: [id, patientId, patientName, conversationId, category, categoryLabel, reason, messageExcerpt, status, createdAt, reviewedAt, reviewedByName]
+      properties:
+        id: { type: string }
+        patientId: { type: string }
+        patientName: { type: string }
+        conversationId: { type: ["string", "null"] }
+        category: { type: string, enum: [severe_symptoms, medication_problem, pregnancy, self_harm, eating_disorder] }
+        categoryLabel: { type: string }
+        reason: { type: string }
+        messageExcerpt: { type: string }
+        status: { type: string, enum: [open, reviewed] }
+        createdAt: { type: string, format: date-time }
+        reviewedAt: { type: ["string", "null"], format: date-time }
+        reviewedByName: { type: ["string", "null"] }
+    OfficeChatFlagsResult:
+      type: object
+      required: [openCount, items]
+      properties:
+        openCount: { type: number }
+        items: { type: array, items: { $ref: "#/components/schemas/OfficeChatFlag" } }
     OfficeAlertSettings:
       type: object
       required: [recipientMode, recipientMemberIds, sendTime, timeZone, timeZoneSource, version, canEdit, me, team]

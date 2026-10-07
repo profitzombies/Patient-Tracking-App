@@ -45,6 +45,7 @@ export const EMAIL_TEMPLATE_PHI_CLASS: Record<EmailTemplateId, EmailPhiClass> = 
   "subscription-renewal-reminder": "payment",
   "subscription-card-updated": "payment",
   "staff-attention-digest": "operational",
+  "coach-chat-flag": "operational",
   "system-threshold-alert": "operational",
   "office-access-restricted": "operational",
 };

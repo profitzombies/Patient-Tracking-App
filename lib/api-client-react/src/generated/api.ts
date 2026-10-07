@@ -110,6 +110,7 @@ import type {
   GetOfficeAppUsageInsightsParams,
   GetOfficeBillingDashboardParams,
   GetOfficeBundleEstimateParams,
+  GetOfficeChatFlagsParams,
   GetOfficeConversationEventsParams,
   GetOfficeConversationNotesParams,
   GetOfficeConversationStaffParams,
@@ -182,6 +183,7 @@ import type {
   MarkOfficeAlertSeen200,
   MarkOfficeAlertSeenBody,
   MarkOfficeAlertSeenParams,
+  MarkOfficeChatFlagReviewedParams,
   OfficeAlertDigestsResult,
   OfficeAlertSettings,
   OfficeAlertSettingsInput,
@@ -189,6 +191,8 @@ import type {
   OfficeAnalyticsResult,
   OfficeBillingDashboard,
   OfficeBundleEstimate,
+  OfficeChatFlag,
+  OfficeChatFlagsResult,
   OfficeComparisonResult,
   OfficeConversationStartInput,
   OfficeLeaderboardResult,
@@ -4206,6 +4210,158 @@ export function useGetOfficeAlertDigests<TData = Awaited<ReturnType<typeof getOf
 
 
 
+
+export const getGetOfficeChatFlagsUrl = (params?: GetOfficeChatFlagsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/chat-flags?${stringifiedParams}` : `/api/office/alerts/chat-flags`
+}
+
+export const getOfficeChatFlags = async (params?: GetOfficeChatFlagsParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeChatFlagsResult> => {
+
+  return customFetch<OfficeChatFlagsResult>(getGetOfficeChatFlagsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficeChatFlagsQueryKey = (params?: GetOfficeChatFlagsParams,) => {
+    return [
+    `/api/office/alerts/chat-flags`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficeChatFlagsQueryOptions = <TData = Awaited<ReturnType<typeof getOfficeChatFlags>>, TError = ErrorType<unknown>>(params?: GetOfficeChatFlagsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeChatFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficeChatFlagsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficeChatFlags>>> = ({ signal }) => getOfficeChatFlags(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficeChatFlags>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficeChatFlagsQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficeChatFlags>>>
+export type GetOfficeChatFlagsQueryError = ErrorType<unknown>
+
+
+
+export function useGetOfficeChatFlags<TData = Awaited<ReturnType<typeof getOfficeChatFlags>>, TError = ErrorType<unknown>>(
+ params?: GetOfficeChatFlagsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficeChatFlags>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficeChatFlagsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getMarkOfficeChatFlagReviewedUrl = (flagId: string,
+    params?: MarkOfficeChatFlagReviewedParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/alerts/chat-flags/${flagId}/reviewed?${stringifiedParams}` : `/api/office/alerts/chat-flags/${flagId}/reviewed`
+}
+
+export const markOfficeChatFlagReviewed = async (flagId: string,
+    params?: MarkOfficeChatFlagReviewedParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficeChatFlag> => {
+
+  return customFetch<OfficeChatFlag>(getMarkOfficeChatFlagReviewedUrl(flagId,params),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getMarkOfficeChatFlagReviewedMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>, TError,{flagId: string;params?: MarkOfficeChatFlagReviewedParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>, TError,{flagId: string;params?: MarkOfficeChatFlagReviewedParams}, TContext> => {
+
+const mutationKey = ['markOfficeChatFlagReviewed'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>, {flagId: string;params?: MarkOfficeChatFlagReviewedParams}> = (props) => {
+          const {flagId,params} = props ?? {};
+
+          return  markOfficeChatFlagReviewed(flagId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkOfficeChatFlagReviewedMutationResult = NonNullable<Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>>
+
+    export type MarkOfficeChatFlagReviewedMutationError = ErrorType<void>
+
+    export const useMarkOfficeChatFlagReviewed = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>, TError,{flagId: string;params?: MarkOfficeChatFlagReviewedParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markOfficeChatFlagReviewed>>,
+        TError,
+        {flagId: string;params?: MarkOfficeChatFlagReviewedParams},
+        TContext
+      > => {
+      return useMutation(getMarkOfficeChatFlagReviewedMutationOptions(options));
+    }
 
 export const getGetOfficeAlertSettingsUrl = (params?: GetOfficeAlertSettingsParams,) => {
   const normalizedParams = new URLSearchParams();

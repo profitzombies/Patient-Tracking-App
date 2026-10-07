@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useParams, Link, useLocation } from "wouter";
+import { useParams, Link, useLocation, useSearch } from "wouter";
 import {
   ArrowLeft,
   Calendar,
@@ -468,6 +468,8 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
 
   const startConv = useStartOfficeConversation();
   const [, setLocation] = useLocation();
+  // A flagged coach chat links here with ?coach=<conversationId>; open it at once.
+  const linkedCoachConversation = new URLSearchParams(useSearch()).get('coach');
   const messageScopeRef = useRef(`${office ?? 'own'}:${id}`);
   messageScopeRef.current = `${office ?? 'own'}:${id}`;
 
@@ -697,7 +699,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           </SectionCard>
         </div>
         <div className="lg:col-span-3">
-          {!closure && <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} />}
+          {!closure && <CoachReviewPanel key={`${id}:${office ?? 'own'}`} patientId={id} office={office} isHq={isHq} initialConversationId={linkedCoachConversation} />}
         </div>
       </main>
       {isHq && tab !== 'history' && (

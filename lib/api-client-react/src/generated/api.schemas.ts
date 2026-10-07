@@ -3097,6 +3097,48 @@ export interface OfficeAlertDigestsResult {
   latestDate: string | null;
 }
 
+export type OfficeChatFlagCategory = typeof OfficeChatFlagCategory[keyof typeof OfficeChatFlagCategory];
+
+
+export const OfficeChatFlagCategory = {
+  severe_symptoms: 'severe_symptoms',
+  medication_problem: 'medication_problem',
+  pregnancy: 'pregnancy',
+  self_harm: 'self_harm',
+  eating_disorder: 'eating_disorder',
+} as const;
+
+export type OfficeChatFlagStatus = typeof OfficeChatFlagStatus[keyof typeof OfficeChatFlagStatus];
+
+
+export const OfficeChatFlagStatus = {
+  open: 'open',
+  reviewed: 'reviewed',
+} as const;
+
+export interface OfficeChatFlag {
+  id: string;
+  patientId: string;
+  patientName: string;
+  /** @nullable */
+  conversationId: string | null;
+  category: OfficeChatFlagCategory;
+  categoryLabel: string;
+  reason: string;
+  messageExcerpt: string;
+  status: OfficeChatFlagStatus;
+  createdAt: string;
+  /** @nullable */
+  reviewedAt: string | null;
+  /** @nullable */
+  reviewedByName: string | null;
+}
+
+export interface OfficeChatFlagsResult {
+  openCount: number;
+  items: OfficeChatFlag[];
+}
+
 export type OfficeAlertSettingsRecipientMode = typeof OfficeAlertSettingsRecipientMode[keyof typeof OfficeAlertSettingsRecipientMode];
 
 
@@ -5306,6 +5348,29 @@ export type GetOfficeAlertDigestsParams = {
  */
 office?: OfficeIdParameter;
 date?: string;
+};
+
+export type GetOfficeChatFlagsParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+status?: GetOfficeChatFlagsStatus;
+};
+
+export type GetOfficeChatFlagsStatus = typeof GetOfficeChatFlagsStatus[keyof typeof GetOfficeChatFlagsStatus];
+
+
+export const GetOfficeChatFlagsStatus = {
+  open: 'open',
+  all: 'all',
+} as const;
+
+export type MarkOfficeChatFlagReviewedParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
 };
 
 export type GetOfficeAlertSettingsParams = {

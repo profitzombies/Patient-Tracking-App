@@ -114,6 +114,44 @@ describe("staff notification sender", () => {
     expect(`${payload.subject}${payload.html}${payload.text}`).not.toContain("Smith");
     expect(payload.text).not.toContain("3 days");
   });
+  it("emails a coach chat flag with a sign-in link to the flag and nothing about the patient or the words", async () => {
+    const flagged: StaffNotificationRow = {
+      ...row("email"), kind: "coach_chat_flag", title: "A patient's chat needs review", body: "Open the app.",
+      data: { flagId: "flag-1", providerId: "office-1", officeName: "Riverside Wellness", recipientName: "Sarah", day: "2026-10-11" },
+    };
+    const harness = setup(flagged);
+    const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    await harness.tick();
+    const payload = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as { to: string[]; subject: string; html: string; text: string };
+    expect(payload.to).toEqual(["owner@example.com"]);
+    expect(payload.subject).toBe("A patient's coach chat needs review at Riverside Wellness");
+    expect(payload.html).toContain("Hello Sarah");
+    expect(payload.html).toContain("Sunday, October 11, 2026");
+    expect(payload.html).toContain("https://portal.example/alerts?chat=flag-1");
+    expect(payload.text).toContain("https://portal.example/alerts?chat=flag-1");
+    expect(payload.text).toContain("does not say who the patient is or what they wrote");
+    for (const fragment of ["severe", "medication", "pregnan", "self-harm", "eating", "Emma"]) {
+      expect(`${payload.subject}${payload.html}${payload.text}`.toLowerCase()).not.toContain(fragment);
+    }
+    expect(harness.store.notifications[0]?.status).toBe("sent");
+  });
+  it("pushes a coach chat flag with ids and a route only", async () => {
+    const flagged: StaffNotificationRow = {
+      ...row(), kind: "coach_chat_flag", title: "A patient's chat needs review", body: "A patient said something in their coach chat that needs your attention today. Open the app.",
+      data: { flagId: "flag-1", providerId: "office-1", officeName: "Riverside Wellness", recipientName: "Sarah", day: "2026-10-11", category: "self_harm", reason: "leaked" },
+    };
+    const harness = setup(flagged);
+    await harness.store.registerToken({ authUserId: flagged.auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });
+    await harness.tick();
+    const message = harness.push.sent[0]?.[0]!;
+    expect(message.title).toBe("A patient's chat needs review");
+    expect(message.data).toEqual({
+      route: "/(tabs)/patients", kind: "coach_chat_flag", category: "staff_alerts",
+      notificationId: harness.store.notifications[0]!.id, providerId: "office-1", flagId: "flag-1",
+    });
+    for (const fragment of ["Riverside", "Sarah", "self_harm", "leaked"]) expect(JSON.stringify(message)).not.toContain(fragment);
+    expect(guardPushMessage(message)).toEqual({ ok: true });
+  });
   it("sends push and persists an accepted ticket", async () => {
     const harness = setup(); await harness.store.registerToken({ authUserId: row().auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });
     await harness.tick();

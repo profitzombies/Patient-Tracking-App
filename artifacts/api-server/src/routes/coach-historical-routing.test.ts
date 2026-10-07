@@ -16,6 +16,10 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
     chat: {
       completions: {
         create: vi.fn(async (request: { messages?: Array<{ role: string; content: string }> }) => {
+          // The background safety screen is not part of the turn under test.
+          if (request.messages?.some((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("safety screen inside the THINNR"))) {
+            return { choices: [{ message: { content: '{"concern":"none"}' } }] };
+          }
           state.modelRequests.push(request);
           return {
             async *[Symbol.asyncIterator]() {
@@ -62,7 +66,9 @@ beforeAll(async () => {
     server = app.listen(0, error => error ? reject(error) : resolve());
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-});
+  // The router's module graph is transformed on first import here; under a
+  // loaded machine that alone can pass vitest's default 10 s hook budget.
+}, 60_000);
 afterAll(() => server.close());
 
 /** Every system message the request carried (stable prefix + per-turn block). */

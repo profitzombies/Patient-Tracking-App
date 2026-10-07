@@ -20,6 +20,7 @@ const SURFACE_LABELS: Record<string, string> = {
   'coach.back_on_track': 'Back on track',
   'coach.title': 'Conversation titles',
   'coach.photo_classify': 'Photo triage',
+  'coach.safety_screen': 'Chat safety screen',
   'coach.recipe_image': 'Recipe images',
   'support.chat': 'AI support chat',
   'knowledge.summary': 'Knowledge summaries',

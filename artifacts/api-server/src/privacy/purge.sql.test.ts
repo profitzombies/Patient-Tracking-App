@@ -26,6 +26,7 @@ const STAFF_ALERTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/
 const BILLING_CARTS_PRIVACY_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261022000200_billing_carts_privacy.sql");
 const LEGAL_HOLDS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261107000000_legal_holds.sql");
 const ACCOUNT_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000000_account_closure.sql");
+const CHAT_FLAGS_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000001_coach_chat_flags_closure.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -596,7 +597,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
         activation_status text
       );
     `);
-    for (const file of [LEGAL_HOLDS_MIGRATION, ACCOUNT_CLOSURE_MIGRATION]) {
+    for (const file of [LEGAL_HOLDS_MIGRATION, ACCOUNT_CLOSURE_MIGRATION, CHAT_FLAGS_CLOSURE_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((arg) => arg !== "-At"), "-f", file], {
         stdio: "pipe",
         encoding: "utf8",
@@ -620,6 +621,13 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
       insert into public.patient_chat_messages (conversation_id, client_id, text)
       values ('${uuid(503)}', 'private', 'private coach text');
       insert into public.ai_usage_events (patient_id) values ('${PATIENT}');
+      -- A coach safety flag quotes the patient; it is personal and leaves at closure.
+      create table public.coach_chat_flags (
+        id uuid primary key default gen_random_uuid(),
+        patient_id uuid not null references public.patients(id) on delete cascade,
+        message_excerpt text not null
+      );
+      insert into public.coach_chat_flags (patient_id, message_excerpt) values ('${PATIENT}', 'private words');
       insert into public.auth_sign_ins (user_id, realm) values ('${AUTH_USER}', 'patient');
       insert into public.account_security_state (user_id) values ('${AUTH_USER}');
     `);
@@ -638,6 +646,8 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
 
     expect(countFor("patient_diary_entries", PATIENT)).toBe(0);
     expect(countFor("patient_flags", PATIENT)).toBe(0);
+    expect(countFor("coach_chat_flags", PATIENT)).toBe(0);
+    expect((closed.tables as Record<string, number>).coach_chat_flags).toBe(1);
     expect(countFor("patient_body_measurements", PATIENT)).toBe(1);
     expect(countFor("patient_medications", PATIENT)).toBe(1);
     expect(countFor("patient_bloodwork_reports", PATIENT)).toBe(1);

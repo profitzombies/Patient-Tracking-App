@@ -1747,6 +1747,54 @@ export const GetOfficeAlertDigestsResponse = zod.object({
 })
 
 
+export const GetOfficeChatFlagsQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
+  "status": zod.enum(['open', 'all']).optional()
+})
+
+export const GetOfficeChatFlagsResponse = zod.object({
+  "openCount": zod.number(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "conversationId": zod.string().nullable(),
+  "category": zod.enum(['severe_symptoms', 'medication_problem', 'pregnancy', 'self_harm', 'eating_disorder']),
+  "categoryLabel": zod.string(),
+  "reason": zod.string(),
+  "messageExcerpt": zod.string(),
+  "status": zod.enum(['open', 'reviewed']),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewedByName": zod.string().nullable()
+}))
+})
+
+
+export const MarkOfficeChatFlagReviewedParams = zod.object({
+  "flagId": zod.coerce.string()
+})
+
+export const MarkOfficeChatFlagReviewedQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const MarkOfficeChatFlagReviewedResponse = zod.object({
+  "id": zod.string(),
+  "patientId": zod.string(),
+  "patientName": zod.string(),
+  "conversationId": zod.string().nullable(),
+  "category": zod.enum(['severe_symptoms', 'medication_problem', 'pregnancy', 'self_harm', 'eating_disorder']),
+  "categoryLabel": zod.string(),
+  "reason": zod.string(),
+  "messageExcerpt": zod.string(),
+  "status": zod.enum(['open', 'reviewed']),
+  "createdAt": zod.coerce.date(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewedByName": zod.string().nullable()
+})
+
+
 export const GetOfficeAlertSettingsQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
 })

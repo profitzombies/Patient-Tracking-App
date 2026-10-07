@@ -104,6 +104,62 @@ console.log('\nstaff alerts: digest demo');
   renderer.unmount();
 }
 
+console.log('\nstaff alerts: chat flags demo');
+{
+  __setSession({ authStatus: 'signed-out', authRole: null, authUser: null });
+  __setSupabaseSession(null);
+  const renderer = await render(<OfficeAlerts />, '/alerts');
+  const open = one(renderer.root, 'chat-flags-open');
+  check('demo shows one sample flag with a category chip and an Open chat link', open.children.length === 1 && text(one(renderer.root, 'chat-flag-category-demo-chat-flag-1')) === 'Medication problem' && String(one(renderer.root, 'button-open-chat-demo-chat-flag-1').props.href).startsWith('/patients/'));
+  await act(async () => { one(renderer.root, 'button-review-chat-demo-chat-flag-1').props.onClick(); });
+  check('demo mark reviewed moves the flag under Recently reviewed', !maybe(renderer.root, 'button-review-chat-demo-chat-flag-1') && Boolean(maybe(renderer.root, 'chat-flags-reviewed')));
+  renderer.unmount();
+}
+
+console.log('\nstaff alerts: chat flags live');
+{
+  requests.length = 0;
+  __setScope(null);
+  __setSupabaseSession('staff-token');
+  __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' } });
+  const flag = { id: 'flag-9', patientId: 'pat-7', patientName: 'Ava Patient', conversationId: 'conv-3', category: 'self_harm', categoryLabel: 'Thoughts of self-harm', reason: 'Expressed a wish to not wake up.', messageExcerpt: 'I wish I would not wake up', status: 'open', createdAt: '2026-08-22T15:00:00Z', reviewedAt: null, reviewedByName: null };
+  // The page fetches the digest list and the flags; order is not fixed, so answer by URL.
+  const byUrl = (url: string) => url.includes('/alerts/chat-flags') ? json(200, { openCount: 1, items: [flag] }) : json(200, { dates: ['2026-08-22'], latestDate: '2026-08-22', digest: { digestDate: '2026-08-22', generatedAt: '2026-08-22T12:00:00Z', timeZone: 'UTC', flaggedCount: 0, items: [] } });
+  const previous = g.fetch;
+  g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    requests.push({ url, method: (init?.method ?? 'GET').toUpperCase(), body: null });
+    if (url.includes('/reviewed')) return json(200, { ...flag, status: 'reviewed', reviewedAt: '2026-08-22T16:00:00Z', reviewedByName: 'Staff' });
+    return byUrl(url);
+  };
+  const renderer = await render(<OfficeAlerts />, '/alerts');
+  check('live flag renders the reason and excerpt and links to the transcript', text(one(renderer.root, 'chat-flag-flag-9')).includes('wake up') && one(renderer.root, 'button-open-chat-flag-9').props.href === '/patients/pat-7?coach=conv-3');
+  check('flags are fetched with status=all', requests.some((request) => request.url === '/api/office/alerts/chat-flags?status=all'));
+  await act(async () => { one(renderer.root, 'button-review-chat-flag-9').props.onClick(); });
+  await settle();
+  check('mark reviewed posts to the flag', requests.some((request) => request.method === 'POST' && request.url === '/api/office/alerts/chat-flags/flag-9/reviewed'));
+  renderer.unmount();
+
+  // The alert email lands on /alerts?chat=<flagId>; once flags load the page
+  // jumps to the patient's record with the transcript open.
+  const location = memoryLocation({ path: '/alerts?chat=flag-9', record: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  let linked!: ReactTestRenderer;
+  await act(async () => { linked = create(<QueryClientProvider client={client}><Router hook={location.hook} searchHook={location.searchHook}><OfficeAlerts /></Router></QueryClientProvider>); });
+  await settle();
+  check('email deep link opens the flagged patient record', location.history.at(-1) === '/patients/pat-7?coach=conv-3');
+  linked.unmount();
+
+  // HQ drill-in may read but never review.
+  __setScope({ providerId: 'office-1' } as any);
+  __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' } });
+  const hq = await render(<OfficeAlerts />, '/alerts');
+  check('HQ sees the flag without a Mark reviewed button', Boolean(maybe(hq.root, 'chat-flag-flag-9')) && !maybe(hq.root, 'button-review-chat-flag-9'));
+  hq.unmount();
+  g.fetch = previous;
+  __setScope(null);
+}
+
 console.log('\nstaff alerts: settings contract');
 {
   __setSupabaseSession('staff-token');

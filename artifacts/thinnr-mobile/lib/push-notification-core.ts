@@ -64,7 +64,7 @@ function billingRoute(value: Record<string, unknown>): string | null {
 export function resolveNotificationRoute(data: unknown): string | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const value = data as Record<string, unknown>;
-  if (value.kind === 'staff_attention_digest') return '/(tabs)/patients';
+  if (value.kind === 'staff_attention_digest' || value.kind === 'coach_chat_flag') return '/(tabs)/patients';
   if (
     value.kind === 'care_team_reply' &&
     value.thread === 'care_team' &&

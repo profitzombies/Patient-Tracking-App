@@ -16,7 +16,6 @@ import { describe, expect, it } from "vitest";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(here, "../../../../supabase/migrations");
-const CLOSURE_MIGRATION = path.join(MIGRATIONS_DIR, "20261108000000_account_closure.sql");
 
 /** Kept at closure, sealed read-only, purged when `record_retain_until` passes. */
 const CLINICAL_TABLES = new Set([
@@ -67,9 +66,16 @@ function patientIdTables(): Set<string> {
   return tables;
 }
 
+/** The personal list from the LATEST migration that (re)creates patient_close_rows. */
 function personalTablesFromMigration(): Set<string> {
-  const sql = readFileSync(CLOSURE_MIGRATION, "utf8");
-  const block = sql.match(/v_personal constant text\[\] := array\[([\s\S]*?)\];/i);
+  const files = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
+  let block: RegExpMatchArray | null = null;
+  for (const file of files) {
+    const sql = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
+    if (!/create or replace function public\.patient_close_rows/i.test(sql)) continue;
+    block = sql.match(/v_personal constant text\[\] := array\[([\s\S]*?)\];/i);
+    if (!block) throw new Error(`${file} re-creates patient_close_rows without a personal table list`);
+  }
   if (!block) throw new Error("patient_close_rows personal table list not found");
   return new Set(Array.from(block[1].matchAll(/'([a-z0-9_]+)'/g), (m) => m[1]));
 }

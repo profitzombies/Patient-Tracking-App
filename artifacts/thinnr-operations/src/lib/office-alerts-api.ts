@@ -57,6 +57,26 @@ export interface OfficeAlertSettings {
   team: Array<{ id: string; name: string; role: string; status: string }>;
 }
 
+export type ChatFlagCategory = 'severe_symptoms' | 'medication_problem' | 'pregnancy' | 'self_harm' | 'eating_disorder';
+export interface OfficeChatFlag {
+  id: string;
+  patientId: string;
+  patientName: string;
+  conversationId: string | null;
+  category: ChatFlagCategory;
+  categoryLabel: string;
+  reason: string;
+  messageExcerpt: string;
+  status: 'open' | 'reviewed';
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewedByName: string | null;
+}
+export interface OfficeChatFlags {
+  openCount: number;
+  items: OfficeChatFlag[];
+}
+
 export interface StaffAlertDelivery {
   id: string;
   providerId: string;
@@ -84,6 +104,7 @@ const MESSAGES: OfficeRequestMessages = {
 export const officeAlertsQueryKey = (office?: string | null) => ['office-alerts', office ?? 'own-office'] as const;
 export const officeAlertDigestsQueryKey = (office?: string | null) => ['office-alert-digests', office ?? 'own-office'] as const;
 export const officeAlertSettingsQueryKey = (office?: string | null) => ['office-alert-settings', office ?? 'own-office'] as const;
+export const officeChatFlagsQueryKey = (office?: string | null) => ['office-chat-flags', office ?? 'own-office'] as const;
 
 export const fetchOfficeAlerts = (office?: string | null) =>
   officeRequest<OfficeAlerts>(`/api/office/alerts${officeQuery(office)}`, MESSAGES);
@@ -117,6 +138,18 @@ export const updateOfficeAlertPreferences = (body: { emailEnabled: boolean; push
     `/api/office/alerts/preferences${officeQuery(office)}`,
     MESSAGES,
     { method: 'PUT', body: JSON.stringify(body) },
+  );
+
+export const fetchOfficeChatFlags = (office?: string | null) => {
+  const extra = new URLSearchParams({ status: 'all' });
+  return officeRequest<OfficeChatFlags>(`/api/office/alerts/chat-flags${officeQuery(office, extra)}`, MESSAGES);
+};
+
+export const markOfficeChatFlagReviewed = (flagId: string, office?: string | null) =>
+  officeRequest<OfficeChatFlag>(
+    `/api/office/alerts/chat-flags/${encodeURIComponent(flagId)}/reviewed${officeQuery(office)}`,
+    MESSAGES,
+    { method: 'POST' },
   );
 
 export const fetchStaffAlertDeliveries = (limit = 50) =>

@@ -1,5 +1,5 @@
 import type { Patient } from '@/data/mock-data';
-import type { AttentionDigest, AttentionItem, AttentionReason } from '@/lib/office-alerts-api';
+import type { AttentionDigest, AttentionItem, AttentionReason, OfficeChatFlag } from '@/lib/office-alerts-api';
 
 export const ATTENTION_DEMO_ANCHOR = '2026-08-22';
 export const ATTENTION_DEMO_DATES = ['2026-08-22', '2026-08-21', '2026-08-20'];
@@ -39,4 +39,26 @@ export function buildDemoDigest(patients: Patient[], date: string): AttentionDig
     flaggedCount: items.length,
     items,
   };
+}
+/**
+ * One sample coach-chat flag for the guided demo so the "Chat flagged" list
+ * is never empty. Wording is invented; it belongs to a demo patient only.
+ */
+export function buildDemoChatFlags(patients: Patient[]): OfficeChatFlag[] {
+  const patient = patients.find((candidate) => candidate.status === 'active') ?? patients[0];
+  if (!patient) return [];
+  return [{
+    id: 'demo-chat-flag-1',
+    patientId: patient.id,
+    patientName: patient.name,
+    conversationId: null,
+    category: 'medication_problem',
+    categoryLabel: 'Medication problem',
+    reason: 'Reports taking two injections one day apart after losing track of the schedule.',
+    messageExcerpt: 'I think I did my shot on Tuesday and again Wednesday because I forgot. Should I skip next week?',
+    status: 'open',
+    createdAt: `${ATTENTION_DEMO_ANCHOR}T15:42:00.000Z`,
+    reviewedAt: null,
+    reviewedByName: null,
+  }];
 }

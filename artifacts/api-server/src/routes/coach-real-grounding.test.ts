@@ -56,6 +56,9 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
               .filter((m) => m.role === "system" && typeof m.content === "string")
               .map((m) => m.content as string)
               .join("\n\n");
+            // The background safety screen reads every real-patient message;
+            // it is not part of the turn under test.
+            if (system.includes("safety screen inside the THINNR")) return { choices: [{ message: { content: '{"concern":"none"}' } }] };
             modelState.calls.push({ stream: params.stream === true, system });
             if (params.stream === true) {
               return {

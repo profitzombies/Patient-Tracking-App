@@ -154,3 +154,4 @@
 - [HQ testing hard delete](hq-testing-hard-delete.md) — removable non-compliant wipe; Stripe first, one SQL txn; sign-out list rows are the only intended leftover; DB-wide scan proves erasure.
 - [Resend tracking vs spam](resend-tracking-deliverability.md) — keep open/click tracking off on the sending domain; it put code emails in spam. App mail stays on the subdomain.
 - [App payments forecast](app-payments-forecast.md) — forecast mirrors the charger; overdue anchors are outstanding not future; export kinds avoid billing_ prefix (admits owners).
+- [Coach chat safety flags](coach-chat-safety-flags.md) — urgent-only screen; alert = PHI-free "needs review" + deep link; office-scope launch gate 502s suites lacking a waived practice_launch row.

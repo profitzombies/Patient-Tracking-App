@@ -41,6 +41,7 @@ const TABLES = [
   "patient_check_ins", "patient_flags", "patient_medications", "patient_medication_dose_logs",
   "patient_write_receipts", "patient_chat_conversations", "patient_staff_weights",
   "billing_subscriptions", "billing_payers", "billing_connected_accounts", "legal_holds",
+  "practice_launch",
 ];
 
 /** The personal families the closure RPC deletes (subset that exists in this fake). */
@@ -498,6 +499,12 @@ function seedOffice() {
     provider_id: SIGNUP_OFFICE_ID, provider_name: "Dr. Bayshore", office_name: "Bayshore Slim Clinic",
     email: "bayshore@clinic.example", onboarding_code: OFFICE_CODE, access_disabled: false,
     auth_user_id: "provider-user", claimed_at: "2026-01-01T00:00:00Z", offboarding_status: null,
+  });
+  // The office-scope resolver consults practice setup; this synthetic office
+  // has its gate waived, like any demonstration account.
+  backend.tables.practice_launch.push({
+    provider_id: SIGNUP_OFFICE_ID, required: false, version: 0, details_confirmed: false, products_confirmed: false,
+    completed_at: null, setup_override_at: "2026-01-01T00:00:00Z",
   });
   backend.authUsers.set("provider-user", { id: "provider-user", email: "bayshore@clinic.example", phone: null });
   backend.tokens.set("provider-token", "provider-user");

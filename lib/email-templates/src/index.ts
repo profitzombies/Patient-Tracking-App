@@ -29,6 +29,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "subscription-payment-failed",
   "subscription-cancelled",
   "staff-attention-digest",
+  "coach-chat-flag",
   "system-threshold-alert",
   "office-access-restricted",
   ...SHOP_EMAIL_TEMPLATE_IDS,
@@ -296,6 +297,27 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       flaggedCount: "Number of flagged patients",
       reasons: "Counts per reason, one per line as “Reason · N patients”",
       alertsLink: "Needs attention page link",
+      settingsLink: "Alert settings link",
+    },
+  },
+  {
+    id: "coach-chat-flag",
+    name: "Coach chat needs review",
+    purpose: "Tells office staff that a patient said something in the AI coach chat that needs a clinician's eyes today, and links to the Needs attention page where the flag opens behind sign-in.",
+    trigger: "The coach safety screen flags a real patient's message for an urgent concern (severe symptoms, a medication problem, pregnancy, self-harm, or eating-disorder signs). At most once per patient per day.",
+    audience: "Office alert recipients (the owner and any teammates the office selected). Never says who the patient is or what was said: the email leaves through a vendor without a BAA.",
+    sampleVariables: {
+      name: "Sarah",
+      officeName: "Example Wellness Studio",
+      day: "Tuesday, September 15, 2026",
+      reviewLink: "https://operations.example.com/alerts?chat=sample",
+      settingsLink: "https://operations.example.com/settings",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      officeName: "Office name",
+      day: "Day the message was flagged",
+      reviewLink: "Sign-in link that opens the flag",
       settingsLink: "Alert settings link",
     },
   },
@@ -618,6 +640,7 @@ export function renderEmailTemplate(
   if (id === "order-shipped") return renderOrderShipped(variables);
   if (id === "subscription-cancelled") return renderSubscriptionCancelled(variables);
   if (id === "staff-attention-digest") return renderStaffAttentionDigest(variables);
+  if (id === "coach-chat-flag") return renderCoachChatFlag(variables);
   if (id === "system-threshold-alert") return renderSystemThresholdAlert(variables);
   if (id === "office-access-restricted") return renderOfficeAccessRestricted(variables);
   const shop = renderShopEmail(id, variables);
@@ -887,6 +910,46 @@ function renderStaffAttentionDigest(variables: EmailVariables): RenderedEmail {
         ${paragraph("Patient names are never included in email. Open the portal to see who is on the list and their full activity. Alerts are informational and do not replace clinical judgment.")}
         ${settingsLink ? paragraph(`<a href="${escapeHtml(settingsLink)}" style="color:#315eae;">Change who receives alerts or turn off your email digest</a> in office settings.`) : ""}`,
       closing: `You are receiving this because ${officeName} chose you as an alert recipient. Sent once a day, only when at least one patient is flagged.`,
+    }),
+  };
+}
+
+function renderCoachChatFlag(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const officeName = requireVariable(variables, "officeName");
+  const day = requireVariable(variables, "day");
+  const reviewLink = requireVariable(variables, "reviewLink");
+  const settingsLink = variables.settingsLink?.trim() || "";
+  const headline = "A patient's coach chat needs review";
+  const subject = `${headline} at ${officeName}`;
+  const previewText = "Something a patient told the AI coach needs your attention today. Sign in to see who.";
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `On ${day}, a ${officeName} patient said something in their THINNR coach chat that the safety screen marked for a clinician's review.`,
+    "",
+    "This email does not say who the patient is or what they wrote. Sign in to THINNR operations to open the flagged conversation, see the reason, and decide what to do next.",
+    "",
+    `Review the flagged chat: ${reviewLink}`,
+    ...(settingsLink ? [`Change who receives these alerts or turn them off for yourself: ${settingsLink}`] : []),
+    "",
+    "The safety screen is an automated first read of the patient's own words. It does not replace clinical judgment, and it is not a diagnosis.",
+  ].join("\n");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Coach chat review",
+      heading: headline,
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`On <strong>${escapeHtml(day)}</strong>, a <strong>${escapeHtml(officeName)}</strong> patient said something in their THINNR coach chat that the safety screen marked for a clinician's review.`)}
+        ${infoPanel("Patients flagged", "1")}
+        ${paragraph("This email does not say who the patient is or what they wrote. Sign in to open the flagged conversation, see the reason, and decide what to do next.")}
+        ${button(reviewLink, "Review the flagged chat")}
+        ${paragraph("The safety screen is an automated first read of the patient's own words. It does not replace clinical judgment, and it is not a diagnosis.")}
+        ${settingsLink ? paragraph(`<a href="${escapeHtml(settingsLink)}" style="color:#315eae;">Change who receives alerts or turn off your email alerts</a> in office settings.`) : ""}`,
+      closing: `You are receiving this because ${officeName} chose you as an alert recipient. Sent at most once a day per patient.`,
     }),
   };
 }

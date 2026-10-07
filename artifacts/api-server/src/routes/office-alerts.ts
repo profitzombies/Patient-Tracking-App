@@ -13,6 +13,8 @@ import { loadOfficeAttention } from "../lib/office-attention";
 import { CLOCK_RE, OVERRIDES_SELECT, loadOfficeOverrides, loadOrgPolicy, overridesFromRow } from "../lib/org-policy";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
+import { COACH_SAFETY_CATEGORY_LABELS } from "../coach/safety-screen";
+import { isCoachSafetyCategory } from "../alerts/coach-chat-flags";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -112,6 +114,80 @@ router.get("/office/alerts/digests", async (req, res) => {
     const selected = requested ? rows.find((row) => row.digest_date === requested) : rows[0];
     res.json({ dates: rows.map((row) => String(row.digest_date)), digest: selected ? { digestDate: selected.digest_date, generatedAt: selected.generated_at, timeZone: selected.time_zone, flaggedCount: selected.flagged_count, items: selected.items } : null, latestDate: rows[0]?.digest_date ?? null });
   } catch (error) { req.log?.error({ err: error }, "office alert digests failed"); res.status(502).json({ error: "Office alert digests are unavailable right now." }); }
+});
+// ── Coach chat safety flags ──────────────────────────────────────────────────
+// The substance of a flag (who, the reason, the excerpt) is read here only,
+// behind office scope. HQ drill-in may read; only office staff review.
+const FLAG_SELECT = "id,patient_id,conversation_id,category,reason,message_excerpt,status,created_at,reviewed_at,reviewed_by_name";
+type Row = Record<string, unknown>;
+function patientDisplayName(patient: Row | undefined): string {
+  const stored = typeof patient?.name === "string" ? patient.name.trim() : "";
+  const split = [patient?.first_name, patient?.last_name].filter((part) => typeof part === "string" && part.trim()).join(" ");
+  return stored || split || "Patient";
+}
+function chatFlagDto(row: Row, patient: Row | undefined) {
+  const category = isCoachSafetyCategory(row.category) ? row.category : "severe_symptoms";
+  return {
+    id: String(row.id), patientId: String(row.patient_id), patientName: patientDisplayName(patient),
+    conversationId: typeof row.conversation_id === "string" ? row.conversation_id : null,
+    category, categoryLabel: COACH_SAFETY_CATEGORY_LABELS[category],
+    reason: String(row.reason ?? ""), messageExcerpt: String(row.message_excerpt ?? ""),
+    status: row.status === "reviewed" ? "reviewed" : "open",
+    createdAt: String(row.created_at), reviewedAt: typeof row.reviewed_at === "string" ? row.reviewed_at : null,
+    reviewedByName: typeof row.reviewed_by_name === "string" ? row.reviewed_by_name : null,
+  };
+}
+async function patientsById(providerId: string, ids: string[]): Promise<Map<string, Row>> {
+  if (!ids.length) return new Map();
+  const result = await supabaseAdmin("GET", `/rest/v1/patients?provider_id=eq.${enc(providerId)}&id=in.(${ids.map(enc).join(",")})&select=id,name,first_name,last_name&limit=500`);
+  if (result.status >= 300) throw new Error(`chat flag patient names failed (${result.status})`);
+  return new Map((Array.isArray(result.json) ? result.json as Row[] : []).map((row) => [String(row.id), row]));
+}
+router.get("/office/alerts/chat-flags", async (req, res) => {
+  try {
+    const scope = await scoped(req, res); if (!scope) return;
+    const all = req.query.status === "all";
+    const [listed, open] = await Promise.all([
+      supabaseAdmin("GET", `/rest/v1/coach_chat_flags?provider_id=eq.${enc(scope.providerId)}${all ? "" : "&status=eq.open"}&select=${FLAG_SELECT}&order=created_at.desc&limit=${all ? 200 : 100}`),
+      supabaseAdmin("GET", `/rest/v1/coach_chat_flags?provider_id=eq.${enc(scope.providerId)}&status=eq.open&select=id&limit=500`),
+    ]);
+    if (listed.status >= 300 || open.status >= 300) throw new Error(`chat flag list failed (${listed.status}/${open.status})`);
+    const rows = Array.isArray(listed.json) ? listed.json as Row[] : [];
+    const patients = await patientsById(scope.providerId, [...new Set(rows.map((row) => String(row.patient_id)))]);
+    res.json({ openCount: Array.isArray(open.json) ? open.json.length : 0, items: rows.map((row) => chatFlagDto(row, patients.get(String(row.patient_id)))) });
+  } catch (error) { req.log?.error({ err: error }, "office chat flags failed"); res.status(502).json({ error: "Flagged chats are unavailable right now." }); }
+});
+router.post("/office/alerts/chat-flags/:flagId/reviewed", async (req, res) => {
+  try {
+    const scope = await scoped(req, res); if (!scope) return;
+    if (scope.actorKind === "hq") { res.status(403).json({ error: "HQ users cannot review office chat flags." }); return; }
+    const flagId = String(req.params.flagId);
+    const existing = await supabaseAdmin("GET", `/rest/v1/coach_chat_flags?id=eq.${enc(flagId)}&provider_id=eq.${enc(scope.providerId)}&select=${FLAG_SELECT}&limit=1`);
+    if (existing.status >= 300) throw new Error(`chat flag read failed (${existing.status})`);
+    const current = (Array.isArray(existing.json) ? existing.json[0] : null) as Row | null;
+    if (!current) { res.status(404).json({ error: "Flag not found." }); return; }
+    let row = current;
+    if (current.status !== "reviewed") {
+      let reviewerName: string = scope.providerName;
+      if (scope.teamMemberId) {
+        const member = await supabaseAdmin("GET", `/rest/v1/team_members?id=eq.${enc(scope.teamMemberId)}&select=name&limit=1`);
+        const name = Array.isArray(member.json) && member.json[0] ? (member.json[0] as Row).name : null;
+        if (typeof name === "string" && name.trim()) reviewerName = name.trim();
+      }
+      const updated = await supabaseAdmin("PATCH", `/rest/v1/coach_chat_flags?id=eq.${enc(flagId)}&provider_id=eq.${enc(scope.providerId)}&status=eq.open&select=${FLAG_SELECT}`, {
+        status: "reviewed", reviewed_at: new Date().toISOString(), reviewed_by: scope.actorUserId, reviewed_by_name: reviewerName,
+      }, "return=representation");
+      if (updated.status >= 300) throw new Error(`chat flag review failed (${updated.status})`);
+      row = (Array.isArray(updated.json) && updated.json[0] ? updated.json[0] : { ...current, status: "reviewed" }) as Row;
+      await recordAdminAuditEvent({
+        action: "coach_chat_flag_reviewed", actorUserId: scope.actorUserId, actorKind: scope.actorKind, providerId: scope.providerId,
+        targetKind: "patient", targetId: String(current.patient_id), requestId: req.headers["x-request-id"]?.toString() ?? null,
+        metadata: { flagId, category: String(current.category) },
+      }).catch(() => undefined);
+    }
+    const patients = await patientsById(scope.providerId, [String(row.patient_id)]);
+    res.json(chatFlagDto(row, patients.get(String(row.patient_id))));
+  } catch (error) { req.log?.error({ err: error }, "office chat flag review failed"); res.status(502).json({ error: "Could not mark this flag reviewed." }); }
 });
 router.get("/office/alerts/settings", async (req, res) => {
   try { const scope = await scoped(req, res); if (scope) res.json(await settingsDto(scope)); }

@@ -10,6 +10,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_invitation_resent: 'Resent a patient invitation',
   patient_follow_up_open: 'Opened a patient follow-up',
   patient_follow_up_resolved: 'Resolved a patient follow-up',
+  coach_chat_flag_reviewed: 'Reviewed a flagged coach chat',
   patient_profile_updated: 'Updated a patient profile',
   patient_status_changed: 'Changed a patient status',
   patient_note_added: 'Added a patient note',

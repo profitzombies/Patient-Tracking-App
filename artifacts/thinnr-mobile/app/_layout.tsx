@@ -549,7 +549,7 @@ function PushResponseBridge() {
     if (handledResponses.current.has(responseId)) return;
     handledResponses.current.add(responseId);
     const data = response.notification.request.content.data;
-    if (data?.kind === 'staff_attention_digest') {
+    if (data?.kind === 'staff_attention_digest' || data?.kind === 'coach_chat_flag') {
       const route = resolveNotificationRoute(data);
       if (!route) return;
       if (staffAdmitted) router.push(route as Href);

@@ -26,7 +26,7 @@
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
 - [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
-- [Web admin persona gate](web-admin-persona-gate.md) — operations /admin screenshots need the tester through the guided-demo persona (sessionStorage); static Screenshot only sees the sign-in card.
+- [Web admin pages need a real login](web-admin-persona-gate.md) — no demo persona exists; Screenshot only sees sign-in, so verify staff screens via the tester with a disposable real HQ/office login.
 - [Provider account lock](account-lock-pattern.md) — presence-keyed row + lock-aware caller_* helpers collapse office RLS at one choke point; keep locked staff's own-profile read for the notice.
 - [Knowledge doc library](knowledge-doc-library.md) — AI Support grounding docs: extract-on-finalize with object-path-conditional persists, routing aids at ingest; HTTP seed path now behind the HQ content gate.
 - [Support chat grounding](support-chat-grounding.md) — broaden-marker routing; brand fixes via stream rewrite; history caps fit replayed replies (turn TWO); chat open per-IP-limited, knowledge routes now HQ-gated; never bundle creds.
@@ -65,7 +65,7 @@
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.
 - [Live/demo UI isolation](live-demo-ui-isolation.md) — choose demo vs live from auth state, never missing data; propagate loading/errors so outages cannot look like healthy zeroes.
-- [Demo switch](demo-switch.md) — THINNR_DEMO on in dev, off in the published app; switch gates demo ENTRY only, the session decides labels and fallbacks; demo code deletion comes later.
+- [Guided demo removed](demo-switch.md) — no demo door or switch anywhere; seed modules + signed-out branches are dead suite baselines; tokenless AI grounding and suite rewrites are follow-ups.
 - [Local Postgres SQL tests](local-postgres-sql-tests.md) — test Supabase SQL functions by booting a temp initdb/pg_ctl instance in vitest; workspace PGHOST/PGDATABASE point at helium, always pass -h/-d.
 - [Roster unknown vs zero](roster-unknown-state.md) — live activity signals are nullable per family + whole-row unknown status; UI three-way model, null never lapsed, sorts last; detail shares the DTO.
 - [Export jobs & office analytics](export-jobs-and-office-analytics.md) — staff requests are pinned (never 403), expiry is a status flip, pre-dataset ranges go null, drill links must match real roster filters.

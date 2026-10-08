@@ -1,14 +1,10 @@
 /**
- * Session for the operations app — real Supabase auth in front, with the
- * demo persona chooser as an explicit bypass underneath.
+ * Session for the operations app — real Supabase auth only.
  *
- * Precedence: a real signed-in session always wins. An active HQ membership
- * picks the HQ area regardless of the compatibility role on profiles.
- * Otherwise the profile role picks provider/patient behavior. While nobody is
- * signed in, the demo bypass ("Explore the demo" on the sign-in screen) still
- * sets a sessionStorage persona so investor walkthroughs need no credentials —
- * but only where the demo switch allows it (src/lib/demo-entry.ts); the
- * published app has no persona at all. Sign out clears both worlds.
+ * Precedence: an active HQ membership picks the HQ area regardless of the
+ * compatibility role on profiles. Otherwise the profile role picks
+ * provider/patient behavior. Nobody signed out has a persona: the router
+ * shows sign-in and the real public pages.
  */
 import {
   createContext,
@@ -21,7 +17,6 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { describeAuthError, supabase, supabaseConfigured } from '@/lib/supabase';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 import type { HqRole } from '@/data/hq/team';
 import { useIdleTimeout, type IdleState } from '@/hooks/useIdleTimeout';
 
@@ -30,7 +25,6 @@ export type AuthRole = 'hq_admin' | 'provider_staff' | 'patient';
 export type AuthStatus = 'loading' | 'signed-out' | 'signed-in';
 export type RoleStatus = 'idle' | 'loading' | 'ready' | 'error';
 
-const STORAGE_KEY = 'thinnr-ops-persona';
 const STAFF_ROLE_POLL_MS = 10_000;
 
 /**
@@ -129,31 +123,6 @@ async function fetchHqSession(client: NonNullable<typeof supabase>): Promise<HqS
   }
 }
 
-/** sessionStorage can throw (privacy modes); the demo degrades to in-memory. */
-function readStoredPersona(): Persona | null {
-  try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    // Demo entry switched off (the published app): a persona remembered from
-    // an earlier visit is cleared, never restored.
-    if (!demoEntryEnabled) {
-      if (raw !== null) window.sessionStorage.removeItem(STORAGE_KEY);
-      return null;
-    }
-    return raw === 'hq-admin' || raw === 'office' ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredPersona(persona: Persona | null) {
-  try {
-    if (persona === null) window.sessionStorage.removeItem(STORAGE_KEY);
-    else window.sessionStorage.setItem(STORAGE_KEY, persona);
-  } catch {
-    // In-memory state still drives the session; persistence is best-effort.
-  }
-}
-
 export interface AuthUser {
   id: string;
   email: string | null;
@@ -185,7 +154,7 @@ export interface StaffSessionInfo {
 }
 
 interface SessionValue {
-  /** Resolved area: the real role first; demo persona only while signed out. */
+  /** Resolved area from the real role; null while signed out or unresolved. */
   persona: Persona | null;
   authStatus: AuthStatus;
   authUser: AuthUser | null;
@@ -195,7 +164,7 @@ interface SessionValue {
   profileTitle: string | null;
   /** Provider office (seeded account id) for signed-in provider staff; null otherwise. */
   providerAccountCode: string | null;
-  /** Set when the signed-in user is a claimed provider/office staffer with no demo profile. */
+  /** Set when the signed-in user is a claimed provider/office staffer with no profile row. */
   claimedWorkspace: ClaimedWorkspaceInfo | null;
   roleStatus: RoleStatus;
   idleTimeoutMinutes: number;
@@ -203,11 +172,9 @@ interface SessionValue {
   idleState: IdleState;
   secondsLeft: number;
   dismissIdleWarning: () => void;
-  /** False when the Supabase env vars are missing (demo-only mode). */
+  /** False when the Supabase env vars are missing (sign-in unavailable). */
   supabaseEnabled: boolean;
-  /** Demo bypass — only meaningful while signed out. */
-  signIn: (persona: Persona) => void;
-  /** Ends both the real session and the demo persona. */
+  /** Ends the real session. */
   signOut: () => void;
   /** Asks the server to email a one-time sign-in code to a staff address. */
   requestStaffCode: (email: string) => Promise<{
@@ -238,7 +205,6 @@ interface SessionValue {
 const SessionContext = createContext<SessionValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [demoPersona, setDemoPersona] = useState<Persona | null>(readStoredPersona);
   const [session, setSession] = useState<Session | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     supabaseConfigured ? 'loading' : 'signed-out',
@@ -390,8 +356,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (role === 'hq_admin') {
         // A profile-only HQ role is stale compatibility data, never access.
         setRoleStatus('error');
-        writeStoredPersona(null);
-        setDemoPersona(null);
         void client.auth.signOut();
         return;
       }
@@ -457,8 +421,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('error');
-        writeStoredPersona(null);
-        setDemoPersona(null);
         await client.auth.signOut();
         return;
       }
@@ -470,8 +432,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setProfileName(null);
           setProviderAccountCode(null);
           setClaimedWorkspace(null);
-          writeStoredPersona(null);
-          setDemoPersona(null);
           await client.auth.signOut();
         }
         return;
@@ -487,8 +447,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setProviderAccountCode(null);
           setClaimedWorkspace(null);
           setRoleStatus('error');
-          writeStoredPersona(null);
-          setDemoPersona(null);
           await client.auth.signOut();
         }
         return;
@@ -511,8 +469,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('error');
-        writeStoredPersona(null);
-        setDemoPersona(null);
         await client.auth.signOut();
         return;
       }
@@ -524,8 +480,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setProviderAccountCode(null);
         setClaimedWorkspace(null);
         setRoleStatus('ready');
-        writeStoredPersona(null);
-        setDemoPersona(null);
         await client.auth.signOut();
         return;
       }
@@ -572,16 +526,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [userId, authRole]);
 
-  const signIn = useCallback((next: Persona) => {
-    // Demo entry switched off: nothing may pick a persona.
-    if (!demoEntryEnabled) return;
-    writeStoredPersona(next);
-    setDemoPersona(next);
-  }, []);
-
   const signOut = useCallback(() => {
-    writeStoredPersona(null);
-    setDemoPersona(null);
     clearDeviceMemory();
     if (supabase) void supabase.auth.signOut();
   }, []);
@@ -831,9 +776,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (authRole === 'provider_staff' || claimedWorkspace) return 'office';
       return null; // patient / unresolved — the router shows the right screen
     }
-    if (authStatus === 'loading') return null;
-    return demoEntryEnabled ? demoPersona : null;
-  }, [authStatus, authRole, claimedWorkspace, demoPersona]);
+    return null;
+  }, [authStatus, authRole, claimedWorkspace]);
 
   const value = useMemo<SessionValue>(
     () => ({
@@ -852,7 +796,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       secondsLeft,
       dismissIdleWarning,
       supabaseEnabled: supabaseConfigured,
-      signIn,
       signOut,
       requestStaffCode,
       verifyStaffCode,
@@ -875,7 +818,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       idleState,
       secondsLeft,
       dismissIdleWarning,
-      signIn,
       signOut,
       requestStaffCode,
       verifyStaffCode,

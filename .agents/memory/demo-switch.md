@@ -1,18 +1,18 @@
 ---
-name: Demo switch (published app has no demo)
-description: How the guided demo is switched off in the published web and mobile apps while development keeps it, and the rules new screens must follow.
+name: Guided demo removed (no demo entry anywhere)
+description: The demo entry points and THINNR_DEMO switch are gone from web and mobile; rules for the remaining seed modules, suites and API grounding until the follow-up clean-ups land.
 ---
 
-The user switched the guided demo off in the published app (Oct 2026) and wants the leftover demo code deleted in a LATER clean-up. One env var per environment, `THINNR_DEMO` (`on` in development, `off` in production), controls every demo ENTRY point on web and mobile. When it is unset, production builds fail closed and development builds keep the demo.
+The guided demo was switched off in the published app (Oct 2026) and its ENTRY points were deleted on 2026-10-08: web demo chooser + sessionStorage persona, MenuLab, the `THINNR_DEMO` / `VITE_THINNR_DEMO` / `EXPO_PUBLIC_THINNR_DEMO` switch, mobile persona cards, the signed-out provider dashboard, `/claim-test`, `useDemoLabels`, and the anon `is_demo` training read policies. Do NOT re-add a demo door or a switch.
 
-**Why:** development suites still exercise the demo, so it has to keep working there until the clean-up removes the demo code, seeds and demo-only tests. Deleting fake database rows is a separate task.
+**Why:** the user asked for the demo code to go once production had no demo. Deleting it entirely was staged because ~80 web and ~25 mobile hermetic suites still use the demo dataset as their baseline, and the API's tokenless coach/scan paths still ground on the demo patient.
 
 **Rules:**
-- The switch decides only whether the demo can be ENTERED: personas, the guided demo, the signed-out provider dashboard and mobile claim-test. Whether demo labels, projections or seeded values appear is decided by the session. Signed-in screens never show them, whatever the switch says. Missing live data gets an honest empty or unavailable state, never Emma's numbers (see live-demo-ui-isolation.md).
-- The web app clears a sessionStorage persona remembered from an earlier visit; it is never restored.
-- Mobile hermetic suites that render screens without an account provider default to the demo account, so demo output is the suite baseline. Gate demo copy rather than deleting it, and keep the demo branch byte-identical so the existing demo checks stay valid.
-- Public signed-out web pages that remain: training share link, /pay, cancel links, /security/report, /hq-setup, /claim-account. The admin course preview and the email studio route also stay reachable signed out (noted, not changed).
+- Nobody signed out reaches an office/HQ screen or a patient route. Web: `persona === null` renders sign-in, /hq-setup or the course preview; mobile patient layout admits only `account.kind === 'real'`. The seed modules and the `authStatus !== 'signed-in'` / `account.kind === 'demo'` branches that read them are now DEAD UI code kept only as suite baselines — never wire a new screen to them.
+- Signed-in screens never show demo labels, projections or seeded values; missing live data gets an honest empty or unavailable state (live-demo-ui-isolation.md).
+- Mobile hermetic suites rendering without an account provider still default to the demo account. When rewriting a suite, move it to a real-account fixture rather than re-gating demo copy.
+- Training: anonymous callers read an EMPTY roster/completions/invites; the `is_demo` column is a legacy seed marker only. Suites must not require seeded demo learners to exist.
+- Server AI routes: a signed-in patient is grounded on their own account, failed account load = honest 502. Tokenless callers still get demo grounding; closing signed-out AI access (and then deleting `coach/demo-patient.ts`) is a separate follow-up that must rewrite the tokenless API suites.
+- Public signed-out web pages: training share link / course preview, /pay, cancel links, /security/report, /hq-setup, /claim-account, /email.
 
-- Server AI routes follow the same rule: a signed-in patient is grounded on their own account, and a failed account load is an honest 502, never the demo patient. The menu and label scans used to ground every caller on the demo patient. Signed-out callers can still reach the coach and scans with demo grounding; closing that off is a separate decision.
-
-**How to apply:** a new demo entry point must consult the switch. A new label or fallback must consult the session. A new signed-in screen or AI route must never use a seed module as a fallback.
+**How to apply:** when touching a seed module or a demo branch, delete it if nothing but dead UI references it; when a suite depends on it, rewrite the suite around a real-account fixture in the same change.

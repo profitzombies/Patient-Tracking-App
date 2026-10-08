@@ -1,19 +1,29 @@
 /**
- * Node stand-in for @/context/PatientContext: the tab layout only reads
- * `hydrated` (it holds rendering until storage rehydrates), and the sync
- * chip / snackbar shelf read the (disabled, demo-style) sync value.
+ * Node stand-in for @/context/PatientContext: the tab layout reads the
+ * hydration flag plus the admission facts of an onboarded, consented real
+ * patient (the only account kind the layout admits), and the sync chip /
+ * snackbar shelf read a disabled sync value.
  */
-export const patientState = { hydrated: true };
+export const patientState = {
+  hydrated: true,
+  hydratedFlags: { onboardingComplete: true },
+  hydratedPrivacy: { consent: { satisfied: true }, deletion: null as null },
+};
 
-export function usePatient(): { hydrated: boolean } {
-  return { hydrated: patientState.hydrated };
+export function usePatient() {
+  return {
+    hydrated: patientState.hydrated,
+    hydratedFlags: patientState.hydratedFlags,
+    hydratedPrivacy: patientState.hydratedPrivacy,
+    rehydrate: () => undefined,
+  };
 }
 
 export function usePatientSyncNotice() {
   return null;
 }
 
-/** Demo posture: the offline queue is disabled, so the chip never renders. */
+/** The offline queue is disabled in this harness, so the chip never renders. */
 export function usePatientSync() {
   return {
     enabled: false,

@@ -254,7 +254,7 @@ export async function verifyLivePatientRecord(): Promise<number> {
     await resolving.close();
     check('global patient admission guard recognizes office record as staff route', liveEntryDecision({
       modeHydrated: true, mode: 'staff', accountResolving: false, accountKind: 'demo',
-      patientHydrated: true, onboardingComplete: null, demoAdmitted: false,
+      patientHydrated: true, onboardingComplete: null,
       pathname: '/office-patient/pat-a',
     }).kind === 'allow');
   } finally {

@@ -188,11 +188,10 @@ async function main() {
     const viewersA = await asUser(tokenA, 'GET', '/rest/v1/training_viewers?select=*&limit=1000');
     const rowsA: any[] = Array.isArray(viewersA.json) ? viewersA.json : [];
     check('sees own linked row', rowsA.some((row) => row.auth_user_id === idA));
-    check('sees own-office demo roster', rowsA.some((row) => row.is_demo === true && row.account_id === 'acct-p1'));
     check('never sees another office\'s real people', !rowsA.some((row) => row.email === emailB));
     check(
-      'every visible non-demo row is own office or self',
-      rowsA.filter((row) => row.is_demo === false).every((row) => row.account_id === 'acct-p1' || row.auth_user_id === idA),
+      'every visible row is own office or self (no world-readable demo roster)',
+      rowsA.every((row) => row.account_id === 'acct-p1' || row.auth_user_id === idA),
     );
 
     console.log('3. Self-serve teammate adds');
@@ -267,7 +266,7 @@ async function main() {
       );
       const viewersC = await asUser(tokenC, 'GET', '/rest/v1/training_viewers?select=email,is_demo&limit=1000');
       const rowsC: any[] = Array.isArray(viewersC.json) ? viewersC.json : [];
-      check('patient sees no real people', rowsC.every((row) => row.is_demo === true));
+      check('patient sees no people at all', viewersC.status === 200 && rowsC.length === 0, `status ${viewersC.status}, ${rowsC.length} rows`);
     }
     const anonAdd = await asUser(undefined, 'POST', '/rest/v1/rpc/training_add_staff', {
       p_account_id: 'acct-p1',
@@ -311,7 +310,7 @@ async function main() {
       if (tokenB) {
         const viewersRevoked = await asUser(tokenB, 'GET', '/rest/v1/training_viewers?select=email,is_demo&limit=1000');
         const rowsRevoked: any[] = Array.isArray(viewersRevoked.json) ? viewersRevoked.json : [];
-        check('revoked session reads demo rows only', rowsRevoked.every((row) => row.is_demo === true));
+        check('revoked session reads no people at all', viewersRevoked.status === 200 && rowsRevoked.length === 0, `status ${viewersRevoked.status}, ${rowsRevoked.length} rows`);
         check('revoked session no longer sees its own row', !rowsRevoked.some((row) => row.email === emailB));
         const markRevoked = await asUser(tokenB, 'POST', '/rest/v1/rpc/training_mark_video_complete_self', {
           p_video_id: video.id,

@@ -6,6 +6,7 @@
       "@/components/ui/AppModal": ["./scripts/patient-fab-stubs/app-modal.ts"],
       "@/context/AppModeContext": ["./scripts/route-hydration-stubs/app-mode-context.ts"],
       "@/context/PatientContext": ["./scripts/route-hydration-stubs/patient-context.ts"],
+      "@/context/PatientAccountContext": ["./scripts/route-hydration-stubs/patient-account-context.ts"],
       "@/context/CoachChatContext": ["./scripts/patient-fab-stubs/coach-chat-context.ts"],
       "@/lib/photo-prep": ["./scripts/patient-fab-stubs/photo-prep.ts"],
       "@/*": ["./*"],
@@ -18,7 +19,10 @@
       "expo-router": ["./scripts/patient-fab-stubs/expo-router.ts"],
       "expo-symbols": ["./scripts/patient-fab-stubs/expo-symbols.ts"],
       "expo-image-picker": ["./scripts/patient-fab-stubs/expo-image-picker.ts"],
-      "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"]
+      "expo-image": ["./scripts/label-scan-stubs/expo-image.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/onboarding-gate-stubs/async-storage.ts"],
+      "expo/fetch": ["./scripts/meal-photo-stubs/expo-fetch.ts"],
+      "@/data/product-images": ["./scripts/chat-account-stubs/product-images.ts"]
     }
   },
   "include": [

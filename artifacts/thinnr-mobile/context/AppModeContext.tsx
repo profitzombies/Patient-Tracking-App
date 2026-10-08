@@ -1,9 +1,8 @@
 /**
- * App mode: which persona is using the device — staff (care team) or patient.
- * Persisted so the app reopens in the same mode. Patient demo admission is
- * deliberately separate and session-only: persisted patient mode alone can
- * never expose seeded health screens to a signed-out user. When the demo
- * switch is off (the published app) admission never happens at all.
+ * App mode: which kind of person is using the device — staff (care team) or
+ * patient. Persisted so the app reopens in the same mode. Mode alone never
+ * admits anyone to patient data: a real signed-in account is what the patient
+ * gates check.
  */
 import React, {
   createContext,
@@ -16,7 +15,6 @@ import React, {
 } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 
 const STORAGE_KEY = 'thinnr_app_mode_v1';
 
@@ -45,10 +43,6 @@ interface AppModeContextValue {
   hydrated: boolean;
   mode: AppMode | null;
   setMode: (mode: AppMode) => Promise<void>;
-  /** Deliberate, session-only admission to seeded patient data. */
-  demoAdmitted: boolean;
-  admitDemo: () => Promise<void>;
-  leaveDemo: () => void;
 }
 
 const AppModeContext = createContext<AppModeContextValue | null>(null);
@@ -56,7 +50,6 @@ const AppModeContext = createContext<AppModeContextValue | null>(null);
 export function AppModeProvider({ children }: { children: ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [mode, setModeState] = useState<AppMode | null>(null);
-  const [demoAdmitted, setDemoAdmitted] = useState(false);
 
   useEffect(() => {
     readPersistedMode()
@@ -68,22 +61,12 @@ export function AppModeProvider({ children }: { children: ReactNode }) {
 
   const setMode = useCallback(async (next: AppMode): Promise<void> => {
     setModeState(next);
-    if (next !== 'patient') setDemoAdmitted(false);
     await writePersistedMode(next);
   }, []);
-  const admitDemo = useCallback(async () => {
-    // The published app has no guided demo: admission is refused outright,
-    // so no stale link or remembered route can open the seeded patient.
-    if (!demoEntryEnabled) return;
-    setDemoAdmitted(true);
-    setModeState('patient');
-    await writePersistedMode('patient');
-  }, []);
-  const leaveDemo = useCallback(() => setDemoAdmitted(false), []);
 
   const value = useMemo<AppModeContextValue>(
-    () => ({ hydrated, mode, setMode, demoAdmitted, admitDemo, leaveDemo }),
-    [hydrated, mode, setMode, demoAdmitted, admitDemo, leaveDemo],
+    () => ({ hydrated, mode, setMode }),
+    [hydrated, mode, setMode],
   );
 
   return <AppModeContext.Provider value={value}>{children}</AppModeContext.Provider>;

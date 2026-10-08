@@ -30,7 +30,7 @@ export type SignupPhase = 'choose' | 'contact' | 'code' | 'name' | 'password';
 const emailOK = (x: string) => /^\S+@\S+\.\S+$/.test(x.trim());
 
 export function usePatientSignup() {
-  const { setMode, leaveDemo } = useAppMode();
+  const { setMode } = useAppMode();
   const [flow, setFlow] = useState<SignupFlow>('invited');
   const [phase, setPhase] = useState<SignupPhase>('choose');
   const [phone, setPhone] = useState('');
@@ -240,7 +240,6 @@ export function usePatientSignup() {
       } else {
         setFinishStage('opening');
         if (r.signInId) void attachSignIn(r.signInId).catch(cause => console.warn('Could not attach sign-in ledger row:', cause));
-        leaveDemo();
         await setMode('patient');
         if (genRef.current !== gen) return;
         // A new account has no consent on record, so it goes straight to the

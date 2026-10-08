@@ -392,7 +392,6 @@ console.log('hq team: removal explains itself');
 
 const SIGN_IN_STUB = {
   authStatus: 'signed-out', authRole: null, authUser: null, supabaseEnabled: true,
-  signIn() {},
   requestStaffCode: async () => ({ requestId: 'email-request', message: null, devCode: null, error: null }),
   verifyStaffCode: async () => ({ error: null, secondFactor: null }),
   startStaffPhoneStep: async () => ({ error: null, requestId: 'sms-request', destination: null, devCode: null }),

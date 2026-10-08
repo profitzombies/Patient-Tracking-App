@@ -54,7 +54,6 @@ const enterEmailCode = async (view: ReactTestRenderer) => {
   const verified: unknown[] = [];
   __setSession({
     supabaseEnabled: true,
-    signIn() {},
     requestStaffCode: async () => ({ requestId: 'email-request', message: null, devCode: null, error: null }),
     verifyStaffCode: async () => ({ error: null, secondFactor: { stepToken: 'a'.repeat(64), mode: 'sms', destination: '•••-•••-1234' } }),
     startStaffPhoneStep: async () => ({ error: null, requestId: 'sms-request', destination: '•••-•••-1234', devCode: '654321' }),

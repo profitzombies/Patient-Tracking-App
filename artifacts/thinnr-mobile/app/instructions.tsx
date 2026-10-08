@@ -25,7 +25,7 @@ import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { useLivePatient } from '@/hooks/useDemoLabels';
+import { useLivePatient } from '@/hooks/useLivePatient';
 import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import {
   clampProgramDay,

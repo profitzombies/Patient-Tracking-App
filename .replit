@@ -32,6 +32,14 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "demo-removal-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "demo-removal-mobile"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -2957,34 +2965,23 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations 
 isValidation = true
 
 [[workflows.workflow]]
-name = "demo-switch-web"
+name = "demo-removal-web"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:demo-switch && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run test:training && pnpm --filter @workspace/thinnr-operations run typecheck"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run test:hq-team && pnpm --filter @workspace/thinnr-operations run test:training && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true
 
 [[workflows.workflow]]
-name = "demo-switch-mobile"
+name = "demo-removal-mobile"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:demo-switch && pnpm --filter @workspace/thinnr-mobile run test:claim-test && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run typecheck"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "demo-switch-api"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run src/routes/training-media.test.ts && pnpm --filter @workspace/api-server run typecheck"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.route-hydration.json scripts/verify-route-hydration-shells.tsx && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

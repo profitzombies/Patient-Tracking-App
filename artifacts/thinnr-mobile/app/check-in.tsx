@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
-import { useLivePatient } from '@/hooks/useDemoLabels';
+import { useLivePatient } from '@/hooks/useLivePatient';
 import { patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';

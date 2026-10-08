@@ -19,8 +19,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
-import { useDemoLabels } from '@/hooks/useDemoLabels';
-import { DEMO_DISCLAIMER, ADVICE_DISCLAIMER } from '@/lib/demo-entry';
+import { ADVICE_DISCLAIMER } from '@/lib/disclaimer';
 
 interface ScreenHeaderAction {
   icon: keyof typeof Feather.glyphMap;
@@ -43,7 +42,6 @@ export function ScreenHeader({ title, subtitle, onSearch, action }: ScreenHeader
   const insets = useSafeAreaInsets();
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const demoLabels = useDemoLabels();
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
@@ -151,11 +149,11 @@ export function ScreenHeader({ title, subtitle, onSearch, action }: ScreenHeader
           >
             <Feather name="bell" size={16} color={colors.bodyText} />
           </Pressable>
-          {/* Avatar — opens the persona switcher (demo) or the signed-in account view */}
+          {/* Avatar — opens the signed-in account view */}
           <Pressable
             testID="header-avatar-btn"
             accessibilityRole="button"
-            accessibilityLabel={demoLabels ? 'Switch experience' : 'Account'}
+            accessibilityLabel="Account"
             onPress={() => {
               Haptics.selectionAsync();
               router.push('/persona');
@@ -166,11 +164,7 @@ export function ScreenHeader({ title, subtitle, onSearch, action }: ScreenHeader
               pressed && { opacity: 0.85 },
             ]}
           >
-            {demoLabels ? (
-              <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>SJ</Text>
-            ) : (
-              <Feather name="user" size={14} color={colors.primaryForeground} />
-            )}
+            <Feather name="user" size={14} color={colors.primaryForeground} />
           </Pressable>
         </View>
       </View>
@@ -178,18 +172,13 @@ export function ScreenHeader({ title, subtitle, onSearch, action }: ScreenHeader
   );
 }
 
-/**
- * Bottom disclaimer, placed inside scroll content. The signed-out demo reads
- * "SYNTHETIC DEMO DATA • NOT MEDICAL ADVICE"; live sessions (and builds with
- * the demo switched off) only carry the advice notice.
- */
+/** Bottom disclaimer, placed inside scroll content. */
 export function SyntheticDisclaimer() {
   const colors = useColors();
-  const demoLabels = useDemoLabels();
   return (
     <View style={[styles.disclaimer, { borderTopWidth: 1, borderTopColor: colors.divider }]}>
       <Text style={[styles.disclaimerText, { color: colors.labelText }]}>
-        {demoLabels ? DEMO_DISCLAIMER : ADVICE_DISCLAIMER}
+        {ADVICE_DISCLAIMER}
       </Text>
     </View>
   );

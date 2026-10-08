@@ -31,7 +31,7 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { PROGRESS_UNDO_WINDOW_MS, usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { useLivePatient } from '@/hooks/useDemoLabels';
+import { useLivePatient } from '@/hooks/useLivePatient';
 import { formatWeight, patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { usePhotoPageUrls } from '@/lib/photo-page-urls';

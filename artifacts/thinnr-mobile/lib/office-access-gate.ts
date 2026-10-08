@@ -19,7 +19,6 @@ const STAFF_PREFIXES = [
   '/office-patient/',
   '/sell-to-patient',
   '/claim-account',
-  '/claim-test',
 ];
 
 export function isProviderArea(pathname: string): boolean {

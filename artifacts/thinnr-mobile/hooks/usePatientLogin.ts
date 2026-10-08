@@ -8,7 +8,6 @@ import type { TextInput } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAppMode } from '@/context/AppModeContext';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 import {
   completeRecovery,
   requestPatientPasswordLogin,
@@ -27,7 +26,7 @@ export type LoginPhase = 'login' | 'mfa' | 'recovery-identify' | 'recovery-code'
 const validEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value.trim());
 
 export function usePatientLogin() {
-  const { setMode, admitDemo, leaveDemo } = useAppMode();
+  const { setMode } = useAppMode();
   const params = useLocalSearchParams<{ notice?: string | string[] }>();
   const initialNotice = Array.isArray(params.notice) ? params.notice[0] : params.notice;
 
@@ -72,7 +71,6 @@ export function usePatientLogin() {
     setNotice(null);
   };
   const done = async () => {
-    leaveDemo();
     await setMode('patient');
     router.replace('/today');
   };
@@ -233,13 +231,6 @@ export function usePatientLogin() {
     invalidate();
     router.push('/patient-signup');
   };
-  const openDemo = async () => {
-    // The published app shows no demo link; a stray call stays put.
-    if (!demoEntryEnabled) return;
-    invalidate();
-    await admitDemo();
-    router.push('/patient-entry');
-  };
   const openProviderLogin = () => {
     invalidate();
     router.push('/provider-login');
@@ -271,7 +262,6 @@ export function usePatientLogin() {
     verify,
     resetPassword,
     openSignup,
-    openDemo,
     openProviderLogin,
   };
 }

@@ -1,11 +1,11 @@
 /**
- * App entry — providers, the real-auth front door, and the two persona areas.
+ * App entry — providers, the real-auth front door, and the two staff areas.
  *
- * The app opens on a real passwordless sign-in (work email + one-time code),
- * with an explicit "Explore the demo" bypass: office staff get the
- * operations desk exactly as it runs standalone, THINNR HQ admins get the
- * umbrella above it. A signed-in account's profile role picks the area;
- * signed-in patients are pointed at the mobile app. Gating is absolute in both directions — the office
+ * The app opens on a real passwordless sign-in (work email + one-time code).
+ * A signed-in account's role picks the area: office staff get the operations
+ * desk, THINNR HQ admins get the umbrella above it, and signed-in patients
+ * are pointed at the mobile app. Signed-out visitors only reach sign-in and
+ * the real public pages. Gating is absolute in both directions — the office
  * persona can never render an /admin URL (it bounces to the dashboard), and
  * the admin persona always lands inside /admin (any other URL bounces to the
  * HQ overview). The office drill-in mounts the office app under
@@ -60,7 +60,6 @@ import PatientDeletions from '@/pages/admin/PatientDeletions';
 import Files from '@/pages/admin/Files';
 import Exports from '@/pages/admin/Exports';
 import EmailStudio from '@/pages/EmailStudio';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
@@ -85,10 +84,7 @@ const queryClient = new QueryClient();
 function AdminArea() {
   const [location] = useLocation();
   const { authStatus, hqRole } = useSession();
-  // The signed-out demo persona browses as Super Admin — only where demo
-  // entry is switched on; otherwise nobody signed out reaches this area.
-  const effectiveRole: HqRole | null =
-    authStatus === 'signed-out' && demoEntryEnabled ? 'Super Admin' : hqRole;
+  const effectiveRole: HqRole | null = hqRole;
   const authorized = canHq(effectiveRole, permissionForAdminPath(location));
   const canViewAudit =
     authStatus === 'signed-in' && (hqRole === 'Super Admin' || hqRole === 'Admin');
@@ -167,15 +163,9 @@ function AdminArea() {
 }
 
 /**
- * Routes by session. Real auth resolves first — booting, profile trouble,
- * or a signed-in patient pre-empt everything. Otherwise the resolved
- * persona (real role, or the demo bypass) locks each area exactly as before.
- */
-/**
  * The office area, scoped to the signed-in staffer's own provider account
- * when their profile carries one that matches a seeded office. The demo
- * bypass (and any unmatched account code) keeps the unscoped office exactly
- * as it always ran.
+ * when their profile carries one that matches a seeded office. An unmatched
+ * account code keeps the unscoped office.
  */
 function ScopedOfficeApp() {
   const { authStatus, providerAccountCode } = useSession();
@@ -190,8 +180,7 @@ function ScopedOfficeApp() {
   // THINNR's account lock outranks everything office-side: locked staff see
   // the blocked notice, never the workspace. Keyed on the raw profile code
   // (not the resolved seeded account) so a lock also blocks codes without a
-  // seeded office. The demo bypass never trips this — it isn't signed in —
-  // and this gate is UX: row level security is what actually closes the
+  // seeded office. This gate is UX: row level security is what actually closes the
   // office's data server-side while locked.
   if (authStatus === 'signed-in' && providerAccountCode && isLocked(providerAccountCode)) {
     return <AccountLockedScreen />;
@@ -211,8 +200,13 @@ function ScopedOfficeApp() {
   );
 }
 
+/**
+ * Routes by session. Real auth resolves first — booting, profile trouble,
+ * or a signed-in patient pre-empt everything. Otherwise the resolved role
+ * locks each area; no session means sign-in or a public page.
+ */
 function PersonaRouter() {
-  const { persona, authStatus, authRole, roleStatus, claimedWorkspace } = useSession();
+  const { persona, authStatus, authRole, roleStatus } = useSession();
   const [location] = useLocation();
 
   if (authStatus === 'loading') return <BootScreen />;

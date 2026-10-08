@@ -21,7 +21,7 @@
  *      shows the grace countdown and "Keep my account" cancels it; signing
  *      in during the grace period lands on the consent screen's keep/sign
  *      out fork.
- *   5. The demo persona sees one unavailable card and makes zero privacy
+ *   5. A signed-out visitor sees one unavailable card and makes zero privacy
  *      network calls; server errors surface with the server's words.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:privacy-controls
@@ -262,7 +262,7 @@ async function main() {
   assert('pending deletion parks a consented account', redirectTo(gate({ deletionPending: true })) === '/consent');
   assert('pending deletion allows the consent route', redirectTo(gate({ deletionPending: true, pathname: '/consent' })) === 'allow');
   assert('normal account still allowed on Today', redirectTo(gate({})) === 'allow');
-  assert('demo persona never sees the consent gate', redirectTo(gate({ accountKind: 'demo', demoAdmitted: true, consentSatisfied: null, onboardingComplete: null })) === 'allow');
+  assert('signed-out visitor is sent to the front door, not the consent gate', redirectTo(gate({ accountKind: 'demo', consentSatisfied: null, onboardingComplete: null })) === '/patient-welcome');
   assert('unhydrated real account holds', redirectTo(gate({ patientHydrated: false, consentSatisfied: null })) === 'hold');
 
   section('parser: shapes and honest failures');
@@ -411,11 +411,11 @@ async function main() {
   const privacyCallPaths = apiCalls.slice(privacyCallsBefore).map(c => c.path);
   assert('privacy writes only ever hit the patient-data routes (plus session re-resolution)', privacyCallPaths.every(p => p.startsWith('patient-data/') || p === 'claim/whoami'));
 
-  section('demo persona: unavailable, zero network');
+  section('signed-out visitor: unavailable, zero network');
   const before = apiCalls.length;
   tree = await mount(PrivacyDataControls);
-  assert('demo shows the unavailable card only', has(tree, 'privacy-unavailable') && !has(tree, 'privacy-controls') && textOf(tree, 'privacy-unavailable').includes('guided demo'));
-  assert('demo never touches the privacy routes', apiCalls.length === before && ctx.hydratedPrivacy === null);
+  assert('signed-out shows the unavailable card only', has(tree, 'privacy-unavailable') && !has(tree, 'privacy-controls') && textOf(tree, 'privacy-unavailable').includes('Sign in'));
+  assert('signed-out never touches the privacy routes', apiCalls.length === before && ctx.hydratedPrivacy === null);
   await unmount(tree);
 
   section('fresh signup: seeded straight onto consent');

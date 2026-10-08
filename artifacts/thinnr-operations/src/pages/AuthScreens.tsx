@@ -7,7 +7,6 @@ import { AlertTriangle, BadgeCheck, Lock, LogOut, RefreshCw, Smartphone } from '
 import { useSession } from '@/contexts/session';
 import { greetingName } from '@/lib/greeting-name';
 import { findSeededAccount } from '@/data/hq/accounts';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -55,7 +54,7 @@ export function ProfileErrorScreen() {
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {authUser?.email ?? authUser?.phone ?? 'Your account'} signed in, but the profile lookup
-          failed. {demoEntryEnabled ? 'Retry, or sign out and browse the demo instead.' : 'Retry, or sign out and sign in again.'}
+          failed. Retry, or sign out and sign in again.
         </p>
         <div className="mt-5 flex flex-col gap-2">
           <button

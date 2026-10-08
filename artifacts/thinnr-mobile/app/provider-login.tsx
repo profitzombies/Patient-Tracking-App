@@ -10,8 +10,7 @@ import { PlateHero, PROVIDER_PLATE_CAPTION } from '@/components/auth/PlateHero';
 import { ActionGroup, FeedbackSlot, Field, FieldStack, FooterLink, FormCard, QuietLinkRow } from '@/components/auth/AuthPrimitives';
 import { ErrorBox, LedgerInput, NoteText, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { useColors } from '@/hooks/useColors';
-import { useDemoLabels } from '@/hooks/useDemoLabels';
-import { ADVICE_DISCLAIMER, DEMO_DISCLAIMER } from '@/lib/demo-entry';
+import { ADVICE_DISCLAIMER } from '@/lib/disclaimer';
 import { useProviderLogin } from '@/hooks/useProviderLogin';
 import { supabaseConfigured } from '@/lib/supabase';
 import { fonts } from '@/constants/colors';
@@ -29,7 +28,6 @@ function FormWrap({ children }: { children: React.ReactNode }) {
 
 export default function ProviderLoginScreen() {
   const colors = useColors();
-  const demoLabels = useDemoLabels();
   const login = useProviderLogin();
   const { phase, busy } = login;
 
@@ -79,7 +77,7 @@ export default function ProviderLoginScreen() {
             </QuietLinkRow>
           ) : null}
           <Text style={[styles.disclaimer, { color: colors.labelText }]}>
-            {demoLabels ? DEMO_DISCLAIMER : ADVICE_DISCLAIMER}
+            {ADVICE_DISCLAIMER}
           </Text>
         </View>
       }

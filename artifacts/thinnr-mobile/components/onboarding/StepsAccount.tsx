@@ -8,7 +8,6 @@ import { OrdinaryTextInput as TextInput } from '@/components/ui/OrdinaryTextInpu
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
-import { useDemoLabels } from '@/hooks/useDemoLabels';
 import { LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import { usePatient } from '@/context/PatientContext';
@@ -46,8 +45,6 @@ import {
 export function WelcomeStep() {
   const colors = useColors();
   const { begun, reset } = useOnboarding();
-  // Real accounts already agreed to the live terms on the consent screen.
-  const demoLabels = useDemoLabels();
 
   // Deep links straight to /onboarding/welcome still get a fresh run.
   useEffect(() => {
@@ -69,13 +66,7 @@ export function WelcomeStep() {
           </View>
         ))}
       </LedgerCard>
-      <NoteText
-        text={
-          demoLabels
-            ? 'By continuing, you agree to the demo Terms of Service and Privacy Policy. Synthetic data only — not medical advice.'
-            : 'Your answers set up your program with your care team. Not medical advice.'
-        }
-      />
+      <NoteText text="Your answers set up your program with your care team. Not medical advice." />
     </OnboardingFrame>
   );
 }
@@ -572,8 +563,8 @@ export function FaceIdStep() {
 
 /**
  * Web-only <form> wrapper so Chrome doesn't log "[DOM] Password field is not
- * contained in a form" for the bare password inputs (mirrors SignInFormWrap in
- * app/patient-entry.tsx). Native renders children untouched.
+ * contained in a form" for the bare password inputs (mirrors FormWrap in
+ * app/provider-login.tsx). Native renders children untouched.
  */
 function PasswordFormWrap({ children }: { children: React.ReactNode }) {
   if (Platform.OS !== 'web') return <>{children}</>;

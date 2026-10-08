@@ -33,7 +33,6 @@ import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { MacroBar } from '@/components/patient/MacroBar';
 import { formatDiaryCalories } from '@/components/patient/DiaryEntryNutrition';
 import { WaterTracker } from '@/components/patient/WaterTracker';
-import { ClaimTestEntryCard } from '@/components/patient/ClaimTestEntryCard';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
@@ -55,7 +54,7 @@ import {
 import { phaseForDay } from '@/data/program-instructions';
 import { takePendingLogNotice } from '@/lib/pending-log-notice';
 import { patientFirstName, patientInitials, patientWeightFacts } from '@/lib/patient-display';
-import { useLivePatient } from '@/hooks/useDemoLabels';
+import { useLivePatient } from '@/hooks/useLivePatient';
 
 // Earliest day the demo history covers — date paging stops here.
 const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
@@ -575,8 +574,6 @@ export default function TodayScreen() {
               <Feather name="chevron-right" size={17} color={colors.subtleText} />
             </View>
           </LedgerCard>
-
-          <ClaimTestEntryCard />
 
           {/* ── Calories: dome gauge + macros ── */}
           <LedgerCard style={styles.calorieCard}>

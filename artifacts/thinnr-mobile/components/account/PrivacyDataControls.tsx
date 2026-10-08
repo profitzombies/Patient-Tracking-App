@@ -74,7 +74,7 @@ export function PrivacyDataControls() {
       <LedgerCard style={styles.card} testID="privacy-unavailable">
         <Text style={[styles.body, { color: colors.bodyText }]}>
           {account.kind === 'demo'
-            ? 'Consent records, data export, and account deletion apply to real patient accounts. The guided demo holds no personal data to export or delete.'
+            ? 'Consent records, data export, and account deletion apply to signed-in patient accounts. Sign in to manage your data.'
             : 'Consent, data export, and account deletion become available once your account has finished loading.'}
         </Text>
       </LedgerCard>

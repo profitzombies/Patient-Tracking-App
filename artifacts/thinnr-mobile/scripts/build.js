@@ -142,9 +142,6 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
     ...process.env,
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
-    // The one demo switch (THINNR_DEMO), compiled in like the dev script does.
-    // Unset in a production bundle means off: lib/demo-entry.ts fails closed.
-    EXPO_PUBLIC_THINNR_DEMO: process.env.THINNR_DEMO ?? '',
   };
 
   if (expoPublicReplId) {

@@ -15,7 +15,7 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { useSignedIn } from '@/hooks/useDemoLabels';
+import { useSignedIn } from '@/hooks/useLivePatient';
 import { patientInitials } from '@/lib/patient-display';
 
 interface PatientHeaderProps {

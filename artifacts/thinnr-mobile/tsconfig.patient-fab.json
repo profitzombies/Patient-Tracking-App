@@ -18,6 +18,7 @@
       "@/components/ui/AppModal": ["./scripts/patient-fab-stubs/app-modal.ts"],
       "@/context/AppModeContext": ["./scripts/patient-fab-stubs/app-mode-context.ts"],
       "@/context/PatientContext": ["./scripts/patient-fab-stubs/patient-context.ts"],
+      "@/context/PatientAccountContext": ["./scripts/route-hydration-stubs/patient-account-context.ts"],
       "@/context/CoachChatContext": ["./scripts/patient-fab-stubs/coach-chat-context.ts"],
       "@/lib/photo-prep": ["./scripts/patient-fab-stubs/photo-prep.ts"],
       "@/data/product-images": ["./scripts/chat-account-stubs/product-images.ts"],

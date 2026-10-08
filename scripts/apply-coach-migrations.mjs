@@ -45,6 +45,9 @@ const migrationNames = [
   // (20261129000000) was never ledgered here; the proof below asserts the
   // function stays absent on every project this runner touches.
   "20261202000000_drop_hq_testing_hard_delete.sql",
+  // The guided demo is gone: anonymous callers no longer read the demo
+  // training roster (is_demo policies dropped).
+  "20261203000000_training_drop_demo_roster_policies.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.

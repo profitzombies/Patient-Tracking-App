@@ -40,7 +40,6 @@ const NEVER_RESTRICTED_ROUTES = [
   '/security',
   '/security-report',
   '/claim-account',
-  '/claim-test',
 ];
 
 /** True when a restricted office may open this staff route. */

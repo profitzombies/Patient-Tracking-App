@@ -14,7 +14,6 @@ export function useAppMode() {
   return {
     mode: appModeState.mode,
     hydrated: appModeState.hydrated,
-    demoAdmitted: true,
     async setMode(_next: AppMode): Promise<void> {},
     async clearMode(): Promise<void> {},
   };

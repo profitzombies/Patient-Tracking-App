@@ -22,7 +22,7 @@ const library = read('app/(patient)/recipes.tsx');
 const checks = [
   ['patient layout paints a shell instead of a hydration null', !/if\s*\([^)]*hydrated[^)]*\)\s*return\s+null/.test(layout)],
   ['patient layout gates data behind admission and hydration', layout.includes('if (!admitted)') && layout.includes('patientHydrated')],
-  ['admitted demo waits for local store hydration', /!patientHydrated\s*&&\s*\(\s*account\.kind === 'real'\s*\|\|\s*\(account\.kind === 'demo' && demoAdmitted\)\s*\)/.test(layout)],
+  ['real account waits for local store hydration', /!patientHydrated\s*&&\s*account\.kind === 'real'/.test(layout)],
   ['patient layout never mounts quick actions before admission', layout.includes('return (') && layout.includes('<PatientRouteShell')],
   ['root gate keeps its navigator mounted', rootLayout.includes('{children}') && rootLayout.includes('decision.kind === \'redirect\' ? <Redirect')],
   ['root gate supplies an anonymous-safe holding shell', rootLayout.includes('<PatientRouteShell') && rootLayout.includes('pointerEvents="auto"')],

@@ -8,17 +8,15 @@
  * through the Supabase client and then invalidate the snapshot.
  *
  * Authoring writes require a real signed-in HQ admin (RLS enforces this on
- * the server; `canEdit` mirrors it in the UI so demo personas get a friendly
+ * the server; `canEdit` mirrors it in the UI so non-HQ staff get a friendly
  * "sign in to make changes" nudge instead of a 401). The learner-preview
  * flows — email gate, staff invites, mark-complete — go through narrow
  * SECURITY DEFINER RPCs keyed by an opaque per-registration session token,
  * never by a caller-supplied viewer id.
  *
- * Privacy: only seeded demo viewers (is_demo) — and their completions and
- * invites — are readable without a real admin session, and a signed-out
- * snapshot skips even those when demo entry is switched off
- * (src/lib/demo-entry.ts): the share-link page needs only the catalog.
- * Email-gate registrations are invisible to anon reads, so the learner page
+ * Privacy: viewers, completions and invites need a real staff session; a
+ * signed-out snapshot fetches only the catalog (the share-link page needs
+ * nothing more). Email-gate registrations are invisible to anon reads, so the learner page
  * keeps its own progress state from the RPC payloads rather than this
  * snapshot.
  *
@@ -68,7 +66,6 @@ import { getOrderedVideos } from '@/data/hq/training';
 import { removeAllAttachments, removeVideoFile } from '@/lib/training-media';
 import { purgeVideosMedia, type VideoMediaPurgeDeps } from '@/lib/training-purge';
 import { supabase } from '@/lib/supabase';
-import { demoEntryEnabled } from '@/lib/demo-entry';
 import { useSession } from '@/contexts/session';
 import { toast } from '@/hooks/use-toast';
 
@@ -110,10 +107,10 @@ function unwrap<T>(result: { data: T | null; error: { message: string } | null }
 }
 
 /**
- * `includePeople` false = catalog only. Used for signed-out visitors when demo
- * entry is switched off: anon reads can only ever return the seeded demo
- * viewers, and the share-link learner page tracks its own progress through
- * the gate RPCs, so nothing anonymous depends on those rows.
+ * `includePeople` false = catalog only. Used for signed-out visitors: anon
+ * reads of the roster return nothing (no world-readable viewer rows exist),
+ * and the share-link learner page tracks its own progress through the gate
+ * RPCs, so nothing anonymous depends on people rows.
  */
 async function fetchSnapshot(includePeople: boolean): Promise<TrainingSnapshot> {
   const client = requireClient();
@@ -335,9 +332,9 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const scopeSettled =
     authStatus !== 'loading' &&
     (authStatus !== 'signed-in' || roleStatus === 'ready' || roleStatus === 'error');
-  // Signed-out visitors only see the seeded demo learners, so without demo
-  // entry they get the catalog alone (fetchSnapshot).
-  const includePeople = authStatus === 'signed-in' || demoEntryEnabled;
+  // Signed-out visitors (the course share link) get the catalog alone;
+  // learners and completions are staff data.
+  const includePeople = authStatus === 'signed-in';
   const query = useQuery({
     queryKey: [...TRAINING_QUERY_KEY, authScopeKey, includePeople ? 'people' : 'catalog'],
     queryFn: () => fetchSnapshot(includePeople),

@@ -1,7 +1,5 @@
 /**
- * The front door — passwordless staff sign-in. Where the demo switch allows
- * it (development; see src/lib/demo-entry.ts) the guided-demo chooser sits
- * one click away; the published app shows sign-in only.
+ * The front door — passwordless staff sign-in.
  *
  * Staff accounts are keyed on business email: enter the address, we email a
  * 6-digit code, the code becomes a real Supabase session. There is no
@@ -9,55 +7,22 @@
  * or unknown address gets the same neutral "code is on its way" reply, so
  * the screen never confirms whether an account exists.
  */
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { INACTIVITY_SIGN_OUT_REASON_KEY } from '@/hooks/useIdleTimeout';
-import { useLocation } from 'wouter';
-import { ArrowRight, Building2, ChevronDown, Stethoscope, Utensils } from 'lucide-react';
+import { Utensils } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useSession, type Persona } from '@/contexts/session';
 import { useStaffPasswordlessSignIn } from '@/hooks/useStaffPasswordlessSignIn';
 import { timeOfDayGreeting } from '@/lib/local-time';
-import { demoEntryEnabled } from '@/lib/demo-entry';
-
-const DEMO_OPTIONS: Array<{
-  persona: Persona;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  cta: string;
-  testId: string;
-}> = [
-  {
-    persona: 'hq-admin',
-    icon: <Building2 size={18} />,
-    title: 'THINNR HQ admin',
-    description: 'The umbrella above every office: rollups, provider accounts, and org tools.',
-    cta: 'Enter HQ admin',
-    testId: 'button-signin-admin',
-  },
-  {
-    persona: 'office',
-    icon: <Stethoscope size={18} />,
-    title: 'Office staff',
-    description: 'Today’s operations desk for the med spa team, exactly as it runs day to day.',
-    cta: 'Enter the office',
-    testId: 'button-signin-office',
-  },
-];
 
 export default function SignIn() {
-  const { signIn } = useSession();
-  const [, navigate] = useLocation();
-
   const {
     phase, email, setEmail, otp, setOtp, phone, setPhone, smsCode, setSmsCode,
     smsRequestId, phoneStep, pendingEmail, devCode, error, notice, setNotice, busy,
     submitEmail, submitCode, submitPhone, resendCode, sendPhoneCode,
     changePhoneNumber, backToEmail, supabaseEnabled,
   } = useStaffPasswordlessSignIn();
-  const [showDemo, setShowDemo] = useState(false);
 
   useEffect(() => {
     try {
@@ -70,11 +35,6 @@ export default function SignIn() {
       // Storage is best-effort; sign-in remains available.
     }
   }, []);
-
-  const chooseDemo = (persona: Persona) => {
-    signIn(persona);
-    navigate(persona === 'hq-admin' ? '/admin' : '/', { replace: true });
-  };
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background font-sans text-foreground">
@@ -124,9 +84,7 @@ export default function SignIn() {
               role="alert"
               className="mb-4 rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs font-medium leading-relaxed text-warn"
             >
-              {demoEntryEnabled
-                ? 'Real sign-in isn’t configured in this environment — browse the demo below.'
-                : 'Sign-in isn’t available right now. Please try again later.'}
+              Sign-in isn’t available right now. Please try again later.
             </p>
           )}
 
@@ -351,53 +309,6 @@ export default function SignIn() {
           )}
         </section>
 
-        {demoEntryEnabled && (
-        <div className="mt-5 border-t border-border pt-4 text-left">
-          <button
-            type="button"
-            data-testid="button-explore-demo"
-            onClick={() => setShowDemo((open) => !open)}
-            aria-expanded={showDemo}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
-          >
-            Exploring? Browse the guided demo without an account
-            <ChevronDown
-              size={14}
-              aria-hidden="true"
-              className={showDemo ? 'rotate-180 transition-transform' : 'transition-transform'}
-            />
-          </button>
-        </div>
-        )}
-
-        {demoEntryEnabled && showDemo && (
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {DEMO_OPTIONS.map((option) => (
-              <section
-                key={option.persona}
-                className="flex flex-col rounded-lg border border-card-border bg-card p-4 shadow-soft"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-accent text-primary" aria-hidden="true">
-                    {option.icon}
-                  </span>
-                  <h2 className="font-serif text-base font-bold tracking-[-.01em] text-navy">{option.title}</h2>
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{option.description}</p>
-                <button
-                  type="button"
-                  data-testid={option.testId}
-                  onClick={() => chooseDemo(option.persona)}
-                  className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-background px-4 text-xs font-semibold text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {option.cta}
-                  <ArrowRight size={14} aria-hidden="true" />
-                </button>
-              </section>
-            ))}
-          </div>
-        )}
-
         <p className="mt-6 text-left text-[11px] text-muted-foreground">
           Staff sign in with a one-time email code. Patients sign in with their cell phone in the
           THINNR mobile app.
@@ -408,7 +319,7 @@ export default function SignIn() {
 
       <footer className="border-t border-border bg-sidebar px-5 py-2 text-center">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          {demoEntryEnabled ? 'Synthetic Demo Data • Not Medical Advice' : 'Not Medical Advice'}
+          Not Medical Advice
         </p>
       </footer>
     </div>

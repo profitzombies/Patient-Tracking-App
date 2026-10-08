@@ -36,7 +36,7 @@ function PatientTabs() {
 }
 
 export default function PatientTabLayout() {
-  const { mode, hydrated, demoAdmitted } = useAppMode();
+  const { mode, hydrated } = useAppMode();
   const patient = usePatient();
   const { resolving, account, accountNotice, retryResolve } = usePatientAccount();
   const pathname = usePathname();
@@ -60,30 +60,21 @@ export default function PatientTabLayout() {
   }
 
   const patientHydrated = patient.hydrated;
-  // The guided demo has no server admission fields, but it still has a
-  // persisted local store to read.  Treat an admitted demo held at that
-  // boundary as loading too; otherwise the consent/onboarding detail below
-  // is rendered briefly while the demo store is still unknown.
   const loading =
     !hydrated ||
     resolving ||
-    (!patientHydrated &&
-      (account.kind === 'real' || (account.kind === 'demo' && demoAdmitted)));
+    (!patientHydrated && account.kind === 'real');
   const admitted =
     !loading &&
-    ((account.kind === 'demo' && demoAdmitted && patientHydrated) ||
-      (account.kind === 'real' &&
-        patientHydrated &&
-        patient.hydratedFlags?.onboardingComplete === true &&
-        patient.hydratedPrivacy?.consent.satisfied === true &&
-        patient.hydratedPrivacy?.deletion === null));
+    account.kind === 'real' &&
+    patientHydrated &&
+    patient.hydratedFlags?.onboardingComplete === true &&
+    patient.hydratedPrivacy?.consent.satisfied === true &&
+    patient.hydratedPrivacy?.deletion === null;
 
-  // The tab bar contains only destinations and is safe for an already
-  // admitted demo while its local store finishes reading.  Real accounts do
-  // not receive it until their own record, onboarding, and consent are known.
-  const navigationAllowed =
-    account.kind === 'demo' && demoAdmitted ||
-    account.kind === 'real' && admitted;
+  // Real accounts do not receive the tab bar until their own record,
+  // onboarding, and consent are known.
+  const navigationAllowed = account.kind === 'real' && admitted;
 
   if (!admitted) {
     let status: PatientShellStatus = loading ? 'loading' : 'denied';
@@ -100,8 +91,8 @@ export default function PatientTabLayout() {
       onRetry = retryResolve;
     } else if (!loading) {
       detail =
-        account.kind === 'demo' && !demoAdmitted
-          ? 'Sign in or choose the guided patient demo before opening patient data.'
+        account.kind !== 'real'
+          ? 'Sign in before opening patient data.'
           : patient.hydratedPrivacy?.consent.satisfied !== true
             ? 'Consent is required before your private record can open.'
             : 'Finish onboarding before opening your private record.';

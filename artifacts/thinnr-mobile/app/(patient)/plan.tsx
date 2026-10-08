@@ -16,7 +16,7 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, LedgerCard, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
-import { useLivePatient } from '@/hooks/useDemoLabels';
+import { useLivePatient } from '@/hooks/useLivePatient';
 import {
   DEFAULT_TARGETS,
   ENROLLMENT_DAYS,

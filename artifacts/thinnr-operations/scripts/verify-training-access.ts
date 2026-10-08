@@ -6,10 +6,9 @@
  *
  *   1. The course catalog is world-readable (no PII in it).
  *   2. Gate registration issues a private capability (viewer + token).
- *   3. An email registered through the gate never appears in anon reads
- *      (viewers, completions, or invites). Whatever anon CAN read is
- *      demo-flagged only — and may be empty: nothing here relies on seeded
- *      demo viewers existing, so clearing them changes no verdict.
+ *   3. An email registered through the gate never appears in anon reads:
+ *      the roster, completions and invites are EMPTY for anonymous callers
+ *      (the demo-roster policies are gone), while the catalog stays open.
  *   4. Learner actions are keyed by the opaque session token: a random token
  *      is rejected, one learner's progress never leaks into another's state,
  *      and the old viewer-id RPC signatures no longer exist.
@@ -194,20 +193,20 @@ async function main() {
   check('second learner registered', regB.status === 200 && !!tokenB && viewerB !== viewerA);
 
   console.log('3. Anon reads never expose gate registrations');
-  // The anon roster may be empty (no seeded demo viewers needed); whatever
-  // it does return must be demo-flagged.
+  // No demo roster any more: anonymous callers read zero people rows.
   const roster = await select('training_viewers?select=id,email,is_demo&limit=1000');
-  check('anon roster holds demo-flagged rows only (possibly none)', roster.status === 200 && roster.rows.every((row) => row.is_demo === true), `status ${roster.status}, ${roster.rows.length} rows`);
+  check('anon roster is empty', roster.status === 200 && roster.rows.length === 0, `status ${roster.status}, ${roster.rows.length} rows`);
   check('registered emails hidden from anon roster', !roster.rows.some((row) => [EMAIL_A, EMAIL_B, EMAIL_STAFF].includes(String(row.email).toLowerCase())));
   const emailProbe = await select(`training_viewers?select=id&email=eq.${encodeURIComponent(EMAIL_A)}`);
   check('direct email lookup returns nothing', emailProbe.status === 200 && emailProbe.rows.length === 0);
-  const demoViewerIds = new Set(roster.rows.map((row) => String(row.id)));
   const anonCompletions = await select('training_completions?select=viewer_id&limit=1000');
   check(
-    'anon completions belong to demo-flagged viewers only (possibly none)',
-    anonCompletions.status === 200 && anonCompletions.rows.every((row) => demoViewerIds.has(String(row.viewer_id))),
+    'anon completions are empty',
+    anonCompletions.status === 200 && anonCompletions.rows.length === 0,
     `status ${anonCompletions.status}, ${anonCompletions.rows.length} rows`,
   );
+  const anonInvites = await select('training_invites?select=id&limit=1000');
+  check('anon invites are empty', anonInvites.status === 200 && anonInvites.rows.length === 0, `status ${anonInvites.status}, ${anonInvites.rows.length} rows`);
 
   console.log('4. Learner actions are bound to the token, not caller-supplied ids');
   const badState = await rpc('training_learner_state', { p_token: ZERO_TOKEN });

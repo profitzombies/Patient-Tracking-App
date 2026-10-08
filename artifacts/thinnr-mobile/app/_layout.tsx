@@ -66,7 +66,7 @@ import { bloodworkRecoveryEntryDecision } from '@/lib/bloodwork-entry-policy';
 import { useSupabaseSession } from '@/lib/supabase';
 import { useOfficeAccess } from '@/hooks/useOfficeBilling';
 import { isProviderArea, officeAccessGateDecision } from '@/lib/office-access-gate';
-import { demoEntryEnabled, providerDemoRedirect } from '@/lib/demo-entry';
+import { providerSignedOutRedirect } from '@/lib/provider-entry';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -280,8 +280,6 @@ function RootLayoutNav() {
       <Stack.Screen name="program-ended" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="provider-login" options={{ headerShown: false }} />
       <Stack.Screen name="claim-account" options={{ headerShown: false }} />
-      <Stack.Screen name="claim-test" options={{ headerShown: false }} />
-      <Stack.Screen name="patient-entry" options={{ headerShown: false }} />
       <Stack.Screen name="account" options={{ headerShown: false }} />
       <Stack.Screen name="billing" options={{ headerShown: false, title: 'Payments & orders' }} />
       <Stack.Screen name="orders/index" options={{ headerShown: false, title: 'Orders' }} />
@@ -379,20 +377,18 @@ function StaffRestrictionGuard({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * With the demo switched off (the published app) a signed-out visitor never
- * reaches the seeded office: provider screens send them to provider sign-in
- * when the device is in staff mode, or to the patient front door otherwise.
- * Claiming an account stays open. Same shape as the other gates: the
- * navigator stays mounted underneath, inert and covered, while the redirect
- * lands. With the demo on (development) this is a pass-through.
+ * A signed-out visitor never reaches the provider area: provider screens send
+ * them to provider sign-in when the device is in staff mode, or to the
+ * patient front door otherwise. Claiming an account stays open. Same shape as
+ * the other gates: the navigator stays mounted underneath, inert and covered,
+ * while the redirect lands.
  */
-function ProviderDemoGuard({ children }: { children: React.ReactNode }) {
+function ProviderSignedOutGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const colors = useColors();
   const { mode, hydrated } = useAppMode();
   const { session, sessionLoading } = useSupabaseSession();
-  const href = providerDemoRedirect({
-    enabled: demoEntryEnabled,
+  const href = providerSignedOutRedirect({
     modeHydrated: hydrated,
     mode,
     sessionLoading,
@@ -418,7 +414,7 @@ function ProviderDemoGuard({ children }: { children: React.ReactNode }) {
           style={[StyleSheet.absoluteFill, gateStyles.container, { zIndex: 950, backgroundColor: colors.background }]}
           pointerEvents="auto"
           accessibilityViewIsModal
-          testID="provider-demo-redirect"
+          testID="provider-signed-out-redirect"
         >
           <ActivityIndicator accessibilityLabel="Opening sign-in" />
         </View>
@@ -430,7 +426,7 @@ function ProviderDemoGuard({ children }: { children: React.ReactNode }) {
 
 function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
+  const { mode, hydrated: modeHydrated } = useAppMode();
   const { resolving, account, accountNotice, retryResolve } = usePatientAccount();
   const patient = usePatient();
   const syncNotice = usePatientSyncNotice();
@@ -449,7 +445,6 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
       consentSatisfied: patient.hydratedPrivacy?.consent.satisfied ?? null,
       deletionPending: patient.hydratedPrivacy?.deletion !== null && patient.hydratedPrivacy?.deletion !== undefined,
       pathname,
-      demoAdmitted,
     }, recoveryRoute);
 
   /**
@@ -476,9 +471,7 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
           ? 'Consent is required before your private record can open.'
           : decision.href === '/onboarding/welcome'
             ? 'Finish onboarding before opening your private record.'
-            : demoEntryEnabled
-              ? 'Sign in or choose the guided patient demo before opening patient data.'
-              : 'Sign in before opening patient data.'
+            : 'Sign in before opening patient data.'
         : undefined;
   const gateRetry = syncNotice
     ? account.kind === 'unresolved'
@@ -530,7 +523,7 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
 /**
  * Office setup is deliberately desktop-only. Signed-in staff are admitted
  * centrally only after the office-access snapshot says the office is ready;
- * patient routes and the signed-out provider demo never make this request.
+ * patient routes and signed-out visitors never make this request.
  */
 function OfficeAccessGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -741,13 +734,13 @@ export default function RootLayout() {
                                   desktop before anything else has a say; a
                                   narrowed office is a workspace that IS set
                                   up, so that notice sits inside it. */}
-                              <ProviderDemoGuard>
+                              <ProviderSignedOutGuard>
                                 <OfficeAccessGuard>
                                   <StaffRestrictionGuard>
                                     <RootLayoutNav />
                                   </StaffRestrictionGuard>
                                 </OfficeAccessGuard>
-                              </ProviderDemoGuard>
+                              </ProviderSignedOutGuard>
                             </LivePatientEntryGuard>
                             <PushResponseBridge />
                             <PatientSyncNotice />

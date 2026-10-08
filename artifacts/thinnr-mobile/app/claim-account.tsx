@@ -10,7 +10,7 @@
  * looks identical. Until SMS/email delivery goes live the server runs in dev
  * mode and returns the code in the response; the screen shows it inline.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -30,18 +30,7 @@ import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { apiBase } from '@/lib/coach-api';
 import { describeAuthError, normalizePhone, supabase, supabaseConfigured } from '@/lib/supabase';
-import {
-  clearClaimTestHandoff,
-  getClaimTestHandoff,
-  type ClaimTestHandoff,
-} from '@/lib/claim-test-handoff';
 import { PASSWORD_RULES } from '@/lib/password-rules';
-
-function claimTestScenarioLabel(handoff: ClaimTestHandoff): string {
-  const action = handoff.mode === 'create' ? 'First-time claim' : 'Password recovery';
-  const channel = handoff.scenario.endsWith('phone') ? 'phone' : 'email';
-  return `${action} by ${channel}`;
-}
 
 type Phase =
   | 'identify'
@@ -191,19 +180,6 @@ export default function ClaimAccountScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dead, setDead] = useState(false); // clinic dead-end — only a restart helps
-  const [testHandoff, setTestHandoff] = useState<ClaimTestHandoff | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    getClaimTestHandoff().then(handoff => {
-      if (!live || !handoff) return;
-      setTestHandoff(handoff);
-      setIdentifier(displayClaimIdentifier(handoff.identifier));
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
@@ -235,10 +211,6 @@ export default function ClaimAccountScreen() {
     if (busy) return;
     setError(null);
     setNotice(null);
-    if (!silentResend && testHandoff) {
-      setTestHandoff(null);
-      await clearClaimTestHandoff();
-    }
     const raw = (silentResend ? sentIdentifier : identifier).trim();
     let payload = raw;
     if (!raw) {
@@ -601,7 +573,7 @@ export default function ClaimAccountScreen() {
           <View style={styles.blockGap}>
             <ErrorBox
               testID="claim-not-configured"
-              message="Real sign-in isn’t configured in this environment — explore the demo from the login screen."
+              message="Real sign-in isn’t configured in this environment."
             />
           </View>
         )}
@@ -609,49 +581,6 @@ export default function ClaimAccountScreen() {
         {phase === 'identify' && (
           <LedgerCard style={styles.cardPad}>
             <FormWrap>
-              {testHandoff && (
-                <View
-                  testID="claim-test-handoff"
-                  accessibilityRole="summary"
-                  style={[
-                    styles.testHandoff,
-                    { backgroundColor: colors.warnBg, borderColor: colors.warnBorder },
-                  ]}
-                >
-                  <View style={styles.testHandoffCopy}>
-                    <Text style={[styles.testHandoffTitle, { color: colors.navy }]}>
-                      Prepared private test
-                    </Text>
-                    <Text style={[styles.testHandoffBody, { color: colors.bodyText }]}>
-                      {claimTestScenarioLabel(testHandoff)} is ready. Use{' '}
-                      <Text style={styles.testHandoffIdentifier}>
-                        {displayClaimIdentifier(testHandoff.identifier)}
-                      </Text>.
-                      It is filled in below. Scenario: {testHandoff.scenario}; path: {testHandoff.mode}.
-                    </Text>
-                    {testHandoff.cleanupWarning && (
-                      <Text
-                        testID="claim-test-cleanup-warning"
-                        style={[styles.testHandoffWarning, { color: colors.warnText }]}
-                      >
-                        The server test state is ready, but some device-only data could not be cleared.
-                      </Text>
-                    )}
-                  </View>
-                  <Pressable
-                    testID="claim-test-handoff-dismiss"
-                    accessibilityRole="button"
-                    accessibilityLabel="Dismiss prepared test"
-                    hitSlop={8}
-                    onPress={async () => {
-                      setTestHandoff(null);
-                      await clearClaimTestHandoff();
-                    }}
-                  >
-                    <Feather name="x" size={18} color={colors.bodyText} />
-                  </Pressable>
-                </View>
-              )}
               <Text style={[styles.introText, { color: colors.subtleText }]}>
                 Already on the THINNR program? Enter the email or mobile number your clinic has
                 on file and we’ll text or email you a verification code. This is also how you
@@ -1124,37 +1053,6 @@ const styles = StyleSheet.create({
   },
   cardPad: {
     padding: 16,
-  },
-  testHandoff: {
-    borderWidth: 1,
-    borderRadius: 7,
-    padding: 12,
-    marginBottom: 14,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  testHandoffCopy: {
-    flex: 1,
-  },
-  testHandoffTitle: {
-    fontSize: 12,
-    fontFamily: 'Inter_700Bold',
-    marginBottom: 3,
-  },
-  testHandoffBody: {
-    fontSize: 11,
-    lineHeight: 16,
-    fontFamily: 'Inter_400Regular',
-  },
-  testHandoffIdentifier: {
-    fontFamily: 'Inter_700Bold',
-  },
-  testHandoffWarning: {
-    fontSize: 11,
-    lineHeight: 16,
-    fontFamily: 'Inter_600SemiBold',
-    marginTop: 7,
   },
   introText: {
     fontSize: 12,

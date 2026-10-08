@@ -29,7 +29,6 @@ import OfficeTrainingLesson from '@/pages/OfficeTrainingLesson';
 import OfficeTeammate from '@/pages/OfficeTeammate';
 import OfficeAiSupport from '@/pages/OfficeAiSupport';
 import OfficeSettings from '@/pages/OfficeSettings';
-import MenuLab from '@/pages/MenuLab';
 import OfficeTeam from '@/pages/OfficeTeam';
 import OfficeAudit from '@/pages/OfficeAudit';
 import OfficeFiles from '@/pages/OfficeFiles';
@@ -40,20 +39,13 @@ import { RestrictedRoutes } from '@/components/office/RestrictedAccess';
 import { PracticeLaunchGuard } from '@/pages/PracticeLaunch';
 import { useOfficeAccess } from '@/hooks/use-office-access';
 import { OfficeRestrictionProvider } from '@/contexts/office-restriction';
-import { useSession } from '@/contexts/session';
 
 export function OfficeApp() {
-  const { authStatus } = useSession();
   return (
     <RoutedErrorBoundary>
       <OfficeRestrictionGate>
       <PracticeLaunchGuard>
         <Switch>
-          {/* Side-menu design lab: renders without the app chrome so the
-              candidate menus are the only chrome on screen. Its backdrop is
-              the seeded demo roster, so real sign-ins never get it (the path
-              falls through to the in-app not-found page). */}
-          {authStatus !== 'signed-in' && <Route path="/menu" component={MenuLab} />}
           <Route>
             <Shell>
               <PatientRouteScrollBehavior />

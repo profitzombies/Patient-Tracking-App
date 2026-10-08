@@ -325,7 +325,7 @@ export function useOnboardingFlow(current: StepKey) {
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) router.back();
-    else router.replace('/patient-entry' as Href);
+    else router.replace('/patient-welcome' as Href);
   }, []);
 
   // The step counter and progress bar ride the maximal possible path so the

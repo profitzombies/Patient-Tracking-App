@@ -18,7 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
-import { useSignedIn } from '@/hooks/useDemoLabels';
+import { useSignedIn } from '@/hooks/useLivePatient';
 import theme, { fonts } from '@/constants/colors';
 import { Divider, LedgerCard, ProgressBar, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';

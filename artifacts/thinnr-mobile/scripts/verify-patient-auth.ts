@@ -250,7 +250,7 @@ async function signupFlows(){
   assert('the seed belongs to the first session that asks',peekSignupSeed('someone-else')===null);
   assert('the first hydration takes the seed once',takeSignupSeed('pt-new')?.patientId==='pt-new'&&takeSignupSeed('pt-new')===null);
   const fresh={mode:'patient' as const,accountKind:'real' as const,patientHydrated:true,onboardingComplete:false,pathname:'/today'};
-  const gate=liveEntryDecision({modeHydrated:true,accountResolving:false,consentSatisfied:true,deletionPending:false,demoAdmitted:false,...fresh});
+  const gate=liveEntryDecision({modeHydrated:true,accountResolving:false,consentSatisfied:true,deletionPending:false,...fresh});
   assert('a fresh account is then gated into onboarding',gate.kind==='redirect'&&['/onboarding/welcome','/consent'].includes((gate as {href:string}).href));
   t.unmount();
  // A name error from the server bounces the patient back to the name step.
@@ -321,8 +321,8 @@ reset();on('login/start',()=>({status:200,body:{ok:true,requestId:'p1',message:n
   sms.unmount();
 }
 function routing(){
- console.log('· welcome, deep-link guard, demo admission, onboarding filtering');
- const signedOut={modeHydrated:true,mode:'patient' as const,accountResolving:false,accountKind:'demo' as const,patientHydrated:true,onboardingComplete:null,consentSatisfied:true,deletionPending:false,pathname:'/onboarding/height',demoAdmitted:false};
+ console.log('· welcome, deep-link guard, signed-out redirect, onboarding filtering');
+ const signedOut={modeHydrated:true,mode:'patient' as const,accountResolving:false,accountKind:'demo' as const,patientHydrated:true,onboardingComplete:null,consentSatisfied:true,deletionPending:false,pathname:'/onboarding/height'};
  const welcomeSource=readFileSync(new URL('../app/patient-welcome.tsx',import.meta.url),'utf8');
  const staffTabsLayout=readFileSync(new URL('../app/(tabs)/_layout.tsx',import.meta.url),'utf8');
  const patientTabsLayout=readFileSync(new URL('../app/(patient)/_layout.tsx',import.meta.url),'utf8');
@@ -332,7 +332,7 @@ function routing(){
   assert('welcome preserves all three navigation destinations',["router.push('/patient-login')","router.push('/patient-signup')","router.push('/provider-login')"].every(target=>welcomeSource.includes(target)));
   assert('welcome removes the top note and framed greeting',!welcomeSource.includes('Patient app')&&!welcomeSource.includes('<PlateHero')&&!welcomeSource.includes('<Footnote'));
   const loginSource=readFileSync(new URL('../app/patient-login.tsx',import.meta.url),'utf8');
-  assert('demo remains accessible through patient login',loginSource.includes('testID="login-demo"')&&loginSource.includes('onPress={login.openDemo}'));
+  assert('patient login offers no demo door',!loginSource.includes('testID="login-demo"')&&!loginSource.includes('Explore demo')&&!loginSource.includes('openDemo'));
  assert('fresh root enters patient welcome',staffTabsLayout.includes("mode === 'patient' ? '/today' : '/patient-welcome'"));
  assert('fresh patient tab enters patient welcome',patientTabsLayout.includes("mode === 'staff' ? '/' : '/patient-welcome'"));
   assert('root navigator stays mounted while a guard redirects',rootLayout.includes('{children}')&&rootLayout.includes("decision.kind === 'redirect' ? <Redirect"));
@@ -340,7 +340,7 @@ function routing(){
  assert('persisted staff cannot open signed-out patient demo',liveEntryDecision({...signedOut,mode:'staff',pathname:'/today'}).kind==='redirect');
  assert('operations staff route remains available',liveEntryDecision({...signedOut,mode:'staff',pathname:'/patients'}).kind==='allow');
  assert('welcome itself allowed',liveEntryDecision({...signedOut,pathname:'/patient-welcome'}).kind==='allow');
- assert('explicit demo admitted',liveEntryDecision({...signedOut,demoAdmitted:true}).kind==='allow');
+ assert('signed-out visitor is never admitted to patient data',liveEntryDecision({...signedOut,pathname:'/today'}).kind==='redirect');
  assert('incomplete real patient goes onboarding',liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:false,pathname:'/today'}).kind==='redirect');
  assert('complete real patient leaves onboarding',liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:true,pathname:'/onboarding/welcome'}).kind==='redirect'&&(liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:true,pathname:'/onboarding/welcome'}) as {href:string}).href==='/today');
  const demo=visibleSteps(DEFAULT_ANSWERS),real=visibleSteps(DEFAULT_ANSWERS,true);

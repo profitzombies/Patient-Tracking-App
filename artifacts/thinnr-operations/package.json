@@ -59,7 +59,6 @@
     "test:account-security": "TZ=UTC tsx --tsconfig tsconfig.account-security.json scripts/verify-account-security.tsx",
     "test:reauth": "TZ=UTC tsx --tsconfig tsconfig.reauth.json scripts/verify-reauth.tsx",
     "test:staff-sign-in": "TZ=UTC tsx --tsconfig tsconfig.staff-sign-in.json scripts/verify-staff-sign-in.tsx",
-    "test:demo-switch": "TZ=UTC tsx --tsconfig tsconfig.demo-switch.json scripts/verify-demo-switch.tsx",
     "test:hq-team": "TZ=UTC tsx --tsconfig tsconfig.hq-team.json scripts/verify-hq-team.tsx",
     "test:hq-team-live": "tsx scripts/verify-hq-team-live.ts",
     "test:leaderboard": "TZ=UTC tsx --tsconfig tsconfig.leaderboard.json scripts/verify-leaderboard.tsx",

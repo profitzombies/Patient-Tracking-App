@@ -1,15 +1,18 @@
-export const patientState = { hydrated: true };
-
-export function usePatient(): {
+export const patientState: {
   hydrated: boolean;
-  hydratedFlags: null;
-  hydratedPrivacy: null;
-  rehydrate: () => void;
-} {
+  hydratedFlags: { onboardingComplete: boolean } | null;
+  hydratedPrivacy: { consent: { satisfied: boolean }; deletion: null } | null;
+} = {
+  hydrated: true,
+  hydratedFlags: { onboardingComplete: true },
+  hydratedPrivacy: { consent: { satisfied: true }, deletion: null },
+};
+
+export function usePatient() {
   return {
     hydrated: patientState.hydrated,
-    hydratedFlags: null,
-    hydratedPrivacy: null,
+    hydratedFlags: patientState.hydratedFlags,
+    hydratedPrivacy: patientState.hydratedPrivacy,
     rehydrate: () => undefined,
   };
 }

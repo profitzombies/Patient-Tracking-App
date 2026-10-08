@@ -4,7 +4,7 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "sh -c 'if [ -n \"$REPLIT_EXPO_SESSION_SECRET\" ]; then pnpm exec create-launch login --session \"$REPLIT_EXPO_SESSION_SECRET\" || true; fi' && EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID EXPO_PUBLIC_THINNR_DEMO=$THINNR_DEMO REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
+    "dev": "sh -c 'if [ -n \"$REPLIT_EXPO_SESSION_SECRET\" ]; then pnpm exec create-launch login --session \"$REPLIT_EXPO_SESSION_SECRET\" || true; fi' && EXPO_PACKAGER_PROXY_URL=https://$REPLIT_EXPO_DEV_DOMAIN EXPO_PUBLIC_DOMAIN=$REPLIT_DEV_DOMAIN EXPO_PUBLIC_REPL_ID=$REPL_ID REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN pnpm exec expo start --localhost --port $PORT",
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -12,8 +12,6 @@
     "test:usda-essentials": "tsx scripts/verify-usda-essentials.ts",
     "test:barcode-scan": "tsx --tsconfig tsconfig.barcode-scan.json scripts/verify-barcode-scan.ts",
     "test:claim-flow": "tsx --tsconfig tsconfig.claim-flow.json scripts/verify-claim-flow.ts",
-    "test:claim-test": "tsx --tsconfig tsconfig.claim-test.json scripts/verify-claim-test.ts",
-    "test:demo-switch": "tsx scripts/verify-demo-switch.ts",
     "test:restaurant-guide": "node scripts/check-restaurant-guide-verbatim.mjs",
     "test:chat-account": "tsx --tsconfig tsconfig.chat-account.json scripts/verify-chat-account.ts",
     "test:coach-stop": "tsx --tsconfig tsconfig.coach-stop.json scripts/verify-coach-stop.ts",

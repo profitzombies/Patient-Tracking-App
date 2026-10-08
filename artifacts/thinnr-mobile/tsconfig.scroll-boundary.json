@@ -30,9 +30,6 @@
       "@/components/ui/Snackbar": [
         "./scripts/scroll-boundary-stubs/snackbar.ts"
       ],
-      "@/components/patient/ClaimTestEntryCard": [
-        "./scripts/scroll-boundary-stubs/claim-test-entry-card.ts"
-      ],
       "@/components/ui/LedgerPrimitives": [
         "./scripts/scroll-boundary-stubs/ledger-primitives.ts"
       ],
@@ -44,9 +41,6 @@
       ],
       "@/lib/supabase": ["./scripts/scroll-boundary-stubs/supabase.ts"],
       "@/lib/coach-api": ["./scripts/scroll-boundary-stubs/coach-api.ts"],
-      "@/lib/claim-test-handoff": [
-        "./scripts/scroll-boundary-stubs/claim-test-handoff.ts"
-      ],
       "@/data/recipe-images": [
         "./scripts/scroll-boundary-stubs/recipe-images.ts"
       ],

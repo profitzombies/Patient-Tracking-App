@@ -19,7 +19,6 @@ export interface LiveEntryGateInput {
   /** A deletion request is pending: the account is parked on /consent. */
   deletionPending?: boolean;
   pathname: string;
-  demoAdmitted?: boolean;
 }
 
 export const ACCOUNT_CLOSED_MESSAGE =
@@ -58,7 +57,7 @@ export function isProgramEndedResolutionError(
 /** Routes a real account may use before consent is recorded or while a deletion is pending. */
 const CONSENT_ROUTE = '/consent';
 
-/** Routes owned by the operations persona, never by the seeded patient demo. */
+/** Routes owned by the operations persona, never by a patient session. */
 function isStaffRoute(pathname: string): boolean {
   return pathname === '/' || [
     '/patients',
@@ -73,7 +72,6 @@ function isStaffRoute(pathname: string): boolean {
     '/office-patient/',
     '/sell-to-patient',
     '/claim-account',
-    '/claim-test',
   ].some(prefix => pathname.startsWith(prefix));
 }
 
@@ -108,10 +106,10 @@ export function liveEntryDecision(input: LiveEntryGateInput): LiveEntryDecision 
     return { kind: 'hold' };
   }
   // Staff has its own protected route model. A patient mode persisted from a
-  // previous visit is not proof that this device is entitled to demo data.
+  // previous visit is not proof that this device is entitled to patient data:
+  // only a resolved real account opens protected patient routes.
   if (
     input.accountKind !== 'real' &&
-    !input.demoAdmitted &&
     !isStaffRoute(input.pathname) &&
     !isPatientAccessRoute(input.pathname)
   ) {

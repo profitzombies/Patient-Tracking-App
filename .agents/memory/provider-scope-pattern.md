@@ -9,7 +9,7 @@ The operations web app has two personas (sessionStorage-simulated): office staff
 
 **The rule:** office screens never import `MOCK_*` singletons directly — they read through `useScoped*` hooks. Unscoped (no `ProviderScopeProvider` above), each hook returns the *exact same singleton object* (not a copy, not a re-filter), so the office demo renders byte-identically. Scoped, hooks filter by the account's providerId or swap to per-account seeded analytics.
 
-**Why:** the office demo and its three-timezone parity suite are the product's showpiece; any fork or copy of those screens will drift. One screen, two data scopes.
+**Why:** the unscoped singleton path is the baseline of the hermetic office suites and the web↔mobile parity suite (the guided demo itself is gone since 2026-10-08, so no visitor sees it); any fork or copy of those screens will drift. One screen, two data scopes.
 
 **How to apply:**
 - New office screens or new data reads on existing office screens must go through `src/data/scoped-data.ts` hooks; add a hook there rather than importing mock-data in the page.

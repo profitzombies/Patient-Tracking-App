@@ -4,15 +4,14 @@
  * Auth uses the publishable key (safe to ship in the browser bundle — row
  * level security guards the data). When the env vars are absent the app
  * still boots: `supabase` is null and the sign-in screen says real auth is
- * unavailable. The signed-out demo stays reachable only where the demo
- * switch allows it (see lib/demo-entry.ts) — never in the published app.
+ * unavailable.
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 
-/** True when real auth is wired up. Demo entry is decided separately, by the demo switch. */
+/** True when real auth is wired up. */
 export const supabaseConfigured = Boolean(url && key);
 
 export const supabase: SupabaseClient | null = supabaseConfigured

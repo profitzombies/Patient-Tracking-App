@@ -11,6 +11,7 @@ import { LibraryImage } from '../components/patient/LibraryImage';
 import { PatientRouteShell } from '../components/patient/PatientRouteShell';
 import { appModeState } from './route-hydration-stubs/app-mode-context';
 import { patientState } from './route-hydration-stubs/patient-context';
+import { accountState } from './route-hydration-stubs/patient-account-context';
 import { routerState } from './patient-fab-stubs/expo-router';
 
 (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -101,43 +102,62 @@ async function imageChecks(): Promise<void> {
 }
 
 async function layoutChecks(): Promise<void> {
-  // This is the real patient layout with only native/navigation and patient
-  // context seams stubbed.  Keep the demo admitted while its local store is
-  // held so a consent/onboarding denial cannot flash before admission.
+  // This is the real patient layout with only native/navigation, account and
+  // patient context seams stubbed.  A resolved real account whose local store
+  // is still loading must see a loading shell, never a consent/onboarding
+  // denial flash before its record is known.
   appModeState.mode = 'patient';
   appModeState.hydrated = true;
-  appModeState.demoAdmitted = true;
+  accountState.kind = 'real';
+  accountState.resolving = false;
   patientState.hydrated = false;
+  patientState.hydratedFlags = null;
+  patientState.hydratedPrivacy = null;
   routerState.pathname = '/today';
 
   let renderer!: ReactTestRenderer;
   await act(async () => {
     renderer = create(<PatientTabLayout />);
   });
-  check('admitted demo held on local storage paints loading shell', hasTestID(renderer, 'patient-route-skeleton-today'));
-  check('admitted demo storage hold does not paint consent denial', !JSON.stringify(renderer.toJSON()).includes('Consent is required'));
-  check('admitted demo storage hold keeps only its safe tab navigation', hasTestID(renderer, 'patient-tab-bar') && !hasTestID(renderer, 'patient-fab'));
+  check('real account held on local storage paints loading shell', hasTestID(renderer, 'patient-route-skeleton-today'));
+  check('real account storage hold does not paint consent denial', !JSON.stringify(renderer.toJSON()).includes('Consent is required'));
+  check('real account storage hold mounts no quick actions', !hasTestID(renderer, 'patient-fab'));
 
   patientState.hydrated = true;
+  patientState.hydratedFlags = { onboardingComplete: true };
+  patientState.hydratedPrivacy = { consent: { satisfied: true }, deletion: null };
   await act(async () => {
     renderer.update(<PatientTabLayout />);
   });
-  check('admitted demo appears after local storage hydration', hasTestID(renderer, 'patient-tab-bar') && hasTestID(renderer, 'patient-fab'));
-  check('admitted demo does not require real-account consent fields', !JSON.stringify(renderer.toJSON()).includes('Consent is required'));
+  check('consented, onboarded real account is admitted after hydration', hasTestID(renderer, 'patient-tab-bar') && hasTestID(renderer, 'patient-fab'));
+  check('admitted real account shows no consent denial', !JSON.stringify(renderer.toJSON()).includes('Consent is required'));
 
-  patientState.hydrated = true;
-  appModeState.demoAdmitted = false;
+  patientState.hydratedPrivacy = { consent: { satisfied: false }, deletion: null };
   await act(async () => {
     renderer.update(<PatientTabLayout />);
   });
-  check('unadmitted demo remains denied after hydration', JSON.stringify(renderer.toJSON()).includes('guided patient demo'));
+  check('real account without consent is denied with the consent reason', JSON.stringify(renderer.toJSON()).includes('Consent is required') && !hasTestID(renderer, 'patient-fab'));
+
+  patientState.hydratedPrivacy = { consent: { satisfied: true }, deletion: null };
+  patientState.hydratedFlags = { onboardingComplete: false };
+  await act(async () => {
+    renderer.update(<PatientTabLayout />);
+  });
+  check('real account mid-onboarding is denied with the onboarding reason', JSON.stringify(renderer.toJSON()).includes('Finish onboarding') && !hasTestID(renderer, 'patient-fab'));
+
+  patientState.hydratedFlags = { onboardingComplete: true };
+  accountState.kind = 'demo';
+  await act(async () => {
+    renderer.update(<PatientTabLayout />);
+  });
+  check('signed-out visitor is denied patient data', JSON.stringify(renderer.toJSON()).includes('Sign in before opening patient data') && !hasTestID(renderer, 'patient-fab'));
   patientState.hydrated = false;
   await act(async () => {
     renderer.update(<PatientTabLayout />);
   });
-  check('unadmitted demo cannot turn an unknown store into loading admission', JSON.stringify(renderer.toJSON()).includes('guided patient demo'));
+  check('signed-out visitor cannot turn an unknown store into loading admission', JSON.stringify(renderer.toJSON()).includes('Sign in before opening patient data'));
 
-  appModeState.demoAdmitted = true;
+  accountState.kind = 'real';
   await act(async () => { renderer.unmount(); });
 }
 

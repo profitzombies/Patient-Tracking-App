@@ -60,7 +60,12 @@ export function Shell({ children }: { children: ReactNode }) {
   // One shared item list drives this menu and the /menu design lab. An office
   // narrowed for nonpayment sees only what it can still use.
   const { restricted } = useOfficeRestriction();
-  const navItems = restricted ? restrictedOfficeNavItems() : OFFICE_NAV_ITEMS;
+  const officeNavItems = restricted ? restrictedOfficeNavItems() : OFFICE_NAV_ITEMS;
+  // The top-level Subscriptions row is the guided demo's seeded plan list;
+  // real sign-ins manage plans under Payments › Subscriptions instead.
+  const navItems = authStatus === 'signed-in'
+    ? officeNavItems.filter((item) => item.path !== '/subscriptions')
+    : officeNavItems;
   const activeItem = findActiveOfficeNavItem(location);
 
   useEffect(() => {

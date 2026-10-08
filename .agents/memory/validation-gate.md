@@ -30,6 +30,8 @@ Keep the ordinary Run-button group limited to managed artifact services. A manua
 
 **How to apply:** When diagnosing an artifact startup abort, inspect the Run-button group's membership as well as current process pressure. Adding a validation command must not silently restore tests to ordinary app startup. A successful server restart alone does not prevent the next startup overload if the group still includes the test collection. This has recurred (2026-10-05: 151 suites back in the Run group; stuck runs held slots ~90 min): stop the non-artifact running workflows, trim the group to the four artifact services, then restart API + web.
 
+**The cause is `setValidationCommand` itself (seen 2026-10-07):** every new registration appends a `workflow.run` entry for the suite to the Run-button "Project" group. After registering, check that group and strip the new entries. Direct `.replit` edits are blocked; write the trimmed file to a temp path and apply it with `verifyAndReplaceDotReplit`. The suite's own `isValidation` workflow entry must stay, and the gate still finds it.
+
 ## Missing completion runs
 
 Treat completion `RUN_LOST` separately from failing checks; do not assume any commands actually ran.

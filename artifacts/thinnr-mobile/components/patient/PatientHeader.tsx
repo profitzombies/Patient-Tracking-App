@@ -1,14 +1,22 @@
 /**
  * Safe-area-aware header for patient-mode screens. Mirrors the staff
- * ScreenHeader visually; the ES avatar opens the persona switcher.
+ * ScreenHeader visually. The avatar shows Emma's "ES" and opens the persona
+ * switcher only in the signed-out guided demo; a signed-in patient sees their
+ * own initials and it opens their account, and any other live session sees a
+ * plain person icon that opens the signed-in account view.
  * Heritage language: paper surface, hairline bottom rule, serif page title.
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
+import { usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
+import { useSignedIn } from '@/hooks/useDemoLabels';
+import { patientInitials } from '@/lib/patient-display';
 
 interface PatientHeaderProps {
   title: string;
@@ -19,7 +27,14 @@ interface PatientHeaderProps {
 export function PatientHeader({ title, subtitle, right }: PatientHeaderProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { account } = usePatientAccount();
+  const patient = usePatient();
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
+  const real = account.kind === 'real';
+  // Only the signed-out demo borrows Emma's initials.
+  const signedIn = useSignedIn();
+  const initials = !signedIn ? 'ES' : real ? patientInitials(true, patient.profile) : '';
+  const avatarHref = real ? '/account' : '/persona';
 
   return (
     <View
@@ -50,9 +65,11 @@ export function PatientHeader({ title, subtitle, right }: PatientHeaderProps) {
           {right}
           <Pressable
             testID="patient-avatar-btn"
+            accessibilityRole="button"
+            accessibilityLabel={real ? 'Your account' : signedIn ? 'Account' : 'Switch experience'}
             onPress={() => {
               Haptics.selectionAsync();
-              router.push('/persona');
+              router.push(avatarHref);
             }}
             style={({ pressed }) => [
               styles.avatar,
@@ -60,7 +77,11 @@ export function PatientHeader({ title, subtitle, right }: PatientHeaderProps) {
               pressed && { opacity: 0.85 },
             ]}
           >
-            <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>ES</Text>
+            {initials ? (
+              <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>{initials}</Text>
+            ) : (
+              <Feather name="user" size={14} color={colors.primaryForeground} />
+            )}
           </Pressable>
         </View>
       </View>

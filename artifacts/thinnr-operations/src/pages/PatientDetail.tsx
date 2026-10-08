@@ -728,11 +728,25 @@ function HqPatientHardDelete({ patientId, label, onDeleted }: { patientId: strin
   );
 }
 
+/** A signed-in session that can't reach a live record sees this, never the seeded one. */
+function PatientRecordUnavailable() {
+  return (
+    <div className="mx-auto max-w-[1320px] px-5 py-12 text-center" data-testid="patient-record-unavailable">
+      <h2 className="font-serif text-xl font-bold text-navy">Patient record unavailable</h2>
+      <p className="mt-2 text-sm text-muted-foreground">This record isn’t available from this account.</p>
+      <Link href="/patients" className={`mt-4 ${LINK_ACTION}`}>Return to roster</Link>
+    </div>
+  );
+}
 export default function PatientDetail() {
   const { id } = useParams();
-  const { authStatus, authRole } = useSession();
+  const { authStatus, authRole, claimedWorkspace } = useSession();
   const scope = useProviderScope();
-  const liveEnabled = authStatus === 'signed-in' && (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+  // Claimed office logins have no profile role but are real staff.
+  const isClaimedOffice = claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member';
+  const liveEnabled = authStatus === 'signed-in' && (authRole === 'provider_staff' || isClaimedOffice || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
   if (liveEnabled && id) return <LivePatientDetail id={id} office={authRole === 'hq_admin' ? scope?.providerId ?? null : null} isHq={authRole === 'hq_admin'} />;
+  // Real accounts never fall through to the seeded record.
+  if (authStatus === 'signed-in') return <PatientRecordUnavailable />;
   return <DemoPatientDetail />;
 }

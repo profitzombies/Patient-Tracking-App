@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/lib/demo-entry": ["./scripts/demo-switch-stubs/demo-entry-off.ts"],
+      "@/lib/supabase": ["./scripts/demo-switch-stubs/supabase.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

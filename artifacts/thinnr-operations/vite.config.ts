@@ -36,6 +36,9 @@ export default defineConfig({
     'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(
       process.env.SUPABASE_ANON_KEY ?? process.env.SUPABASE_PUBLISHABLE_KEY ?? '',
     ),
+    // The guided-demo switch (see src/lib/demo-entry.ts): "on" in development,
+    // "off" in the published app; unset falls back to the build mode.
+    'import.meta.env.VITE_THINNR_DEMO': JSON.stringify(process.env.THINNR_DEMO ?? ''),
   },
   plugins: [
     react(),

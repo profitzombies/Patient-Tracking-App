@@ -51,10 +51,12 @@ export function livePatientQueryKey(office: string | null, id: string) {
  * The server is authoritative — this only decides whether to show controls.
  */
 export function useCanEditLiveRecord(patient?: Pick<OfficePatientDetail['patient'], 'closure'>): boolean {
-  const { authStatus, authRole, hqRole } = useSession();
+  const { authStatus, authRole, hqRole, claimedWorkspace } = useSession();
   if (patient?.closure) return false;
   if (authStatus !== 'signed-in') return false;
   if (authRole === 'provider_staff') return true;
+  // Claimed office logins have no profile role but are office staff.
+  if (claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member') return true;
   return authRole === 'hq_admin' && (hqRole === 'Super Admin' || hqRole === 'Admin');
 }
 

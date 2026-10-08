@@ -17,6 +17,7 @@ import {
   type ClaimTestScenario,
 } from '@/lib/claim-test-handoff';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
 const SCENARIOS: Array<{
   id: ClaimTestScenario;
@@ -58,7 +59,8 @@ export default function ClaimTestScreen() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (sessionLoading || !session) return;
+    // A development-only test control: the published app never asks for it.
+    if (!demoEntryEnabled || sessionLoading || !session) return;
     let live = true;
     claimTestRequest(session.access_token)
       .then(result => {
@@ -71,6 +73,7 @@ export default function ClaimTestScreen() {
     return () => { live = false; };
   }, [session, sessionLoading]);
 
+  if (!demoEntryEnabled) return <Redirect href="/today" />;
   if (!hydrated || sessionLoading) return null;
   if (mode !== 'patient' || !session || hidden) return <Redirect href="/today" />;
 

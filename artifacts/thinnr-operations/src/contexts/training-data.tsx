@@ -15,9 +15,12 @@
  * never by a caller-supplied viewer id.
  *
  * Privacy: only seeded demo viewers (is_demo) — and their completions and
- * invites — are readable without a real admin session. Email-gate
- * registrations are invisible to anon reads, so the learner page keeps its
- * own progress state from the RPC payloads rather than this snapshot.
+ * invites — are readable without a real admin session, and a signed-out
+ * snapshot skips even those when demo entry is switched off
+ * (src/lib/demo-entry.ts): the share-link page needs only the catalog.
+ * Email-gate registrations are invisible to anon reads, so the learner page
+ * keeps its own progress state from the RPC payloads rather than this
+ * snapshot.
  *
  * Ordering invariant: `position` columns stay contiguous per container
  * (0..n-1). The seed writes them that way and every structural mutation here
@@ -65,6 +68,7 @@ import { getOrderedVideos } from '@/data/hq/training';
 import { removeAllAttachments, removeVideoFile } from '@/lib/training-media';
 import { purgeVideosMedia, type VideoMediaPurgeDeps } from '@/lib/training-purge';
 import { supabase } from '@/lib/supabase';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 import { useSession } from '@/contexts/session';
 import { toast } from '@/hooks/use-toast';
 
@@ -105,19 +109,31 @@ function unwrap<T>(result: { data: T | null; error: { message: string } | null }
   return result.data;
 }
 
-async function fetchSnapshot(): Promise<TrainingSnapshot> {
+/**
+ * `includePeople` false = catalog only. Used for signed-out visitors when demo
+ * entry is switched off: anon reads can only ever return the seeded demo
+ * viewers, and the share-link learner page tracks its own progress through
+ * the gate RPCs, so nothing anonymous depends on those rows.
+ */
+async function fetchSnapshot(includePeople: boolean): Promise<TrainingSnapshot> {
   const client = requireClient();
-  const [courses, modules, subgroups, videos, viewers, completions] = await Promise.all([
+  const catalogQuery = Promise.all([
     client.from('training_courses').select('*').order('created_at', { ascending: true }).limit(FETCH_LIMIT),
     client.from('training_modules').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
     client.from('training_subgroups').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
     client.from('training_videos').select('*').order('position', { ascending: true }).limit(FETCH_LIMIT),
-    client.from('training_viewers').select('*').order('first_seen_at', { ascending: true }).limit(FETCH_LIMIT),
-    client.from('training_completions').select('*').order('first_watched_at', { ascending: true }).limit(FETCH_LIMIT),
   ]);
-  for (const result of [courses, modules, subgroups, videos, viewers, completions]) {
+  const peopleQuery = includePeople
+    ? Promise.all([
+        client.from('training_viewers').select('*').order('first_seen_at', { ascending: true }).limit(FETCH_LIMIT),
+        client.from('training_completions').select('*').order('first_watched_at', { ascending: true }).limit(FETCH_LIMIT),
+      ])
+    : Promise.resolve(null);
+  const [[courses, modules, subgroups, videos], people] = await Promise.all([catalogQuery, peopleQuery]);
+  for (const result of [courses, modules, subgroups, videos, ...(people ?? [])]) {
     assertOk(result.error);
   }
+  const [viewers, completions] = people ?? [null, null];
   return {
     courses: assembleCourses({
       courses: (courses.data ?? []) as TrainingCourseRow[],
@@ -125,8 +141,8 @@ async function fetchSnapshot(): Promise<TrainingSnapshot> {
       subgroups: (subgroups.data ?? []) as TrainingSubgroupRow[],
       videos: (videos.data ?? []) as TrainingVideoRow[],
     }),
-    viewers: ((viewers.data ?? []) as TrainingViewerRow[]).map(mapViewerRow),
-    completions: ((completions.data ?? []) as TrainingCompletionRow[]).map(mapCompletionRow),
+    viewers: ((viewers?.data ?? []) as TrainingViewerRow[]).map(mapViewerRow),
+    completions: ((completions?.data ?? []) as TrainingCompletionRow[]).map(mapCompletionRow),
   };
 }
 
@@ -319,9 +335,12 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const scopeSettled =
     authStatus !== 'loading' &&
     (authStatus !== 'signed-in' || roleStatus === 'ready' || roleStatus === 'error');
+  // Signed-out visitors only see the seeded demo learners, so without demo
+  // entry they get the catalog alone (fetchSnapshot).
+  const includePeople = authStatus === 'signed-in' || demoEntryEnabled;
   const query = useQuery({
-    queryKey: [...TRAINING_QUERY_KEY, authScopeKey],
-    queryFn: fetchSnapshot,
+    queryKey: [...TRAINING_QUERY_KEY, authScopeKey, includePeople ? 'people' : 'catalog'],
+    queryFn: () => fetchSnapshot(includePeople),
     enabled: supabase !== null && scopeSettled,
     staleTime: 30_000,
   });
@@ -369,12 +388,22 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
     [courses],
   );
 
+  // Real accounts are told what their sign-in can't do; only the signed-out
+  // development demo hears about the demo persona.
+  const signedIn = authStatus === 'signed-in';
   const notifyReadOnly = useCallback(() => {
-    toast({
-      title: 'Sign in to make changes',
-      description: 'The demo persona can browse training, but authoring needs a real THINNR HQ sign-in.',
-    });
-  }, []);
+    toast(
+      signedIn
+        ? {
+            title: 'You can’t make this change',
+            description: 'Your sign-in can view training but not edit it. Only THINNR HQ admins can author training.',
+          }
+        : {
+            title: 'Sign in to make changes',
+            description: 'The demo persona can browse training, but authoring needs a real THINNR HQ sign-in.',
+          },
+    );
+  }, [signedIn]);
 
   /** Run a write, refresh the snapshot, surface failures as a toast. */
   const runWrite = useCallback(
@@ -411,15 +440,22 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const staffWrite = useCallback(
     async <T,>(operation: () => Promise<T>): Promise<T | null> => {
       if (!canAddStaff) {
-        toast({
-          title: 'Sign in to make changes',
-          description: 'The demo persona can browse training, but staff actions need a real staff sign-in.',
-        });
+        toast(
+          signedIn
+            ? {
+                title: 'You can’t make this change',
+                description: 'Your sign-in can view this office’s training but not change it.',
+              }
+            : {
+                title: 'Sign in to make changes',
+                description: 'The demo persona can browse training, but staff actions need a real staff sign-in.',
+              },
+        );
         return null;
       }
       return runWrite(operation);
     },
-    [canAddStaff, runWrite],
+    [canAddStaff, runWrite, signedIn],
   );
 
   // -------------------------------------------------------------------------

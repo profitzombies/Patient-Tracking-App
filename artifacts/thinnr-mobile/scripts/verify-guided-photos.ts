@@ -148,7 +148,7 @@ import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
 import { setConnectivityOverride } from '../lib/connectivity';
-import { ENROLLMENT_DAYS, TODAY_KEY } from '../data/patient-data';
+import { ENROLLMENT_DAYS, formatDateKey, TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import * as SessionModule from '../components/patient/GuidedPhotoSession';
 import { PatientProvider, usePatient } from '../context/PatientContext';
@@ -1571,7 +1571,9 @@ async function main(): Promise<void> {
       new Set(rail.uploadIds.slice(0, 3).map(id => id?.split('.')[0])).size === 1,
       'all angles share one session prefix',
     );
-    const railWeek = Math.ceil(ENROLLMENT_DAYS / 7);
+    // This account's program calendar never hydrated, so the shots are
+    // labelled by date — a signed-in patient never borrows the demo's week.
+    const railLabelPrefix = formatDateKey(localTodayKey());
     assert(
       rail.photoWrites.flat().every(
         photo =>
@@ -1579,7 +1581,7 @@ async function main(): Promise<void> {
           photo.id.length > 0 &&
           photo.dateKey === localTodayKey() &&
           photo.label ===
-            `Week ${railWeek} ${GUIDED_ANGLE_LABELS[photo.angle as (typeof GUIDED_ANGLES)[number]]}` &&
+            `${railLabelPrefix} ${GUIDED_ANGLE_LABELS[photo.angle as (typeof GUIDED_ANGLES)[number]]}` &&
           typeof photo.objectPath === 'string' &&
           photo.objectPath.startsWith('/objects/patient-media/p-real/progress-'),
       ),

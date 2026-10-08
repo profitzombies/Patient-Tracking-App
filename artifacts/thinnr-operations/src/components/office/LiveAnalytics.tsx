@@ -25,11 +25,13 @@ import { useGetOfficeAnalytics, getGetOfficeAnalyticsQueryKey, type OfficeSeries
 
 /** True when the current viewer should see live analytics instead of the synthetic deck. */
 export function useLiveAnalyticsScope() {
-  const { authStatus, authRole } = useSession();
+  const { authStatus, authRole, claimedWorkspace } = useSession();
   const scope = useProviderScope();
+  // Claimed office logins have no profile role but are real staff.
+  const isClaimedOffice = claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member';
   const liveEnabled =
     authStatus === 'signed-in' &&
-    (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+    (authRole === 'provider_staff' || isClaimedOffice || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
   const liveOffice = authRole === 'hq_admin' ? (scope?.providerId ?? null) : null;
   return { liveEnabled, liveOffice, scope };
 }

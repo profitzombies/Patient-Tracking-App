@@ -25,7 +25,7 @@ import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { usePatientAccount } from '@/context/PatientAccountContext';
+import { useLivePatient } from '@/hooks/useDemoLabels';
 import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import {
   clampProgramDay,
@@ -53,12 +53,16 @@ export default function InstructionsScreen() {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const patient = usePatient();
-  const { account } = usePatientAccount();
-  const realDay = patient.entryFacts?.programDay ?? REAL_DAY;
-  const isDemo = account.kind !== 'real';
+  // The demo persona gets Emma's seeded day plus the screen-local preview; a
+  // signed-in patient gets their own program day, or none while it loads.
+  const live = useLivePatient();
+  const isDemo = !live;
+  const realDay: number | null = live
+    ? patient.entryFacts?.programDay ?? null
+    : patient.entryFacts?.programDay ?? REAL_DAY;
 
   // Screen-local demo preview: defaults to the patient's real program day.
-  const [previewDay, setPreviewDay] = useState(realDay);
+  const [previewDay, setPreviewDay] = useState(realDay ?? REAL_DAY);
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -71,9 +75,11 @@ export default function InstructionsScreen() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  const effectiveDay = clampProgramDay(isDemo ? previewDay : realDay);
-  const isPreviewing = isDemo && effectiveDay !== REAL_DAY;
-  const currentPhase = phaseForDay(effectiveDay);
+  const demoDay = clampProgramDay(previewDay);
+  const effectiveDay: number | null = isDemo ? demoDay : realDay === null ? null : clampProgramDay(realDay);
+  const isPreviewing = isDemo && demoDay !== REAL_DAY;
+  const currentPhase = effectiveDay === null ? null : phaseForDay(effectiveDay);
+  const demoPhase = phaseForDay(demoDay);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -82,7 +88,10 @@ export default function InstructionsScreen() {
 
   const openPhase = (id: ProgramPhaseId) => {
     Haptics.selectionAsync();
-    router.push({ pathname: '/phase/[id]', params: { id, day: String(effectiveDay) } });
+    router.push({
+      pathname: '/phase/[id]',
+      params: effectiveDay === null ? { id } : { id, day: String(effectiveDay) },
+    });
   };
 
   const setDay = (day: number) => {
@@ -136,8 +145,8 @@ export default function InstructionsScreen() {
             <View style={styles.demoStepper}>
               <Pressable
                 testID="demo-day-minus"
-                onPress={() => setDay(effectiveDay - 1)}
-                disabled={effectiveDay <= 1}
+                onPress={() => setDay(demoDay - 1)}
+                disabled={demoDay <= 1}
                 style={({ pressed }) => [
                   styles.demoStepBtn,
                   {
@@ -145,18 +154,18 @@ export default function InstructionsScreen() {
                     borderRadius: colors.radiusSm,
                     backgroundColor: pressed ? colors.accent : colors.card,
                   },
-                  effectiveDay <= 1 && { opacity: 0.35 },
+                  demoDay <= 1 && { opacity: 0.35 },
                 ]}
               >
                 <Feather name="minus" size={13} color={colors.warnText} />
               </Pressable>
               <Text testID="demo-day-value" style={[styles.demoValue, { color: colors.warnText }]}>
-                Day {effectiveDay}
+                Day {demoDay}
               </Text>
               <Pressable
                 testID="demo-day-plus"
-                onPress={() => setDay(effectiveDay + 1)}
-                disabled={effectiveDay >= MAX_PROGRAM_DAY}
+                onPress={() => setDay(demoDay + 1)}
+                disabled={demoDay >= MAX_PROGRAM_DAY}
                 style={({ pressed }) => [
                   styles.demoStepBtn,
                   {
@@ -164,7 +173,7 @@ export default function InstructionsScreen() {
                     borderRadius: colors.radiusSm,
                     backgroundColor: pressed ? colors.accent : colors.card,
                   },
-                  effectiveDay >= MAX_PROGRAM_DAY && { opacity: 0.35 },
+                  demoDay >= MAX_PROGRAM_DAY && { opacity: 0.35 },
                 ]}
               >
                 <Feather name="plus" size={13} color={colors.warnText} />
@@ -174,7 +183,7 @@ export default function InstructionsScreen() {
 
           <View style={styles.demoChipRow}>
             {PROGRAM_PHASES.map(phase => {
-              const isActive = currentPhase.id === phase.id;
+              const isActive = demoPhase.id === phase.id;
               return (
                 <Pressable
                   key={phase.id}
@@ -216,22 +225,26 @@ export default function InstructionsScreen() {
 
           {isPreviewing && (
             <Text testID="demo-preview-hint" style={[styles.demoHint, { color: colors.warnText }]}>
-              Previewing Day {effectiveDay} — your real program day is Day {REAL_DAY}.
+              Previewing Day {demoDay} — your real program day is Day {REAL_DAY}.
             </Text>
           )}
         </View>}
 
         {/* ── Current phase ── */}
-        <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>
-          Current Phase · Day {effectiveDay}
-        </Text>
-        <PhaseCard
-          phase={currentPhase}
-          day={effectiveDay}
-          variant="summary"
-          onOpenFull={() => openPhase(currentPhase.id)}
-          testID="current-phase-card"
-        />
+        {currentPhase && effectiveDay !== null ? (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>
+              Current Phase · Day {effectiveDay}
+            </Text>
+            <PhaseCard
+              phase={currentPhase}
+              day={effectiveDay}
+              variant="summary"
+              onOpenFull={() => openPhase(currentPhase.id)}
+              testID="current-phase-card"
+            />
+          </>
+        ) : null}
 
         {/* ── Welcome ── */}
         <Text style={[styles.sectionTitle, { color: colors.navyLight }]}>Welcome</Text>
@@ -290,7 +303,7 @@ export default function InstructionsScreen() {
           <Text style={[styles.paragraph, { color: colors.bodyText }]}>{PHASES_SECTION.intro}</Text>
           <View style={{ marginTop: 6 }}>
             {PROGRAM_PHASES.map((phase, index) => {
-              const status = phaseStatusForDay(phase, effectiveDay);
+              const status = effectiveDay === null ? 'upcoming' : phaseStatusForDay(phase, effectiveDay);
               const isCurrent = status === 'current';
               return (
                 <View key={phase.id}>

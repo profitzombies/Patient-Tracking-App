@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
+import { useSignedIn } from '@/hooks/useDemoLabels';
 import theme, { fonts } from '@/constants/colors';
 import { Divider, LedgerCard, ProgressBar, SectionHeader, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
@@ -89,6 +90,7 @@ export default function PatientDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const ops = useOperations();
+  const signedIn = useSignedIn();
 
   // Use merged projections so overrides are always reflected after hydration
   const patient = useMemo(() => ops.mergedPatients.find(p => p.id === id), [ops.mergedPatients, id]);
@@ -141,6 +143,22 @@ export default function PatientDetailScreen() {
   if (!patient && typeof id === 'string' &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
     return <ProviderBloodworkPatientShell patientId={id} />;
+  }
+
+  // Seeded records belong to the signed-out demo only: a signed-in staff
+  // member who follows an old link sees the honest not-found state.
+  if (signedIn) {
+    return (
+      <View
+        testID="patient-detail-not-found"
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}
+      >
+        <Text style={{ color: colors.foreground, fontSize: 16, fontFamily: 'Inter_600SemiBold' }}>Patient not found.</Text>
+        <Pressable onPress={returnToRoster} style={{ marginTop: 16 }}>
+          <Text style={{ color: colors.cobalt, fontSize: 14, fontFamily: 'Inter_600SemiBold' }}>Go back</Text>
+        </Pressable>
+      </View>
+    );
   }
 
   // Guard: don't render interactive content before hydration to avoid acting on default state

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Platform,
   Pressable,
@@ -17,12 +18,14 @@ import theme, { fonts } from '@/constants/colors';
 import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import {
   Divider,
+  EmptyState,
   LedgerCard,
   PillSelector,
   ProgressBar,
   SectionHeader,
 } from '@/components/ui/LedgerPrimitives';
 import { MOCK_ANALYTICS, MOCK_PROVIDERS } from '@/data/mock-data';
+import { useSupabaseSession } from '@/lib/supabase';
 
 type Range = 'Last 30 Days' | 'Last 6 Months' | 'Year to Date';
 
@@ -38,7 +41,8 @@ const RANGE_OPTIONS: { label: string; value: Range }[] = [
   { label: 'YTD', value: 'Year to Date' },
 ];
 
-export default function OutcomesScreen() {
+// The seeded practice's reports — only ever shown to signed-out visitors of the demo.
+function DemoOutcomesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [range, setRange] = useState<Range>('Year to Date');
@@ -229,6 +233,38 @@ export default function OutcomesScreen() {
       </ScrollView>
     </View>
   );
+}
+
+/**
+ * Signed-in offices have no live outcomes report in the app yet, so they get
+ * an honest notice instead of the seeded practice's numbers.
+ */
+function LiveOutcomesScreen({ loading }: { loading: boolean }) {
+  const colors = useColors();
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScreenHeader title="Outcomes" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        {loading ? (
+          <ActivityIndicator color={colors.cobalt} testID="outcomes-session-loading" />
+        ) : (
+          <View testID="outcomes-live-unavailable">
+            <EmptyState
+              icon={<Feather name="bar-chart-2" size={22} color={colors.subtleText} />}
+              title="Outcome reports aren't in the app yet"
+              body="Your patients' live progress is on the Patients and Leaderboard screens."
+            />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+export default function OutcomesScreen() {
+  const { session, sessionLoading } = useSupabaseSession();
+  if (sessionLoading || session?.user) return <LiveOutcomesScreen loading={sessionLoading} />;
+  return <DemoOutcomesScreen />;
 }
 
 const styles = StyleSheet.create({

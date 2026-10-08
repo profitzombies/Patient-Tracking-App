@@ -2,7 +2,8 @@
  * App mode: which persona is using the device — staff (care team) or patient.
  * Persisted so the app reopens in the same mode. Patient demo admission is
  * deliberately separate and session-only: persisted patient mode alone can
- * never expose seeded health screens to a signed-out user.
+ * never expose seeded health screens to a signed-out user. When the demo
+ * switch is off (the published app) admission never happens at all.
  */
 import React, {
   createContext,
@@ -15,6 +16,7 @@ import React, {
 } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
 const STORAGE_KEY = 'thinnr_app_mode_v1';
 
@@ -70,6 +72,9 @@ export function AppModeProvider({ children }: { children: ReactNode }) {
     await writePersistedMode(next);
   }, []);
   const admitDemo = useCallback(async () => {
+    // The published app has no guided demo: admission is refused outright,
+    // so no stale link or remembered route can open the seeded patient.
+    if (!demoEntryEnabled) return;
     setDemoAdmitted(true);
     setModeState('patient');
     await writePersistedMode('patient');

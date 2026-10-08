@@ -1,6 +1,7 @@
 /**
- * The front door — passwordless staff sign-in, with the demo chooser one
- * click away.
+ * The front door — passwordless staff sign-in. Where the demo switch allows
+ * it (development; see src/lib/demo-entry.ts) the guided-demo chooser sits
+ * one click away; the published app shows sign-in only.
  *
  * Staff accounts are keyed on business email: enter the address, we email a
  * 6-digit code, the code becomes a real Supabase session. There is no
@@ -18,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { useSession, type Persona } from '@/contexts/session';
 import { useStaffPasswordlessSignIn } from '@/hooks/useStaffPasswordlessSignIn';
 import { timeOfDayGreeting } from '@/lib/local-time';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
 const DEMO_OPTIONS: Array<{
   persona: Persona;
@@ -122,7 +124,9 @@ export default function SignIn() {
               role="alert"
               className="mb-4 rounded-md border border-warn-border bg-warn-bg px-3 py-2 text-xs font-medium leading-relaxed text-warn"
             >
-              Real sign-in isn’t configured in this environment — browse the demo below.
+              {demoEntryEnabled
+                ? 'Real sign-in isn’t configured in this environment — browse the demo below.'
+                : 'Sign-in isn’t available right now. Please try again later.'}
             </p>
           )}
 
@@ -347,6 +351,7 @@ export default function SignIn() {
           )}
         </section>
 
+        {demoEntryEnabled && (
         <div className="mt-5 border-t border-border pt-4 text-left">
           <button
             type="button"
@@ -363,8 +368,9 @@ export default function SignIn() {
             />
           </button>
         </div>
+        )}
 
-        {showDemo && (
+        {demoEntryEnabled && showDemo && (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {DEMO_OPTIONS.map((option) => (
               <section
@@ -402,7 +408,7 @@ export default function SignIn() {
 
       <footer className="border-t border-border bg-sidebar px-5 py-2 text-center">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Synthetic Demo Data • Not Medical Advice
+          {demoEntryEnabled ? 'Synthetic Demo Data • Not Medical Advice' : 'Not Medical Advice'}
         </p>
       </footer>
     </div>

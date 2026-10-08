@@ -1,18 +1,25 @@
 /**
  * Persona picker — choose between the care-team (staff) experience and the
- * patient companion experience. Shown on first launch and reachable any time
- * from the header avatar in either mode.
+ * patient companion experience. Reachable from the header avatar in either
+ * mode.
+ *
+ * The persona cards are demo entry: they only show to signed-out visitors of
+ * a build with the demo switched on. With the demo off (the published app) a
+ * signed-out visitor is sent to the patient front door instead. Anyone signed
+ * in sees their account — who they are signed in as, a way back into their
+ * app, and sign-out — never the demo cards.
  */
 import React from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router, type Href } from 'expo-router';
+import { Redirect, router, type Href } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { supabase, useSupabaseSession } from '@/lib/supabase';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
+import { demoEntryEnabled, disclaimerText } from '@/lib/demo-entry';
 
 const CARD_SHADOW = '0 8px 20px rgba(40, 55, 74, 0.07)';
 
@@ -71,8 +78,9 @@ export default function PersonaScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { mode, setMode } = useAppMode();
-  const { session } = useSupabaseSession();
+  const { session, sessionLoading } = useSupabaseSession();
   const device = useDeviceFeatures();
+  const signedIn = Boolean(session?.user);
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 
@@ -97,7 +105,23 @@ export default function PersonaScreen() {
     await supabase.auth.signOut();
   };
 
+  const continueToApp = () => {
+    Haptics.selectionAsync();
+    router.replace(mode === 'staff' ? '/' : '/today');
+  };
+
   const sessionLabel = session?.user.email ?? (session?.user.phone ? `+${session.user.phone}` : null);
+
+  if (sessionLoading) {
+    return (
+      <View style={[styles.container, styles.loading, { backgroundColor: colors.background }]}>
+        <ActivityIndicator accessibilityLabel="Checking your sign-in" />
+      </View>
+    );
+  }
+  // The published app has no persona choice: signed-out visitors start at
+  // the patient front door, which also links to provider sign-in.
+  if (!signedIn && !demoEntryEnabled) return <Redirect href={'/patient-welcome' as Href} />;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad + 28 }]}>
@@ -108,51 +132,87 @@ export default function PersonaScreen() {
           </View>
           <View>
             <Text style={[styles.brandName, { color: colors.navy }]}>THINNR</Text>
-            <Text style={[styles.brandSub, { color: colors.labelText }]}>MED SPA OPERATIONS DEMO</Text>
+            <Text style={[styles.brandSub, { color: colors.labelText }]}>
+              {signedIn ? 'YOUR ACCOUNT' : 'MED SPA OPERATIONS DEMO'}
+            </Text>
           </View>
         </View>
 
-        <Text style={[styles.sectionLabel, { color: colors.labelText }]}>CHOOSE YOUR EXPERIENCE</Text>
+        {signedIn ? (
+          <>
+            <Text style={[styles.sectionLabel, { color: colors.labelText }]}>SIGNED IN</Text>
+            <View
+              testID="persona-account"
+              style={[
+                styles.card,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.border,
+                  borderWidth: 1,
+                  borderRadius: colors.radius,
+                  boxShadow: CARD_SHADOW,
+                },
+              ]}
+            >
+              <Text style={[styles.accountLabel, { color: colors.labelText }]}>Signed in as</Text>
+              <Text style={[styles.accountValue, { color: colors.navy }]} numberOfLines={1}>
+                {sessionLabel ?? 'your account'}
+              </Text>
+              <View style={[styles.accountActions, { borderTopColor: colors.divider }]}>
+                {mode ? (
+                  <Pressable
+                    testID="persona-continue"
+                    accessibilityRole="button"
+                    onPress={continueToApp}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.accountContinue, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={[styles.cardCtaText, { color: colors.cobalt }]}>
+                      {mode === 'staff' ? 'Continue to your office' : 'Continue to your day'}
+                    </Text>
+                    <Feather name="arrow-right" size={14} color={colors.cobalt} />
+                  </Pressable>
+                ) : (
+                  <View />
+                )}
+                <Pressable testID="persona-signout" accessibilityRole="button" onPress={signOutReal} hitSlop={8}>
+                  <Text style={[styles.sessionSignOut, { color: colors.cobalt }]}>Sign out</Text>
+                </Pressable>
+              </View>
+            </View>
+          </>
+        ) : (
+          <Text style={[styles.sectionLabel, { color: colors.labelText }]}>CHOOSE YOUR EXPERIENCE</Text>
+        )}
 
-        <PersonaCard
-          testID="persona-staff"
-          icon="briefcase"
-          title="Care Team"
-          person="Dr. Sarah Jenkins · Medical Director"
-          body="Operations dashboard — patient roster, outcomes, leaderboard, and subscription health."
-          current={mode === 'staff'}
-          onPress={chooseStaff}
-        />
-        <PersonaCard
-          testID="persona-patient"
-          icon="user"
-          title="Patient"
-          person="Your daily companion"
-          body="Sign in or create your account, with an optional guided demo available from patient access."
-          current={mode === 'patient'}
-          onPress={openPatientWelcome}
-        />
+        {signedIn ? null : (
+          <>
+            <PersonaCard
+              testID="persona-staff"
+              icon="briefcase"
+              title="Care Team"
+              person="Dr. Sarah Jenkins · Medical Director"
+              body="Operations dashboard — patient roster, outcomes, leaderboard, and subscription health."
+              current={mode === 'staff'}
+              onPress={chooseStaff}
+            />
+            <PersonaCard
+              testID="persona-patient"
+              icon="user"
+              title="Patient"
+              person="Your daily companion"
+              body="Sign in or create your account, with an optional guided demo available from patient access."
+              current={mode === 'patient'}
+              onPress={openPatientWelcome}
+            />
+          </>
+        )}
 
-        {session ? (
-          <View
-            style={[
-              styles.sessionRow,
-              { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
-            ]}
-          >
-            <Text style={[styles.sessionText, { color: colors.bodyText }]} numberOfLines={1}>
-              Signed in as {sessionLabel ?? 'your account'}
-            </Text>
-            <Pressable testID="persona-signout" accessibilityRole="button" onPress={signOutReal} hitSlop={8}>
-              <Text style={[styles.sessionSignOut, { color: colors.cobalt }]}>Sign out</Text>
-            </Pressable>
-          </View>
-        ) : null}
       </View>
 
       <View style={[styles.footer, { borderTopColor: colors.divider }]}>
         <Text style={[styles.footerText, { color: colors.labelText }]}>
-          SYNTHETIC DEMO DATA  •  NOT MEDICAL ADVICE
+          {disclaimerText(signedIn)}
         </Text>
       </View>
     </View>
@@ -162,6 +222,10 @@ export default function PersonaScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loading: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inner: {
     flex: 1,
@@ -265,20 +329,31 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     letterSpacing: 0.4,
   },
-  sessionRow: {
+  accountLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontFamily: 'Inter_600SemiBold',
+    letterSpacing: 0.4,
+  },
+  accountValue: {
+    fontSize: 16,
+    fontFamily: 'Inter_600SemiBold',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  accountActions: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginTop: 4,
+    borderTopWidth: 1,
+    marginTop: 14,
+    paddingTop: 12,
   },
-  sessionText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: 'Inter_500Medium',
+  accountContinue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   sessionSignOut: {
     fontSize: 12,

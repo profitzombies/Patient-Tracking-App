@@ -177,15 +177,19 @@ export interface OfficeIdentity {
  */
 export function useOfficeIdentity(): OfficeIdentity {
   const scope = useProviderScope();
-  const { authStatus, authRole, authUser } = useSession();
-  const isRealStaff = authStatus === 'signed-in' && authRole === 'provider_staff' && authUser !== null;
+  const { authStatus, authRole, authUser, claimedWorkspace } = useSession();
+  // Claimed office logins have no profile role but are real staff too.
+  const isClaimedOffice = claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member';
+  const isRealStaff =
+    authStatus === 'signed-in' && (authRole === 'provider_staff' || isClaimedOffice) && authUser !== null;
+  const realOfficeName = scope?.officeName ?? claimedWorkspace?.officeName ?? null;
   const accountName = isRealStaff
-    ? (authUser.displayName ?? 'Office staff')
+    ? (authUser.displayName ?? claimedWorkspace?.name ?? 'Office staff')
     : scope
       ? scope.providerName
       : 'Dr. Sarah Jenkins';
   const accountRole = isRealStaff
-    ? (scope?.officeName ?? 'Office staff')
+    ? (realOfficeName ?? 'Office staff')
     : scope
       ? scope.providerRole
       : 'Medical Director';
@@ -193,6 +197,6 @@ export function useOfficeIdentity(): OfficeIdentity {
     accountName,
     accountRole,
     initials: initialsOf(accountName),
-    workspaceLabel: scope ? scope.officeName : 'operations desk',
+    workspaceLabel: scope ? scope.officeName : isRealStaff ? (realOfficeName ?? 'your office') : 'operations desk',
   };
 }

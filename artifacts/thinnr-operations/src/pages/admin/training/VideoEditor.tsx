@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 
 import { progressToast, useToast } from '@/hooks/use-toast';
+import { useSession } from '@/contexts/session';
 import {
   BTN_PRIMARY,
   BTN_SECONDARY,
@@ -172,6 +173,11 @@ export default function VideoEditor() {
     useTrainingData();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { authStatus } = useSession();
+  // Without an uploaded file there is no transcript to write from. The canned
+  // offline pools only stand in for that inside the signed-out demo; real
+  // accounts never get placeholder copy dressed up as AI output.
+  const offlineAiAvailable = authStatus !== 'signed-in';
 
   const locationResult = locateVideo(params?.courseId, params?.videoId);
 
@@ -626,6 +632,7 @@ export default function VideoEditor() {
       runPipeline(video.id, ['describe']);
       return;
     }
+    if (!offlineAiAvailable) return;
     setAiSpinner('desc');
     setTimeout(() => {
       // Functional update: edits made during the fake generation must survive.
@@ -640,6 +647,7 @@ export default function VideoEditor() {
       runPipeline(video.id, ['chapters']);
       return;
     }
+    if (!offlineAiAvailable) return;
     setAiSpinner('chapters');
     setTimeout(() => {
       setDraft((prev) => (prev ? { ...prev, chapters: aiChapters(video, chapterVariant) } : prev));
@@ -1109,8 +1117,8 @@ export default function VideoEditor() {
                     type="button"
                     className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={generateDescription}
-                    disabled={hosted ? aiActive : aiSpinner === 'desc'}
-                    title={hosted ? 'Written from the video transcript' : undefined}
+                    disabled={hosted ? aiActive : !offlineAiAvailable || aiSpinner === 'desc'}
+                    title={hosted ? 'Written from the video transcript' : offlineAiAvailable ? undefined : 'Upload the video first — the description is written from its transcript'}
                   >
                     {(hosted ? aiActive && (stepStates.describe === 'pending' || stepStates.describe === 'running') : aiSpinner === 'desc')
                       ? <RefreshCw size={12} className="animate-spin" />
@@ -1136,8 +1144,8 @@ export default function VideoEditor() {
                 type="button"
                 className="text-[10px] font-bold uppercase tracking-[.12em] text-primary hover:text-primary/80 flex items-center gap-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={generateChapters}
-                disabled={hosted ? aiActive : aiSpinner === 'chapters'}
-                title={hosted ? 'Created from the video transcript' : undefined}
+                disabled={hosted ? aiActive : !offlineAiAvailable || aiSpinner === 'chapters'}
+                title={hosted ? 'Created from the video transcript' : offlineAiAvailable ? undefined : 'Upload the video first — chapters are created from its transcript'}
               >
                 {(hosted ? aiActive && (stepStates.chapters === 'pending' || stepStates.chapters === 'running') : aiSpinner === 'chapters')
                   ? <RefreshCw size={12} className="animate-spin" />

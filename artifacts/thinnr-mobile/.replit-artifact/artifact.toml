@@ -1,7 +1,7 @@
 kind = "mobile"
 previewPath = "/thinnr-mobile/"
 title = "THINNR Mobile Operations"
-description = "A native THINNR Med Spa Operations companion for monitoring synthetic patient progress, practice outcomes, leaderboards, and supplement deliveries with local-only demo workflows."
+description = "The THINNR mobile app. Patients sign in or accept an office invitation to follow their program, log meals, weight and check-ins, and message their care team. Providers sign in to follow patient progress, practice outcomes, leaderboards, orders and in-person sales."
 version = "1.0.0"
 id = "artifacts/thinnr-mobile"
 router = "expo-domain"

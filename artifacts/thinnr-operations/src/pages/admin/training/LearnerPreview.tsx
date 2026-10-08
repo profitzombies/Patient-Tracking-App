@@ -15,7 +15,15 @@ const GATE_TOKEN_KEY = 'thinnr-training-gate-token';
 const toCompletionMap = (rows: readonly TrainingCompletion[]): ReadonlyMap<string, TrainingCompletion> =>
   new Map(rows.map((completion) => [completion.videoId, completion]));
 
-export default function LearnerPreview() {
+/**
+ * `admin` — an HQ admin previewing from inside the app (back links, draft
+ * override, exit). `public` — anyone opening the share link while signed out:
+ * the learner experience only, with no way into the admin area.
+ */
+export type LearnerPreviewAudience = 'admin' | 'public';
+
+export default function LearnerPreview({ audience = 'admin' }: { audience?: LearnerPreviewAudience }) {
+  const isAdminPreview = audience === 'admin';
   const { courseId } = useParams();
   const { courses, registerLearner, fetchLearnerState, inviteStaff, markVideoComplete, status, errorMessage, refresh } =
     useTrainingData();
@@ -213,24 +221,29 @@ export default function LearnerPreview() {
       <div className="min-h-[100dvh] flex items-center justify-center bg-background p-8">
         <div className="rounded-lg border border-card-border bg-card shadow-soft p-8 text-center max-w-sm w-full">
           <h1 className="font-serif text-xl font-bold text-navy mb-2">Course not found</h1>
-          <p className="text-sm text-muted-foreground mb-6">This training link isn't active.</p>
-          <Link href="/admin/training" className={`${BTN_SECONDARY} h-9 px-4 inline-flex`} data-testid="link-back-admin">
-            Back to admin
-          </Link>
+          <p className={`text-sm text-muted-foreground ${isAdminPreview ? 'mb-6' : ''}`}>This training link isn't active.</p>
+          {isAdminPreview && (
+            <Link href="/admin/training" className={`${BTN_SECONDARY} h-9 px-4 inline-flex`} data-testid="link-back-admin">
+              Back to admin
+            </Link>
+          )}
         </div>
       </div>
     );
   }
 
   // State 1.5: Not live — learner links are dead until the course is published.
-  if (course.status !== 'live' && !draftOverride) {
+  if (course.status !== 'live' && !(isAdminPreview && draftOverride)) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-background p-8">
         <div className="rounded-lg border border-card-border bg-card shadow-soft p-8 text-center max-w-sm w-full">
           <h1 className="font-serif text-xl font-bold text-navy mb-2">This course isn't live</h1>
-          <p className="text-sm text-muted-foreground mb-6" data-testid="text-course-not-live">
-            Learners can't access this course right now. Publish it to restore access.
+          <p className={`text-sm text-muted-foreground ${isAdminPreview ? 'mb-6' : ''}`} data-testid="text-course-not-live">
+            {isAdminPreview
+              ? 'Learners can\'t access this course right now. Publish it to restore access.'
+              : 'This course isn\'t available right now. Please check back later.'}
           </p>
+          {isAdminPreview && (
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -244,6 +257,7 @@ export default function LearnerPreview() {
               Back to admin
             </Link>
           </div>
+          )}
         </div>
       </div>
     );
@@ -268,12 +282,14 @@ export default function LearnerPreview() {
 
     return (
       <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-[#fff4e6] p-4 md:p-8 relative">
-        <div className="absolute top-4 left-4 md:top-8 md:left-8">
-          <Link href="/admin/training" className="text-[11px] font-semibold text-[#b65c22] hover:text-[#904719] flex items-center gap-1 transition-colors" data-testid="link-back-admin">
-            <ArrowLeft size={12} aria-hidden="true" />
-            Back to admin
-          </Link>
-        </div>
+        {isAdminPreview && (
+          <div className="absolute top-4 left-4 md:top-8 md:left-8">
+            <Link href="/admin/training" className="text-[11px] font-semibold text-[#b65c22] hover:text-[#904719] flex items-center gap-1 transition-colors" data-testid="link-back-admin">
+              <ArrowLeft size={12} aria-hidden="true" />
+              Back to admin
+            </Link>
+          </div>
+        )}
         <div className="rounded-lg border border-card-border bg-card shadow-soft p-8 max-w-[420px] w-full relative z-10">
           <div className="text-center mb-6">
             <p className="text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground mb-2">THINNR Training</p>
@@ -301,7 +317,7 @@ export default function LearnerPreview() {
               {gateBusy ? 'Starting…' : 'Continue'}
             </button>
             <p className="text-[11px] text-center text-muted-foreground mt-4 pt-2">
-              Demo gate — any email works, so feel free to make one up. Entries are visible only to THINNR HQ admins.
+              Use your work email. Only THINNR HQ admins can see who has signed up.
             </p>
           </form>
         </div>
@@ -394,10 +410,12 @@ export default function LearnerPreview() {
               {completedCount(viewerCompletions, publishedVideoList)} of {publishedVideoList.length} complete
             </span>
           </div>
-          <Link href="/admin/training" className="text-xs font-semibold text-muted-foreground hover:text-navy flex items-center gap-1.5 transition" data-testid="link-exit-preview">
-            <LogOut size={14} aria-hidden="true" />
-            Exit preview
-          </Link>
+          {isAdminPreview && (
+            <Link href="/admin/training" className="text-xs font-semibold text-muted-foreground hover:text-navy flex items-center gap-1.5 transition" data-testid="link-exit-preview">
+              <LogOut size={14} aria-hidden="true" />
+              Exit preview
+            </Link>
+          )}
         </div>
       </header>
 
@@ -661,7 +679,7 @@ export default function LearnerPreview() {
           <DialogHeader>
             <DialogTitle className="font-serif text-navy">Add your staff</DialogTitle>
             <DialogDescription>
-              Invite teammates to get their own progress tracking and demo access.
+              Invite teammates so each of them gets their own access and progress tracking.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddStaffSubmit}>

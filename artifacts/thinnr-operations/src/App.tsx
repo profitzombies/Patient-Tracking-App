@@ -60,6 +60,7 @@ import PatientDeletions from '@/pages/admin/PatientDeletions';
 import Files from '@/pages/admin/Files';
 import Exports from '@/pages/admin/Exports';
 import EmailStudio from '@/pages/EmailStudio';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 import { PatientSessionProvider } from '@/contexts/patient-session';
 import { DateRangeProvider } from '@/contexts/date-range';
 import { SessionProvider, useSession } from '@/contexts/session';
@@ -84,7 +85,10 @@ const queryClient = new QueryClient();
 function AdminArea() {
   const [location] = useLocation();
   const { authStatus, hqRole } = useSession();
-  const effectiveRole: HqRole | null = authStatus === 'signed-out' ? 'Super Admin' : hqRole;
+  // The signed-out demo persona browses as Super Admin — only where demo
+  // entry is switched on; otherwise nobody signed out reaches this area.
+  const effectiveRole: HqRole | null =
+    authStatus === 'signed-out' && demoEntryEnabled ? 'Super Admin' : hqRole;
   const authorized = canHq(effectiveRole, permissionForAdminPath(location));
   const canViewAudit =
     authStatus === 'signed-in' && (hqRole === 'Super Admin' || hqRole === 'Admin');
@@ -110,7 +114,9 @@ function AdminArea() {
         {/* Learner-facing course preview renders without the admin chrome,
             like the office drill-in — it simulates what an office teammate
             sees after opening the share link. */}
-        <Route path="/admin/training/preview/:courseId" component={LearnerPreview} />
+        <Route path="/admin/training/preview/:courseId">
+          <LearnerPreview audience="admin" />
+        </Route>
         <Route>
           <AdminShell>
             <Switch>
@@ -221,6 +227,13 @@ function PersonaRouter() {
       <Switch>
         {/* The emailed HQ invitation link: no session yet, but it signs one in. */}
         <Route path="/hq-setup" component={HqSetup} />
+        {/* The course share link stays open to signed-out learners: the email
+            gate and capability token are their access, not a staff session. */}
+        <Route path="/admin/training/preview/:courseId">
+          <TrainingDataProvider>
+            <LearnerPreview audience="public" />
+          </TrainingDataProvider>
+        </Route>
         <Route component={SignIn} />
       </Switch>
     );

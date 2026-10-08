@@ -6,8 +6,9 @@
  * picks the HQ area regardless of the compatibility role on profiles.
  * Otherwise the profile role picks provider/patient behavior. While nobody is
  * signed in, the demo bypass ("Explore the demo" on the sign-in screen) still
- * sets a sessionStorage persona so investor walkthroughs need no credentials.
- * Sign out clears both worlds.
+ * sets a sessionStorage persona so investor walkthroughs need no credentials —
+ * but only where the demo switch allows it (src/lib/demo-entry.ts); the
+ * published app has no persona at all. Sign out clears both worlds.
  */
 import {
   createContext,
@@ -20,6 +21,7 @@ import {
 } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { describeAuthError, supabase, supabaseConfigured } from '@/lib/supabase';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 import type { HqRole } from '@/data/hq/team';
 import { useIdleTimeout, type IdleState } from '@/hooks/useIdleTimeout';
 
@@ -131,6 +133,12 @@ async function fetchHqSession(client: NonNullable<typeof supabase>): Promise<HqS
 function readStoredPersona(): Persona | null {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    // Demo entry switched off (the published app): a persona remembered from
+    // an earlier visit is cleared, never restored.
+    if (!demoEntryEnabled) {
+      if (raw !== null) window.sessionStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
     return raw === 'hq-admin' || raw === 'office' ? raw : null;
   } catch {
     return null;
@@ -565,6 +573,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [userId, authRole]);
 
   const signIn = useCallback((next: Persona) => {
+    // Demo entry switched off: nothing may pick a persona.
+    if (!demoEntryEnabled) return;
     writeStoredPersona(next);
     setDemoPersona(next);
   }, []);
@@ -822,7 +832,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return null; // patient / unresolved — the router shows the right screen
     }
     if (authStatus === 'loading') return null;
-    return demoPersona;
+    return demoEntryEnabled ? demoPersona : null;
   }, [authStatus, authRole, claimedWorkspace, demoPersona]);
 
   const value = useMemo<SessionValue>(

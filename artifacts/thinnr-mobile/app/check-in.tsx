@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
+import { useLivePatient } from '@/hooks/useDemoLabels';
+import { patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
@@ -19,7 +21,6 @@ import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import {
   MOOD_LABELS,
-  PATIENT_PROFILE,
   SIDE_EFFECT_OPTIONS,
 } from '@/data/patient-data';
 
@@ -30,6 +31,7 @@ export default function CheckInScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
+  const live = useLivePatient();
 
   // Canonical today: the demo anchor for the demo persona, the device's
   // local day for a signed-in patient (rolls over at local midnight).
@@ -58,10 +60,20 @@ export default function CheckInScreen() {
       }
     });
   };
-  const lastWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
+  // Newest weigh-in; the demo persona falls back to her seeded weight, a
+  // signed-in patient to their profile weight or nothing at all.
+  const lastWeight = patientWeightFacts({
+    real: live,
+    profile: patient.profile,
+    latestLogged: patient.weightSeries.at(-1)?.weight,
+  }).current;
 
   const [weightStr, setWeightStr] = useState(
-    typeof existing?.weight === 'number' ? existing.weight.toFixed(1) : lastWeight.toFixed(1),
+    typeof existing?.weight === 'number'
+      ? existing.weight.toFixed(1)
+      : lastWeight === null
+        ? ''
+        : lastWeight.toFixed(1),
   );
   const [mood, setMood] = useState<1 | 2 | 3 | 4 | 5>(existing?.mood ?? 4);
   const [sideEffects, setSideEffects] = useState<string[]>(existing?.sideEffects ?? []);
@@ -164,7 +176,7 @@ export default function CheckInScreen() {
               testID="checkin-weight"
               value={weightStr}
               onChangeText={setWeightStr}
-              placeholder={lastWeight.toFixed(1)}
+              placeholder={lastWeight === null ? '0.0' : lastWeight.toFixed(1)}
               placeholderTextColor={colors.subtleText}
               keyboardType={Platform.OS === 'web' ? undefined : 'decimal-pad'}
               style={[
@@ -180,7 +192,11 @@ export default function CheckInScreen() {
             <Text style={[styles.weightUnit, { color: colors.subtleText }]}>lbs</Text>
           </View>
           <Text style={[styles.fieldHint, { color: colors.subtleText }]}>
-            Last recorded: {lastWeight.toFixed(1)} lbs · leave blank to skip
+            {lastWeight === null ? (
+              'No weight recorded yet · leave blank to skip'
+            ) : (
+              <>Last recorded: {lastWeight.toFixed(1)} lbs · leave blank to skip</>
+            )}
           </Text>
         </LedgerCard>
 

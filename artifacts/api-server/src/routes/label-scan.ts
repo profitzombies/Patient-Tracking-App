@@ -19,6 +19,7 @@
 import express, { Router, type IRouter } from "express";
 import { CoachLabelScanBody } from "@workspace/api-zod";
 import { demoPatientContext } from "../coach/demo-patient";
+import { realPatientContext } from "../coach/real-patient";
 import { LABEL_TRY_ANOTHER_PHOTO } from "../coach/label-chat";
 import { generateLabelPhotoAnalysis, type LabelDraft } from "../coach/label-photo";
 import { acquireMenuScanSlot } from "../coach/limits";
@@ -95,6 +96,14 @@ router.post("/coach/label-scan", express.json({ limit: PHOTO_BODY_LIMIT }), asyn
       return;
     }
 
+    // A signed-in patient's read is framed for their own account, never the
+    // demo patient's. When the account can't be loaded the scan fails
+    // honestly (the catch below) instead of falling back to demo data.
+    const patient =
+      gate.patientId === null
+        ? demoPatientContext()
+        : await realPatientContext(gate.patientId, undefined);
+
     // Stop paying for the model call when the patient cancels mid-scan.
     const abort = new AbortController();
     res.on("close", () => {
@@ -103,7 +112,7 @@ router.post("/coach/label-scan", express.json({ limit: PHOTO_BODY_LIMIT }), asyn
 
     const analysis = await generateLabelPhotoAnalysis({
       image,
-      patient: demoPatientContext(),
+      patient,
       signal: abort.signal,
       log: req.log,
     });

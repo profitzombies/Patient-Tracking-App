@@ -13,6 +13,7 @@ import { CoachMenuScanBody } from "@workspace/api-zod";
 import { demoPatientContext } from "../coach/demo-patient";
 import { acquireMenuScanSlot } from "../coach/limits";
 import { generateMenuScan } from "../coach/menu-scan";
+import { realPatientContext } from "../coach/real-patient";
 import {
   INVALID_PHOTO_MESSAGE,
   MAX_PHOTO_BYTES,
@@ -74,6 +75,14 @@ router.post("/coach/menu-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async
       return;
     }
 
+    // A signed-in patient's scan is framed for their own account, never the
+    // demo patient's. When the account can't be loaded the scan fails
+    // honestly (the catch below) instead of falling back to demo data.
+    const patient =
+      gate.patientId === null
+        ? demoPatientContext()
+        : await realPatientContext(gate.patientId, undefined);
+
     // Stop paying for the model call when the patient cancels mid-scan.
     const abort = new AbortController();
     res.on("close", () => {
@@ -82,7 +91,7 @@ router.post("/coach/menu-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async
 
     const payload = await generateMenuScan({
       image,
-      patient: demoPatientContext(),
+      patient,
       signal: abort.signal,
       log: req.log,
     });

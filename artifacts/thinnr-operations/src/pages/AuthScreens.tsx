@@ -7,6 +7,7 @@ import { AlertTriangle, BadgeCheck, Lock, LogOut, RefreshCw, Smartphone } from '
 import { useSession } from '@/contexts/session';
 import { greetingName } from '@/lib/greeting-name';
 import { findSeededAccount } from '@/data/hq/accounts';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -14,9 +15,11 @@ function Frame({ children }: { children: React.ReactNode }) {
       <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col justify-center px-5 py-10">
         {children}
       </main>
+      {/* Every screen in this frame belongs to a real sign-in (or the boot
+          check before one), so it never carries the demo-data label. */}
       <footer className="border-t border-border bg-sidebar px-5 py-2 text-center">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Synthetic Demo Data • Not Medical Advice
+          Not Medical Advice
         </p>
       </footer>
     </div>
@@ -52,7 +55,7 @@ export function ProfileErrorScreen() {
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           {authUser?.email ?? authUser?.phone ?? 'Your account'} signed in, but the profile lookup
-          failed. Retry, or sign out and browse the demo instead.
+          failed. {demoEntryEnabled ? 'Retry, or sign out and browse the demo instead.' : 'Retry, or sign out and sign in again.'}
         </p>
         <div className="mt-5 flex flex-col gap-2">
           <button

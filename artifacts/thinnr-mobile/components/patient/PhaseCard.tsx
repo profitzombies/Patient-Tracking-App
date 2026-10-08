@@ -27,8 +27,12 @@ import {
 
 interface PhaseCardProps {
   phase: ProgramPhase;
-  /** Program day used to derive the Current / Completed / Upcoming badge. */
-  day: number;
+  /**
+   * Program day used to derive the Current / Completed / Upcoming badge.
+   * Null when a signed-in patient's program calendar hasn't loaded: the card
+   * then shows no badge rather than guessing.
+   */
+  day: number | null;
   variant: 'summary' | 'full';
   /** Summary only — opens the full phase card when content was held back. */
   onOpenFull?: () => void;
@@ -37,14 +41,16 @@ interface PhaseCardProps {
 
 export function PhaseCard({ phase, day, variant, onOpenFull, testID }: PhaseCardProps) {
   const colors = useColors();
-  const status = phaseStatusForDay(phase, day);
+  const status = day === null ? null : phaseStatusForDay(phase, day);
 
   const badge =
-    status === 'current'
-      ? { bg: colors.activeBg, border: colors.activeBorder, text: colors.activeGreen, label: 'CURRENT', icon: 'check' as const }
-      : status === 'completed'
-        ? { bg: colors.sidebarBg, border: colors.border, text: colors.labelText, label: 'COMPLETED', icon: 'check' as const }
-        : { bg: colors.card, border: colors.border, text: colors.subtleText, label: 'UPCOMING', icon: 'clock' as const };
+    status === null
+      ? null
+      : status === 'current'
+        ? { bg: colors.activeBg, border: colors.activeBorder, text: colors.activeGreen, label: 'CURRENT', icon: 'check' as const }
+        : status === 'completed'
+          ? { bg: colors.sidebarBg, border: colors.border, text: colors.labelText, label: 'COMPLETED', icon: 'check' as const }
+          : { bg: colors.card, border: colors.border, text: colors.subtleText, label: 'UPCOMING', icon: 'clock' as const };
 
   const hasMealPlan = phase.body.some(b => b.kind === 'mealPlan');
   const showLink = variant === 'summary' && hasMealPlan && !!onOpenFull;
@@ -121,13 +127,15 @@ export function PhaseCard({ phase, day, variant, onOpenFull, testID }: PhaseCard
             <Text style={[styles.phaseName, { color: colors.navy }]}>{phase.name}</Text>
             <Text style={[styles.phaseRange, { color: colors.bodyText }]}>{phase.dayRange}</Text>
           </View>
-          <View
-            testID={`phase-status-${phase.id}`}
-            style={[styles.badge, { backgroundColor: badge.bg, borderColor: badge.border }]}
-          >
-            <Feather name={badge.icon} size={10} color={badge.text} />
-            <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
-          </View>
+          {badge ? (
+            <View
+              testID={`phase-status-${phase.id}`}
+              style={[styles.badge, { backgroundColor: badge.bg, borderColor: badge.border }]}
+            >
+              <Feather name={badge.icon} size={10} color={badge.text} />
+              <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* ── Verbatim dosage / exercise directives ── */}

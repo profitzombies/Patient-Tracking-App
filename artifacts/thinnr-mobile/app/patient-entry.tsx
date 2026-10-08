@@ -2,13 +2,15 @@
  * Explicitly admitted guided-demo chooser.
  * Existing patient: one-tap prefilled sign-in as Emma Smith.
  * New patient: starts the simulated onboarding flow (mock data, repeatable).
+ * The published app has no guided demo, so this route sends visitors to the
+ * real patient front door instead.
  */
 import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import {
@@ -20,6 +22,7 @@ import {
 import { useColors } from '@/hooks/useColors';
 import { useAppMode } from '@/context/AppModeContext';
 import { useOnboarding } from '@/context/OnboardingContext';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
 const CARD_SHADOW_SOFT = '0 6px 15px rgba(40, 55, 74, 0.06)';
 
@@ -45,6 +48,8 @@ export default function PatientEntryScreen() {
   const { reset } = useOnboarding();
   const [email, setEmail] = useState('emma.smith@example.com');
   const [password, setPassword] = useState('Demo123!');
+
+  if (!demoEntryEnabled) return <Redirect href="/patient-welcome" />;
 
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
 

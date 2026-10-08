@@ -3,9 +3,10 @@
  * coach and the knowledge library, with its OWN knobs so training traffic
  * never shares a budget with either.
  *
- * Uploading, replacing, removing, thumbnails, and the AI pass are open in
- * the demo posture — no staff sign-in — so a modest per-IP budget stands in
- * for the retired gate. Reads (playback URLs, transcript) are NOT limited;
+ * Uploading, replacing, removing, thumbnails, and the AI pass need an HQ
+ * sign-in (see the router gate in routes/training-media.ts); this modest
+ * per-IP budget is a second line behind it. Reads (playback URLs,
+ * transcript) are NOT limited;
  * the lesson pages re-mint signed URLs while people watch. The burst
  * absorbs a legitimate upload session (upload-url + finalize per video,
  * plus thumbnail calls and an AI run). The SSE process route holds its slot

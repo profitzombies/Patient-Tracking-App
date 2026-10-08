@@ -21,6 +21,7 @@ import {
 import { CodeInput, ErrorBox, LedgerInput, PasswordInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { usePatientLogin, type LoginChannel, type LoginPhase } from '@/hooks/usePatientLogin';
 import { supabaseConfigured } from '@/lib/supabase';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 import { authLayout, space } from '@/constants/spacing';
 import { useColors } from '@/hooks/useColors';
 
@@ -86,7 +87,9 @@ export default function PatientLoginScreen() {
           <View style={styles.footer}>
             <FooterLink testID="login-signup" label="New to THINNR? Create an account" onPress={login.openSignup} style={styles.footerLink} />
             <View style={styles.quietLinks}>
-              <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} style={styles.footerLink} textStyle={{ color: colors.bodyText }} />
+              {demoEntryEnabled ? (
+                <FooterLink quiet testID="login-demo" label="Explore demo" onPress={login.openDemo} style={styles.footerLink} textStyle={{ color: colors.bodyText }} />
+              ) : null}
               <FooterLink quiet testID="login-provider" label="Provider login" onPress={login.openProviderLogin} style={styles.footerLink} textStyle={{ color: colors.bodyText }} />
             </View>
           </View>

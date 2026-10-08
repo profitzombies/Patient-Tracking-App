@@ -69,7 +69,7 @@ import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox
 import { overlayTopPad, screenTopPad } from '@/constants/layout';
 import { GUIDED_POSE_IMAGES } from '@/data/guided-photo-images';
 import { CAPTURE_TONE_SOUND, HOLD_LOST_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
-import { ENROLLMENT_DAYS } from '@/data/patient-data';
+import { ENROLLMENT_DAYS, formatDateKey } from '@/data/patient-data';
 import {
   COUNTDOWN_SECONDS,
   GUIDED_ANGLES,
@@ -967,15 +967,18 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       return;
     }
     // Live program week for real accounts; demo keeps the seeded enrollment
-    // figure (no entry facts), byte-identical to before.
-    const week = Math.ceil((patient.entryFacts?.programDay ?? ENROLLMENT_DAYS) / 7);
+    // figure (no entry facts), byte-identical to before. A signed-in account
+    // whose program calendar hasn't loaded labels by date instead of
+    // borrowing the demo's week.
+    const programDay = patient.entryFacts?.programDay ?? (account.kind === 'demo' ? ENROLLMENT_DAYS : null);
+    const labelPrefix = programDay === null ? formatDateKey(patient.todayKey) : `Week ${Math.ceil(programDay / 7)}`;
     const entries = GUIDED_ANGLES.filter(
       angle => shots[angle] && uploadedRef.current.has(angle),
     ).map(angle => {
       const ref = uploadedRef.current.get(angle)!;
       return {
         dateKey: patient.todayKey,
-        label: `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
+        label: `${labelPrefix} ${GUIDED_ANGLE_LABELS[angle]}`,
         angle,
         // Account shots reference their stored object; demo shots keep the
         // on-device capture uri, exactly as before accounts existed. A

@@ -3,7 +3,8 @@
  * meal-plan sections held back from the Instructions summary card. The
  * Current / Completed / Upcoming badge derives from the `day` param passed
  * by the Instructions screen (so it stays consistent with the demo preview
- * there), defaulting to the patient's real program day.
+ * there), defaulting to the patient's real program day. A signed-in patient
+ * without a loaded program calendar gets no badge — never the demo's day.
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -15,6 +16,8 @@ import { useColors } from '@/hooks/useColors';
 import { PhaseCard } from '@/components/patient/PhaseCard';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
+import { usePatient } from '@/context/PatientContext';
+import { useLivePatient } from '@/hooks/useDemoLabels';
 import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import { clampProgramDay, phaseById } from '@/data/program-instructions';
 
@@ -24,12 +27,18 @@ export default function PhaseDetailScreen() {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { id, day } = useLocalSearchParams<{ id: string; day?: string }>();
+  const patient = usePatient();
+  const live = useLivePatient();
 
   const phase = phaseById(id);
   const dayParam = Number(day);
-  const effectiveDay = clampProgramDay(
-    day !== undefined && Number.isFinite(dayParam) ? dayParam : ENROLLMENT_DAYS,
-  );
+  const fallbackDay = live ? patient.entryFacts?.programDay ?? null : ENROLLMENT_DAYS;
+  const effectiveDay =
+    day !== undefined && Number.isFinite(dayParam)
+      ? clampProgramDay(dayParam)
+      : fallbackDay === null
+        ? null
+        : clampProgramDay(fallbackDay);
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;

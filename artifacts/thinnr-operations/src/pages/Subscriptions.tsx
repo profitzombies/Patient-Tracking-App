@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, Redirect } from "wouter";
 import { Search, Filter, Box, AlertCircle, CheckCircle2, PackageOpen } from "lucide-react";
 import { MOCK_PRODUCTS } from "@/data/mock-data";
 import { useScopedPatients, useScopedSubscriptions } from "@/data/scoped-data";
 import { useToast } from "@/hooks/use-toast";
+import { useSession } from "@/contexts/session";
 import { addDaysToKey, keyToDate, useDateRange } from "@/contexts/date-range";
 
 /**
@@ -34,7 +35,18 @@ function ProductImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+/**
+ * This page is the guided demo's seeded plan list. Real sign-ins manage their
+ * patients' plans under Payments › Subscriptions (live Stripe data), so they
+ * are sent there instead of ever seeing sample subscriptions.
+ */
 export default function Subscriptions() {
+  const { authStatus } = useSession();
+  if (authStatus === 'signed-in') return <Redirect to="/payments/subscriptions" replace />;
+  return <DemoSubscriptions />;
+}
+
+function DemoSubscriptions() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [query, setQuery] = useState('');
   const { toast } = useToast();

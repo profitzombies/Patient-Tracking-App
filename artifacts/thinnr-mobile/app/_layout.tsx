@@ -66,6 +66,7 @@ import { bloodworkRecoveryEntryDecision } from '@/lib/bloodwork-entry-policy';
 import { useSupabaseSession } from '@/lib/supabase';
 import { useOfficeAccess } from '@/hooks/useOfficeBilling';
 import { isProviderArea, officeAccessGateDecision } from '@/lib/office-access-gate';
+import { demoEntryEnabled, providerDemoRedirect } from '@/lib/demo-entry';
 
 const publicDomain = process.env.EXPO_PUBLIC_DOMAIN;
 if (publicDomain) setBaseUrl(`https://${publicDomain}`);
@@ -377,6 +378,56 @@ function StaffRestrictionGuard({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * With the demo switched off (the published app) a signed-out visitor never
+ * reaches the seeded office: provider screens send them to provider sign-in
+ * when the device is in staff mode, or to the patient front door otherwise.
+ * Claiming an account stays open. Same shape as the other gates: the
+ * navigator stays mounted underneath, inert and covered, while the redirect
+ * lands. With the demo on (development) this is a pass-through.
+ */
+function ProviderDemoGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const colors = useColors();
+  const { mode, hydrated } = useAppMode();
+  const { session, sessionLoading } = useSupabaseSession();
+  const href = providerDemoRedirect({
+    enabled: demoEntryEnabled,
+    modeHydrated: hydrated,
+    mode,
+    sessionLoading,
+    signedIn: Boolean(session?.user),
+    pathname,
+  });
+  const redirecting = href !== null;
+  const gatedNavigatorProps = {
+    accessibilityElementsHidden: redirecting,
+    importantForAccessibility: redirecting ? 'no-hide-descendants' : 'auto',
+    'aria-hidden': redirecting,
+    pointerEvents: redirecting ? 'none' : 'auto',
+    ...(Platform.OS === 'web' ? { inert: redirecting } : {}),
+  } as unknown as React.ComponentProps<typeof View>;
+
+  return (
+    <>
+      <View style={gateStyles.gatedNavigator} {...gatedNavigatorProps}>
+        {children}
+      </View>
+      {redirecting ? (
+        <View
+          style={[StyleSheet.absoluteFill, gateStyles.container, { zIndex: 950, backgroundColor: colors.background }]}
+          pointerEvents="auto"
+          accessibilityViewIsModal
+          testID="provider-demo-redirect"
+        >
+          <ActivityIndicator accessibilityLabel="Opening sign-in" />
+        </View>
+      ) : null}
+      {href ? <Redirect href={href} /> : null}
+    </>
+  );
+}
+
 function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated, demoAdmitted } = useAppMode();
@@ -425,7 +476,9 @@ function LivePatientEntryGuard({ children }: { children: React.ReactNode }) {
           ? 'Consent is required before your private record can open.'
           : decision.href === '/onboarding/welcome'
             ? 'Finish onboarding before opening your private record.'
-            : 'Sign in or choose the guided patient demo before opening patient data.'
+            : demoEntryEnabled
+              ? 'Sign in or choose the guided patient demo before opening patient data.'
+              : 'Sign in before opening patient data.'
         : undefined;
   const gateRetry = syncNotice
     ? account.kind === 'unresolved'
@@ -688,11 +741,13 @@ export default function RootLayout() {
                                   desktop before anything else has a say; a
                                   narrowed office is a workspace that IS set
                                   up, so that notice sits inside it. */}
-                              <OfficeAccessGuard>
-                                <StaffRestrictionGuard>
-                                  <RootLayoutNav />
-                                </StaffRestrictionGuard>
-                              </OfficeAccessGuard>
+                              <ProviderDemoGuard>
+                                <OfficeAccessGuard>
+                                  <StaffRestrictionGuard>
+                                    <RootLayoutNav />
+                                  </StaffRestrictionGuard>
+                                </OfficeAccessGuard>
+                              </ProviderDemoGuard>
                             </LivePatientEntryGuard>
                             <PushResponseBridge />
                             <PatientSyncNotice />

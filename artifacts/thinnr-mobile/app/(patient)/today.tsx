@@ -45,7 +45,6 @@ import {
   MEAL_LABELS,
   MEAL_SLOTS,
   MOOD_LABELS,
-  PATIENT_PROFILE,
   SEED_DAYS,
   subDays,
   toDateKey,
@@ -55,6 +54,8 @@ import {
 } from '@/data/patient-data';
 import { phaseForDay } from '@/data/program-instructions';
 import { takePendingLogNotice } from '@/lib/pending-log-notice';
+import { patientFirstName, patientInitials, patientWeightFacts } from '@/lib/patient-display';
+import { useLivePatient } from '@/hooks/useDemoLabels';
 
 // Earliest day the demo history covers — date paging stops here.
 const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
@@ -133,10 +134,14 @@ export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  // A signed-in patient never borrows the demo persona's name, program day
+  // or weights: until the account has a value the line reads generically.
+  const real = useLivePatient();
   const liveTodayKey = patient.todayKey;
-  const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
-  const currentPhase = phaseForDay(programDay);
-  const firstName = patient.entryFacts?.firstName ?? PATIENT_PROFILE.name.split(' ')[0];
+  const programDay = patient.entryFacts?.programDay ?? (real ? null : ENROLLMENT_DAYS);
+  const currentPhase = programDay === null ? null : phaseForDay(programDay);
+  const firstName = patientFirstName(real, patient.entryFacts?.firstName, patient.profile);
+  const avatarInitials = patientInitials(real, patient.profile);
   const [dateKey, setDateKey] = useState(liveTodayKey);
   // Demo picks the same prompt as before (todayKey is the anchor there); a
   // real account rotates on the device's local day.
@@ -262,8 +267,11 @@ export default function TodayScreen() {
   const focusA11yLabel = todayCheckIn
     ? `Today's focus. Checked in, feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}.`
     : `Today's focus. ${checkinPrompt}`;
-  const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
-  const lost = PATIENT_PROFILE.startingWeight - currentWeight;
+  const weights = patientWeightFacts({
+    real,
+    profile: patient.profile,
+    latestLogged: patient.weightSeries.at(-1)?.weight,
+  });
 
   const openLogFood = (meal: MealSlot) => {
     router.push({ pathname: '/log-food', params: { date: dateKey, meal } });
@@ -328,14 +336,13 @@ export default function TodayScreen() {
                     pressed && { opacity: 0.85 },
                   ]}
                 >
-                  <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>
-                    {[patient.profile?.firstName, patient.profile?.lastName]
-                      .filter((part): part is string => !!part)
-                      .slice(0, 2)
-                      .map(part => part[0])
-                      .join('')
-                      .toUpperCase() || 'ES'}
-                  </Text>
+                  {avatarInitials ? (
+                    <Text style={[styles.avatarText, { color: colors.primaryForeground }]}>
+                      {avatarInitials}
+                    </Text>
+                  ) : (
+                    <Feather name="user" size={16} color={colors.primaryForeground} />
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -380,7 +387,7 @@ export default function TodayScreen() {
             </View>
 
             <Text style={[styles.heroGreeting, { color: colors.navy }]}>
-              Welcome back, {firstName}
+              {firstName ? <>Welcome back, {firstName}</> : 'Welcome back'}
             </Text>
             {!isToday && (
               <Pressable
@@ -562,7 +569,7 @@ export default function TodayScreen() {
                   style={[styles.instructionsTitle, { color: colors.navyLight }]}
                   numberOfLines={1}
                 >
-                  Day {programDay} · {currentPhase.name}
+                  {currentPhase ? <>Day {programDay} · {currentPhase.name}</> : 'Your program guide'}
                 </Text>
               </View>
               <Feather name="chevron-right" size={17} color={colors.subtleText} />
@@ -817,22 +824,26 @@ export default function TodayScreen() {
             <View style={styles.weightRow}>
               <View style={styles.weightCol}>
                 <Text style={[styles.weightValue, { color: colors.foreground }]}>
-                  {currentWeight.toFixed(1)} lb
+                  {weights.current === null ? '—' : <>{weights.current.toFixed(1)} lb</>}
                 </Text>
                 <Text style={[styles.weightLabel, { color: colors.subtleText }]}>CURRENT</Text>
               </View>
               <View style={[styles.weightDivider, { backgroundColor: colors.divider }]} />
               <View style={styles.weightCol}>
                 <Text style={[styles.weightValue, { color: colors.cobalt }]}>
-                  {lost >= 0 ? '−' : '+'}
-                  {Math.abs(lost).toFixed(1)} lb
+                  {weights.lost === null ? '—' : (
+                    <>
+                      {weights.lost >= 0 ? '−' : '+'}
+                      {Math.abs(weights.lost).toFixed(1)} lb
+                    </>
+                  )}
                 </Text>
                 <Text style={[styles.weightLabel, { color: colors.subtleText }]}>TOTAL</Text>
               </View>
               <View style={[styles.weightDivider, { backgroundColor: colors.divider }]} />
               <View style={styles.weightCol}>
                 <Text style={[styles.weightValue, { color: colors.foreground }]}>
-                  {PATIENT_PROFILE.goalWeight.toFixed(0)} lb
+                  {weights.goal === null ? '—' : <>{weights.goal.toFixed(0)} lb</>}
                 </Text>
                 <Text style={[styles.weightLabel, { color: colors.subtleText }]}>GOAL</Text>
               </View>

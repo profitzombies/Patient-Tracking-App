@@ -16,6 +16,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { useTrainingData } from '@/contexts/training-data';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
+import { officeLensViewers } from '@/lib/training-lens';
 import { findSeededAccount } from '@/data/hq/accounts';
 import { courseDuration, formatClock, formatDateTime, formatHours } from '@/data/hq/training';
 import { teammateStats } from '@/data/office-training';
@@ -37,9 +38,14 @@ export default function OfficeTeammate({ params }: { params: { viewerId: string 
     scope?.id ??
     (authStatus === 'signed-in' && authRole === 'provider_staff' ? providerAccountCode : null);
 
+  const signedIn = authStatus === 'signed-in';
+  const lensViewers = useMemo(
+    () => officeLensViewers(viewers, { signedIn, accountId, selfViewerId: myViewer?.id ?? null }),
+    [viewers, signedIn, accountId, myViewer],
+  );
   const stats = useMemo(
-    () => teammateStats(viewers, accountId, params.viewerId, courses, completionIndex, myViewer?.id ?? null),
-    [viewers, accountId, params.viewerId, courses, completionIndex, myViewer],
+    () => teammateStats(lensViewers, accountId, params.viewerId, courses, completionIndex, myViewer?.id ?? null),
+    [lensViewers, accountId, params.viewerId, courses, completionIndex, myViewer],
   );
 
   const backLink = (

@@ -15,6 +15,8 @@
  *   4. Invalid token → 401; auth outage → 503; account data down → 502.
  *      All JSON, all retryable, no stream.
  *   5. The demo-only back-on-track pipeline never fires for real accounts.
+ *   6. Menu and label scans ground on the signed-in patient the same way;
+ *      account data down → 502 with no model call, never the demo patient.
  *
  * The OpenAI client and the Supabase surfaces are mocked — no credits, no
  * network. Budget: well under the per-IP burst, lifted to 100 for this file.
@@ -83,8 +85,32 @@ vi.mock("@workspace/integrations-openai-ai-server", () => ({
 
 import app from "../app";
 import { BACK_ON_TRACK_OFFER } from "../coach/back-on-track";
+import { demoPatientContext } from "../coach/demo-patient";
 import { COACH_PAUSED_MESSAGE } from "./coach";
 import { invalidateOrgPolicyCache } from "../lib/org-policy";
+
+/** Valid scan answers for the photo routes' JSON contracts. */
+const MENU_NOT_MENU_JSON = JSON.stringify({
+  result: "not_menu",
+  message: "That looks like a receipt rather than a menu.",
+  order: [],
+  avoid: [],
+});
+const LABEL_OK_JSON = JSON.stringify({
+  result: "ok",
+  message: "Nice, a label I can actually read.",
+  label: {
+    servingSize: "2/3 cup (55g)",
+    servingsPerContainer: 8,
+    calories: 230,
+    protein: 8,
+    carbs: 37,
+    fat: 8,
+    fiber: 4,
+    sugar: 12,
+    sodium: 160,
+  },
+});
 
 // ── Fake Supabase account data ───────────────────────────────────────────────
 
@@ -396,6 +422,54 @@ describe("coach chat grounding ladder", () => {
     expect(bad.status).toBe(401);
     expect(modelState.calls).toHaveLength(0);
   });
+
+  it("grounds signed-in menu and label scans on the patient's own account, never the demo patient", async () => {
+    const demoLine = `Patient context: ${demoPatientContext().firstName} is on day`;
+    const postScan = (path: string, token?: string) =>
+      realFetch(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ image: "data:image/jpeg;base64,dGVzdA==" }),
+      });
+
+    modelState.scanQueue = [MENU_NOT_MENU_JSON];
+    const menu = await postScan("/api/coach/menu-scan", "tok-patient");
+    expect(menu.status).toBe(200);
+    expect(modelState.calls).toHaveLength(1);
+    expect(modelState.calls[0].system).toContain("Patient context: Riley is on day");
+    expect(modelState.calls[0].system).toContain("Riley has logged 500 of 1400 calories");
+    expect(modelState.calls[0].system).not.toContain(demoLine);
+
+    modelState.calls = [];
+    modelState.scanQueue = [LABEL_OK_JSON];
+    const label = await postScan("/api/coach/label-scan", "tok-patient");
+    expect(label.status).toBe(200);
+    expect(((await label.json()) as { result?: string }).result).toBe("ok");
+    expect(modelState.calls).toHaveLength(1);
+    expect(modelState.calls[0].system).toContain("Patient context: Riley is on day");
+    expect(modelState.calls[0].system).not.toContain(demoLine);
+
+    // Account data down: an honest retryable failure, no model call, and
+    // never a quiet fallback to the demo patient.
+    modelState.calls = [];
+    fake.failOnce.add("patient_diary_entries");
+    const down = await postScan("/api/coach/menu-scan", "tok-patient");
+    expect(down.status).toBe(502);
+    expect(((await down.json()) as { error?: string }).error).toMatch(/unavailable right now/);
+    expect(modelState.calls).toHaveLength(0);
+
+    // No session: the fixed demo seed, exactly as before.
+    modelState.scanQueue = [MENU_NOT_MENU_JSON];
+    const anonymous = await postScan("/api/coach/menu-scan");
+    expect(anonymous.status).toBe(200);
+    expect(modelState.calls).toHaveLength(1);
+    expect(modelState.calls[0].system).toContain(demoLine);
+    expect(modelState.calls[0].system).not.toContain("Riley");
+  });
+
   it("keeps the back-on-track pipeline demo-only", async () => {
     const trigger = {
       messages: [

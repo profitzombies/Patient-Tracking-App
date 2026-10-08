@@ -6,15 +6,20 @@ import { fonts } from '@/constants/colors';
 import { useColors } from '@/hooks/useColors';
 import { claimTestRequest, type ClaimTestState } from '@/lib/claim-test-api';
 import { useSupabaseSession } from '@/lib/supabase';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 
-/** Server-gated entry: only a 200 for the designated real patient can reveal it. */
+/**
+ * Server-gated entry: only a 200 for the designated real patient can reveal
+ * it. A development-only control — with the demo switched off (the published
+ * app) it never asks the server and never renders.
+ */
 export function ClaimTestEntryCard() {
   const colors = useColors();
   const { session, sessionLoading } = useSupabaseSession();
   const [state, setState] = useState<ClaimTestState | null>(null);
 
   useEffect(() => {
-    if (sessionLoading || !session) return;
+    if (!demoEntryEnabled || sessionLoading || !session) return;
     let live = true;
     claimTestRequest(session.access_token)
       .then(result => {
@@ -24,7 +29,7 @@ export function ClaimTestEntryCard() {
     return () => { live = false; };
   }, [session, sessionLoading]);
 
-  if (!session || !state) return null;
+  if (!demoEntryEnabled || !session || !state) return null;
   return (
     <Pressable
       testID="today-claim-test-card"

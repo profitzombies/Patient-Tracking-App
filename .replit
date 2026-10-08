@@ -32,14 +32,6 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "patient-groups-api"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "patient-groups-web"
-
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -1273,6 +1265,7 @@ TRAINING_OBJECT_DIR = "/replit-objstore-2a712e1c-f89a-4c61-95b8-d3cd5a9804ea/dev
 VITE_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_YFBQz1axiT3iNVJ2-tqVgQ_5nh3E_Mv"
 VITE_SUPABASE_URL = "https://hempvunqnyutzbrgcaqr.supabase.co"
 NODE_OPTIONS = "--import /home/runner/workspace/scripts/dev-environment.mjs"
+THINNR_DEMO = "on"
 
 [userenv.production]
 PATIENT_INVITE_URL = "https://app.trythinnr.com/thinnr-mobile/"
@@ -1285,6 +1278,7 @@ VITE_SUPABASE_URL = "https://xkdhmqexlvkipwgkaiyk.supabase.co"
 JOBS_DISABLED = "1"
 NOTIFICATIONS_DISABLED = "1"
 SYSTEM_ALERT_EMAILS = "on"
+THINNR_DEMO = "off"
 
 [nix]
 channel = "stable-25_05"
@@ -2980,6 +2974,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:patient-groups && pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:roster-activity && pnpm --filter @workspace/thinnr-operations run test:patients-badge && pnpm --filter @workspace/thinnr-operations run test:invite-patients && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "demo-switch-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:demo-switch && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run test:training && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "demo-switch-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:demo-switch && pnpm --filter @workspace/thinnr-mobile run test:claim-test && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "demo-switch-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run src/routes/training-media.test.ts && pnpm --filter @workspace/api-server run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

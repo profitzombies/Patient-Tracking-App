@@ -7,6 +7,8 @@ Operations-web admin routes (`/admin/...`) render the sign-in page for anonymous
 
 **Why:** a direct screenshot of any admin deep link returns the "THINNR Operations" sign-in card, which is easy to misread as a broken page.
 
+**Development only:** the published app has no guided demo or persona at all (demo switch off); in production, verify admin pages with a real HQ login.
+
 **How to apply:** for demo-capable admin surfaces, verify through the testing subagent: expand "Exploring? Browse the guided demo without an account" on `/`, pick the HQ (or office) persona, then deep-link in the same tab session. Do not assume that the persona admits live provider-account detail pages or permits account creation.
 
 **Live-data admin pages need a REAL HQ login — the demo persona is 'unauthorized' there by design.** Live HQ surfaces (e.g. the provider directory) gate on a real signed-in active HQ membership, so the guided-demo persona showing the "Sign in with a THINNR HQ account…" nudge is correct behavior, not a bug. To verify them, provision a disposable INVITED HQ membership with a pending invitation via the service role (the passwordless verify activates it on first sign-in), have the tester flip email delivery to dev mode so the code shows inline, mind the shared per-email send cap, and delete the QA identity afterwards. If a good login still looks blocked, curl the server-side HQ session resolver with that user's bearer first — it is authoritative over browser state.

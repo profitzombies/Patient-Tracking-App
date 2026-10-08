@@ -8,6 +8,7 @@ import type { TextInput } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useAppMode } from '@/context/AppModeContext';
+import { demoEntryEnabled } from '@/lib/demo-entry';
 import {
   completeRecovery,
   requestPatientPasswordLogin,
@@ -233,6 +234,8 @@ export function usePatientLogin() {
     router.push('/patient-signup');
   };
   const openDemo = async () => {
+    // The published app shows no demo link; a stray call stays put.
+    if (!demoEntryEnabled) return;
     invalidate();
     await admitDemo();
     router.push('/patient-entry');

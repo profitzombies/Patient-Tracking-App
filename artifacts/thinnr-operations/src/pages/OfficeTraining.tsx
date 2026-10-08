@@ -17,6 +17,7 @@ import { ArrowRight, CheckCircle2, ChevronRight, GraduationCap, Plus } from 'luc
 import { useTrainingData } from '@/contexts/training-data';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
+import { officeLensViewers } from '@/lib/training-lens';
 import { useToast } from '@/hooks/use-toast';
 import { findSeededAccount } from '@/data/hq/accounts';
 import {
@@ -82,9 +83,14 @@ export default function OfficeTraining() {
     () => (primaryCourse ? getOrderedVideos(primaryCourse, true) : []),
     [primaryCourse],
   );
+  const signedIn = authStatus === 'signed-in';
+  const lensViewers = useMemo(
+    () => officeLensViewers(viewers, { signedIn, accountId, selfViewerId: myViewer?.id ?? null }),
+    [viewers, signedIn, accountId, myViewer],
+  );
   const roster = useMemo(
-    () => officeRoster(viewers, accountId, primaryOrder, completionIndex, myViewer?.id ?? null),
-    [viewers, accountId, primaryOrder, completionIndex, myViewer],
+    () => officeRoster(lensViewers, accountId, primaryOrder, completionIndex, myViewer?.id ?? null),
+    [lensViewers, accountId, primaryOrder, completionIndex, myViewer],
   );
   const teamStats = useMemo(() => officeCourseStats(roster), [roster]);
   const self = useMemo(
@@ -103,10 +109,17 @@ export default function OfficeTraining() {
 
   const openAddTeammate = () => {
     if (!canAddStaff) {
-      toast({
-        title: 'Sign in to make changes',
-        description: 'The demo persona can browse training, but adding teammates needs a real staff sign-in.',
-      });
+      toast(
+        signedIn
+          ? {
+              title: 'You can’t add teammates',
+              description: 'Your sign-in can view this office’s training but not add people to it.',
+            }
+          : {
+              title: 'Sign in to make changes',
+              description: 'The demo persona can browse training, but adding teammates needs a real staff sign-in.',
+            },
+      );
       return;
     }
     if (!accountId) {
@@ -163,7 +176,9 @@ export default function OfficeTraining() {
         <p className="mt-2 text-xs text-muted-foreground" data-testid="text-training-scope">
           {officeName
             ? `${officeName} — your team's THINNR program training.`
-            : 'THINNR program training across every office in the demo.'}
+            : signedIn
+              ? "Your team's THINNR program training."
+              : 'THINNR program training across every office in the demo.'}
         </p>
       </div>
       <button className={`${BTN_PRIMARY} h-9 shrink-0 px-4`} onClick={openAddTeammate} data-testid="button-add-teammate">
@@ -243,7 +258,7 @@ export default function OfficeTraining() {
                 key={course.id}
                 course={course}
                 accountId={accountId}
-                viewers={viewers}
+                viewers={lensViewers}
                 completionIndex={completionIndex}
                 myViewerId={myViewer?.id ?? null}
               />

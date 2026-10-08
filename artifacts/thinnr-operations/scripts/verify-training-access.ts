@@ -5,18 +5,21 @@
  * privacy/authorization model end to end:
  *
  *   1. The course catalog is world-readable (no PII in it).
- *   2. The anonymous roster contains ONLY seeded demo viewers — an email
- *      registered through the gate never appears in anon reads (viewers,
- *      completions, or invites).
- *   3. Learner actions are keyed by the opaque session token: a random token
+ *   2. Gate registration issues a private capability (viewer + token).
+ *   3. An email registered through the gate never appears in anon reads
+ *      (viewers, completions, or invites). Whatever anon CAN read is
+ *      demo-flagged only — and may be empty: nothing here relies on seeded
+ *      demo viewers existing, so clearing them changes no verdict.
+ *   4. Learner actions are keyed by the opaque session token: a random token
  *      is rejected, one learner's progress never leaks into another's state,
  *      and the old viewer-id RPC signatures no longer exist.
- *   4. Anon direct writes are refused on every table, and the token table
+ *   5. Anon direct writes are refused on every table, and the token table
  *      itself is unreadable.
- *   5. The API server's hosted-media routes are OPEN (demo posture): media
- *      reads and upload-url mints need no bearer, a synthetic bearer changes
- *      nothing, and rapid-fire writes from one IP trip the per-IP limiter
- *      while reads stay open. (Needs the artifacts/api-server workflow.)
+ *   6. The API server's hosted-media routes keep learner reads (playback,
+ *      transcript) open, while every write needs an HQ sign-in: a tokenless
+ *      call gets 401 and a synthetic bearer 401/403. Only harmless probes
+ *      are sent, so a regressed gate can't damage a lesson. (Needs the
+ *      artifacts/api-server workflow.)
  *
  * Test rows use FIXED @example.test addresses so re-runs upsert instead of
  * growing the roster; they stay invisible to anon (visible to real HQ admins
@@ -93,14 +96,14 @@ const EMAIL_B = 'qa-access-b@example.test';
 const EMAIL_STAFF = 'qa-access-staff@example.test';
 const ZERO_TOKEN = '00000000-0000-0000-0000-000000000000';
 
-// --- Hosted-media API routes (open demo posture) ---------------------------
+// --- Hosted-media API routes (learner reads open, writes HQ-only) ----------
 
 const API_BASE = (process.env.STAFF_API_BASE ?? 'http://localhost:80').replace(/\/$/, '');
-/** One synthetic client IP for the limiter proof (TEST-NET-3, never real). */
-const LIMITER_IP = '203.0.113.88';
+/** A well-formed but unsigned bearer: verification must reject it. */
+const SYNTHETIC_BEARER = { Authorization: 'Bearer synthetic-staff-bearer' };
 
-async function apiMedia(videoId: string, headers: Record<string, string> = {}): Promise<number> {
-  const response = await fetch(`${API_BASE}/api/training/videos/${videoId}/media`, { headers });
+async function apiRead(path: string, headers: Record<string, string> = {}): Promise<number> {
+  const response = await fetch(`${API_BASE}/api${path}`, { headers });
   return response.status;
 }
 
@@ -125,7 +128,7 @@ async function apiWrite(
 }
 
 async function mediaSection(videoId: string) {
-  console.log('6. Hosted-media API routes are open (demo posture)');
+  console.log('6. Hosted-media API: learner reads open, writes need an HQ sign-in');
   const health = await fetch(`${API_BASE}/api/healthz`).catch(() => null);
   if (!health || !health.ok) {
     check(
@@ -136,47 +139,37 @@ async function mediaSection(videoId: string) {
     return;
   }
 
-  // Reads: tokenless, and a synthetic bearer is ignored (the old staff gate
-  // would 401 both). 200 = playback URLs; 404 = no hosted file yet — either
-  // way there is no auth wall.
-  const tokenless = await apiMedia(videoId);
+  // Reads lesson pages need: tokenless, and a synthetic bearer is ignored.
+  // 200 = playback URLs / transcript; 404 = nothing hosted yet — either way
+  // there is no auth wall in front of learners.
+  const media = `/training/videos/${videoId}/media`;
+  const tokenless = await apiRead(media);
   check('tokenless media read has no auth wall', tokenless === 200 || tokenless === 404, `status ${tokenless}`);
-  const bearered = await apiMedia(videoId, { Authorization: 'Bearer synthetic-staff-bearer' });
-  check('synthetic bearer is ignored, not verified', bearered === tokenless, `status ${bearered} vs ${tokenless}`);
+  const bearered = await apiRead(media, SYNTHETIC_BEARER);
+  check('synthetic bearer does not block a media read', bearered === tokenless, `status ${bearered} vs ${tokenless}`);
+  const transcript = await apiRead(`/training/videos/${videoId}/transcript`);
+  check('tokenless transcript read has no auth wall', transcript === 200 || transcript === 404, `status ${transcript}`);
 
-  // Writes: a tokenless caller can mint an upload URL (nothing is uploaded —
-  // a mint is harmless until a finalize follows it).
-  const mint = await apiWrite(`/training/videos/${videoId}/upload-url`, {
-    fileName: 'probe.mp4',
-    contentType: 'video/mp4',
-    sizeBytes: 1024,
-  });
+  // Writes: an upload-url mint is the harmless probe (nothing is uploaded and
+  // a mint changes no lesson) — a tokenless caller is told to sign in, and an
+  // unsigned bearer is never trusted.
+  const mintBody = { fileName: 'probe.mp4', contentType: 'video/mp4', sizeBytes: 1024 };
+  const mint = await apiWrite(`/training/videos/${videoId}/upload-url`, mintBody);
   check(
-    'tokenless upload-url mint succeeds',
-    mint.status === 200 && !!mint.json?.uploadUrl && !!mint.json?.objectPath,
+    'tokenless upload-url mint is refused (401)',
+    mint.status === 401 && !mint.json?.uploadUrl,
     `status ${mint.status}`,
   );
-
-  // Limiter: rapid-fire INVALID writes (nothing ever minted) from one
-  // synthetic IP must trip the per-IP limiter; reads from the drained IP
-  // stay open. TRAINING_WRITE_BURST defaults to 20, so 30 attempts suffice.
-  let denial: { status: number; json: any } | null = null;
-  for (let i = 0; i < 30 && !denial; i++) {
-    const attempt = await apiWrite(
-      `/training/videos/${videoId}/upload-url`,
-      {},
-      { 'X-Forwarded-For': LIMITER_IP },
-    );
-    if (attempt.status === 429) denial = attempt;
-  }
-  check('rapid-fire writes from one IP hit the limiter', denial !== null);
+  const forged = await apiWrite(`/training/videos/${videoId}/upload-url`, mintBody, SYNTHETIC_BEARER);
   check(
-    'denial is a friendly, retryable 429',
-    !!denial && denial.json?.retryable === true && String(denial.json?.error ?? '').includes('too quickly'),
-    JSON.stringify(denial?.json ?? null),
+    'synthetic bearer cannot mint an upload URL',
+    (forged.status === 401 || forged.status === 403) && !forged.json?.uploadUrl,
+    `status ${forged.status}`,
   );
-  const drainedRead = await apiMedia(videoId, { 'X-Forwarded-For': LIMITER_IP });
-  check('drained IP can still read media', drainedRead === 200 || drainedRead === 404, `status ${drainedRead}`);
+  // An invalid body proves the gate runs BEFORE validation: an open route
+  // would answer 400, a gated one 401.
+  const processRun = await apiWrite(`/training/videos/${videoId}/process`, {});
+  check('tokenless AI processing is refused (401)', processRun.status === 401, `status ${processRun.status}`);
 }
 
 async function main() {
@@ -201,13 +194,20 @@ async function main() {
   check('second learner registered', regB.status === 200 && !!tokenB && viewerB !== viewerA);
 
   console.log('3. Anon reads never expose gate registrations');
-  const roster = await select('training_viewers?select=email,is_demo&limit=1000');
-  check('anon roster is demo-only rows', roster.status === 200 && roster.rows.length >= 12 && roster.rows.every((row) => row.is_demo === true), `${roster.rows.length} rows`);
+  // The anon roster may be empty (no seeded demo viewers needed); whatever
+  // it does return must be demo-flagged.
+  const roster = await select('training_viewers?select=id,email,is_demo&limit=1000');
+  check('anon roster holds demo-flagged rows only (possibly none)', roster.status === 200 && roster.rows.every((row) => row.is_demo === true), `status ${roster.status}, ${roster.rows.length} rows`);
   check('registered emails hidden from anon roster', !roster.rows.some((row) => [EMAIL_A, EMAIL_B, EMAIL_STAFF].includes(String(row.email).toLowerCase())));
   const emailProbe = await select(`training_viewers?select=id&email=eq.${encodeURIComponent(EMAIL_A)}`);
   check('direct email lookup returns nothing', emailProbe.status === 200 && emailProbe.rows.length === 0);
-  const demoCompletions = await select('training_completions?select=viewer_id&limit=5');
-  check('demo completions still power anon analytics', demoCompletions.status === 200 && demoCompletions.rows.length >= 1);
+  const demoViewerIds = new Set(roster.rows.map((row) => String(row.id)));
+  const anonCompletions = await select('training_completions?select=viewer_id&limit=1000');
+  check(
+    'anon completions belong to demo-flagged viewers only (possibly none)',
+    anonCompletions.status === 200 && anonCompletions.rows.every((row) => demoViewerIds.has(String(row.viewer_id))),
+    `status ${anonCompletions.status}, ${anonCompletions.rows.length} rows`,
+  );
 
   console.log('4. Learner actions are bound to the token, not caller-supplied ids');
   const badState = await rpc('training_learner_state', { p_token: ZERO_TOKEN });

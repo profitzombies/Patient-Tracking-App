@@ -1,16 +1,16 @@
 /**
  * Hosted training-video media routes.
  *
- * Access model (demo posture): reaching the admin portal is enough — these
- * routes have NO sign-in gate, the same opening as the AI Support knowledge
- * library. The staff identity was only ever a gate here: there is one
- * shared training catalog, read and written with the service role, with no
- * office scoping or attribution. A signed-in caller's bearer, when
- * attached, is simply ignored. In its place every WRITE (upload, finalize,
- * replace, remove, thumbnails, AI processing) rides a modest per-IP
- * limiter, while reads (playback URLs, transcript) stay open so lesson
- * pages can stream; re-tightening later is one middleware away. Type and
- * size rules are enforced exactly as before.
+ * Access model: every WRITE (upload, finalize, replace, remove, thumbnails,
+ * attachments, AI processing) and every administrative read needs a signed-in
+ * HQ account with the content-management permission — the router-level gate
+ * below fails closed before any storage or database work. Only the three
+ * learner delivery reads (playback URLs, transcript, attachment download
+ * links) stay open, so lesson pages reached from a share link can stream
+ * without a staff login. There is one shared training catalog, read and
+ * written with the service role, with no office scoping. Writes also ride a
+ * modest per-IP limiter as a second line. Type and size rules are enforced
+ * exactly as before.
  *
  * Storage model: browsers upload straight to App Storage via a presigned PUT
  * (the API never proxies 500 MB bodies), then hit finalize, which probes the
@@ -163,8 +163,8 @@ type ProcessStep = (typeof PROCESS_STEPS)[number];
 const activeRuns = new Set<string>();
 
 /**
- * Per-IP limit on every media WRITE — the stand-in for the retired sign-in
- * gate. Limit first, like the chat route: denials are cheap JSON answers
+ * Per-IP limit on every media WRITE, applied after the HQ sign-in gate as a
+ * second line against a runaway client. Denials are cheap JSON answers
  * before any storage or database work.
  */
 function limitWrites(req: Request, res: Response, next: NextFunction): void {

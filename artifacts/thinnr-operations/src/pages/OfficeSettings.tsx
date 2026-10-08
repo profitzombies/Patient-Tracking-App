@@ -528,14 +528,16 @@ function OverridesCard({ data, live, onSave, saving, saveError }: {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function OfficeSettings() {
-  const { authStatus, authRole, authUser } = useSession();
+  const { authStatus, authRole, authUser, claimedWorkspace } = useSession();
   const scope = useProviderScope();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Claimed office logins have no profile role but are real staff.
+  const isClaimedOffice = claimedWorkspace?.kind === 'provider' || claimedWorkspace?.kind === 'team_member';
   const live =
     authStatus === 'signed-in' &&
-    (authRole === 'provider_staff' || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
+    (authRole === 'provider_staff' || isClaimedOffice || (authRole === 'hq_admin' && Boolean(scope?.providerId)));
   const officeParam = authRole === 'hq_admin' ? scope?.providerId : undefined;
   const params = officeParam ? { office: officeParam } : undefined;
   const signedIn = authStatus === 'signed-in';

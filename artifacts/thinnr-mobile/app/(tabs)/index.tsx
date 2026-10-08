@@ -26,6 +26,8 @@ import {
 } from '@/components/ui/LedgerPrimitives';
 import { MOCK_ANALYTICS, MOCK_PROVIDERS } from '@/data/mock-data';
 import { useOperations } from '@/context/OperationsContext';
+import { useSupabaseSession } from '@/lib/supabase';
+import { LiveOfficeOverview } from '@/components/office/LiveOfficeOverview';
 
 type Range = '12 months' | '6 months' | '30 days';
 
@@ -102,7 +104,8 @@ const ACTIVITY_ITEMS = [
   { initials: 'SJ', name: 'Sarah Jenkins', action: 'approved Maintenance Stack for Olivia W.', time: '2 hr ago' },
 ];
 
-export default function OverviewScreen() {
+// The seeded practice — only ever shown to signed-out visitors of the demo.
+function DemoOverviewScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { hydrated, mergedPatients, mergedSubscriptions } = useOperations();
@@ -394,6 +397,26 @@ export default function OverviewScreen() {
       </ScrollView>
     </View>
   );
+}
+
+function LoadingOverviewScreen() {
+  const colors = useColors();
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScreenHeader title="Overview" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} testID="overview-session-loading">
+        <ActivityIndicator color={colors.cobalt} />
+      </View>
+    </View>
+  );
+}
+
+export default function OverviewScreen() {
+  const { session, sessionLoading } = useSupabaseSession();
+  if (sessionLoading) return <LoadingOverviewScreen />;
+  // A signed-in office only ever sees its own live numbers.
+  if (session?.user) return <LiveOfficeOverview key={session.user.id} userId={session.user.id} />;
+  return <DemoOverviewScreen />;
 }
 
 const styles = StyleSheet.create({

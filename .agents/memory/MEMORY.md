@@ -22,7 +22,7 @@
 - [Supabase DDL via management API](supabase-management-api.md) — no direct pg socket: run migrations through the management API, keep the repo migration file canonical, re-check security advisors after DDL.
 - [Supabase bulk imports](supabase-bulk-migration-size.md) — stay below ~3 MB per request; pace sequential batches and respect 429 cooldowns; replay partial imports, never clear and restart.
 - [Training live-data patterns](training-live-data.md) — flat rows + client assembly; edits re-sync contiguous positions; progress = rows ∩ published order; learner writes ride opaque capability tokens, PII out of anon reads.
-- [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; derived artifacts clear in lockstep; SSE explicit done; media routes OPEN (demo posture), writes per-IP limited.
+- [Training video hosting](training-video-hosting.md) — presigned PUT + finalize probe; paths in DB, signed GETs; lockstep derived artifacts; SSE done event; writes need HQ sign-in, learner reads open.
 - [Playwright codec gap](playwright-codec-gap.md) — the tester's Chromium can't decode H.264/AAC: use VP9/Opus WebM fixtures for playback e2e, and players must catch play() rejections with an inline error.
 - [Mobile training live-data port](mobile-training-parity.md) — mobile Training re-implements web training rules; a dual-import parity suite runs both copies on one fixture; numbering counts draft slots, position counts published only.
 - [Root artifact paths](root-artifact-paths.md) — operations web is the ROOT artifact: URLs are root-relative (/menu); wrong prefixes SPA-fallback into the in-app 404 and module probes return index.html.
@@ -65,6 +65,7 @@
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.
 - [Live/demo UI isolation](live-demo-ui-isolation.md) — choose demo vs live from auth state, never missing data; propagate loading/errors so outages cannot look like healthy zeroes.
+- [Demo switch](demo-switch.md) — THINNR_DEMO on in dev, off in the published app; switch gates demo ENTRY only, the session decides labels and fallbacks; demo code deletion comes later.
 - [Local Postgres SQL tests](local-postgres-sql-tests.md) — test Supabase SQL functions by booting a temp initdb/pg_ctl instance in vitest; workspace PGHOST/PGDATABASE point at helium, always pass -h/-d.
 - [Roster unknown vs zero](roster-unknown-state.md) — live activity signals are nullable per family + whole-row unknown status; UI three-way model, null never lapsed, sorts last; detail shares the DTO.
 - [Export jobs & office analytics](export-jobs-and-office-analytics.md) — staff requests are pinned (never 403), expiry is a status flip, pre-dataset ranges go null, drill links must match real roster filters.

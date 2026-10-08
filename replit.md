@@ -1,8 +1,13 @@
 # THINNR Med Spa Operations
 
-Investor-demo platform for the THINNR weight-loss program: a staff/HQ operations web app, a patient mobile companion (Expo), and an API server — real Supabase sign-in at the front door, synthetic demo data underneath.
+Platform for the THINNR weight-loss program: a staff/HQ operations web app, a patient mobile companion (Expo), and an API server behind real Supabase sign-in. The original guided investor demo (seeded personas, synthetic data) still exists in the code but is development-only — see "Demo switch" below.
 
 ## Run & Operate
+
+
+### Demo switch (`THINNR_DEMO`)
+
+One environment variable controls every way into the guided demo: `THINNR_DEMO=on` in development, `off` in production (set per environment, never in code). The web app reads it at build time in `artifacts/thinnr-operations/vite.config.ts` → `src/lib/demo-entry.ts`; the mobile app gets it compiled in as `EXPO_PUBLIC_THINNR_DEMO` (dev script + `scripts/build.js`) → `lib/demo-entry.ts`. Unset fails closed in production builds. With it off: signed-out web visitors only reach sign-in and the real public pages (training share links, `/pay`, cancel links, `/security/report`, `/hq-setup`), remembered demo personas are cleared, and on mobile first launch shows only real patient sign-in/sign-up/invitation and provider sign-in (persona demo cards, the signed-out provider dashboard and `/claim-test` redirect away). Independently of the switch, signed-in screens never show demo labels, projections or seeded values — they show live data or an honest empty state. The demo code, seeds and demo-only suites stay until a later clean-up, so development suites keep exercising them. Training media writes need an HQ sign-in (`content_manage`); only the learner reads (playback, transcript, attachment download) are open.
 
 ### Portable Stripe configuration
 

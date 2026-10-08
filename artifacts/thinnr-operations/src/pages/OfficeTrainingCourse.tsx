@@ -12,6 +12,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Lock, PlayCircle } from 'lucide-re
 import { useTrainingData } from '@/contexts/training-data';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useSession } from '@/contexts/session';
+import { officeLensViewers } from '@/lib/training-lens';
 import { useToast } from '@/hooks/use-toast';
 import {
   completionsFor,
@@ -57,9 +58,14 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
     () => (course && isLive ? getOrderedVideos(course, true) : []),
     [course, isLive],
   );
+  const signedIn = authStatus === 'signed-in';
+  const lensViewers = useMemo(
+    () => officeLensViewers(viewers, { signedIn, accountId, selfViewerId: myViewer?.id ?? null }),
+    [viewers, signedIn, accountId, myViewer],
+  );
   const roster = useMemo(
-    () => officeRoster(viewers, accountId, order, completionIndex, myViewer?.id ?? null),
-    [viewers, accountId, order, completionIndex, myViewer],
+    () => officeRoster(lensViewers, accountId, order, completionIndex, myViewer?.id ?? null),
+    [lensViewers, accountId, order, completionIndex, myViewer],
   );
   const teamStats = useMemo(() => officeCourseStats(roster), [roster]);
   const myMap = useMemo(
@@ -245,7 +251,9 @@ export default function OfficeTrainingCourse({ params }: { params: { courseId: s
           })}
         </ul>
         <p className="border-t border-border px-5 py-3 text-[11px] text-muted-foreground">
-          Video files aren't hosted in this demo — completing a video records the workbook's tracked duration.
+          {signedIn
+            ? 'Marking a video complete records its full running time as watched.'
+            : "Video files aren't hosted in this demo — completing a video records the workbook's tracked duration."}
         </p>
       </SectionCard>
     </div>

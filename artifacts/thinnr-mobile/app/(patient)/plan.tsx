@@ -16,6 +16,7 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, LedgerCard, StatusBadge } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
+import { useLivePatient } from '@/hooks/useDemoLabels';
 import {
   DEFAULT_TARGETS,
   ENROLLMENT_DAYS,
@@ -120,6 +121,11 @@ export default function PlanScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  // A signed-in patient sees their own program calendar (or nothing yet),
+  // never the demo persona's care plan, deliveries or check-in date.
+  const live = useLivePatient();
+  const liveFacts = live ? patient.entryFacts : null;
+  const livePhase = liveFacts ? phaseForDay(liveFacts.programDay) : null;
 
   const bottomPad = patientContentBottom(insets.bottom);
   const week = Math.ceil(ENROLLMENT_DAYS / 7);
@@ -133,37 +139,56 @@ export default function PlanScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="My Plan" subtitle={PATIENT_PROFILE.carePlan.name.toUpperCase()} />
+      <PatientHeader
+        title="My Plan"
+        subtitle={live ? 'YOUR PROGRAM' : PATIENT_PROFILE.carePlan.name.toUpperCase()}
+      />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Program status — featured card with cobalt accent strip ── */}
         <LedgerCard accentTop style={styles.programCard}>
           <View style={styles.cardPad}>
-            <View style={styles.programTopRow}>
-              <Text style={[styles.programName, { color: colors.navy }]}>{PATIENT_PROFILE.carePlan.name}</Text>
-              <StatusBadge status={PATIENT_PROFILE.stage} />
-            </View>
-            <Text style={[styles.programMeta, { color: colors.subtleText }]}>
-              Week {week} · Day {ENROLLMENT_DAYS} · Started {formatISO(PATIENT_PROFILE.startDate, true)}
-            </Text>
-            <Divider style={{ marginVertical: 12 }} />
-            <View style={styles.programDetailRow}>
-              <Feather name="check-square" size={14} color={colors.activeGreen} />
-              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-                Six-week protocol completed — now in maintenance.
-              </Text>
-            </View>
-            <View style={styles.programDetailRow}>
-              <Feather name="target" size={14} color={colors.cobalt} />
-              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-                {PATIENT_PROFILE.carePlan.focus}
-              </Text>
-            </View>
-            <View style={styles.programDetailRow}>
-              <Feather name="calendar" size={14} color={colors.cobalt} />
-              <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
-                {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
-              </Text>
-            </View>
+            {live ? (
+              <>
+                <View style={styles.programTopRow}>
+                  <Text style={[styles.programName, { color: colors.navy }]}>THINNR Program</Text>
+                </View>
+                {liveFacts ? (
+                  <Text testID="plan-live-meta" style={[styles.programMeta, { color: colors.subtleText }]}>
+                    Week {Math.ceil(liveFacts.programDay / 7)} · Day {liveFacts.programDay} · Started{' '}
+                    {formatISO(liveFacts.programStartDate, true)}
+                  </Text>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <View style={styles.programTopRow}>
+                  <Text style={[styles.programName, { color: colors.navy }]}>{PATIENT_PROFILE.carePlan.name}</Text>
+                  <StatusBadge status={PATIENT_PROFILE.stage} />
+                </View>
+                <Text style={[styles.programMeta, { color: colors.subtleText }]}>
+                  Week {week} · Day {ENROLLMENT_DAYS} · Started {formatISO(PATIENT_PROFILE.startDate, true)}
+                </Text>
+                <Divider style={{ marginVertical: 12 }} />
+                <View style={styles.programDetailRow}>
+                  <Feather name="check-square" size={14} color={colors.activeGreen} />
+                  <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                    Six-week protocol completed — now in maintenance.
+                  </Text>
+                </View>
+                <View style={styles.programDetailRow}>
+                  <Feather name="target" size={14} color={colors.cobalt} />
+                  <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                    {PATIENT_PROFILE.carePlan.focus}
+                  </Text>
+                </View>
+                <View style={styles.programDetailRow}>
+                  <Feather name="calendar" size={14} color={colors.cobalt} />
+                  <Text style={[styles.programDetailText, { color: colors.bodyText }]}>
+                    {PATIENT_PROFILE.carePlan.cadence} · Next: {PATIENT_PROFILE.carePlan.nextMilestone}
+                  </Text>
+                </View>
+              </>
+            )}
             <Divider style={{ marginTop: 12, marginBottom: 12 }} />
             <Pressable
               testID="plan-instructions-row"
@@ -183,7 +208,11 @@ export default function PlanScreen() {
                   style={[styles.instructionsValue, { color: colors.navyLight }]}
                   numberOfLines={1}
                 >
-                  Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}
+                  {live ? (
+                    livePhase && liveFacts ? <>Day {liveFacts.programDay} · {livePhase.name}</> : 'Your program guide'
+                  ) : (
+                    <>Day {ENROLLMENT_DAYS} · {CURRENT_PHASE.name}</>
+                  )}
                 </Text>
               </View>
               <Feather name="chevron-right" size={16} color={colors.subtleText} />
@@ -260,7 +289,7 @@ export default function PlanScreen() {
         </LedgerCard>
 
         {/* ── Deliveries ── */}
-        {PATIENT_SUBSCRIPTION ? (
+        {!live && PATIENT_SUBSCRIPTION ? (
           <>
             <SectionTitle title="Product Deliveries" />
             <LedgerCard style={styles.sectionCard}>
@@ -313,25 +342,27 @@ export default function PlanScreen() {
               style={[styles.careAvatar, { backgroundColor: colors.navy, borderRadius: colors.radiusSm }]}
             >
               <Text style={[styles.careAvatarText, { color: colors.brandMarkText }]}>
-                {PATIENT_PROVIDER ? PATIENT_PROVIDER.name.split(' ').slice(0, 2).map(n => n[0]).join('') : 'CT'}
+                {!live && PATIENT_PROVIDER ? PATIENT_PROVIDER.name.split(' ').slice(0, 2).map(n => n[0]).join('') : 'CT'}
               </Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.careName, { color: colors.navyLight }]}>
-                {PATIENT_PROVIDER?.name ?? 'Care team'}
+                {live ? 'Care team' : PATIENT_PROVIDER?.name ?? 'Care team'}
               </Text>
               <Text style={[styles.careRole, { color: colors.subtleText }]}>
-                {PATIENT_PROVIDER?.role ?? 'THINNR Med Spa'}
+                {live ? 'Your office' : PATIENT_PROVIDER?.role ?? 'THINNR Med Spa'}
               </Text>
             </View>
           </View>
           <Divider style={{ marginVertical: 12 }} />
-          <View style={styles.shipmentRow}>
-            <Feather name="calendar" size={13} color={colors.cobalt} />
-            <Text style={[styles.shipmentText, { color: colors.bodyText }]}>
-              Next check-in {formatISO(PATIENT_PROFILE.nextCheckIn)}
-            </Text>
-          </View>
+          {live ? null : (
+            <View style={styles.shipmentRow}>
+              <Feather name="calendar" size={13} color={colors.cobalt} />
+              <Text style={[styles.shipmentText, { color: colors.bodyText }]}>
+                Next check-in {formatISO(PATIENT_PROFILE.nextCheckIn)}
+              </Text>
+            </View>
+          )}
           <View style={styles.shipmentRow}>
             <Feather name="eye" size={13} color={colors.cobalt} />
             <Text style={[styles.shipmentText, { color: colors.bodyText }]}>

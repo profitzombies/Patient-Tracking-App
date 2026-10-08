@@ -31,6 +31,8 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { PROGRESS_UNDO_WINDOW_MS, usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
+import { useLivePatient } from '@/hooks/useDemoLabels';
+import { formatWeight, patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { usePhotoPageUrls } from '@/lib/photo-page-urls';
 import { preparePhotoForUpload } from '@/lib/photo-prep';
@@ -39,7 +41,6 @@ import {
   ENROLLMENT_DAYS,
   formatDateKey,
   MOOD_LABELS,
-  PATIENT_PROFILE,
   weightAtDateKey,
 } from '@/data/patient-data';
 import { PROGRESS_IMAGES } from '@/data/recipe-images';
@@ -49,10 +50,13 @@ export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { account } = usePatientAccount();
+  // A signed-in patient sees only their own figures (or a dash), never the
+  // demo persona's.
+  const live = useLivePatient();
   const { commitPhotoRemoval } = patient; // stable callback, safe as an effect dep
   // Live program day for real accounts; the demo persona has no entry facts
   // and keeps the seeded enrollment figure, byte-identical.
-  const programDay = patient.entryFacts?.programDay ?? ENROLLMENT_DAYS;
+  const programDay = patient.entryFacts?.programDay ?? (live ? null : ENROLLMENT_DAYS);
   const [photoError, setPhotoError] = useState('');
   // Stored account photos are signed as ONE page per size: thumbnails for
   // the grid up front, medium only once the viewer opens (so a patient who
@@ -98,15 +102,28 @@ export default function ProgressScreen() {
 
   const bottomPad = patientContentBottom(insets.bottom);
 
-  const currentWeight = patient.weightSeries.at(-1)?.weight ?? PATIENT_PROFILE.currentWeight;
-  const lost = PATIENT_PROFILE.startingWeight - currentWeight;
+  const weights = patientWeightFacts({
+    real: live,
+    profile: patient.profile,
+    latestLogged: patient.weightSeries.at(-1)?.weight,
+  });
   const recentCheckIns = useMemo(() => patient.checkIns.slice(0, 10), [patient.checkIns]);
 
   const stats = [
-    { key: 'start', label: 'START', value: PATIENT_PROFILE.startingWeight.toFixed(1), color: colors.navyLight },
-    { key: 'current', label: 'CURRENT', value: currentWeight.toFixed(1), color: colors.navy },
-    { key: 'lost', label: 'LOST', value: `−${lost.toFixed(1)}`, color: colors.cobalt },
-    { key: 'goal', label: 'GOAL', value: PATIENT_PROFILE.goalWeight.toFixed(0), color: colors.navyLight },
+    { key: 'start', label: 'START', value: formatWeight(weights.starting), color: colors.navyLight },
+    { key: 'current', label: 'CURRENT', value: formatWeight(weights.current), color: colors.navy },
+    {
+      key: 'lost',
+      label: 'LOST',
+      value:
+        weights.lost === null
+          ? '—'
+          : weights.lost >= 0
+            ? `−${weights.lost.toFixed(1)}`
+            : `+${(-weights.lost).toFixed(1)}`,
+      color: colors.cobalt,
+    },
+    { key: 'goal', label: 'GOAL', value: formatWeight(weights.goal, 0), color: colors.navyLight },
   ];
 
   // Hands-free guided session (module-promise handoff, like the food
@@ -144,7 +161,7 @@ export default function ProgressScreen() {
       });
       if (result.canceled || result.assets.length === 0) return;
       const asset = result.assets[0];
-      const label = `Week ${Math.ceil(programDay / 7)}`;
+      const label = programDay === null ? formatDateKey(patient.todayKey) : `Week ${Math.ceil(programDay / 7)}`;
       if (account.kind === 'real') {
         // Signed-in patient: compress here, then hand the prepared bytes to
         // the offline queue. The queued write shows the photo in the grid
@@ -225,13 +242,20 @@ export default function ProgressScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PatientHeader title="Progress" subtitle={`DAY ${programDay} OF YOUR PROGRAM`} />
+      <PatientHeader
+        title="Progress"
+        subtitle={programDay === null ? 'YOUR PROGRESS' : `DAY ${programDay} OF YOUR PROGRAM`}
+      />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
         {/* ── Weight trend ── */}
-        <SectionHeader label="Weight Trend" value={`${currentWeight.toFixed(1)} lbs`} style={{ marginBottom: 8 }} />
+        <SectionHeader
+          label="Weight Trend"
+          value={weights.current === null ? 'No weigh-ins yet' : `${weights.current.toFixed(1)} lbs`}
+          style={{ marginBottom: 8 }}
+        />
         <LedgerCard accentTop style={{ marginBottom: 14 }}>
           <View style={styles.cardBody}>
-            <PatientWeightChart points={patient.weightSeries} goalWeight={PATIENT_PROFILE.goalWeight} />
+            <PatientWeightChart points={patient.weightSeries} goalWeight={weights.goal} />
             <Divider style={{ marginVertical: 12 }} />
             <View style={styles.statsRow}>
               {stats.map((stat, index) => (

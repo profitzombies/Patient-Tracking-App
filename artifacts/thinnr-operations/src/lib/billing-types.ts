@@ -1205,6 +1205,22 @@ export interface BillingModeStatus {
   configuration: Record<'test' | 'live', { configured: boolean; missing: string[]; errors?: string[] }>;
 }
 
+/** One Stripe webhook destination as the server judged it ("unknown" when Stripe could not be asked). */
+export type PaymentsWebhookStatus =
+  | 'missing' | 'wrong_scope' | 'disabled' | 'missing_events' | 'secret_missing'
+  | 'version_unknown' | 'version_mismatch' | 'missing_recommended' | 'ok' | 'unknown';
+
+export interface PaymentsWebhookEndpointHealth {
+  kind: 'platform' | 'connect';
+  url: string;
+  status: PaymentsWebhookStatus;
+  enabled_events: number;
+  missing_events?: string[];
+  missing_recommended_events?: string[];
+  api_version?: string | null;
+  secret_configured?: boolean;
+}
+
 export interface PaymentsHealth {
   sandbox: boolean;
   livemode: boolean;
@@ -1212,8 +1228,13 @@ export interface PaymentsHealth {
   connect_client_id_configured: boolean;
   public_origin: string | null;
   webhooks: {
+    /** The mode these endpoints were read from (the selected payments mode). */
+    mode?: 'test' | 'live';
+    /** True only when both endpoints exist, are on, carry every billing event, have their secret saved and speak the server's API version. */
     registered: boolean;
-    endpoints: Array<{ kind: 'platform' | 'connect'; url: string; enabled_events: number; status: string }>;
+    /** The Stripe API version the server reads events in. */
+    expected_api_version?: string;
+    endpoints: PaymentsWebhookEndpointHealth[];
     last_error: string | null;
     last_checked_at: string | null;
   };

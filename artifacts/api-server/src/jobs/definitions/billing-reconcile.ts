@@ -157,8 +157,8 @@ export async function reconcileBilling(ctx: JobContext): Promise<void> {
   await reconcileSubscriptions(ctx, stripe);
   await replayWebhooks(ctx);
   await syncPayouts(ctx, stripe);
-  // Re-checks that this origin's endpoints still exist in Stripe (a sibling
-  // workspace may have pruned them) and prunes retired-workspace endpoints.
+  // A no-op kept for its call sites: webhook destinations are managed only in
+  // the Stripe Dashboard; the server never creates, deletes or prunes them.
   await ensureBillingWebhookEndpoints();
 }
 

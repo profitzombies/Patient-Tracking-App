@@ -151,7 +151,7 @@ function WarehouseSubmissionsSection({ warehouse, loaded }: { warehouse: SystemH
         >
           {warehouse.tenant_mode === 'live'
             ? 'Warehouse connection: LIVE tenant. Real orders are sent; Stripe test-mode orders are skipped.'
-            : `Warehouse connection: TEST tenant. Stripe test-mode orders are sent to the test warehouse; real (live-mode) orders are held until the live credentials and WAREHOUSECRAFT_TENANT_MODE=live are set.${(warehouse.held ?? 0) > 0 ? ` ${(warehouse.held ?? 0).toLocaleString()} real ${warehouse.held === 1 ? 'order is' : 'orders are'} held right now.` : ''}`}
+            : `Warehouse connection: TEST tenant. Stripe test-mode orders are sent to the test warehouse; real (live-mode) orders are held until WAREHOUSECRAFT_TENANT_MODE=live and the complete live login (WAREHOUSECRAFT_API_BASE_URL, WAREHOUSECRAFT_API_USERNAME, WAREHOUSECRAFT_API_PASSWORD) are set.${(warehouse.held ?? 0) > 0 ? ` ${(warehouse.held ?? 0).toLocaleString()} real ${warehouse.held === 1 ? 'order is' : 'orders are'} held right now.` : ''}`}
         </p>
       )}
       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">

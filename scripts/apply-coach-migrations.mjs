@@ -48,6 +48,9 @@ const migrationNames = [
   // The guided demo is gone: anonymous callers no longer read the demo
   // training roster (is_demo policies dropped).
   "20261203000000_training_drop_demo_roster_policies.sql",
+  // Stripe debits an office's bank with a negative payout when its balance
+  // stays negative; the payout mirror must accept it or the webhook sticks.
+  "20261203000000_billing_payouts_allow_debits.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -265,6 +268,12 @@ await query(`
        -- The retired testing hard-delete wipe must never come back: production
        -- keeps only patient purge, office offboarding, legal holds and retention.
        or to_regprocedure('public.hq_testing_hard_delete(text,uuid)') is not null
+       -- Negative payouts (Stripe debiting an office's bank) must mirror.
+       or exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.billing_payouts'::regclass
+            and contype = 'c' and pg_get_constraintdef(oid) like '%amount_cents >= 0%'
+       )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

@@ -85,9 +85,11 @@ describe("parseWarehouseOrderStatus", () => {
 describe("warehouseStatusClient", () => {
   const fetchMock = vi.fn();
   beforeEach(() => {
-    vi.stubEnv("WAREHOUSECRAFT_API_BASE_URL", "https://tenant.example.test");
-    vi.stubEnv("WAREHOUSECRAFT_API_USERNAME", "user");
-    vi.stubEnv("WAREHOUSECRAFT_API_PASSWORD", "pass");
+    // The test tenant (no live flag) signs in with the NOVEX_API_* login.
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "");
+    vi.stubEnv("NOVEX_API_BASE_URL", "https://tenant.example.test");
+    vi.stubEnv("NOVEX_API_USERNAME", "user");
+    vi.stubEnv("NOVEX_API_PASSWORD", "pass");
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
   });

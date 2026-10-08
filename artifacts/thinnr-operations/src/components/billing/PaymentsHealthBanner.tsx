@@ -1,12 +1,41 @@
 import { useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, XCircle } from 'lucide-react';
 import { usePaymentsHealth } from '@/hooks/use-billing';
-import type { PaymentsHealth } from '@/lib/billing-types';
+import type { PaymentsHealth, PaymentsWebhookEndpointHealth } from '@/lib/billing-types';
+
+/** One plain sentence per webhook destination that needs work in Stripe; null when it is fine (or could not be checked). */
+function endpointProblem(endpoint: PaymentsWebhookEndpointHealth, mode: string, expectedVersion: string | undefined): string | null {
+  const name = `The ${mode} ${endpoint.kind === 'connect' ? 'Connect' : 'platform'} webhook`;
+  const events = (list: string[] | undefined) => (list ?? []).join(', ');
+  switch (endpoint.status) {
+    case 'missing': return `${name} is not set up in Stripe.`;
+    case 'wrong_scope': return endpoint.kind === 'connect'
+      ? `${name} only receives the platform’s own events, so connected-account updates never arrive.`
+      : `${name} receives connected-account events instead of the platform’s own events.`;
+    case 'disabled': return `${name} is turned off in Stripe.`;
+    case 'missing_events': return `${name} is missing required events: ${events(endpoint.missing_events)}.`;
+    case 'secret_missing': return `${name}’s signing secret is not saved here, so its deliveries are rejected.`;
+    case 'version_unknown': return `${name} does not report which Stripe API version it uses, so it could not be checked against ${expectedVersion ?? 'the version payments read'}. Open it in Stripe and confirm it is on ${expectedVersion ?? 'that version'}.`;
+    case 'version_mismatch': return `${name} sends events in Stripe API version ${endpoint.api_version ?? 'unknown'}, but payments read ${expectedVersion ?? 'a newer version'}. Replace it with an endpoint on ${expectedVersion ?? 'that version'}.`;
+    case 'missing_recommended': return `${name} is missing billing events: ${events(endpoint.missing_recommended_events)}.`;
+    default: return null;
+  }
+}
 
 export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth }) {
   const [open, setOpen] = useState(false);
   const problems: string[] = [];
-  if (!health.webhooks.registered) problems.push('Payment webhooks are not registered.');
+  const mode = (health.webhooks.mode ?? (health.sandbox ? 'test' : 'live')) === 'test' ? 'Test' : 'Live';
+  if (!health.public_origin) problems.push('The payments return address is not configured, so Stripe cannot send owners back to THINNR.');
+  if (!health.connect_client_id_configured) problems.push(`The ${mode} Stripe Connect client ID is not set, so owners cannot connect an existing Stripe account.`);
+  if (!health.webhooks.registered) {
+    const endpointProblems = health.webhooks.endpoints
+      .map((endpoint) => endpointProblem(endpoint, mode, health.webhooks.expected_api_version))
+      .filter((problem): problem is string => Boolean(problem));
+    if (health.webhooks.last_error) problems.push(`Stripe webhook settings could not be checked: ${health.webhooks.last_error}`);
+    problems.push(...endpointProblems);
+    if (!health.webhooks.last_error && endpointProblems.length === 0) problems.push('Payment webhooks are not registered.');
+  }
   if (health.pending_orders_over_1h > 0) {
     problems.push(`${health.pending_orders_over_1h} ${health.pending_orders_over_1h === 1 ? 'order is' : 'orders are'} stuck pending.`);
   }
@@ -51,6 +80,15 @@ export function PaymentsHealthBannerView({ health }: { health: PaymentsHealth })
               <div><dt className="font-semibold">Public origin</dt><dd>{health.public_origin ?? 'Not configured'}</dd></div>
               <div><dt className="font-semibold">Last webhook</dt><dd>{health.last_webhook_received_at ?? 'None received'}</dd></div>
               <div><dt className="font-semibold">Failed events, 24 hours</dt><dd>{health.failed_events_24h}</dd></div>
+              {health.webhooks.expected_api_version && (
+                <div><dt className="font-semibold">Stripe API version</dt><dd>{health.webhooks.expected_api_version}</dd></div>
+              )}
+              {health.webhooks.endpoints.map((endpoint) => (
+                <div key={endpoint.kind} className="min-w-0">
+                  <dt className="font-semibold">{endpoint.kind === 'connect' ? 'Connect' : 'Platform'} webhook</dt>
+                  <dd className="break-all">{endpoint.url || 'Unknown'} · {endpoint.api_version ?? 'version unknown'}</dd>
+                </div>
+              ))}
               {health.stripe_customer_emails && (
                 <div>
                   <dt className="font-semibold">Stripe customer emails</dt>

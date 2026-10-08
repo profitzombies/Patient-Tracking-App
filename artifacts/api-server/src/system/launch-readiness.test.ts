@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { checkLaunchReadiness, REQUIRED_CONNECT_EVENTS, type ReadinessDeps } from "./launch-readiness";
-import { BILLING_WEBHOOK_EVENTS } from "../billing/webhook-endpoints";
+import { BILLING_WEBHOOK_EVENTS, EXPECTED_STRIPE_API_VERSION } from "../billing/webhook-endpoints";
 import { BillingConfigError } from "../billing/stripe-client";
+import { warehouseCraftConfig } from "../shipping/warehousecraft";
 
 const ORIGIN = "https://app.example.test";
+const WAREHOUSE = "https://wc.example.test";
+const WAREHOUSE_AUTH = "Basic d2hzZWNyZXQ=";
+const TEST_LOGIN = { NOVEX_API_BASE_URL: "https://novex.example.test", NOVEX_API_USERNAME: "novex-user", NOVEX_API_PASSWORD: "novex-pass" };
+const LIVE_LOGIN = { WAREHOUSECRAFT_API_BASE_URL: "https://live.example.test", WAREHOUSECRAFT_API_USERNAME: "live-user", WAREHOUSECRAFT_API_PASSWORD: "live-pass" };
+const basic = (user: string, pass: string) => `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
 
 function goodEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -29,6 +35,8 @@ function endpointsFor(mode: "live" | "test", overrides: Partial<Record<"platform
     return [{
       url: `${ORIGIN}/api/billing/webhooks/${mode}/${kind}`, status: "enabled", application: kind === "connect" ? "ca_test" : null,
       enabled_events: [...BILLING_WEBHOOK_EVENTS[kind], ...(kind === "connect" ? ["account.application.deauthorized"] : [])],
+      // Destinations created for this server are pinned to its API version.
+      api_version: EXPECTED_STRIPE_API_VERSION,
       ...overrides[kind],
     }];
   });
@@ -53,6 +61,8 @@ function deps(over: Partial<ReadinessDeps> & { endpoints?: Record<"live" | "test
     stripe: async (mode) => ({ webhookEndpoints: { list: list[mode] } }) as never,
     origin: () => ORIGIN,
     now: () => new Date("2026-09-25T12:00:00Z"),
+    warehouse: () => ({ orderApiBaseUrl: WAREHOUSE, authorization: WAREHOUSE_AUTH }),
+    catalogGaps: async () => [],
   };
   return { deps: { ...base, ...over }, fetchMock, list };
 }
@@ -210,6 +220,161 @@ describe("provider launch readiness", () => {
   it("never echoes secret values", async () => {
     const { deps: d } = deps();
     const text = JSON.stringify(await checkLaunchReadiness(d));
-    for (const secret of ["re_test", "whsec_p", "whsec_c", "tok"]) expect(text).not.toContain(secret);
+    for (const secret of ["re_test", "whsec_p", "whsec_c", "tok", WAREHOUSE_AUTH, "d2hzZWNyZXQ"]) expect(text).not.toContain(secret);
+  });
+
+  it("fails a platform endpoint without the office-access events and lists the exact events to add", async () => {
+    const result = await checkLaunchReadiness(deps({ endpoints: {
+      live: endpointsFor("live", { platform: { enabled_events: ["account.application.deauthorized"] }, connect: null }), test: endpointsFor("test"),
+    } }).deps);
+    const platform = byId(result, "live_webhook_platform");
+    expect(platform.status).toBe("fail");
+    expect(platform.detail).toContain("payment_intent.succeeded, payment_intent.payment_failed, charge.dispute.created, setup_intent.succeeded, setup_intent.setup_failed");
+    const connect = byId(result, "live_webhook_connect");
+    for (const event of [...BILLING_WEBHOOK_EVENTS.connect, "account.application.deauthorized"]) expect(connect.fix).toContain(event);
+    expect(connect.fix).toContain(EXPECTED_STRIPE_API_VERSION);
+  });
+
+  it("fails an endpoint pinned to an older API version and explains the replacement", async () => {
+    const result = await checkLaunchReadiness(deps({ endpoints: {
+      live: endpointsFor("live", { platform: { api_version: "2025-08-27.basil" } }), test: endpointsFor("test"),
+    } }).deps);
+    const check = byId(result, "live_webhook_platform");
+    expect(check.status).toBe("fail");
+    expect(check.detail).toContain("2025-08-27.basil");
+    expect(check.detail).not.toContain("account default");
+    expect(check.fix).toContain(`API version ${EXPECTED_STRIPE_API_VERSION}`);
+    expect(check.fix).toContain("STRIPE_LIVE_PLATFORM_WEBHOOK_SECRET");
+    expect(check.fix).toContain("delete the old endpoint");
+    expect(check.copyValue).toBe(`${ORIGIN}/api/billing/webhooks/live/platform`);
+    expect(byId(result, "live_webhook_connect").status).toBe("pass");
+  });
+
+  it("judges unpinned endpoints by the account's own event version", async () => {
+    const eventsList = vi.fn(async () => ({ data: [{ api_version: "2025-08-27.basil" }] }));
+    const lists = { live: endpointsFor("live", { platform: { api_version: null }, connect: { api_version: null } }), test: endpointsFor("test") };
+    const { deps: d } = deps({
+      stripe: async (mode) => ({ webhookEndpoints: { list: async () => ({ data: lists[mode] }) }, events: { list: eventsList } }) as never,
+    });
+    const result = await checkLaunchReadiness(d);
+    expect(byId(result, "live_webhook_connect")).toMatchObject({ status: "fail" });
+    expect(byId(result, "live_webhook_connect").detail).toContain("(the account default)");
+    expect(eventsList).toHaveBeenCalledWith({ limit: 1 });
+  });
+
+  it("asks for a manual check, never a pass, when an unpinned endpoint's version cannot be read", async () => {
+    const eventsList = vi.fn(async () => ({ data: [] }));
+    const lists = { live: endpointsFor("live", { connect: { api_version: null } }), test: endpointsFor("test") };
+    const { deps: d } = deps({
+      stripe: async (mode) => ({ webhookEndpoints: { list: async () => ({ data: lists[mode] }) }, events: { list: eventsList } }) as never,
+    });
+    const result = await checkLaunchReadiness(d);
+    const check = byId(result, "live_webhook_connect");
+    expect(check.status).toBe("warn");
+    expect(check.detail).toContain(`could not be compared with ${EXPECTED_STRIPE_API_VERSION}`);
+    expect(check.fix).toContain(`confirm its API version is ${EXPECTED_STRIPE_API_VERSION}`);
+    expect(check.fix).toContain("STRIPE_LIVE_CONNECT_WEBHOOK_SECRET");
+    expect(check.copyValue).toBe(`${ORIGIN}/api/billing/webhooks/live/connect`);
+    expect(byId(result, "live_webhook_platform").status).toBe("pass");
+    // Without an events reader at all the result is the same.
+    const noEvents = await checkLaunchReadiness(deps({ endpoints: { live: endpointsFor("live", { connect: { api_version: "" } }), test: endpointsFor("test") } }).deps);
+    expect(byId(noEvents, "live_webhook_connect").status).toBe("warn");
+  });
+
+  describe("warehouse", () => {
+    it("checks the connection with one read-only status lookup", async () => {
+      const { deps: d, fetchMock } = deps();
+      const result = await checkLaunchReadiness(d);
+      expect(byId(result, "warehouse_connection")).toMatchObject({ section: "warehouse", status: "pass" });
+      const call = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).find(([url]) => String(url).startsWith(WAREHOUSE));
+      expect(call?.[0]).toBe(`${WAREHOUSE}/api/OrderStatusDatas?clientOrderId=THINNR-READINESS-PROBE`);
+      expect(call?.[1].method ?? "GET").toBe("GET");
+      expect((call?.[1].headers as Record<string, string>).Authorization).toBe(WAREHOUSE_AUTH);
+    });
+
+    it("fails missing or rejected credentials and unexpected answers", async () => {
+      const missing = await checkLaunchReadiness(deps({ warehouse: () => ({ orderApiBaseUrl: WAREHOUSE, authorization: null }) }).deps);
+      expect(byId(missing, "warehouse_connection")).toMatchObject({ status: "fail" });
+      // Development is on the test tenant, so the fix names the test login.
+      expect(byId(missing, "warehouse_connection").fix).toContain("NOVEX_API_USERNAME");
+      expect(byId(missing, "warehouse_connection").fix).not.toContain("WAREHOUSECRAFT_API_USERNAME");
+      const answer = (status: number) => vi.fn(async (input: string | URL | Request) => String(input).startsWith(WAREHOUSE)
+        ? new Response("", { status }) : new Response(JSON.stringify({ data: [{ name: "mail.example.test", status: "verified" }] }), { status: 200 }));
+      const rejected = await checkLaunchReadiness(deps({ fetch: answer(401) as unknown as typeof fetch }).deps);
+      expect(byId(rejected, "warehouse_connection")).toMatchObject({ status: "fail", detail: "WarehouseCraft rejected the test login (NOVEX_API_*)." });
+      const broken = await checkLaunchReadiness(deps({ fetch: answer(500) as unknown as typeof fetch }).deps);
+      expect(byId(broken, "warehouse_connection")).toMatchObject({ status: "fail", detail: "WarehouseCraft answered the status lookup with HTTP 500." });
+    });
+
+    it("keeps development on the test tenant", async () => {
+      expect(byId(await checkLaunchReadiness(deps().deps), "warehouse_tenant").status).toBe("pass");
+      const env = { ...goodEnv(), WAREHOUSECRAFT_TENANT_MODE: "live" };
+      const dev = byId(await checkLaunchReadiness(deps({ env }).deps), "warehouse_tenant");
+      expect(dev.status).toBe("fail");
+      expect(dev.fix).toContain("Remove WAREHOUSECRAFT_TENANT_MODE from the development environment");
+      const devLive = byId(await checkLaunchReadiness(deps({ env: { ...env, ...LIVE_LOGIN } }).deps), "warehouse_tenant");
+      expect(devLive).toMatchObject({ status: "fail", detail: "This development copy is set to the live warehouse tenant, so real orders could ship from development." });
+    });
+
+    it("sends real orders from the published app only once it is on the live tenant", async () => {
+      const published = { ...goodEnv(), REPLIT_DEPLOYMENT: "1" };
+      const liveTenant = { ...published, ...LIVE_LOGIN, WAREHOUSECRAFT_TENANT_MODE: "live" };
+      expect(byId(await checkLaunchReadiness(deps({ env: liveTenant }).deps), "warehouse_tenant").status).toBe("pass");
+      const heldLive = byId(await checkLaunchReadiness(deps({ env: published }).deps), "warehouse_tenant");
+      expect(heldLive.status).toBe("fail");
+      expect(heldLive.fix).toContain("WAREHOUSECRAFT_TENANT_MODE=live");
+      const testMode = byId(await checkLaunchReadiness(deps({ env: published, billingMode: async () => ({ mode: "test" }) }).deps), "warehouse_tenant");
+      expect(testMode.status).toBe("warn");
+      const unreadable = byId(await checkLaunchReadiness(deps({ env: published, billingMode: async () => { throw new Error("db down"); } }).deps), "warehouse_tenant");
+      expect(unreadable.status).toBe("warn");
+    });
+
+    it("is live only with the flag and the complete live login, and probes with exactly that tenant's login", async () => {
+      const published = { ...goodEnv(), REPLIT_DEPLOYMENT: "1", ...TEST_LOGIN };
+      const probeOf = (fetchMock: ReturnType<typeof deps>["fetchMock"]) =>
+        (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>).filter(([url]) => String(url).includes("/api/OrderStatusDatas"));
+
+      // The flag with only the test login: real orders stay held, the missing names are listed, and the probe stays on the test tenant.
+      const flagOnly = deps({ env: { ...published, WAREHOUSECRAFT_TENANT_MODE: "live" }, warehouse: warehouseCraftConfig });
+      const flagResult = await checkLaunchReadiness(flagOnly.deps);
+      const held = byId(flagResult, "warehouse_tenant");
+      expect(held.status).toBe("fail");
+      expect(held.detail).toContain("the live WarehouseCraft login is incomplete (WAREHOUSECRAFT_API_BASE_URL, WAREHOUSECRAFT_API_USERNAME, WAREHOUSECRAFT_API_PASSWORD not set)");
+      expect(held.fix).toContain("Save WAREHOUSECRAFT_API_BASE_URL, WAREHOUSECRAFT_API_USERNAME, WAREHOUSECRAFT_API_PASSWORD for the published app");
+      expect(byId(flagResult, "warehouse_connection")).toMatchObject({ status: "pass", detail: "Signed in to the test warehouse tenant with its test login (NOVEX_API_*) using a read-only status lookup." });
+      expect(probeOf(flagOnly.fetchMock)).toHaveLength(1);
+      expect(probeOf(flagOnly.fetchMock)[0][0]).toBe("https://novex.example.test/api/OrderStatusDatas?clientOrderId=THINNR-READINESS-PROBE");
+      expect((probeOf(flagOnly.fetchMock)[0][1].headers as Record<string, string>).Authorization).toBe(basic("novex-user", "novex-pass"));
+      // A partial live login is still incomplete and names only what is missing.
+      const partial = await checkLaunchReadiness(deps({ env: { ...published, ...LIVE_LOGIN, WAREHOUSECRAFT_API_PASSWORD: "", WAREHOUSECRAFT_TENANT_MODE: "live" }, warehouse: warehouseCraftConfig }).deps);
+      expect(byId(partial, "warehouse_tenant").detail).toContain("(WAREHOUSECRAFT_API_PASSWORD not set)");
+
+      // The complete live login with the flag: live tenant, probed with the live login only.
+      const complete = deps({ env: { ...published, ...LIVE_LOGIN, WAREHOUSECRAFT_TENANT_MODE: "live" }, warehouse: warehouseCraftConfig });
+      const completeResult = await checkLaunchReadiness(complete.deps);
+      expect(byId(completeResult, "warehouse_tenant").status).toBe("pass");
+      expect(byId(completeResult, "warehouse_connection")).toMatchObject({ status: "pass", detail: "Signed in to the live warehouse tenant with its live login (WAREHOUSECRAFT_API_*) using a read-only status lookup." });
+      expect(probeOf(complete.fetchMock)).toHaveLength(1);
+      expect(probeOf(complete.fetchMock)[0][0]).toBe("https://live.example.test/api/OrderStatusDatas?clientOrderId=THINNR-READINESS-PROBE");
+      expect((probeOf(complete.fetchMock)[0][1].headers as Record<string, string>).Authorization).toBe(basic("live-user", "live-pass"));
+
+      // A saved live login without the flag is not used: the test tenant keeps its own login.
+      const noFlag = deps({ env: { ...published, ...LIVE_LOGIN }, warehouse: warehouseCraftConfig });
+      await checkLaunchReadiness(noFlag.deps);
+      expect(probeOf(noFlag.fetchMock)[0][0]).toBe("https://novex.example.test/api/OrderStatusDatas?clientOrderId=THINNR-READINESS-PROBE");
+      expect((probeOf(noFlag.fetchMock)[0][1].headers as Record<string, string>).Authorization).toBe(basic("novex-user", "novex-pass"));
+    });
+
+    it("fails products without a SKU and warns about missing weights, naming at most five", async () => {
+      const names = ["A", "B", "C", "D", "E", "F", "G"];
+      const noSku = await checkLaunchReadiness(deps({ catalogGaps: async () => names.map((name) => ({ name, missingSku: true, missingWeight: name === "A" })) }).deps);
+      const catalog = byId(noSku, "warehouse_catalog");
+      expect(catalog.status).toBe("fail");
+      expect(catalog.detail).toBe("7 active products have no WarehouseCraft SKU, so their orders cannot be sent to the warehouse: A, B, C, D, E and 2 more. 1 also lacks a shipping weight.");
+      const noWeight = await checkLaunchReadiness(deps({ catalogGaps: async () => [{ name: "Fiber", missingSku: false, missingWeight: true }] }).deps);
+      expect(byId(noWeight, "warehouse_catalog")).toMatchObject({ status: "warn", detail: "1 active product has no shipping weight, so shipping falls back to the flat charge: Fiber." });
+      const failed = await checkLaunchReadiness(deps({ catalogGaps: async () => { throw new Error("secret detail"); } }).deps);
+      expect(byId(failed, "warehouse_catalog")).toMatchObject({ status: "fail", detail: "The product catalog could not be read." });
+    });
   });
 });

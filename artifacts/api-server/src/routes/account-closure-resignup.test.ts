@@ -41,7 +41,7 @@ const TABLES = [
   "patient_check_ins", "patient_flags", "patient_medications", "patient_medication_dose_logs",
   "patient_write_receipts", "patient_chat_conversations", "patient_staff_weights",
   "billing_subscriptions", "billing_payers", "billing_connected_accounts", "legal_holds",
-  "practice_launch",
+  "practice_launch", "patient_group_members",
 ];
 
 /** The personal families the closure RPC deletes (subset that exists in this fake). */

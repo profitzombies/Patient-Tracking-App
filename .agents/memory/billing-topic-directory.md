@@ -22,3 +22,4 @@ The detailed durable lessons remain in the original topic pages:
 - [WarehouseCraft shipping rates](warehousecraft-shipping-rates.md)
 - [WarehouseCraft order submission](warehousecraft-order-submission.md)
 - [WarehouseCraft status feed sync](warehousecraft-status-sync.md)
+- [Stripe Live switch](stripe-live-switch.md)

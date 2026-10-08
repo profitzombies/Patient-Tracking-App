@@ -8,7 +8,8 @@
  * needs one deliberately narrow exception. It opens only when BOTH hold:
  *
  *   1. the warehouse connection points at the SANDBOX tenant
- *      (WAREHOUSECRAFT_TENANT_MODE is not live), and
+ *      (warehouseTenantMode() is "test": no live flag, or a live flag without
+ *      the complete live login), and
  *   2. an explicit, time-bounded verification row names THIS order id.
  *
  * Everything else is unchanged: a live-tenant connection never sends a sandbox

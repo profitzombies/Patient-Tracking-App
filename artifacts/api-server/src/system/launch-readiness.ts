@@ -13,17 +13,24 @@
 import Stripe from "stripe";
 import { publicOrigin } from "../billing/app-origin";
 import { getBillingModeSelection } from "../billing/mode-state";
+import { selectMany } from "../billing/store";
 import * as stripeClient from "../billing/stripe-client";
 import { getStripe, getStripeCredentials } from "../billing/stripe-client";
 import type { StripeMode } from "../billing/stripe-environment";
-import { BILLING_WEBHOOK_EVENTS } from "../billing/webhook-endpoints";
+import {
+  accountDefaultApiVersion, evaluateWebhookEndpoint, EXPECTED_STRIPE_API_VERSION,
+  recommendedWebhookEvents, requiredWebhookEvents,
+} from "../billing/webhook-endpoints";
 import { resolvePatientInviteLink, suggestedPatientInviteUrl } from "../lib/patient-invite-link";
+import {
+  LIVE_WAREHOUSE_LOGIN, TEST_WAREHOUSE_LOGIN, missingLiveWarehouseLogin, requestedWarehouseTenant, warehouseCraftConfig, warehouseTenantMode,
+} from "../shipping/warehousecraft";
 
 export type ReadinessStatus = "pass" | "warn" | "fail" | "manual";
 
 export interface ReadinessCheck {
   id: string;
-  section: "app" | "stripe_live" | "stripe_test" | "email" | "sms";
+  section: "app" | "stripe_live" | "stripe_test" | "warehouse" | "email" | "sms";
   label: string;
   status: ReadinessStatus;
   /** What was found, in plain language. */
@@ -40,26 +47,38 @@ export interface LaunchReadiness {
   checks: ReadinessCheck[];
 }
 
-/** Events a Connect endpoint must carry for setup status to update on its own. */
-export const REQUIRED_CONNECT_EVENTS = ["account.updated", "capability.updated"] as const;
-/**
- * Stripe delivers a connected account's "disconnected from your platform"
- * notice to Connect endpoints; the app handles it on either endpoint, so it
- * is recommended here (a warning when absent) rather than required.
- */
-const RECOMMENDED_CONNECT_EVENTS = [...BILLING_WEBHOOK_EVENTS.connect, "account.application.deauthorized"] as const;
+export { REQUIRED_CONNECT_EVENTS } from "../billing/webhook-endpoints";
 const VENDOR_TIMEOUT_MS = 8_000;
+/** A client order id no real order can carry (real ones are 8 characters). */
+const WAREHOUSE_PROBE_ORDER_ID = "THINNR-READINESS-PROBE";
 
 export interface ReadinessDeps {
   env: NodeJS.ProcessEnv;
   fetch: typeof fetch;
   billingMode: () => Promise<{ mode: StripeMode }>;
   /** Verified Stripe client for a mode; throws when keys are missing or the account mismatches. */
-  stripe: (mode: StripeMode) => Promise<Pick<Stripe, "webhookEndpoints">>;
+  stripe: (mode: StripeMode) => Promise<Pick<Stripe, "webhookEndpoints"> & Partial<Pick<Stripe, "events">>>;
   /** Throws when the mode's key trio is missing or malformed. */
   credentials: (mode: StripeMode) => Promise<unknown>;
   origin: () => string;
   now: () => Date;
+  /** WarehouseCraft order API address and auth header for the tenant `env` selects; the header is sent, never reported. */
+  warehouse: (env: NodeJS.ProcessEnv) => { orderApiBaseUrl: string | null; authorization: string | null };
+  /** Active catalog products missing what the warehouse needs to ship them. */
+  catalogGaps: () => Promise<CatalogGap[]>;
+}
+
+export interface CatalogGap { name: string; missingSku: boolean; missingWeight: boolean }
+
+async function activeCatalogGaps(): Promise<CatalogGap[]> {
+  const rows = await selectMany("billing_products", "active=eq.true&select=name,warehousecraft_sku,shipping_weight_oz&order=sort_order.asc,name.asc");
+  return rows
+    .map((row) => ({
+      name: String(row.name ?? "Unnamed product"),
+      missingSku: !String(row.warehousecraft_sku ?? "").trim(),
+      missingWeight: !(Number(row.shipping_weight_oz) > 0),
+    }))
+    .filter((gap) => gap.missingSku || gap.missingWeight);
 }
 
 const defaultDeps: ReadinessDeps = {
@@ -70,6 +89,8 @@ const defaultDeps: ReadinessDeps = {
   credentials: getStripeCredentials,
   origin: publicOrigin,
   now: () => new Date(),
+  warehouse: warehouseCraftConfig,
+  catalogGaps: activeCatalogGaps,
 };
 
 /**
@@ -253,7 +274,7 @@ async function stripeChecks(deps: ReadinessDeps, mode: StripeMode): Promise<Read
       fix: "Set BILLING_PUBLIC_ORIGIN first." });
 
   // Keys + platform identity.
-  let stripe: Pick<Stripe, "webhookEndpoints"> | null = null;
+  let stripe: Awaited<ReturnType<ReadinessDeps["stripe"]>> | null = null;
   try {
     await deps.credentials(mode);
     stripe = await deps.stripe(mode);
@@ -272,10 +293,13 @@ async function stripeChecks(deps: ReadinessDeps, mode: StripeMode): Promise<Read
   }));
   let endpoints: Stripe.WebhookEndpoint[] | null = null;
   let listError: string | null = null;
+  let accountDefault: string | null = null;
   if (stripe) {
     try {
       const page = await stripe.webhookEndpoints.list({ limit: 100 });
       endpoints = page.data;
+      // Unpinned endpoints receive events in the account's default version.
+      if (endpoints.some((endpoint) => !endpoint.api_version)) accountDefault = await accountDefaultApiVersion(stripe);
     } catch (error) {
       listError = message(error, "Stripe webhook endpoints could not be listed.");
     }
@@ -285,8 +309,8 @@ async function stripeChecks(deps: ReadinessDeps, mode: StripeMode): Promise<Read
     const label = `${Label} ${kind === "connect" ? "Connect" : "platform"} webhook`;
     let url: string | null = null;
     try { url = `${deps.origin()}/api/billing/webhooks/${mode}/${kind}`; } catch { url = null; }
-    const required: readonly string[] = kind === "connect" ? REQUIRED_CONNECT_EVENTS : BILLING_WEBHOOK_EVENTS.platform;
-    const recommended: readonly string[] = kind === "connect" ? RECOMMENDED_CONNECT_EVENTS : [];
+    const required = requiredWebhookEvents(kind);
+    const recommended = recommendedWebhookEvents(kind);
     const where = kind === "connect"
       ? "Stripe → Developers → Webhooks → Add endpoint → \"Events on Connected accounts\""
       : "Stripe → Developers → Webhooks → Add endpoint → \"Events on Your account\"";
@@ -300,39 +324,154 @@ async function stripeChecks(deps: ReadinessDeps, mode: StripeMode): Promise<Read
         fix: "Fix the Stripe keys above, then re-run this check.", copyValue: url });
       continue;
     }
-    const match = endpoints.find((endpoint) => endpoint.url.replace(/\/$/, "") === url);
-    if (!match) {
-      checks.push({ id, section, label, status: "fail",
-        detail: "Stripe has no webhook endpoint pointing at this site, so setup status will not update on its own.",
-        fix: `In ${mode} mode, ${where}, use this URL, select ${[...required].join(", ")}${recommended.length ? " (and the other billing events listed in the handoff)" : ""}, then save its signing secret as ${name}.`,
-        copyValue: url });
-      continue;
+    const result = evaluateWebhookEndpoint({ kind, url, endpoints, secretSet: set, accountDefaultVersion: accountDefault });
+    const allEvents = [...new Set([...required, ...recommended])];
+    switch (result.verdict) {
+      case "missing":
+        checks.push({ id, section, label, status: "fail",
+          detail: "Stripe has no webhook endpoint pointing at this site, so setup status will not update on its own.",
+          fix: `In ${mode} mode, ${where}, choose API version ${EXPECTED_STRIPE_API_VERSION}, use this URL, select ${allEvents.join(", ")}, then save its signing secret as ${name}.`,
+          copyValue: url });
+        break;
+      case "wrong_scope":
+        checks.push(kind === "connect"
+          ? { id, section, label, status: "fail", detail: "The endpoint only receives your platform's own events, so connected-account updates never arrive.", fix: `Delete it and re-add it via ${where}.`, copyValue: url }
+          : { id, section, label, status: "fail", detail: "The endpoint receives connected-account events instead of your platform's own events.", fix: `Delete it and re-add it via ${where}.`, copyValue: url });
+        break;
+      case "disabled":
+        checks.push({ id, section, label, status: "fail", detail: `The endpoint exists but Stripe reports it as ${result.endpoint?.status ?? "not enabled"}.`, fix: "Enable the endpoint in Stripe → Developers → Webhooks.", copyValue: url });
+        break;
+      case "missing_events":
+        checks.push({ id, section, label, status: "fail", detail: `The endpoint is missing required events: ${result.missingRequired.join(", ")}.`, fix: "Edit the endpoint in Stripe and add those events.", copyValue: url });
+        break;
+      case "secret_missing":
+        checks.push({ id, section, label, status: "fail", detail: `The endpoint exists, but ${name} is not set, so its deliveries will be rejected.`, fix: `Reveal the endpoint's signing secret in Stripe and save it as ${name}.`, copyValue: url });
+        break;
+      case "version_mismatch":
+        // Stripe fixes an endpoint's version when it is created, so the only
+        // repair is a replacement destination on the right version.
+        checks.push({ id, section, label, status: "fail",
+          detail: `Stripe sends this endpoint's events in API version ${result.apiVersion}${result.apiVersionSource === "account_default" ? " (the account default)" : ""}, but this server reads ${EXPECTED_STRIPE_API_VERSION}, so payment updates can be misread.`,
+          fix: `In ${mode} mode, ${where}, choose API version ${EXPECTED_STRIPE_API_VERSION}, use this same URL and select ${allEvents.join(", ")}. Save the new signing secret as ${name}, then delete the old endpoint.`,
+          copyValue: url });
+        break;
+      case "version_unknown":
+        // Unpinned endpoints follow the account default, which Stripe only
+        // shows on events; with none to read, the version cannot be judged.
+        checks.push({ id, section, label, status: "warn",
+          detail: result.apiVersionSource === "endpoint"
+            ? `Stripe reports this endpoint's API version as "${result.apiVersion}", which is not a version this check can read, so it could not be compared with ${EXPECTED_STRIPE_API_VERSION}.`
+            : `Stripe did not say which API version this endpoint's events use (it is not pinned to one and the account has no recent events to read it from), so it could not be compared with ${EXPECTED_STRIPE_API_VERSION}.`,
+          fix: `In ${mode} mode, open Stripe → Developers → Webhooks → this endpoint and confirm its API version is ${EXPECTED_STRIPE_API_VERSION}. If it shows another version, replace it: ${where}, choose API version ${EXPECTED_STRIPE_API_VERSION}, use this same URL and select ${allEvents.join(", ")}. Save the new signing secret as ${name}, then delete the old endpoint.`,
+          copyValue: url });
+        break;
+      case "missing_recommended":
+        checks.push({ id, section, label, status: "warn",
+          detail: `Setup updates will work, but ${result.missingRecommended.length} billing event${result.missingRecommended.length === 1 ? " is" : "s are"} not selected: ${result.missingRecommended.join(", ")}.`,
+          fix: "Add those events to the endpoint so orders, refunds, payouts and disconnects stay in sync.", copyValue: url });
+        break;
+      case "ok":
+        checks.push({ id, section, label, status: "pass", detail: "Enabled with the required events, and its signing secret is set.", fix: null, copyValue: url });
+        break;
     }
-    const events = new Set(match.enabled_events);
-    const all = events.has("*");
-    const missing = all ? [] : required.filter((event) => !events.has(event));
-    const missingRecommended = all ? [] : recommended.filter((event) => !events.has(event) && !required.includes(event));
-    // Stripe marks endpoints for connected-account events with the Connect
-    // application id; platform endpoints carry none. A mix-up would leave
-    // office setup status (Connect account.updated) never arriving.
-    const receivesConnect = Boolean(match.application);
-    if (kind === "connect" && !receivesConnect) {
-      checks.push({ id, section, label, status: "fail", detail: "The endpoint only receives your platform's own events, so connected-account updates never arrive.", fix: `Delete it and re-add it via ${where}.`, copyValue: url });
-    } else if (kind === "platform" && receivesConnect) {
-      checks.push({ id, section, label, status: "fail", detail: "The endpoint receives connected-account events instead of your platform's own events.", fix: `Delete it and re-add it via ${where}.`, copyValue: url });
-    } else if (match.status !== "enabled") {
-      checks.push({ id, section, label, status: "fail", detail: `The endpoint exists but Stripe reports it as ${match.status}.`, fix: "Enable the endpoint in Stripe → Developers → Webhooks.", copyValue: url });
-    } else if (missing.length) {
-      checks.push({ id, section, label, status: "fail", detail: `The endpoint is missing required events: ${missing.join(", ")}.`, fix: "Edit the endpoint in Stripe and add those events.", copyValue: url });
-    } else if (!set) {
-      checks.push({ id, section, label, status: "fail", detail: `The endpoint exists, but ${name} is not set, so its deliveries will be rejected.`, fix: `Reveal the endpoint's signing secret in Stripe and save it as ${name}.`, copyValue: url });
-    } else if (missingRecommended.length) {
-      checks.push({ id, section, label, status: "warn",
-        detail: `Setup updates will work, but ${missingRecommended.length} billing event${missingRecommended.length === 1 ? " is" : "s are"} not selected: ${missingRecommended.join(", ")}.`,
-        fix: "Add those events to the endpoint so orders, refunds, payouts and disconnects stay in sync.", copyValue: url });
+  }
+  return checks;
+}
+
+/**
+ * Real orders reach the warehouse only from the published app, only on the
+ * live tenant, and only while payments run Live. Development always stays on
+ * the test tenant. Every vendor call here is a read-only status lookup.
+ */
+async function warehouseChecks(deps: ReadinessDeps, billingMode: StripeMode | null): Promise<ReadinessCheck[]> {
+  const section = "warehouse" as const;
+  const checks: ReadinessCheck[] = [];
+  const published = deps.env.REPLIT_DEPLOYMENT === "1";
+  const requested = requestedWarehouseTenant(deps.env);
+  const missingLive = missingLiveWarehouseLogin(deps.env);
+  // Live only with the flag AND the complete live login; the probe below signs
+  // in with exactly the login that tenant uses (never the other one).
+  const tenant = warehouseTenantMode(deps.env);
+  const config = deps.warehouse(deps.env);
+  const [baseName, usernameName, passwordName] = tenant === "live" ? LIVE_WAREHOUSE_LOGIN : TEST_WAREHOUSE_LOGIN;
+  const loginLabel = tenant === "live" ? "live login (WAREHOUSECRAFT_API_*)" : "test login (NOVEX_API_*)";
+
+  const connection = { id: "warehouse_connection", section, label: "WarehouseCraft connection" };
+  if (!config.orderApiBaseUrl || !config.authorization) {
+    checks.push({ ...connection, status: "fail",
+      detail: `The ${tenant} warehouse tenant's order login is not set, so paid orders cannot be sent to the warehouse.`,
+      fix: `Save the ${tenant} tenant's WarehouseCraft API username, password and order API address as ${usernameName}, ${passwordName} and ${baseName}.` });
+  } else {
+    try {
+      const response = await deps.fetch(`${config.orderApiBaseUrl}/api/OrderStatusDatas?clientOrderId=${WAREHOUSE_PROBE_ORDER_ID}`, {
+        headers: { Accept: "application/json", Authorization: config.authorization }, signal: AbortSignal.timeout(VENDOR_TIMEOUT_MS),
+      });
+      if (response.status === 401 || response.status === 403) {
+        checks.push({ ...connection, status: "fail", detail: `WarehouseCraft rejected the ${loginLabel}.`,
+          fix: "Check the WarehouseCraft API username and password with WarehouseCraft support, then save them again." });
+      } else if (response.status === 404 || response.ok) {
+        // A signed-in lookup for an order that does not exist answers 404.
+        checks.push({ ...connection, status: "pass", detail: `Signed in to the ${tenant} warehouse tenant with its ${loginLabel} using a read-only status lookup.`, fix: null });
+      } else {
+        checks.push({ ...connection, status: "fail", detail: `WarehouseCraft answered the status lookup with HTTP ${response.status}.`,
+          fix: "Re-run the check in a minute; if it keeps failing, check the WarehouseCraft order API address." });
+      }
+    } catch (error) {
+      checks.push({ ...connection, status: "fail", detail: message(error, "WarehouseCraft could not be reached."),
+        fix: "Re-run the check in a minute; if it keeps failing, check the WarehouseCraft order API address." });
+    }
+  }
+
+  const tenantBase = { id: "warehouse_tenant", section, label: "Warehouse tenant" };
+  const goLive = `Save the live WarehouseCraft login as ${LIVE_WAREHOUSE_LOGIN.join(", ")}, then set WAREHOUSECRAFT_TENANT_MODE=live for the published app only and republish.`;
+  if (!published) {
+    checks.push(requested === "live"
+      ? { ...tenantBase, status: "fail",
+        detail: tenant === "live"
+          ? "This development copy is set to the live warehouse tenant, so real orders could ship from development."
+          : "This development copy has WAREHOUSECRAFT_TENANT_MODE=live. Only the published app may ask for the live tenant.",
+        fix: "Remove WAREHOUSECRAFT_TENANT_MODE from the development environment; only the published app may use the live tenant." }
+      : { ...tenantBase, status: "pass", detail: "Development uses the WarehouseCraft test tenant, so no real order ships from here.", fix: null });
+  } else if (requested === "live" && missingLive.length) {
+    // The flag alone never makes the tenant live: real orders stay held, and
+    // the test tenant's NOVEX_API_* login is never used for them.
+    checks.push({ ...tenantBase, status: "fail",
+      detail: `WAREHOUSECRAFT_TENANT_MODE is live, but the live WarehouseCraft login is incomplete (${missingLive.join(", ")} not set). Real orders are held and nothing ships until it is complete.`,
+      fix: `Save ${missingLive.join(", ")} for the published app with the live tenant's login from WarehouseCraft, then republish.` });
+  } else if (tenant === "live") {
+    checks.push({ ...tenantBase, status: "pass",
+      detail: "The published app sends real orders to the live warehouse tenant with its own login while payments run Live. Test orders are never sent there.", fix: null });
+  } else if (billingMode === "live") {
+    checks.push({ ...tenantBase, status: "fail",
+      detail: "Payments run Live, but the warehouse is on its test tenant, so real orders are held and nothing ships.", fix: goLive });
+  } else {
+    checks.push({ ...tenantBase, status: "warn",
+      detail: "The published app uses the WarehouseCraft test tenant. That is right while payments run in Test; real orders would be held.",
+      fix: `Before switching payments to Live: ${goLive}` });
+  }
+
+  const catalog = { id: "warehouse_catalog", section, label: "Products ready to ship" };
+  try {
+    const gaps = await deps.catalogGaps();
+    const list = (rows: CatalogGap[]) => {
+      const names = rows.slice(0, 5).map((row) => row.name).join(", ");
+      return rows.length > 5 ? `${names} and ${rows.length - 5} more` : names;
+    };
+    const noSku = gaps.filter((gap) => gap.missingSku);
+    const noWeight = gaps.filter((gap) => gap.missingWeight);
+    if (noSku.length) {
+      checks.push({ ...catalog, status: "fail",
+        detail: `${noSku.length} active product${noSku.length === 1 ? " has" : "s have"} no WarehouseCraft SKU, so ${noSku.length === 1 ? "its" : "their"} orders cannot be sent to the warehouse: ${list(noSku)}.${noWeight.length ? ` ${noWeight.length} also ${noWeight.length === 1 ? "lacks" : "lack"} a shipping weight.` : ""}`,
+        fix: "Add each product's SKU (and its shipping weight) in HQ → Payments → Catalog → open the product → Fulfillment." });
+    } else if (noWeight.length) {
+      checks.push({ ...catalog, status: "warn",
+        detail: `${noWeight.length} active product${noWeight.length === 1 ? " has" : "s have"} no shipping weight, so shipping falls back to the flat charge: ${list(noWeight)}.`,
+        fix: "Add each product's shipping weight in HQ → Payments → Catalog → open the product → Fulfillment." });
     } else {
-      checks.push({ id, section, label, status: "pass", detail: "Enabled with the required events, and its signing secret is set.", fix: null, copyValue: url });
+      checks.push({ ...catalog, status: "pass", detail: "Every active product has a WarehouseCraft SKU and a shipping weight.", fix: null });
     }
+  } catch (error) {
+    checks.push({ ...catalog, status: "fail", detail: message(error, "The product catalog could not be read."), fix: "Re-run the check in a minute." });
   }
   return checks;
 }
@@ -412,12 +551,14 @@ async function smsCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
 
 export async function checkLaunchReadiness(overrides: Partial<ReadinessDeps> = {}): Promise<LaunchReadiness> {
   const deps: ReadinessDeps = { ...defaultDeps, ...overrides };
-  const [mode, live, test, email, sms] = await Promise.all([
-    modeCheck(deps), stripeChecks(deps, "live"), stripeChecks(deps, "test"), emailCheck(deps), smsCheck(deps),
+  const modeResult = modeCheck(deps);
+  const [mode, live, test, warehouse, email, sms] = await Promise.all([
+    modeResult, stripeChecks(deps, "live"), stripeChecks(deps, "test"),
+    modeResult.then((result) => warehouseChecks(deps, result.mode)), emailCheck(deps), smsCheck(deps),
   ]);
   return {
     checkedAt: deps.now().toISOString(),
     mode: mode.mode,
-    checks: [...appChecks(deps), mode.check, ...live, ...test, email, sms],
+    checks: [...appChecks(deps), mode.check, ...live, ...test, ...warehouse, email, sms],
   };
 }

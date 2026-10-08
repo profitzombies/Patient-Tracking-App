@@ -13,6 +13,7 @@ description: Conventions for the api-server job scheduler (job runs/leases, uplo
 - Reconciliation flags rows as object-missing (never deletes ledger rows); DTOs expose an unavailable-since field, downloads answer 410, UIs render "File unavailable". Flags clear automatically when the object reappears.
 - Only HQ-runnable jobs get "Run now"; user-only jobs (patient media discards) are refused from HQ and the page says so.
 - The internal tick shares the notification bearer helper (token unset → 404 in dev, so a 404 on the tick route locally is expected).
+- A job that keeps failing backs off (doubling, capped at 6h): a 30-minute job showing ~4 runs/day in production is in backoff, not on schedule. After fixing the cause, prove it at once with a named internal tick (`{ job }` body, internal bearer) — named runs ignore backoff and reset it on success.
 
 **Live Supabase behaviours (unit tests and local PG will NOT catch these):**
 - Supabase runs `pg-safeupdate`: a bare `delete from temp_table;` inside a PL/pgSQL function fails with 21000 at runtime. Use `truncate` (or `where true`).

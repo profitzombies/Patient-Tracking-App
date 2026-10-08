@@ -14,10 +14,11 @@ const SECTION_LABEL: Record<ReadinessSection, string> = {
   app: 'App address',
   stripe_live: 'Stripe — Live',
   stripe_test: 'Stripe — Test',
+  warehouse: 'Warehouse',
   email: 'Email',
   sms: 'Text messages',
 };
-const SECTION_ORDER: ReadinessSection[] = ['app', 'stripe_live', 'stripe_test', 'email', 'sms'];
+const SECTION_ORDER: ReadinessSection[] = ['app', 'stripe_live', 'stripe_test', 'warehouse', 'email', 'sms'];
 
 const STATUS_LABEL: Record<ReadinessStatus, string> = {
   pass: 'Ready', warn: 'Check', fail: 'Fix needed', manual: 'Confirm by hand',

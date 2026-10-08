@@ -67,6 +67,71 @@ const healthyPayments: PaymentsHealth = {
   } else console.log('ok payments health banner states');
   await act(async () => { healthy!.unmount(); problem!.unmount(); emails!.unmount(); });
 }
+{
+  // Live go-live: each webhook destination names its own repair, and the
+  // Connect client id and return address are called out when missing.
+  let live: ReturnType<typeof create> | undefined;
+  let unchecked: ReturnType<typeof create> | undefined;
+  let versionUnknown: ReturnType<typeof create> | undefined;
+  await act(async () => {
+    // An unpinned endpoint on an account with no events yet: its version cannot be read, so it is a check, never healthy.
+    versionUnknown = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments,
+      webhooks: {
+        mode: 'test', registered: false, expected_api_version: '2026-08-26.dahlia', last_error: null, last_checked_at: '2026-10-13T00:00:00Z',
+        endpoints: [
+          { kind: 'platform', url: 'https://example.test/api/billing/webhooks/test/platform', status: 'ok', enabled_events: 12,
+            missing_events: [], missing_recommended_events: [], api_version: '2026-08-26.dahlia', secret_configured: true },
+          { kind: 'connect', url: 'https://example.test/api/billing/webhooks/test/connect', status: 'version_unknown', enabled_events: 21,
+            missing_events: [], missing_recommended_events: [], api_version: null, secret_configured: true },
+        ],
+      },
+    }} />);
+    live = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments, sandbox: false, livemode: true, connect_client_id_configured: false, public_origin: null,
+      webhooks: {
+        mode: 'live', registered: false, expected_api_version: '2026-08-26.dahlia', last_error: null, last_checked_at: '2026-10-13T00:00:00Z',
+        endpoints: [
+          { kind: 'platform', url: 'https://app.example.test/api/billing/webhooks/live/platform', status: 'missing_events', enabled_events: 1,
+            missing_events: ['payment_intent.succeeded', 'setup_intent.succeeded'], missing_recommended_events: [], api_version: '2025-08-27.basil', secret_configured: true },
+          { kind: 'connect', url: 'https://app.example.test/api/billing/webhooks/live/connect', status: 'version_mismatch', enabled_events: 21,
+            missing_events: [], missing_recommended_events: [], api_version: '2025-08-27.basil', secret_configured: true },
+        ],
+      },
+    }} />);
+    unchecked = create(<PaymentsHealthBannerView health={{
+      ...healthyPayments,
+      webhooks: {
+        mode: 'test', registered: false, expected_api_version: '2026-08-26.dahlia', last_error: 'Stripe webhook endpoints could not be listed.', last_checked_at: null,
+        endpoints: [
+          { kind: 'platform', url: 'https://example.test/api/billing/webhooks/test/platform', status: 'unknown', enabled_events: 0 },
+          { kind: 'connect', url: 'https://example.test/api/billing/webhooks/test/connect', status: 'unknown', enabled_events: 0 },
+        ],
+      },
+    }} />);
+  });
+  const liveText = JSON.stringify(live!.toJSON());
+  const uncheckedText = JSON.stringify(unchecked!.toJSON());
+  const versionUnknownText = JSON.stringify(versionUnknown!.toJSON());
+  if (!versionUnknownText.includes('The Test Connect webhook does not report which Stripe API version it uses, so it could not be checked against 2026-08-26.dahlia.')
+    || versionUnknownText.includes('Payment webhooks are not registered.') || versionUnknownText.includes('The Test platform webhook')) {
+    failures += 1;
+    console.error('FAIL payments health banner asks to confirm an unreadable webhook API version', versionUnknownText);
+  } else console.log('ok payments health banner asks to confirm an unreadable webhook API version');
+  const liveExpected = [
+    'The Live platform webhook is missing required events: payment_intent.succeeded, setup_intent.succeeded.',
+    'The Live Connect webhook sends events in Stripe API version 2025-08-27.basil, but payments read 2026-08-26.dahlia.',
+    'The Live Stripe Connect client ID is not set',
+    'The payments return address is not configured',
+  ];
+  if (!liveExpected.every((value) => liveText.includes(value)) || liveText.includes('Payment webhooks are not registered.')
+    || !uncheckedText.includes('Stripe webhook settings could not be checked: Stripe webhook endpoints could not be listed.')
+    || uncheckedText.includes('Payment webhooks are not registered.') || uncheckedText.includes('The Test platform webhook')) {
+    failures += 1;
+    console.error('FAIL payments health banner names each webhook repair', liveText, uncheckedText);
+  } else console.log('ok payments health banner names each webhook repair');
+  await act(async () => { live!.unmount(); unchecked!.unmount(); versionUnknown!.unmount(); });
+}
 async function check(name: string, path: string, Page: React.ComponentType, expected: string[]) {
   const location = memoryLocation({ path });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

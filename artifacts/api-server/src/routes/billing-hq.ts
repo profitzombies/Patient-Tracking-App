@@ -17,7 +17,8 @@ import { stripeRejection } from "../billing/stripe-client";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { getBillingWebhookHealth } from "../billing/webhook-endpoints";
 import { publicOrigin } from "../billing/app-origin";
-import { getConnectClientId, getStripeCredentials } from "../billing/stripe-client";
+import { getConnectClientId, getStripe } from "../billing/stripe-client";
+import { runWithBillingIdentity } from "../billing/stripe-environment";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
 import { AiCostSummaryError, loadAiCostSummary } from "../ai-usage/summary";
 import { getBillingModeSelection, getBillingModeStatus, switchBillingMode } from "../billing/mode-state";
@@ -201,28 +202,50 @@ router.get("/billing/hq/ai-costs", requireHqPermission("financial_read"), async 
     res.status(503).json({ error: "AI cost data is temporarily unavailable." });
   }
 });
-router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_req, res) => {
+/**
+ * Payments health for the SELECTED mode. The billing identity middleware
+ * deliberately skips this route (it must still answer when keys are broken),
+ * so the mode is read here and the scoped ledger reads run under that mode's
+ * identity explicitly.
+ */
+router.get("/billing/hq/health", requireHqPermission("financial_read"), async (req, res) => {
   const hourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
   const dayAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
-  let credentialsOk = true;
-  let sandbox = true;
+  let selection: Awaited<ReturnType<typeof getBillingModeSelection>>;
   try {
-    sandbox = (await getBillingModeStatus()).mode === "test";
-    await getStripeCredentials();
+    selection = await getBillingModeSelection();
+  } catch (error) {
+    req.log?.error({ err: error }, "payments health mode lookup failed");
+    res.status(503).json({ error: "Payments health is temporarily unavailable." });
+    return;
+  }
+  const mode = selection.mode;
+  const sandbox = mode === "test";
+  let credentialsOk = true;
+  let platformAccountId: string | null = selection.platformAccountId;
+  try {
+    // Key trio present and matching the recorded platform, then verified
+    // against Stripe (the client caches that proof for a few minutes).
+    platformAccountId = (await getBillingModeStatus()).platformAccountId;
+    await getStripe(mode);
   } catch {
     credentialsOk = false;
   }
+  let connectClientConfigured = false;
+  try { connectClientConfigured = Boolean(getConnectClientId(mode)); } catch { connectClientConfigured = false; }
   let origin: string | null = null;
   try { origin = publicOrigin(); } catch { /* reported as missing configuration */ }
+  const identity = platformAccountId ? { mode, platformAccountId } : null;
+  const scoped = <T,>(read: () => Promise<T[]>): Promise<T[]> => identity ? runWithBillingIdentity(identity, read) : Promise.resolve([]);
   try {
     const [webhooks, lastEvents, pending, unprocessed, failed, runResult, connected] = await Promise.all([
-      getBillingWebhookHealth(),
-      selectMany("billing_webhook_events", "order=received_at.desc&limit=1"),
-      selectMany("billing_orders", `status=eq.pending&created_at=lt.${encodeURIComponent(hourAgo)}&select=id`),
-      selectMany("billing_webhook_events", "processed_at=is.null&select=stripe_event_id"),
-      selectMany("billing_webhook_events", `error=not.is.null&received_at=gte.${encodeURIComponent(dayAgo)}&select=stripe_event_id`),
+      getBillingWebhookHealth(mode),
+      scoped(() => selectMany("billing_webhook_events", "order=received_at.desc&limit=1")),
+      scoped(() => selectMany("billing_orders", `status=eq.pending&created_at=lt.${encodeURIComponent(hourAgo)}&select=id`)),
+      scoped(() => selectMany("billing_webhook_events", "processed_at=is.null&select=stripe_event_id")),
+      scoped(() => selectMany("billing_webhook_events", `error=not.is.null&received_at=gte.${encodeURIComponent(dayAgo)}&select=stripe_event_id`)),
       supabaseAdmin("GET", "/rest/v1/system_job_runs?job_name=eq.billing-reconcile&order=started_at.desc&limit=1&select=started_at,status"),
-      selectMany("billing_connected_accounts", "disconnected_at=is.null&select=provider_id,stripe_customer_emails"),
+      scoped(() => selectMany("billing_connected_accounts", "disconnected_at=is.null&select=provider_id,stripe_customer_emails")),
     ]);
     const customerEmails = {
       // No charge is ever created on the platform account (every payment is a
@@ -237,7 +260,7 @@ router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_
     const run = Array.isArray(runResult.json) ? runResult.json[0] as any : null;
     res.json({
       sandbox, livemode: credentialsOk && !sandbox, credentials_ok: credentialsOk,
-      connect_client_id_configured: Boolean(getConnectClientId()), public_origin: origin, webhooks,
+      connect_client_id_configured: connectClientConfigured, public_origin: origin, webhooks,
       last_webhook_received_at: lastEvents[0]?.received_at ?? null,
       pending_orders_over_1h: pending.length, unprocessed_webhook_events: unprocessed.length,
       last_reconcile_run: run ? { at: run.started_at, status: run.status } : null,
@@ -245,7 +268,7 @@ router.get("/billing/hq/health", requireHqPermission("financial_read"), async (_
       stripe_customer_emails: customerEmails,
     });
   } catch (error) {
-    _req.log?.error({ err: error }, "payments health lookup failed");
+    req.log?.error({ err: error }, "payments health lookup failed");
     res.status(503).json({ error: "Payments health is temporarily unavailable." });
   }
 });

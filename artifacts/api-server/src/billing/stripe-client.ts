@@ -112,8 +112,8 @@ export async function isSandbox(mode?: StripeMode): Promise<boolean> {
 export async function getPlatformAccountId(mode?: StripeMode): Promise<string> {
   return (await getStripeCredentials(mode)).account_id;
 }
-export function getConnectClientId(): string | null {
-  const value = process.env[`STRIPE_${selectedMode().toUpperCase()}_CONNECT_CLIENT_ID`]?.trim();
+export function getConnectClientId(mode?: StripeMode): string | null {
+  const value = process.env[`STRIPE_${selectedMode(mode).toUpperCase()}_CONNECT_CLIENT_ID`]?.trim();
   if (value && !/^ca_[A-Za-z0-9]+$/.test(value)) throw new BillingConfigError("Stripe Connect client ID is invalid.");
   return value || null;
 }

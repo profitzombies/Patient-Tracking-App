@@ -34,6 +34,7 @@ const CLINICAL_TABLES = new Set([
   "patient_edit_history", // prior values of chart edits stay with the sealed record
   "patient_operational_follow_ups",
   "office_attention_seen",
+  "patient_group_members", // office labels on the chart; kept with the sealed record, removed at final purge
   "billing_orders",
   "billing_subscriptions",
   "billing_payers",

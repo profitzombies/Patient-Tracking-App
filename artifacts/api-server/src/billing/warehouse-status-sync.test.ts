@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobContext } from "../jobs/types";
-import { WarehouseCraftError } from "../shipping/warehousecraft";
+import { LIVE_WAREHOUSE_LOGIN, WarehouseCraftError } from "../shipping/warehousecraft";
 import type { WarehouseOrderStatus, WarehouseParcel, WarehouseStatusClient } from "../shipping/warehousecraft-status";
 
 /** In-memory PostgREST stand-in (eq/in/lt/lte/gte/order/limit) recording every write. */
@@ -110,6 +110,12 @@ import { runWarehouseStatusSync, warehouseStatusSyncJob } from "../jobs/definiti
 import { __setSandboxVerificationsForTests } from "./sandbox-verification";
 import { evaluateThresholds } from "../system/thresholds";
 
+/** A live warehouse tenant needs the flag AND the complete live login (WAREHOUSECRAFT_API_*). */
+const stubLiveWarehouseTenant = () => {
+  vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+  for (const name of LIVE_WAREHOUSE_LOGIN) vi.stubEnv(name, `live-${name.toLowerCase()}`);
+};
+
 const NOW = new Date("2026-09-18T12:00:00.000Z");
 const ADDRESS = { name: "Pat Example", line1: "123 Test Street", line2: null, city: "Memphis", state: "TN", postal_code: "38103", country: "US", phone: null };
 
@@ -216,7 +222,7 @@ describe("applyStatusRow", () => {
       await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("not_submitted");
       expect(ship().status).toBe("processing");
       __setSandboxVerificationsForTests(flag);
-      vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+      stubLiveWarehouseTenant();
       await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("not_submitted");
       vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
       await expect(applyStatusRow(feedRow("Shipped", [parcel()]), { now: () => NOW })).resolves.toBe("transition");

@@ -20,6 +20,13 @@ import {
   runRenewalReminderEvaluation,
 } from "./patient-notices";
 import type { BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
+import { LIVE_WAREHOUSE_LOGIN } from "../shipping/warehousecraft";
+
+/** A live warehouse tenant needs the flag AND the complete live login (WAREHOUSECRAFT_API_*). */
+const stubLiveWarehouseTenant = () => {
+  vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+  for (const name of LIVE_WAREHOUSE_LOGIN) vi.stubEnv(name, `live-${name.toLowerCase()}`);
+};
 
 /** Vendor-visible copy and data must never carry what the row knows: order number, carrier, product, amount, decline reason. */
 function expectPhiFree(row: { title: string; body: string; data: Record<string, unknown> }, forbidden: string[]) {
@@ -74,7 +81,7 @@ describe("order shipped notice", () => {
     vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
     expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(false);
     __setSandboxVerificationsForTests(flag);
-    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    stubLiveWarehouseTenant();
     expect(await inTest(() => notifyOrderShipped({ order: order({ livemode: false }), shipment: shipment() }, store))).toBe(false);
     vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
     // A real order under the flag still follows the live rules.

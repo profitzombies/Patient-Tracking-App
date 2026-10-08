@@ -78,8 +78,8 @@ export class WarehouseCraftError extends Error {
 
 const OUNCES_PER_POUND = 16;
 
-function env(name: string): string | null {
-  const value = process.env[name];
+function env(name: string, source: NodeJS.ProcessEnv = process.env): string | null {
+  const value = source[name];
   return value && value.trim() ? value.trim() : null;
 }
 
@@ -90,27 +90,53 @@ function normalizeBase(raw: string): string {
 
 export type WarehouseTenantMode = "test" | "live";
 
-/**
- * Which warehouse tenant the configured credentials belong to. Defaults to "test":
- * real (Stripe live-mode) orders are HELD until an operator sets
- * WAREHOUSECRAFT_TENANT_MODE=live alongside the live credentials, and Stripe
- * sandbox orders are never sent to a live tenant. Rates and the status poll are
- * read-only and run in either mode.
- */
-export function warehouseTenantMode(): WarehouseTenantMode {
-  const raw = (env("WAREHOUSECRAFT_TENANT_MODE") ?? "test").toLowerCase();
+/** The live tenant's login (order API address, username, password). Real orders use only these. */
+export const LIVE_WAREHOUSE_LOGIN = ["WAREHOUSECRAFT_API_BASE_URL", "WAREHOUSECRAFT_API_USERNAME", "WAREHOUSECRAFT_API_PASSWORD"] as const;
+/** The test tenant's login, in the same order. Never used while the tenant is live. */
+export const TEST_WAREHOUSE_LOGIN = ["NOVEX_API_BASE_URL", "NOVEX_API_USERNAME", "NOVEX_API_PASSWORD"] as const;
+
+/** The tenant WAREHOUSECRAFT_TENANT_MODE asks for: "live" for live/production/prod, otherwise "test". */
+export function requestedWarehouseTenant(source: NodeJS.ProcessEnv = process.env): WarehouseTenantMode {
+  const raw = (source.WAREHOUSECRAFT_TENANT_MODE?.trim() || "test").toLowerCase();
   return raw === "live" || raw === "production" || raw === "prod" ? "live" : "test";
 }
 
-export function warehouseCraftConfig() {
-  const username = env("WAREHOUSECRAFT_API_USERNAME") ?? env("NOVEX_API_USERNAME");
-  const password = env("WAREHOUSECRAFT_API_PASSWORD") ?? env("NOVEX_API_PASSWORD");
-  const orderApi = env("WAREHOUSECRAFT_API_BASE_URL") ?? env("NOVEX_API_BASE_URL");
+/** Names of the live login settings that are still blank. */
+export function missingLiveWarehouseLogin(source: NodeJS.ProcessEnv = process.env): string[] {
+  return LIVE_WAREHOUSE_LOGIN.filter((name) => !env(name, source));
+}
+
+/**
+ * Which warehouse tenant orders go to. Defaults to "test": real (Stripe
+ * live-mode) orders are HELD and Stripe sandbox orders are never sent to a live
+ * tenant. "live" needs BOTH WAREHOUSECRAFT_TENANT_MODE=live and the complete
+ * live login; a live flag with any part of that login blank stays "test", so
+ * real orders keep being held instead of reaching the test tenant through its
+ * NOVEX_API_* login. Rates and the status poll are read-only and run in either
+ * mode.
+ */
+export function warehouseTenantMode(source: NodeJS.ProcessEnv = process.env): WarehouseTenantMode {
+  return requestedWarehouseTenant(source) === "live" && missingLiveWarehouseLogin(source).length === 0 ? "live" : "test";
+}
+
+/**
+ * The order API login for the current tenant. Each tenant uses only its own
+ * login and nothing is mixed: live reads WAREHOUSECRAFT_API_*, test reads
+ * NOVEX_API_*. A saved live login is ignored until the tenant is live, so a
+ * sandbox order or status poll never reaches the live warehouse during setup.
+ */
+export function warehouseCraftConfig(source: NodeJS.ProcessEnv = process.env) {
+  const tenant = warehouseTenantMode(source);
+  const [baseName, usernameName, passwordName] = tenant === "live" ? LIVE_WAREHOUSE_LOGIN : TEST_WAREHOUSE_LOGIN;
+  const username = env(usernameName, source);
+  const password = env(passwordName, source);
+  const orderApi = env(baseName, source);
   return {
-    ratesBaseUrl: normalizeBase(env("WAREHOUSECRAFT_RATES_BASE_URL") ?? "https://api.warehousecraft.com"),
+    tenant,
+    ratesBaseUrl: normalizeBase(env("WAREHOUSECRAFT_RATES_BASE_URL", source) ?? "https://api.warehousecraft.com"),
     orderApiBaseUrl: orderApi ? normalizeBase(orderApi) : null,
     authorization: username && password ? `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` : null,
-    timeoutMs: Math.max(1000, Number(env("WAREHOUSECRAFT_TIMEOUT_MS") ?? "8000") || 8000),
+    timeoutMs: Math.max(1000, Number(env("WAREHOUSECRAFT_TIMEOUT_MS", source) ?? "8000") || 8000),
   };
 }
 

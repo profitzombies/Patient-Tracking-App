@@ -11,8 +11,9 @@
  *   into `needs_attention` once the attempt budget is spent so nothing retries forever.
  * The HQ kill switch (billing_settings.warehouse_auto_submit) pauses the drain; intents keep
  * accumulating and resume untouched when it is switched back on.
- * Tenant guard (see tenantVerdict): real orders are held while WAREHOUSECRAFT_TENANT_MODE is
- * not "live"; Stripe sandbox orders are skipped once it is.
+ * Tenant guard (see tenantVerdict): real orders are held until the tenant is live
+ * (WAREHOUSECRAFT_TENANT_MODE=live AND the complete WAREHOUSECRAFT_API_* login, see
+ * warehouseTenantMode); Stripe sandbox orders are skipped once it is.
  */
 import {
   WarehousePayloadError, buildWarehouseOrder, canCancelAtWarehouse, canEditAddressAtWarehouse, isCancelledAtWarehouse,
@@ -49,7 +50,7 @@ export type SubmissionDeps = { client?: WarehouseOrderClient; now?: () => Date; 
  */
 export const HELD_PREFIX = "Held: ";
 export const HOLD_RECHECK_MS = 15 * MINUTE_MS;
-export const HELD_LIVE_ORDER_MESSAGE = `${HELD_PREFIX}this is a real (live-mode) order but the warehouse connection is in TEST mode. It will be sent once WAREHOUSECRAFT_TENANT_MODE=live is set with the live credentials.`;
+export const HELD_LIVE_ORDER_MESSAGE = `${HELD_PREFIX}this is a real (live-mode) order but the warehouse connection is in TEST mode. It will be sent once WAREHOUSECRAFT_TENANT_MODE=live is set together with the complete live login (WAREHOUSECRAFT_API_BASE_URL, WAREHOUSECRAFT_API_USERNAME and WAREHOUSECRAFT_API_PASSWORD).`;
 export const SKIPPED_SANDBOX_REASON = "test-mode (Stripe sandbox) order; never sent to the live warehouse";
 
 export function tenantVerdict(order: Pick<BillingOrderRow, "livemode">, mode: WarehouseTenantMode, sandboxVerified = false): "send" | "hold" | "skip" {

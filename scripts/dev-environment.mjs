@@ -29,11 +29,23 @@ const DEV_SECRET_MAP = {
 };
 
 /**
- * Shared secrets that hold the PUBLISHED address. Unset in development so the
- * server falls back to the workspace's own domain (Stripe return links point
- * back at the workspace, not at app.trythinnr.com).
+ * Shared settings that only the published app may use. Unset in development:
+ * - BILLING_PUBLIC_ORIGIN holds the PUBLISHED address, so the server falls
+ *   back to the workspace's own domain (Stripe return links point back at the
+ *   workspace, not at app.trythinnr.com).
+ * - WAREHOUSECRAFT_* hold the LIVE warehouse tenant: its login and the
+ *   WAREHOUSECRAFT_TENANT_MODE flag. The server treats the tenant as live only
+ *   when the flag and the complete login are both set, and each tenant signs in
+ *   with its own login only. With them stripped, development always uses the
+ *   NOVEX_* test-tenant login, so the workspace can never submit a real order.
  */
-const PRODUCTION_ONLY_SECRETS = ["BILLING_PUBLIC_ORIGIN"];
+const PRODUCTION_ONLY_SECRETS = [
+  "BILLING_PUBLIC_ORIGIN",
+  "WAREHOUSECRAFT_TENANT_MODE",
+  "WAREHOUSECRAFT_API_BASE_URL",
+  "WAREHOUSECRAFT_API_USERNAME",
+  "WAREHOUSECRAFT_API_PASSWORD",
+];
 
 const SUPABASE_URL_KEYS = ["SUPABASE_URL", "VITE_SUPABASE_URL", "EXPO_PUBLIC_SUPABASE_URL"];
 

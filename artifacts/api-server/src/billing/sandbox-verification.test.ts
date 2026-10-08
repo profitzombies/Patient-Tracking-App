@@ -26,6 +26,13 @@ import { runWithBillingIdentity } from "./stripe-environment";
 import {
   activeSandboxVerificationOrderIds, forEachSandboxVerificationScope, orderIdFilter, sandboxVerificationFor, sandboxVerificationPossible,
 } from "./sandbox-verification";
+import { LIVE_WAREHOUSE_LOGIN } from "../shipping/warehousecraft";
+
+/** A live warehouse tenant needs the flag AND the complete live login (WAREHOUSECRAFT_API_*). */
+const stubLiveWarehouseTenant = () => {
+  vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+  for (const name of LIVE_WAREHOUSE_LOGIN) vi.stubEnv(name, `live-${name.toLowerCase()}`);
+};
 
 const NOW = new Date("2026-09-23T12:00:00.000Z");
 const ORDER = "11111111-1111-4111-8111-111111111111";
@@ -50,7 +57,7 @@ describe("sandboxVerificationFor", () => {
     expect(state.reads).toEqual([]);
   });
   it("is closed under a live warehouse tenant, whether from the environment or the caller", async () => {
-    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    stubLiveWarehouseTenant();
     await expect(sandboxVerificationFor({ id: ORDER, livemode: false }, { now: NOW })).resolves.toBeNull();
     vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
     await expect(sandboxVerificationFor({ id: ORDER, livemode: false }, { now: NOW, tenantMode: "live" })).resolves.toBeNull();
@@ -96,7 +103,7 @@ describe("verification pass", () => {
     const work = vi.fn(async () => undefined);
     await forEachSandboxVerificationScope(work, NOW);
     state.rows = [row()];
-    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    stubLiveWarehouseTenant();
     await forEachSandboxVerificationScope(work, NOW);
     expect(work).not.toHaveBeenCalled();
     expect(state.scopeRuns).toEqual([]);

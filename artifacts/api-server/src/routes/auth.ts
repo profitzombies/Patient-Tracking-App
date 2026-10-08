@@ -1625,8 +1625,8 @@ async function startOfficeIncludedPeriod(
 ): Promise<void> {
   if (hit.class !== "provider" || !hit.providerId) return;
   try {
-    const { noteOwnerDashboardSignIn } = await import("../billing/office-access/sign-in");
-    await noteOwnerDashboardSignIn({ providerId: hit.providerId, staffClass: hit.class, authUserId: userId });
+    const { noteOwnerDashboardSignInForSelectedMode } = await import("../billing/office-access/sign-in");
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: hit.providerId, staffClass: hit.class, authUserId: userId });
   } catch (error) {
     req.log?.error({ err: error }, "office access included period start failed");
   }

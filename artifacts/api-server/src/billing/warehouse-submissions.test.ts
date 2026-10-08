@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-beforeEach(() => vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live"));
+// A live tenant needs the flag AND the complete live login (WAREHOUSECRAFT_API_*).
+beforeEach(() => {
+  vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+  for (const name of LIVE_WAREHOUSE_LOGIN) vi.stubEnv(name, `live-${name.toLowerCase()}`);
+});
 afterEach(() => vi.unstubAllEnvs());
 import type { JobContext } from "../jobs/types";
-import { WarehouseCraftError } from "../shipping/warehousecraft";
+import { LIVE_WAREHOUSE_LOGIN, WarehouseCraftError } from "../shipping/warehousecraft";
 import type { WarehouseOrder, WarehouseOrderClient } from "../shipping/warehousecraft-orders";
 
 /**
@@ -242,18 +246,43 @@ describe("tenant guard", () => {
     // Legacy rows without the flag are treated as sandbox (never sent to a live tenant by accident).
     expect(tenantVerdict({ livemode: undefined as unknown as boolean }, "live")).toBe("skip");
   });
-  it("defaults to the test tenant when WAREHOUSECRAFT_TENANT_MODE is unset and reads live/production/prod as live", async () => {
-    const { warehouseTenantMode } = await import("../shipping/warehousecraft");
-    const previous = process.env.WAREHOUSECRAFT_TENANT_MODE;
-    try {
-      delete process.env.WAREHOUSECRAFT_TENANT_MODE;
-      expect(warehouseTenantMode()).toBe("test");
-      for (const value of ["live", "LIVE", "production", "prod"]) { process.env.WAREHOUSECRAFT_TENANT_MODE = value; expect(warehouseTenantMode()).toBe("live"); }
-      process.env.WAREHOUSECRAFT_TENANT_MODE = "sandbox";
-      expect(warehouseTenantMode()).toBe("test");
-    } finally {
-      if (previous === undefined) delete process.env.WAREHOUSECRAFT_TENANT_MODE; else process.env.WAREHOUSECRAFT_TENANT_MODE = previous;
-    }
+  it("is live only with the flag (live/production/prod) AND the complete live login, and each tenant signs in with its own login", async () => {
+    const { missingLiveWarehouseLogin, requestedWarehouseTenant, warehouseCraftConfig, warehouseTenantMode } = await import("../shipping/warehousecraft");
+    const login = { WAREHOUSECRAFT_API_BASE_URL: "live.example.test", WAREHOUSECRAFT_API_USERNAME: "live-user", WAREHOUSECRAFT_API_PASSWORD: "live-pass" };
+    const novex = { NOVEX_API_BASE_URL: "novex.example.test", NOVEX_API_USERNAME: "novex-user", NOVEX_API_PASSWORD: "novex-pass" };
+    const basic = (user: string, pass: string) => `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+    expect(warehouseTenantMode({ ...novex, ...login })).toBe("test");
+    for (const value of ["live", "LIVE", "production", "prod"]) expect(warehouseTenantMode({ ...novex, ...login, WAREHOUSECRAFT_TENANT_MODE: value })).toBe("live");
+    expect(warehouseTenantMode({ ...novex, ...login, WAREHOUSECRAFT_TENANT_MODE: "sandbox" })).toBe("test");
+    // The flag with only the test tenant's login (or a partial live one) stays on the test tenant.
+    const flagOnly = { ...novex, WAREHOUSECRAFT_TENANT_MODE: "live" };
+    expect(requestedWarehouseTenant(flagOnly)).toBe("live");
+    expect(missingLiveWarehouseLogin(flagOnly)).toEqual([...LIVE_WAREHOUSE_LOGIN]);
+    expect(warehouseTenantMode(flagOnly)).toBe("test");
+    expect(missingLiveWarehouseLogin({ ...flagOnly, ...login, WAREHOUSECRAFT_API_PASSWORD: " " })).toEqual(["WAREHOUSECRAFT_API_PASSWORD"]);
+    expect(warehouseTenantMode({ ...flagOnly, ...login, WAREHOUSECRAFT_API_PASSWORD: " " })).toBe("test");
+    expect(warehouseCraftConfig(flagOnly)).toMatchObject({ tenant: "test", orderApiBaseUrl: "https://novex.example.test", authorization: basic("novex-user", "novex-pass") });
+    // A complete live login with the flag uses the live login only.
+    expect(warehouseCraftConfig({ ...novex, ...login, WAREHOUSECRAFT_TENANT_MODE: "live" })).toMatchObject({
+      tenant: "live", orderApiBaseUrl: "https://live.example.test", authorization: basic("live-user", "live-pass"),
+    });
+    // A saved live login without the flag is ignored: test traffic keeps the test login, and nothing is mixed.
+    expect(warehouseCraftConfig({ ...novex, ...login })).toMatchObject({ tenant: "test", orderApiBaseUrl: "https://novex.example.test", authorization: basic("novex-user", "novex-pass") });
+    expect(warehouseCraftConfig({ ...login, NOVEX_API_BASE_URL: "novex.example.test" })).toMatchObject({ tenant: "test", orderApiBaseUrl: "https://novex.example.test", authorization: null });
+  });
+  it("holds a real order when the live flag is set but the live login is incomplete, never sending it on the test login", async () => {
+    vi.stubEnv("WAREHOUSECRAFT_API_PASSWORD", "");
+    vi.stubEnv("NOVEX_API_BASE_URL", "novex.example.test");
+    vi.stubEnv("NOVEX_API_USERNAME", "novex-user");
+    vi.stubEnv("NOVEX_API_PASSWORD", "novex-pass");
+    seed({ orders: [order({ livemode: true })] });
+    const client = fakeClient();
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("held");
+    expect(client.calls).toEqual([]);
+    expect(sub()).toMatchObject({ state: "pending", attempts: 0, last_error: HELD_LIVE_ORDER_MESSAGE });
+    // Completing the live login releases it on the next pass.
+    vi.stubEnv("WAREHOUSECRAFT_API_PASSWORD", "live-pass");
+    await expect(submitOne(sub(), { client, now: () => NOW })).resolves.toBe("sent");
   });
   it("holds a real order while the connection is in test mode: no call, no attempt spent, re-checked later, not counted as a failure", async () => {
     seed({ orders: [order({ livemode: true })] });

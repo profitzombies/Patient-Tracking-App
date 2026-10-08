@@ -254,6 +254,7 @@ const readiness = {
     { id: 'billing_mode', section: 'stripe_live', label: 'Payments mode', status: 'warn', detail: 'Payments run in Test mode.', fix: 'Switch to Live when ready.' },
     { id: 'live_webhook_connect', section: 'stripe_live', label: 'Live Connect webhook', status: 'fail', detail: 'Stripe has no webhook endpoint pointing at this site.', fix: 'Add the endpoint.', copyValue: 'https://app.example.test/api/billing/webhooks/live/connect' },
     { id: 'live_oauth_redirect', section: 'stripe_live', label: 'Live OAuth redirect URL', status: 'manual', detail: 'Confirm it by hand.', fix: 'List this URL in Stripe.', copyValue: 'https://app.example.test/api/billing/oauth/callback' },
+    { id: 'warehouse_tenant', section: 'warehouse', label: 'Warehouse tenant', status: 'warn', detail: 'The published app uses the WarehouseCraft test tenant.', fix: 'Set the live tenant before switching payments to Live.' },
     { id: 'email_domain', section: 'email', label: 'Email sender domain', status: 'pass', detail: 'mail.example.test is verified in Resend.', fix: null },
   ],
 };
@@ -386,7 +387,7 @@ console.log('\nsystem health: admin board');
   // Provider launch readiness card: read-only checklist grouped by vendor.
   const readinessCard = byTestId(root, 'system-health-launch-readiness');
   check('the launch readiness card renders once with its summary', readinessCard.length === 1
-    && textOf(byTestId(root, 'text-launch-readiness-summary')[0]).includes('1 to fix · 2 to confirm or review'),
+    && textOf(byTestId(root, 'text-launch-readiness-summary')[0]).includes('1 to fix · 3 to confirm or review'),
     readinessCard[0] ? textOf(byTestId(root, 'text-launch-readiness-summary')[0]) : 'missing');
   check('each check shows its status, detail, fix and copyable URL',
     textOf(byTestId(root, 'readiness-status-live_webhook_connect')[0]) === 'Fix needed'
@@ -397,6 +398,10 @@ console.log('\nsystem health: admin board');
       && textOf(byTestId(root, 'readiness-status-live_oauth_redirect')[0]) === 'Confirm by hand'
       && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('https://app.example.test/api/billing/webhooks/live/connect')
       && textOf(byTestId(root, 'readiness-check-live_webhook_connect')[0]).includes('What to do: Add the endpoint.'));
+  check('warehouse checks render in their own Warehouse group between Stripe and email',
+    textOf(byTestId(root, 'readiness-status-warehouse_tenant')[0]) === 'Check'
+      && textOf(readinessCard[0]).indexOf('Warehouse') > textOf(readinessCard[0]).indexOf('Stripe — Live')
+      && textOf(readinessCard[0]).indexOf('Warehouse') < textOf(readinessCard[0]).indexOf('Email sender domain'));
   const readinessGets = () => requests.filter((r) => r.url.includes('/launch-readiness')).length;
   check('the readiness check only ever issues GET requests', requests.filter((r) => r.url.includes('/launch-readiness')).every((r) => r.method === 'GET') && readinessGets() >= 1);
   const readinessBefore = readinessGets();

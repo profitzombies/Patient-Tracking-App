@@ -94,6 +94,13 @@ import {
 } from "./customer-emails";
 import type { BillingCustomerEmailRow, BillingOrderRow, BillingShipmentRow, BillingSubscriptionRow } from "./store";
 import { __setSandboxVerificationsForTests } from "./sandbox-verification";
+import { LIVE_WAREHOUSE_LOGIN } from "../shipping/warehousecraft";
+
+/** A live warehouse tenant needs the flag AND the complete live login (WAREHOUSECRAFT_API_*). */
+const stubLiveWarehouseTenant = () => {
+  vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+  for (const name of LIVE_WAREHOUSE_LOGIN) vi.stubEnv(name, `live-${name.toLowerCase()}`);
+};
 
 const sent: Array<{ from: string; to: string; subject: string; html: string; text: string }> = [];
 let transportFailure: Error | null = null;
@@ -189,7 +196,7 @@ describe("sandbox verification allowance", () => {
   });
   test("the flag is ignored under a live warehouse tenant, once expired, and for live-mode orders", async () => {
     __setSandboxVerificationsForTests(flag());
-    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    stubLiveWarehouseTenant();
     expect(await inTest(() => notifyShipmentTransition(sandboxOrder(), shipped, "processing"))).toBe("skipped");
     vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "test");
     __setSandboxVerificationsForTests(flag("2020-01-01T00:00:00.000Z"));

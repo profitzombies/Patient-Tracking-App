@@ -1,7 +1,7 @@
 import { officeRequest, type OfficeRequestMessages } from '@/lib/office-api';
 
 export type ReadinessStatus = 'pass' | 'warn' | 'fail' | 'manual';
-export type ReadinessSection = 'app' | 'stripe_live' | 'stripe_test' | 'email' | 'sms';
+export type ReadinessSection = 'app' | 'stripe_live' | 'stripe_test' | 'warehouse' | 'email' | 'sms';
 
 export interface ReadinessCheck {
   id: string;

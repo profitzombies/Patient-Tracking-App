@@ -94,14 +94,36 @@ describe("status gating", () => {
 describe("warehouseOrderClient", () => {
   const fetchMock = vi.fn();
   beforeEach(() => {
-    vi.stubEnv("WAREHOUSECRAFT_API_BASE_URL", "https://tenant.example.test");
-    vi.stubEnv("WAREHOUSECRAFT_API_USERNAME", "user");
-    vi.stubEnv("WAREHOUSECRAFT_API_PASSWORD", "pass");
+    // The test tenant (no live flag) signs in with the NOVEX_API_* login.
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "");
+    vi.stubEnv("NOVEX_API_BASE_URL", "https://tenant.example.test");
+    vi.stubEnv("NOVEX_API_USERNAME", "user");
+    vi.stubEnv("NOVEX_API_PASSWORD", "pass");
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
   const reply = (call: Call) => new Response(JSON.stringify(call.body), { status: call.status, headers: { "content-type": "application/json" } });
+  const basic = (user: string, pass: string) => `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+
+  it("uses only the live login once the tenant is live, and only the test login otherwise", async () => {
+    vi.stubEnv("WAREHOUSECRAFT_API_BASE_URL", "https://live-tenant.example.test");
+    vi.stubEnv("WAREHOUSECRAFT_API_USERNAME", "live-user");
+    vi.stubEnv("WAREHOUSECRAFT_API_PASSWORD", "live-pass");
+    const lookupWith = async () => {
+      fetchMock.mockResolvedValueOnce(reply(recorded("lookup_miss")));
+      await warehouseOrderClient.lookup("TH-1");
+      const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+      return { url, auth: (init.headers as Record<string, string>).Authorization };
+    };
+    // Saved live login, no flag: still the test tenant and its own login.
+    await expect(lookupWith()).resolves.toEqual({ url: "https://tenant.example.test/api/OrderDatas?clientOrderId=TH-1", auth: basic("user", "pass") });
+    vi.stubEnv("WAREHOUSECRAFT_TENANT_MODE", "live");
+    await expect(lookupWith()).resolves.toEqual({ url: "https://live-tenant.example.test/api/OrderDatas?clientOrderId=TH-1", auth: basic("live-user", "live-pass") });
+    // Flag with an incomplete live login: back on the test tenant, never a mix of the two.
+    vi.stubEnv("WAREHOUSECRAFT_API_USERNAME", "");
+    await expect(lookupWith()).resolves.toEqual({ url: "https://tenant.example.test/api/OrderDatas?clientOrderId=TH-1", auth: basic("user", "pass") });
+  });
 
   it("creates through the tenant OrderDatas route with Basic auth", async () => {
     fetchMock.mockResolvedValueOnce(reply(recorded("create")));

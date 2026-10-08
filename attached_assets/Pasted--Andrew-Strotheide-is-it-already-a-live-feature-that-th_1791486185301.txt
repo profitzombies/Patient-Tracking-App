@@ -1,0 +1,83 @@
+@Andrew Strotheide is it already a live feature that they can select whatever diet they want, like keto, carnivore, Mediterranean, etc
+Andrew Strotheide  [9:09 AM]
+Meh no I was going to save that for like one of the last things.
+
+They can't pick a diet when they're on protocol, but when they onboard of course they can
+[9:09 AM]I have this planned just trying to get the nuts and bolts down on everything
+[9:09 AM]That's like a really easy add on lol
+Matt  [9:11 AM]
+For sure that's just something that I've always wanted and I think it will provide a lot of value. Also giving them the ability to select food sensitivities and then the AI coach avoids those when building their meal plans.
+
+Also just thinking about how genetics can intersect with the strategy. There's something called the MIND diet (Mediterranean) for something to the effect of avoiding neurodegenerative disease. If someone has APOE4 on their genetic test, it can recommend the MIND diet to prevent Alzheimer's and dementia.
+Andrew Strotheide  [9:12 AM]
+Yeah I mean once again all of that is just a prompt in and it'll run it lol
+[9:12 AM]I already have it setup for that with the bloodwork / genetic testing
+Matt  [9:14 AM]
+For sure that's definitely a feature that I want to talk about in the product release
+Andrew Strotheide  [9:17 AM]
+CleanShot 2026-10-08 at 9.17.30 AM@2x.png [9:17 AM]I'm melting in payment processing rn
+[9:17 AM]How about you do this
+[9:18 AM]You make a list of diets you want to have added as options for them to pick and you send me them
+[9:18 AM]And this would only be able to be selected when
+[9:18 AM]When they onboard only?
+[9:18 AM]Or should they be able to swap at any time, unless they're in the middle of a thinnr protocol
+[9:18 AM]You tell me
+Matt  [9:50 AM]
+Swap whenever
+Andrew Strotheide  [9:50 AM]
+Even if they're mid thinnr protocol
+Matt  [9:50 AM]
+No this would be only for people outside thinnr with the exception of food sensitivities
+[9:50 AM]They can turn those on during protocol
+Andrew Strotheide  [9:51 AM]
+Gotcha ok so swap whenever if they're not thinnr.
+
+So food sensitivities let's talk about that
+[9:52 AM]So how would you like to have that be adjusted and where could you see that playing into things?
+
+Like in suggestions, ai coach, recipe recommendations, menu scanning recommendations, etc.?
+
+Why would food sensitivity be a different diet change, that's not a program change that's just a tweak almost as if it's a preference of theirs technically
+[9:52 AM]right?
+Matt  [9:52 AM]
+You want to join w me and Jason
+[9:53 AM]Food sensitivities would be a preference that they can set up front and adjust over time 
+Diet would be the structure of the meals that are being recommendedMatt  [11:07 AM]
+Can you send me a screen shot on the new provider dashboard?
+[11:08 AM]@Andrew Strotheide
+Andrew Strotheide  [11:08 AM]
+Yeah give me a few mins to get in
+[11:09 AM]CleanShot 2026-10-08 at 11.09.20 AM@2x.png [11:10 AM]@Matt
+[11:10 AM]CleanShot 2026-10-08 at 11.09.55 AM@2x.png Matt  [11:13 AM]
+Diet
+Primary conditions
+Evidence
+Cost
+Complexity
+Supervision
+Your original listMediterraneanHeart disease, type 2 diabetes, weightStrongMedLowSelf-guidedDASHHypertensionStrongLowLowSelf-guidedMINDCognitive decline preventionModerateMedLowSelf-guidedKetoWeight loss, type 2 diabetesModerateMedMedRecommended if on diabetes medsCarnivoreWeight loss, autoimmune (claimed)LimitedHighMedRecommended (lipids, kidneys)AIPHashimoto's, IBD, autoimmuneLimitedHighHighRecommendedGuided eliminationFood sensitivities, EoEModerateMedHighRecommended, plus ED screeningWeight management[11:14 AM]YOu think this is too many?
+Andrew Strotheide  [11:14 AM]
+idk bro I'm not building it AI will lol
+[11:14 AM]I don't really care to be honest
+Matt  [11:14 AM]
+Do you think it'd be too overwhelming for a consumer to go through all those things?
+Andrew Strotheide  [11:14 AM]
+all the same prompt from me
+[11:14 AM]Maybe yes, but realistically they could search for it
+Matt  [11:15 AM]
+ok rip it then
+[11:15 AM]it's got some good stuff in there
+[11:15 AM]It also shows the primary condition so you can prompt the builder to say: "If someone presents with one of these, or their blood work shows one of these, or their genetic testing shows a predisposition for one of these, recommend this diet."
+Andrew Strotheide  [11:16 AM]
+And we want to have like the uhhh....  I guess go ahead and suggest macros and stuff like that for each one, right?
+[11:16 AM]How would we know about their blood work before they get into the program I don't want it suggesting a different program for them repeatedly if they don't want it lol
+Matt  [12:22 PM]
+Yeah I would look at it more as a suggestion, right? Maybe it analyzes their blood work and then it gives them 3-5 recommendations based on it, as in, "Looks like you want to increase your vitamin D, and based off these markers maybe you want to shift to an X diet."
+Matt  [2:45 PM]
+Just outlining the idea that we just discussed about capturing all weight loss transactions in the practice. We'll tap into the Stripe account, Tap to Pay, and subscriptions to allow practices to set up weight loss subscriptions for not only Thinnr but for their GLP patients as well.
+
+For example they have a GLP patient who's paying them $400 a month. They'll be able to go into their app, pull up that patient, and create a custom weight loss subscription for $400 a month. They could create another subscription for $20 a month for the Thinnr app or they could create a subscription for $420 and it's all-inclusive.
+
+We need the ability to capture those transactions on a monthly basis, just like the subscription function that we already have. We're going to charge somewhere between a 0.5% and 5% transaction fee or processing fee to capture that payment for the office and we'll build in consumer financing for one-time purchases. It'll show as low as $X amount of dollars per month if they're putting together a treatment plan, but for the GOP patients it'll just charge them ongoing every single month like a subscription.
+
+We need the ability for the office to edit subscriptions. We need a section where the office can put in tracking information, if they want to do that, to tell their patients when to expect the medication. I personally think they won't use that but if you want we can include that. We need the ability for patients to update and manage subscriptions on their own, cancel subscriptions, etc.

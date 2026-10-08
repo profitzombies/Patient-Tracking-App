@@ -75,7 +75,6 @@
     "test:patient-edit-history-live": "tsx scripts/verify-patient-edit-history-live.ts",
     "test:patient-groups-live": "tsx scripts/verify-patient-groups-live.ts",
     "test:office-bundle": "TZ=UTC tsx --tsconfig tsconfig.office-bundle.json scripts/verify-office-bundle.tsx",
-    "test:testing-hard-delete": "TZ=UTC tsx --tsconfig tsconfig.testing-hard-delete.json scripts/verify-testing-hard-delete.tsx",
     "test:account-danger-zone": "TZ=UTC tsx --tsconfig tsconfig.account-danger-zone.json scripts/verify-account-danger-zone.tsx",
     "test:office-bundle-live": "tsx scripts/verify-office-bundle-live.ts",
     "test:patient-purchases": "TZ=UTC tsx --tsconfig tsconfig.body-measurements.json scripts/verify-patient-purchases.tsx",

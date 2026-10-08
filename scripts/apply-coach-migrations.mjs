@@ -41,6 +41,10 @@ const migrationNames = [
   "20261201000001_coach_chat_flags_closure.sql",
   "20261201000002_patient_rewards_closure.sql",
   "20261201000000_patient_groups.sql",
+  // Retires the HQ testing hard-delete override. Its create migration
+  // (20261129000000) was never ledgered here; the proof below asserts the
+  // function stays absent on every project this runner touches.
+  "20261202000000_drop_hq_testing_hard_delete.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -255,6 +259,9 @@ await query(`
        )
        or has_table_privilege('anon', 'public.patient_group_members', 'SELECT')
        or has_table_privilege('authenticated', 'public.patient_groups', 'SELECT')
+       -- The retired testing hard-delete wipe must never come back: production
+       -- keeps only patient purge, office offboarding, legal holds and retention.
+       or to_regprocedure('public.hq_testing_hard_delete(text,uuid)') is not null
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

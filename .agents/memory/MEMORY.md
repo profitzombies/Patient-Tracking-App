@@ -152,10 +152,10 @@
 - [Onboarding contact prefill](onboarding-contact-prefill.md) — welcome reset re-overlays profile; compare phones via E.164; verified = profile flag + matching value, stamped at signup.
 - [Signup completion speed](signup-completion-speed.md) — post-password steps run concurrently, rollback waits for all; one-shot client seed opens /consent directly, narrowing only.
 - [Office access Stripe identity](office-access-stripe-identity.md) — replace-only instruments; unverified ACH banks cannot be attached (SetupIntent attaches); cancel dropped staged SIs.
-- [HQ testing hard delete](hq-testing-hard-delete.md) — removable non-compliant wipe; Stripe first, one SQL txn; sign-out list rows are the only intended leftover; DB-wide scan proves erasure.
+- [Production data cleanup](prod-data-cleanup.md) — never match .invalid broadly (real patient placeholders); sweep FK orphans after replica teardowns; Stripe delete quirks.
 - [Resend tracking vs spam](resend-tracking-deliverability.md) — keep open/click tracking off on the sending domain; it put code emails in spam. App mail stays on the subdomain.
 - [App payments forecast](app-payments-forecast.md) — forecast mirrors the charger; overdue anchors are outstanding not future; export kinds avoid billing_ prefix (admits owners).
 - [Coach chat safety flags](coach-chat-safety-flags.md) — urgent-only screen; alert = PHI-free "needs review" + deep link; office-scope launch gate 502s suites lacking a waived practice_launch row.
 - [Supabase host network outage](supabase-host-outage.md) — "healthy" status but db/rest/auth unhealthy + DNS/WAL failures = host lost network; project restart fixes; logs endpoint table is `logs`.
-- [Prod/dev Supabase split](prod-dev-split.md) — stale live suites ≠ split regressions (check git dates); killed runs leave dev fixtures; Stripe test events broadcast to prod.
+- [Prod/dev Supabase split](prod-dev-split.md) — stale live suites ≠ split regressions; Stripe test events reach prod; every migration (drops too) must be listed in the apply runner.
 - [Office patient groups](patient-groups.md) — office-scoped labels, HQ read-only via ?office=, nested membership responses; roster now reads memberships (stub it in roster fakes); throwaway offices need the launch waiver.

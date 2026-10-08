@@ -2913,28 +2913,6 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations 
 isValidation = true
 
 [[workflows.workflow]]
-name = "testing-delete-api"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/testing-delete src/routes/hq-testing-delete.test.ts && pnpm --filter @workspace/api-server run typecheck"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "testing-delete-web"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:testing-hard-delete && pnpm --filter @workspace/thinnr-operations run test:account-danger-zone && pnpm --filter @workspace/thinnr-operations run typecheck"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
 name = "app-payments-api"
 author = "agent"
 

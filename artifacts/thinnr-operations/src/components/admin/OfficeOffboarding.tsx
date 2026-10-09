@@ -35,12 +35,48 @@ import { requestReauth } from '@/lib/reauth';
 
 const STEP_ORDER: OfficeOffboardingStep[] = ['start', 'bundle', 'handover', 'seal', 'complete'];
 const RETRYABLE_BUNDLE = new Set(['failed', 'expired', 'cancelled']);
+const BUILDING_BUNDLE = new Set(['queued', 'running']);
+/** Live refresh cadence while a bundle builds or charts are being sealed. */
+const LIVE_REFRESH_MS = 5_000;
 
 function formatWhen(value: string | null): string {
   if (!value) return 'Unavailable';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatClock(value: string | null | undefined): string {
+  if (!value) return 'Unavailable';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatBytes(value: number | null | undefined): string {
+  if (!value) return '0 B';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+const BUNDLE_STATUS_LABEL: Record<string, string> = {
+  queued: 'Queued',
+  running: 'Running',
+  ready: 'Ready',
+  failed: 'Failed',
+  expired: 'Expired',
+  cancelled: 'Cancelled',
+};
+
+/** What step 3 says while it waits on step 2, worded from the bundle's real state. */
+function handoverWaitMessage(bundle: OfficeOffboardingResult['offboarding']['bundle']): string {
+  if (!bundle) return 'Available once the office bundle has been generated and is ready.';
+  if (bundle.status === 'queued') return 'Waiting for the office bundle: it is queued and starts building on the next minute tick.';
+  if (bundle.status === 'running') return 'Waiting for the office bundle: it is still building. This page refreshes on its own.';
+  if (bundle.status === 'ready') return 'Available now that the office bundle is ready.';
+  return `The office bundle ${BUNDLE_STATUS_LABEL[bundle.status]?.toLowerCase() ?? bundle.status} — request it again in step 2 before recording the hand-over.`;
 }
 
 function errorMessage(error: unknown): string {
@@ -110,8 +146,12 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
     query: {
       queryKey: getGetOfficeOffboardingQueryKey(officeId),
       refetchInterval: (current) => {
-        const seal = current.state.data?.offboarding?.seal;
-        return seal?.startedAt && !seal.completedAt ? 5_000 : false;
+        const offboarding = current.state.data?.offboarding;
+        const seal = offboarding?.seal;
+        // Keep refreshing while anything is in flight on the server: the bundle
+        // build (queued or running) or the chart seal. Nothing here needs a reload.
+        if (offboarding?.bundle && BUILDING_BUNDLE.has(offboarding.bundle.status)) return LIVE_REFRESH_MS;
+        return seal?.startedAt && !seal.completedAt ? LIVE_REFRESH_MS : false;
       },
     },
   });
@@ -240,7 +280,9 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
 
   const parts = state.bundle?.parts ?? [];
   const progress = state.bundle?.progress;
-  const canRequestBundle = state.nextStep === 'bundle' && (!state.bundle || RETRYABLE_BUNDLE.has(state.bundle.status));
+  const bundleBuilding = !!state.bundle && BUILDING_BUNDLE.has(state.bundle.status);
+  const bundleRetryable = !!state.bundle && RETRYABLE_BUNDLE.has(state.bundle.status);
+  const canRequestBundle = state.nextStep === 'bundle' && (!state.bundle || bundleRetryable);
 
   return (
     <Card data-testid="office-offboarding">
@@ -298,14 +340,42 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
         <Step number={2} title="Generate office bundle" state={stepState('bundle')}>
           {state.bundle && (
             <div className="space-y-2">
-              <p className="font-semibold capitalize text-foreground">Status: {state.bundle.status}</p>
-              {(state.bundle.status === 'queued' || state.bundle.status === 'running') && (
-                <p aria-live="polite" data-testid="offboarding-bundle-progress">
-                  {progress?.patientsDone ?? 0} of {progress?.patientsTotal ?? 'unknown'} patients packed
-                  {progress?.partsTotal != null ? ` · ${progress.partsDone ?? 0} of ${progress.partsTotal} parts` : ''}
+              <p
+                className={`flex items-center gap-1.5 font-semibold ${bundleRetryable ? 'text-destructive' : 'text-foreground'}`}
+                data-testid="offboarding-bundle-status"
+              >
+                {bundleBuilding && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+                Status: {BUNDLE_STATUS_LABEL[state.bundle.status] ?? state.bundle.status}
+              </p>
+              {bundleBuilding && (
+                <>
+                  <p aria-live="polite" data-testid="offboarding-bundle-progress">
+                    {state.bundle.status === 'queued' && progress?.patientsTotal == null
+                      ? 'Waiting for a worker to pick the build up.'
+                      : `${(progress?.patientsDone ?? 0).toLocaleString('en-US')} of ${
+                          progress?.patientsTotal == null ? 'unknown' : progress.patientsTotal.toLocaleString('en-US')
+                        } patients packed · ${(progress?.partsDone ?? 0).toLocaleString('en-US')} part${
+                          (progress?.partsDone ?? 0) === 1 ? '' : 's'
+                        } written${progress?.bytesWritten ? ` · ${formatBytes(progress.bytesWritten)}` : ''}`}
+                  </p>
+                  <p data-testid="offboarding-bundle-timing">
+                    Requested {formatClock(state.bundle.createdAt)}
+                    {state.bundle.startedAt ? ` · Started ${formatClock(state.bundle.startedAt)}` : ' · Not started yet'}
+                  </p>
+                  <p className="text-[11px]" data-testid="offboarding-bundle-tick-note">
+                    Production starts the build on the next minute tick, so "Queued" usually lasts under a minute before
+                    "Running". This page refreshes every few seconds while the bundle builds.
+                  </p>
+                </>
+              )}
+              {bundleRetryable && (
+                <p className="text-destructive" data-testid="offboarding-bundle-error">
+                  {state.bundle.error ??
+                    (state.bundle.status === 'expired'
+                      ? 'The bundle expired before it was downloaded.'
+                      : 'The bundle was cancelled before it finished.')}
                 </p>
               )}
-              {state.bundle.error && <p className="text-destructive">{state.bundle.error}</p>}
               {state.bundle.status === 'ready' && parts.length > 0 && (
                 <ul className="space-y-2">
                   {parts.map((part, index) => (
@@ -339,7 +409,7 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
               onClick={() => void perform(() => bundle.mutateAsync({ id: officeId }))}
               data-testid="button-offboarding-bundle"
             >
-              {state.bundle ? 'Regenerate office bundle' : 'Generate office bundle'}
+              {state.bundle ? 'Request again' : 'Generate office bundle'}
             </Button>
           )}
         </Step>
@@ -441,7 +511,7 @@ export function OfficeOffboarding({ officeId }: { officeId: string }) {
               </Button>
             </form>
           ) : !state.handover ? (
-            <p>Available after the office bundle is ready.</p>
+            <p data-testid="offboarding-handover-wait">{handoverWaitMessage(state.bundle)}</p>
           ) : null}
         </Step>
 

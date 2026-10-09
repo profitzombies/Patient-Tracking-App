@@ -31,6 +31,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { z } from "zod";
 import { requireFreshCode } from "../auth/fresh-code";
 import { revokeUserSessions } from "../auth/session-revocations";
+import { getBillingModeStatus } from "../billing/mode-state";
 import { OFFICE_BUNDLE_BUILD_DAYS } from "../exports/office-bundle";
 import { exportFileName } from "../exports/kinds";
 import type { ExportJobRow, ExportPartRow } from "../exports/worker";
@@ -262,7 +263,9 @@ function cycleRecord(status: OfficeOffboardingStatus, record: RecordRow | null):
 function nextStepOf(status: OfficeOffboardingStatus, record: RecordRow | null, bundle: ExportJobRow | null): OffboardingStep | null {
   if (status === "offboarded") return null;
   if (status === "active" || !record) return "start";
-  if (!record.bundle_export_id || !bundle || bundle.status === "failed" || bundle.status === "cancelled" || bundle.status === "expired") return "bundle";
+  // Step 2 stays current until the bundle is actually downloadable: queued and
+  // running rows are still being built, failed/cancelled/expired need a re-request.
+  if (!record.bundle_export_id || !bundle || bundle.status !== "ready") return "bundle";
   if (!record.handover_recorded_at) return "handover";
   if (!record.seal_started_at || !record.seal_completed_at) return "seal";
   return "complete";
@@ -444,6 +447,10 @@ router.post("/provider-accounts/:id/offboarding/bundle", requireHqPermission("pr
     range: null,
     patient: null,
   };
+  // The bundle's office part holds billing sheets, so the row must carry the
+  // same frozen billing identity the Exports route captures: the worker refuses
+  // to write financial sheets without it and the bundle would fail instead.
+  const billingIdentity = await getBillingModeStatus();
   const inserted = await supabaseAdmin(
     "POST",
     "/rest/v1/data_exports",
@@ -454,7 +461,7 @@ router.post("/provider-accounts/:id/offboarding/bundle", requireHqPermission("pr
       requester_kind: "hq",
       requester_role: caller.departmentRole,
       provider_id: provider.provider_id,
-      params: { officeName: scope.officeName, includeTombstones: parsed.data.includeTombstones, offboarding: true },
+      params: { officeName: scope.officeName, includeTombstones: parsed.data.includeTombstones, offboarding: true, billingIdentity },
       file_name: exportFileName("office_bundle", scope),
       expires_at: expiresAt,
     },

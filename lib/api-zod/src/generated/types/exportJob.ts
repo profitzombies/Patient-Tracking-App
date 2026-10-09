@@ -28,6 +28,11 @@ export interface ExportJob {
   /** @nullable */
   error: string | null;
   createdAt: string;
+  /**
+     * When a worker claimed the job (null while still queued)
+     * @nullable
+     */
+  startedAt?: string | null;
   /** @nullable */
   completedAt: string | null;
   expiresAt: string;

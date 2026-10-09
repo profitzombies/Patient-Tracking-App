@@ -40,6 +40,14 @@ args = "demo-removal-web"
 task = "workflow.run"
 args = "demo-removal-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "offboarding-bundle-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "offboarding-bundle-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -2982,6 +2990,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile exec tsx --tsconfig tsconfig.route-hydration.json scripts/verify-route-hydration-shells.tsx && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "offboarding-bundle-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/office-offboarding.test.ts src/exports/office-bundle.test.ts src/routes/exports.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "offboarding-bundle-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-offboarding && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

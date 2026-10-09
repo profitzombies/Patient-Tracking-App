@@ -123,6 +123,9 @@ vi.mock("../auth/session-revocations", () => ({
   revokeUserSessions: async ({ userId }: { userId: string }) => { state.revoked.push(userId); return 2; },
 }));
 vi.mock("../jobs/scheduler", () => ({ signalJob: (name: string) => { state.signals.push(name); return true; } }));
+vi.mock("../billing/mode-state", () => ({
+  getBillingModeStatus: async () => ({ mode: "test", platformAccountId: "acct_TestPlatform", version: 1 }),
+}));
 vi.mock("../lib/org-policy", () => ({ loadOrgPolicy: async () => ({ retention: { clinicalRecordDays: 2555 } }) }));
 vi.mock("../lib/objectStorage", () => ({ objectStorage: { signedDownloadURL: async (p: string) => `https://signed/${p}` } }));
 vi.mock("../privacy/purge", () => ({
@@ -142,6 +145,7 @@ vi.mock("../privacy/purge", () => ({
 vi.mock("../auth/identify", () => ({ identifyBearer: async (token: string) => ({ id: token, email: null }) }));
 
 import router, { OFFBOARDING_DESTROY_DAYS, reactivationRefusal } from "./office-offboarding";
+import { exportBillingIdentity } from "../exports/billing-identity";
 import { runOfficeOffboardingSeal, OFFICE_OFFBOARDING_SEAL_JOB_NAME } from "../jobs/definitions/office-offboarding-seal";
 import { officeHasEnded, resolvePatientIdentity } from "../lib/patient-auth";
 import { officeIsActive } from "../lib/office-status";
@@ -228,11 +232,21 @@ describe("office offboarding stepper", () => {
     const bundle = await call("/bundle", "POST", {});
     expect(bundle.status).toBe(202);
     expect(state.tables.data_exports[0]).toMatchObject({ kind: "office_bundle", requester_kind: "hq", provider_id: OFFICE, params: { offboarding: true } });
+    // The office part carries billing sheets: the row must freeze the same
+    // billing identity the Exports route captures or the worker fails the bundle.
+    expect(state.tables.data_exports[0].params.billingIdentity).toEqual({ mode: "test", platformAccountId: "acct_TestPlatform", version: 1 });
+    expect(exportBillingIdentity(state.tables.data_exports[0].params.billingIdentity)).toEqual({ mode: "test", platformAccountId: "acct_TestPlatform" });
     expect(state.signals).toContain("office-bundle-export");
-    expect((await call("/bundle", "POST", {})).status).toBe(200);
+    // Step 2 stays current (not done) while the bundle is still queued/running.
+    expect(bundle.json.offboarding).toMatchObject({ nextStep: "bundle", bundle: { status: "queued" } });
+    const repeat = await call("/bundle", "POST", {});
+    expect(repeat.status).toBe(200);
     expect(state.tables.data_exports).toHaveLength(1);
+    Object.assign(state.tables.data_exports[0], { status: "running", started_at: "2026-09-19T09:01:00.000Z" });
+    expect((await call("")).json.offboarding).toMatchObject({ nextStep: "bundle", bundle: { status: "running", startedAt: "2026-09-19T09:01:00.000Z" } });
     expect((await call("/handover", "POST", HANDOVER)).status).toBe(409);
     bundleReady();
+    expect((await call("")).json.offboarding).toMatchObject({ nextStep: "handover", bundle: { status: "ready" } });
     expect((await call("/bundle/download-url?part=2")).json).toMatchObject({ url: "https://signed/exports/b-2.zip", fileName: "b-2.zip", part: 2 });
     expect((await call("/bundle/download-url?part=3")).status).toBe(404);
     expect((await call("/handover", "POST", { ...HANDOVER, receivedOn: "tomorrow" })).status).toBe(400);
@@ -241,6 +255,21 @@ describe("office offboarding stepper", () => {
     expect(handover.json.offboarding.handover).toMatchObject({ receivedBy: "Dr. North", choice: "retain", note: "Stripe cancelled 9/18" });
     expect(handover.json.offboarding.nextStep).toBe("seal");
     expect(state.audits.map((a) => a.p_action)).toEqual(["office_offboarding_started", "office_offboarding_bundle_requested", "office_bundle_export_downloaded", "office_offboarding_handover_recorded"]);
+  });
+
+  it("a failed bundle keeps step 2 current with its error and a re-request queues a fresh identity-bearing row", async () => {
+    await call("/start", "POST");
+    await call("/bundle", "POST", {});
+    Object.assign(state.tables.data_exports[0], { status: "failed", error: "This financial export has no verified frozen billing identity. Request a new export.", completed_at: "2026-09-19T09:02:00Z", expires_at: "2027-01-01T00:00:00Z" });
+    const failed = (await call("")).json.offboarding;
+    expect(failed).toMatchObject({ nextStep: "bundle", bundle: { status: "failed", error: expect.stringContaining("no verified frozen billing identity") } });
+    expect((await call("/handover", "POST", HANDOVER)).status).toBe(409);
+    const again = await call("/bundle", "POST", {});
+    expect(again.status).toBe(202);
+    expect(state.tables.data_exports).toHaveLength(2);
+    expect(record().bundle_export_id).toBe(state.tables.data_exports[1].id);
+    expect(state.tables.data_exports[1].params).toMatchObject({ offboarding: true, billingIdentity: { mode: "test", platformAccountId: "acct_TestPlatform" } });
+    expect(again.json.offboarding).toMatchObject({ nextStep: "bundle", bundle: { status: "queued", error: null } });
   });
 
   it("step 4 is blocked by an office legal hold, otherwise starts the seal job; destroy sets a short retain-until", async () => {

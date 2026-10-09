@@ -12,6 +12,7 @@
       "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
       "@/components/ui/dialog": ["./scripts/office-admin-stubs/dialog.tsx"],
       "@/components/ui/popover": ["./scripts/office-admin-stubs/popover.tsx"],
+      "@/components/ui/radio-group": ["./scripts/office-admin-stubs/radio-group.tsx"],
       "@/components/ui/select": ["./scripts/office-admin-stubs/select.tsx"],
       "@/components/ui/sheet": ["./scripts/office-admin-stubs/sheet.tsx"],
       "@/components/ui/command": ["./scripts/office-admin-stubs/command.tsx"],

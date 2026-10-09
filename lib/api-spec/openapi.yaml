@@ -3794,6 +3794,7 @@ components:
         rowCount: { type: ["number", "null"] }
         error: { type: ["string", "null"] }
         createdAt: { type: string }
+        startedAt: { type: ["string", "null"], description: "When a worker claimed the job (null while still queued)" }
         completedAt: { type: ["string", "null"] }
         expiresAt: { type: string }
         downloadCount: { type: number }

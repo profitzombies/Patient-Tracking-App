@@ -174,6 +174,13 @@ async function createFixtures(): Promise<{ hq: string; owner: string; patient: s
   });
   if (office.status !== 201) throw new Error(`office insert failed (${office.status}): ${brief(office.json)}`);
   ids.officeCreated = true;
+  // A bare providers row sits behind the practice-setup gate (every office
+  // route 403s "complete setup in the current payment mode"); the HQ waiver
+  // on practice_launch is what lets the owner's pre-start token through.
+  const launch = await svc('POST', '/rest/v1/practice_launch?on_conflict=provider_id', {
+    provider_id: officeId, required: false, setup_override_at: new Date().toISOString(), setup_override_note: 'QA offboarding live proof',
+  }, 'resolution=merge-duplicates,return=minimal');
+  if (launch.status >= 300) throw new Error(`practice_launch waiver failed (${launch.status}): ${brief(launch.json)}`);
   const patient = await svc('POST', '/rest/v1/patients', {
     id: patientId, provider_id: officeId, name: 'QA Offboarding Patient', email: patientEmail,
     activation_status: 'activated', auth_user_id: ids.patientUserId, claimed_at: new Date().toISOString(),
@@ -216,6 +223,7 @@ commit;`);
   // here loudly rather than leaving orphans behind a disabled trigger.
   const steps: Array<[string, string]> = [
     ['data_exports', `/rest/v1/data_exports?provider_id=eq.${enc(officeId)}`],
+    ['practice_launch', `/rest/v1/practice_launch?provider_id=eq.${enc(officeId)}`],
     ['provider_offboardings', `/rest/v1/provider_offboardings?provider_id=eq.${enc(officeId)}`],
     ['patients', `/rest/v1/patients?id=eq.${patientId}`],
     ['team_members', `/rest/v1/team_members?provider_id=eq.${enc(officeId)}`],
@@ -309,13 +317,23 @@ async function main() {
   console.log('\n5. Step 2 — bundle');
   const bundle = await post(hq, `${OFFBOARDING}/bundle`, { includeTombstones: true });
   check('bundle request accepted (202) with a job id', bundle.status === 202 && typeof bundle.json?.bundle?.id === 'string', `${bundle.status} ${brief(bundle.json)}`);
+  // The row must freeze the billing identity (the Exports route's rule) or the
+  // worker fails the office part with "no verified frozen billing identity".
+  const bundleRow = await svc('GET', `/rest/v1/data_exports?id=eq.${bundle.json?.bundle?.id}&select=id,status,params`);
+  const identity = bundleRow.json?.[0]?.params?.billingIdentity;
+  check('bundle row carries the frozen billing identity', (identity?.mode === 'test' || identity?.mode === 'live') && typeof identity?.platformAccountId === 'string' && identity.platformAccountId.startsWith('acct_'), brief(bundleRow.json?.[0]?.params));
+  check('step 2 stays the next step while the bundle is queued/running', bundle.json?.nextStep === 'bundle' && (bundle.json?.bundle?.status === 'queued' || bundle.json?.bundle?.status === 'running'), `${bundle.json?.nextStep} ${bundle.json?.bundle?.status}`);
+  let sawBuilding = false;
   const bundleReady = await poll('the office bundle to build', 120_000, 2_000, async () => {
     const s = await state(hq);
     const job = s.bundle;
     if (job?.status === 'ready' || job?.status === 'failed') return s;
+    if (job?.status === 'queued' || job?.status === 'running') sawBuilding = sawBuilding || s.nextStep === 'bundle';
     return null;
   });
   check('bundle export job reaches ready', bundleReady?.bundle?.status === 'ready', brief(bundleReady?.bundle));
+  check('ready bundle reports startedAt and lists its parts, and step 3 becomes next', typeof bundleReady?.bundle?.startedAt === 'string' && Array.isArray(bundleReady?.bundle?.parts) && bundleReady.bundle.parts.length >= 1 && bundleReady?.nextStep === 'handover', `${bundleReady?.nextStep} ${brief(bundleReady?.bundle)}`);
+  if (sawBuilding) console.log('  ok  (observed) nextStep stayed "bundle" while the job was still building');
   const download = await api(hq, `${OFFBOARDING}/bundle/download-url?part=1`);
   check('bundle download url is issued for part 1', download.status === 200 && typeof download.json?.url === 'string', `${download.status} ${brief(download.json)}`);
 

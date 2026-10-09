@@ -13,7 +13,7 @@ import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, environmentManager } from '@tanstack/react-query';
 import { OfficeOffboarding } from '../src/components/admin/OfficeOffboarding';
 import Accounts from '../src/pages/admin/Accounts';
 import { __setHqData } from './a11y-stubs/hq-data';
@@ -26,6 +26,10 @@ g.window ??= {};
 g.window.getSelection ??= () => ({ toString: () => '' });
 g.window.addEventListener ??= () => {};
 g.window.removeEventListener ??= () => {};
+// React Query decides "server" at import time, before the window shim above
+// runs, and a server never arms refetchInterval timers. The live-polling
+// checks below need the browser behaviour.
+environmentManager.setIsServer(() => false);
 
 let failures = 0;
 function check(name: string, condition: boolean, detail = '') {
@@ -79,7 +83,9 @@ const baseOffboarding = {
 
 let offboarding: any = baseOffboarding;
 const posts: string[] = [];
+let stateReads = 0;
 let reactivateResponse: () => Response = () => new Response(JSON.stringify({ offboarding }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+let bundleResponse: () => Response = () => new Response(JSON.stringify({ offboarding }), { status: 202, headers: { 'Content-Type': 'application/json' } });
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
@@ -87,7 +93,12 @@ g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     posts.push('reactivate');
     return reactivateResponse();
   }
+  if (url.includes('/api/provider-accounts/office-1/offboarding/bundle') && method === 'POST') {
+    posts.push('bundle');
+    return bundleResponse();
+  }
   if (url.includes('/api/provider-accounts/office-1/offboarding')) {
+    if (method === 'GET') stateReads += 1;
     return new Response(JSON.stringify({ offboarding }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -123,6 +134,86 @@ console.log('\noffboarding stepper: active office');
   const button = byTestId(root, 'button-offboarding-start')[0];
   check('step 1 is current and enabled', byTestId(root, 'offboarding-step-1')[0]?.props['data-state'] === 'current' && button?.props.disabled === false);
   check('later steps are upcoming', byTestId(root, 'offboarding-step-4')[0]?.props['data-state'] === 'upcoming' && byTestId(root, 'offboarding-step-5')[0]?.props['data-state'] === 'upcoming');
+  await act(async () => renderer.unmount());
+}
+
+const sleep = (ms: number) => act(async () => { await new Promise((resolve) => setTimeout(resolve, ms)); });
+const startedOffice = {
+  ...baseOffboarding,
+  status: 'offboarding',
+  nextStep: 'bundle',
+  started: { at: '2026-09-01T12:00:00Z', by: 'hq-1', sessionsRevoked: 4 },
+};
+const bundleJob = (overrides: Record<string, unknown>) => ({
+  id: 'exp-1', kind: 'office_bundle', status: 'queued', fileName: 'bundle.zip', requesterKind: 'hq', requesterRole: 'admin', providerId: 'office-1',
+  patientId: null, params: { offboarding: true }, error: null, sizeBytes: null, rowCount: null, createdAt: '2026-09-01T12:00:30Z', startedAt: null,
+  completedAt: null, expiresAt: '2026-09-08T12:00:00Z', downloadCount: 0, downloadable: false, parts: null,
+  progress: { stage: 'queued', partsDone: 0, partsTotal: null, patientsDone: 0, patientsTotal: null, bytesWritten: 0 },
+  ...overrides,
+});
+
+console.log('\noffboarding stepper: bundle queued → running → ready (live polling)');
+{
+  offboarding = { ...startedOffice, bundle: bundleJob({}) };
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  const readsAfterMount = stateReads;
+  check('queued bundle keeps step 2 current (no premature check) and step 3 upcoming', byTestId(root, 'offboarding-step-2')[0]?.props['data-state'] === 'current' && byTestId(root, 'offboarding-step-3')[0]?.props['data-state'] === 'upcoming');
+  check('queued status, timing, and the minute-tick note are visible', textOf(byTestId(root, 'offboarding-bundle-status')[0]).includes('Queued') && textOf(byTestId(root, 'offboarding-bundle-timing')[0]).includes('Not started yet') && textOf(byTestId(root, 'offboarding-bundle-tick-note')[0]).includes('next minute tick'));
+  check('no request button while the bundle is queued', byTestId(root, 'button-offboarding-bundle').length === 0);
+  check('step 3 says it is waiting on the queued bundle', textOf(byTestId(root, 'offboarding-handover-wait')[0]).includes('queued'));
+  // The server moves on; the page must pick it up without a reload.
+  offboarding = { ...startedOffice, bundle: bundleJob({ status: 'running', startedAt: '2026-09-01T12:01:00Z', progress: { stage: 'patients', partsDone: 2, partsTotal: null, patientsDone: 7, patientsTotal: 12, bytesWritten: 3 * 1024 * 1024 } }) };
+  await sleep(5_400);
+  await settle(2);
+  check('page refetched on its own while queued', stateReads > readsAfterMount, `${readsAfterMount} → ${stateReads}`);
+  const progress = textOf(byTestId(root, 'offboarding-bundle-progress')[0] ?? root);
+  check('running bundle shows patients packed, parts written, and bytes', progress.includes('7 of 12 patients packed') && progress.includes('2 parts written') && progress.includes('3.0 MB'), progress);
+  check('running bundle shows when it started', textOf(byTestId(root, 'offboarding-bundle-timing')[0]).includes('Started'));
+  check('step 2 is still current while running', byTestId(root, 'offboarding-step-2')[0]?.props['data-state'] === 'current');
+  check('step 3 says it is waiting on the running build', textOf(byTestId(root, 'offboarding-handover-wait')[0]).includes('still building'));
+  offboarding = {
+    ...startedOffice,
+    nextStep: 'handover',
+    bundle: bundleJob({ status: 'ready', startedAt: '2026-09-01T12:01:00Z', completedAt: '2026-09-01T12:03:00Z', downloadable: true, parts: [{ part: 1, fileName: 'bundle_part-001.zip', sizeBytes: 10, fileCount: 3, sha256: 'a' }, { part: 2, fileName: 'bundle_part-002.zip', sizeBytes: 12, fileCount: 9, sha256: 'b' }] }),
+  };
+  await sleep(5_400);
+  await settle(2);
+  check('ready bundle marks step 2 done and lists both parts', byTestId(root, 'offboarding-step-2')[0]?.props['data-state'] === 'done' && textOf(root).includes('bundle_part-002.zip · part 2 of 2'));
+  check('step 3 becomes the current step with the hand-over form', byTestId(root, 'offboarding-step-3')[0]?.props['data-state'] === 'current' && byTestId(root, 'offboarding-handover-wait').length === 0);
+  const readsWhenReady = stateReads;
+  await sleep(5_600);
+  check('polling stops once the bundle is ready', stateReads === readsWhenReady, `${readsWhenReady} → ${stateReads}`);
+  await act(async () => renderer.unmount());
+}
+
+console.log('\noffboarding stepper: failed bundle shows the error and a Request again button');
+{
+  posts.length = 0;
+  const failedJob = bundleJob({ status: 'failed', startedAt: '2026-09-01T12:01:00Z', completedAt: '2026-09-01T12:01:05Z', error: 'This financial export has no verified frozen billing identity. Request a new export.', progress: { stage: 'failed', partsDone: 0, partsTotal: null, patientsDone: 0, patientsTotal: 0, bytesWritten: 0 } });
+  offboarding = { ...startedOffice, bundle: failedJob };
+  const requeued = { ...startedOffice, bundle: bundleJob({ id: 'exp-2' }) };
+  bundleResponse = () => new Response(JSON.stringify({ offboarding: requeued }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  check('failed bundle keeps step 2 current with the worker error', byTestId(root, 'offboarding-step-2')[0]?.props['data-state'] === 'current' && textOf(byTestId(root, 'offboarding-bundle-error')[0] ?? root).includes('no verified frozen billing identity'));
+  check('step 3 is blocked with a failure message, not a generic wait', textOf(byTestId(root, 'offboarding-handover-wait')[0]).includes('failed') && textOf(byTestId(root, 'offboarding-handover-wait')[0]).includes('request it again'));
+  const retry = byTestId(root, 'button-offboarding-bundle')[0];
+  check('Request again button is offered and enabled', Boolean(retry) && retry.props.disabled === false && textOf(retry).includes('Request again'));
+  const readsBeforeRetry = stateReads;
+  await sleep(5_400);
+  check('no polling while the bundle is failed', stateReads === readsBeforeRetry, `${readsBeforeRetry} → ${stateReads}`);
+  await act(async () => { retry.props.onClick(); });
+  await settle();
+  check('clicking posts one new bundle request', posts.filter((post) => post === 'bundle').length === 1, String(posts));
+  check('the page shows the fresh queued bundle and no error', textOf(byTestId(root, 'offboarding-bundle-status')[0]).includes('Queued') && byTestId(root, 'offboarding-bundle-error').length === 0 && byTestId(root, 'button-offboarding-bundle').length === 0);
+  await act(async () => renderer.unmount());
+}
+
+console.log('\noffboarding stepper: expired bundle explains itself and can be requested again');
+{
+  offboarding = { ...startedOffice, bundle: bundleJob({ status: 'expired', startedAt: '2026-09-01T12:01:00Z', completedAt: '2026-09-01T12:03:00Z' }) };
+  const { renderer, root } = await render('/admin/accounts/office-1', <OfficeOffboarding officeId="office-1" />);
+  check('expired bundle has an explanation and the Request again button', textOf(byTestId(root, 'offboarding-bundle-error')[0] ?? root).includes('expired') && byTestId(root, 'button-offboarding-bundle').length === 1);
+  check('step 3 names the expired state', textOf(byTestId(root, 'offboarding-handover-wait')[0]).includes('expired'));
   await act(async () => renderer.unmount());
 }
 
@@ -177,6 +268,7 @@ console.log('\noffboarding stepper: completed office');
 
 console.log('\noffboarding stepper: reactivation (contract renewed)');
 {
+  posts.length = 0;
   offboarding = {
     ...baseOffboarding,
     status: 'offboarded',

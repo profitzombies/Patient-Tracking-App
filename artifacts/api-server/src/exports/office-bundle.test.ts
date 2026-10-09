@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { PatientArchiveSections } from "../privacy/exports";
+import { withExportBillingIdentity } from "./billing-identity";
 import { runOfficeBundleStep, bundlePartFileName, type OfficeBundleDeps, type OfficeBundleManifest } from "./office-bundle";
 import { planPatientRecord, type PatientChartContext } from "./patient-record";
 import type { ExportJobRow } from "./worker";
@@ -48,11 +49,14 @@ function chartFor(patient: (typeof PATIENTS)[number]): PatientChartContext {
 
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
+type Patient = (typeof PATIENTS)[number];
+
 /** One fake office: an in-memory export row, patient list, tombstones, and object store. */
-function office(options: { includeTombstones?: boolean } = {}) {
+function office(options: { includeTombstones?: boolean; patients?: Patient[]; params?: Record<string, unknown>; realIdentityGate?: boolean } = {}) {
+  const patients = options.patients ?? PATIENTS;
   const row: ExportJobRow = {
     id: JOB_ID, kind: "office_bundle", status: "queued", requested_by: "hq-user", requester_kind: "hq", requester_role: "admin",
-    provider_id: OFFICE, params: { officeName: "Lakeside Med Spa", includeTombstones: options.includeTombstones === true },
+    provider_id: OFFICE, params: { officeName: "Lakeside Med Spa", includeTombstones: options.includeTombstones === true, ...options.params },
     file_name: `${STEM}.zip`, object_path: null, size_bytes: null, row_count: null, error: null, attempts: 0,
     created_at: "2026-09-19T10:00:00Z", started_at: null, completed_at: null, expires_at: "2026-09-26T10:00:00Z",
     download_count: 0, last_downloaded_at: null, parts: null, cancel_requested_at: null,
@@ -64,7 +68,7 @@ function office(options: { includeTombstones?: boolean } = {}) {
   const db = (async (method: string, path: string, body?: unknown, prefer?: string) => {
     dbCalls.push(`${method} ${path}`);
     if (method === "GET" && prefer === "count=exact") {
-      const total = path.startsWith("/rest/v1/patient_tombstones") ? 1 : PATIENTS.length;
+      const total = path.startsWith("/rest/v1/patient_tombstones") ? 1 : patients.length;
       return { status: 200, json: [], contentRange: `0-0/${total}` };
     }
     if (method === "GET" && path.startsWith("/rest/v1/data_exports?kind=eq.office_bundle")) {
@@ -89,7 +93,7 @@ function office(options: { includeTombstones?: boolean } = {}) {
     }
     if (method === "GET" && path.startsWith(`/rest/v1/patients?provider_id=eq.${OFFICE}`)) {
       const after = /created_at\.gt\.([^,]+),and\(created_at\.eq\.([^,]+),id\.gt\.([^)]+)\)/.exec(decodeURIComponent(path));
-      const list = PATIENTS.filter((p) => !after || p.created_at > after[1] || (p.created_at === after[2] && p.id > after[3]))
+      const list = patients.filter((p) => !after || p.created_at > after[1] || (p.created_at === after[2] && p.id > after[3]))
         .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
       const limit = Number(/limit=(\d+)/.exec(path)?.[1] ?? 50);
       return { status: 200, json: list.slice(0, limit).map(({ id, created_at }) => ({ id, created_at })), contentRange: null };
@@ -121,7 +125,7 @@ function office(options: { includeTombstones?: boolean } = {}) {
     },
     planRecord: (patientId, options) => {
       planned.push(patientId);
-      const patient = PATIENTS.find((p) => p.id === patientId)!;
+      const patient = patients.find((p) => p.id === patientId)!;
       return planPatientRecord(patientId, {
         ...options,
         sections: sectionsFor(patient),
@@ -138,10 +142,13 @@ function office(options: { includeTombstones?: boolean } = {}) {
     officeSheets: async (scope) => {
       expect(scope.providerId).toBe(OFFICE);
       expect(scope.range?.end).toBe("2026-09-19");
-      return ["orders", "payments", "refunds", "shipments", "subscriptions", "staff-team", "audit-events", "patient-activity"].map((name) => ({
+      const sheets = () => ["orders", "payments", "refunds", "shipments", "subscriptions", "staff-team", "audit-events", "patient-activity"].map((name) => ({
         file: `office/${name}.csv`,
         sheet: { header: ["Sheet", "Office"], rows: [[name, scope.officeName ?? ""]] },
       }));
+      // The real office sheets refuse to run without the row's frozen billing
+      // identity; opt in to that gate to prove what the worker does with it.
+      return options.realIdentityGate ? withExportBillingIdentity(scope, sheets) : sheets();
     },
     ttlHours: async () => 48,
     partBudgetBytes: 10 * 1024 * 1024,
@@ -343,5 +350,49 @@ describe("office bundle job", () => {
     fx.row.status = "ready";
     expect(await fx.step()).toEqual({ moreWork: false, jobId: null });
     expect(fx.tallies).toEqual({});
+  });
+
+  describe("offboarding-requested bundles", () => {
+    // Exactly what the HQ offboarding route stores on the row.
+    const OFFBOARDING_PARAMS = { offboarding: true, billingIdentity: { mode: "test", platformAccountId: "acct_TestPlatform", version: 1 } };
+    const IDENTITY_FAILURE = "This financial export has no verified frozen billing identity. Request a new export.";
+
+    it("reaches ready for an office with no patients: a single office part with the sheets and manifest", async () => {
+      const fx = office({ patients: [], params: OFFBOARDING_PARAMS, realIdentityGate: true });
+      const result = await fx.step();
+      expect(result).toEqual({ moreWork: false, jobId: JOB_ID });
+      expect(fx.row.status).toBe("ready");
+      expect(fx.row.error).toBeNull();
+      expect(fx.planned).toEqual([]);
+      const parts = fx.row.parts as Array<{ part: number; objectPath: string; sizeBytes: number }>;
+      expect(parts.map((part) => part.part)).toEqual([1]);
+      expect(fx.row.object_path).toBe(parts[0].objectPath);
+      const only = await zipOf(fx.objects, parts[0].objectPath);
+      expect(fileNames(only)).toEqual([
+        "README.txt", "manifest.json", "office/audit-events.csv", "office/orders.csv", "office/patient-activity.csv", "office/payments.csv",
+        "office/refunds.csv", "office/shipments.csv", "office/staff-team.csv", "office/subscriptions.csv",
+      ]);
+      const manifest = JSON.parse(await only.file("manifest.json")!.async("string")) as OfficeBundleManifest;
+      expect(manifest).toMatchObject({ exportId: JOB_ID, officeId: OFFICE, patientsTotal: 0, patientsIncluded: 0, partCount: 1, patients: [] });
+      expect(fx.tallies).toMatchObject({ bundlesClaimed: 1, partsWritten: 1, bundlesReady: 1, bundlePatientsDone: 0, bundlePatientsTotal: 0 });
+    });
+
+    it("reaches ready for an office with patients, with the billing sheets written under the frozen identity", async () => {
+      const fx = office({ params: OFFBOARDING_PARAMS, realIdentityGate: true, includeTombstones: true });
+      expect(await fx.step()).toEqual({ moreWork: false, jobId: JOB_ID });
+      expect(fx.row.status).toBe("ready");
+      expect(fx.planned).toEqual(PATIENTS.map((p) => p.id));
+      const parts = fx.row.parts as Array<{ part: number; objectPath: string }>;
+      expect(parts.map((part) => part.part)).toEqual([1, 2, 3]);
+      expect(fileNames(await zipOf(fx.objects, parts[2].objectPath))).toContain("office/orders.csv");
+    });
+
+    it("still fails loudly for a legacy row queued without the identity, so the gate itself is proven live", async () => {
+      const fx = office({ patients: [], params: { offboarding: true }, realIdentityGate: true });
+      await expect(fx.step()).rejects.toThrow(IDENTITY_FAILURE);
+      expect(fx.row.status).toBe("failed");
+      expect(fx.row.error).toBe(IDENTITY_FAILURE);
+      expect(fx.row.completed_at).toBe(new Date(fx.clock).toISOString());
+    });
   });
 });

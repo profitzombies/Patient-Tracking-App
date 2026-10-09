@@ -142,6 +142,8 @@ export function exportJobDto(row: ExportJobRow, now = Date.now()) {
     rowCount: row.row_count,
     error: status === "failed" ? row.error : status === "expired" && row.error ? row.error : null,
     createdAt: row.created_at,
+    /** When a worker claimed the job; null while still queued. */
+    startedAt: row.started_at ?? null,
     completedAt: row.completed_at,
     expiresAt: row.expires_at,
     downloadCount: row.download_count,

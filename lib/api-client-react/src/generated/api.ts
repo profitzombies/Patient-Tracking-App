@@ -79,6 +79,7 @@ import type {
   ConversationSummaryResult,
   CorrectBloodworkResultParams,
   CreateOfficePatientGroupParams,
+  CustomerHealthResult,
   DeleteBloodworkReportParams,
   DeleteOfficePatientGroup200,
   DeleteOfficePatientGroupParams,
@@ -8211,6 +8212,84 @@ export function useGetHqPatientRetention<TData = Awaited<ReturnType<typeof getHq
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetHqPatientRetentionQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqCustomerHealthUrl = () => {
+
+
+
+
+  return `/api/hq/customer-health`
+}
+
+/**
+ * Customers = offices that are not access-disabled and not offboarding / offboarded. Each is scored 0-100 (most recent paid live-mode order 40, app subscribers 15, app users 15, active app users 15, staff enrolled 15), banded Healthy / Watch / At risk, bucketed by days since the last paid order (Active <= 90, Quiet 3-6 months, Quiet 6-12 months, Quiet over a year / never ordered), and flagged with plain-language "needs attention this week" reasons. Ties share a rank. Figures are as of the request; there is no date range. HQ analytics readers only.
+ * @summary Every active practice stack-ranked by customer health, as of now
+ */
+export const getHqCustomerHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<CustomerHealthResult> => {
+
+  return customFetch<CustomerHealthResult>(getGetHqCustomerHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqCustomerHealthQueryKey = () => {
+    return [
+    `/api/hq/customer-health`
+    ] as const;
+    }
+
+
+export const getGetHqCustomerHealthQueryOptions = <TData = Awaited<ReturnType<typeof getHqCustomerHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqCustomerHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqCustomerHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqCustomerHealth>>> = ({ signal }) => getHqCustomerHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqCustomerHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqCustomerHealthQueryResult = NonNullable<Awaited<ReturnType<typeof getHqCustomerHealth>>>
+export type GetHqCustomerHealthQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Every active practice stack-ranked by customer health, as of now
+ */
+
+export function useGetHqCustomerHealth<TData = Awaited<ReturnType<typeof getHqCustomerHealth>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqCustomerHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqCustomerHealthQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -2223,6 +2223,23 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/PatientRetentionResult" } } }
         "400": { description: Invalid range }
         "404": { description: Unknown or disabled office }
+  /hq/customer-health:
+    get:
+      operationId: getHqCustomerHealth
+      tags: [hq]
+      summary: Every active practice stack-ranked by customer health, as of now
+      description: >-
+        Customers = offices that are not access-disabled and not offboarding / offboarded. Each is
+        scored 0-100 (most recent paid live-mode order 40, app subscribers 15, app users 15, active
+        app users 15, staff enrolled 15), banded Healthy / Watch / At risk, bucketed by days since
+        the last paid order (Active <= 90, Quiet 3-6 months, Quiet 6-12 months, Quiet over a year /
+        never ordered), and flagged with plain-language "needs attention this week" reasons. Ties
+        share a rank. Figures are as of the request; there is no date range. HQ analytics readers
+        only.
+      responses:
+        "200":
+          description: Ranked offices, bucket and band counts, the attention list and the definitions in force
+          content: { application/json: { schema: { $ref: "#/components/schemas/CustomerHealthResult" } } }
   /exports:
     get:
       operationId: listExports
@@ -3616,6 +3633,139 @@ components:
         offices:
           type: array
           items: { $ref: "#/components/schemas/PatientRetentionOfficeRow" }
+    CustomerHealthBucket:
+      type: string
+      enum: [active, quiet3to6, quiet6to12, quietOverYear]
+    CustomerHealthBand:
+      type: string
+      enum: [healthy, watch, atRisk]
+    CustomerHealthAttentionFlag:
+      type: object
+      required: [kind, reason]
+      properties:
+        kind:
+          type: string
+          enum: [leavingActive, passingSixMonths, activeUsersDrop, subscriptionsCancelling, atRisk]
+        reason: { type: string, description: "Plain-language reason including the days or counts involved" }
+    CustomerHealthScoreParts:
+      type: object
+      description: Points earned per component (one decimal); they sum to the score before rounding
+      required: [recency, subscribers, appUsers, activeAppUsers, staff]
+      properties:
+        recency: { type: number }
+        subscribers: { type: number }
+        appUsers: { type: number }
+        activeAppUsers: { type: number }
+        staff: { type: number }
+    CustomerHealthOffice:
+      type: object
+      required:
+        [providerId, officeName, providerName, rank, score, band, parts, bucket, isNew, lastOrderDate, lastOrderAt,
+         daysSinceLastOrder, officeAgeDays, activeSubscribers, cancellingSubscriptions, appUsers, activeAppUsers30d,
+         activeAppUsersPrior30d, staffEnrolled, flags]
+      properties:
+        providerId: { type: string }
+        officeName: { type: string }
+        providerName: { type: string }
+        rank: { type: number, description: "1-based; tied scores share a rank" }
+        score: { type: number, description: "0-100, whole number" }
+        band: { $ref: "#/components/schemas/CustomerHealthBand" }
+        parts: { $ref: "#/components/schemas/CustomerHealthScoreParts" }
+        bucket: { $ref: "#/components/schemas/CustomerHealthBucket" }
+        isNew: { type: boolean, description: "Created within the last 90 days with no order yet" }
+        lastOrderDate: { type: ["string", "null"], format: date, description: "UTC date of the last paid live-mode order; null = no orders on record" }
+        lastOrderAt: { type: ["string", "null"] }
+        daysSinceLastOrder: { type: ["number", "null"] }
+        officeAgeDays: { type: ["number", "null"] }
+        activeSubscribers: { type: number }
+        cancellingSubscriptions: { type: number }
+        appUsers: { type: number }
+        activeAppUsers30d: { type: number }
+        activeAppUsersPrior30d: { type: number }
+        staffEnrolled: { type: number }
+        flags:
+          type: array
+          items: { $ref: "#/components/schemas/CustomerHealthAttentionFlag" }
+    CustomerHealthDefinitions:
+      type: object
+      description: The constants the score was computed with, so the page can show them without a second copy
+      required: [weights, targets, recencyFullDays, recencyZeroDays, bucketBounds, bandThresholds, newOfficeDays, attentionRules]
+      properties:
+        weights:
+          type: object
+          required: [recency, subscribers, appUsers, activeAppUsers, staff]
+          properties:
+            recency: { type: number }
+            subscribers: { type: number }
+            appUsers: { type: number }
+            activeAppUsers: { type: number }
+            staff: { type: number }
+        targets:
+          type: object
+          required: [subscribers, appUsers, staff]
+          properties:
+            subscribers: { type: number }
+            appUsers: { type: number }
+            staff: { type: number }
+        recencyFullDays: { type: number }
+        recencyZeroDays: { type: number }
+        bucketBounds:
+          type: object
+          required: [active, quiet3to6, quiet6to12]
+          properties:
+            active: { type: number }
+            quiet3to6: { type: number }
+            quiet6to12: { type: number }
+        bandThresholds:
+          type: object
+          required: [healthy, watch]
+          properties:
+            healthy: { type: number }
+            watch: { type: number }
+        newOfficeDays: { type: number }
+        attentionRules:
+          type: object
+          required: [leavingActive, passingSixMonths, activeUsersDropPct, activeUsersDropMinPrior]
+          properties:
+            leavingActive:
+              type: object
+              required: [from, to]
+              properties: { from: { type: number }, to: { type: number } }
+            passingSixMonths:
+              type: object
+              required: [from, to]
+              properties: { from: { type: number }, to: { type: number } }
+            activeUsersDropPct: { type: number }
+            activeUsersDropMinPrior: { type: number }
+    CustomerHealthResult:
+      type: object
+      required: [generatedAt, offices, bucketCounts, bandCounts, attention, definitions]
+      properties:
+        generatedAt: { type: string }
+        offices:
+          type: array
+          description: Every active office, best score first
+          items: { $ref: "#/components/schemas/CustomerHealthOffice" }
+        bucketCounts:
+          type: object
+          required: [active, quiet3to6, quiet6to12, quietOverYear]
+          properties:
+            active: { type: number }
+            quiet3to6: { type: number }
+            quiet6to12: { type: number }
+            quietOverYear: { type: number }
+        bandCounts:
+          type: object
+          required: [healthy, watch, atRisk]
+          properties:
+            healthy: { type: number }
+            watch: { type: number }
+            atRisk: { type: number }
+        attention:
+          type: array
+          description: Flagged offices, worst score first
+          items: { $ref: "#/components/schemas/CustomerHealthOffice" }
+        definitions: { $ref: "#/components/schemas/CustomerHealthDefinitions" }
     AppUsageInsightsDataset:
       type: string
       enum: [app_open, food_log, water_log, weigh_in, progress_photo, coach_message, care_team_message, medication_log, order]

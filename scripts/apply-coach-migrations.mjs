@@ -51,6 +51,9 @@ const migrationNames = [
   // Stripe debits an office's bank with a negative payout when its balance
   // stays negative; the payout mirror must accept it or the webhook sticks.
   "20261203000000_billing_payouts_allow_debits.sql",
+  // HQ Customer health: per-office facts (last paid live order, subscribers,
+  // app users, 30-day actives, staff) behind the practice health score.
+  "20261204000000_office_customer_health.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.

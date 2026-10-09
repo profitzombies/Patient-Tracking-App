@@ -530,6 +530,7 @@ export interface PatientRetentionResult {
   offices: PatientRetentionOfficeRow[];
 }
 
+export type CustomerHealthBucket = typeof CustomerHealthBucket[keyof typeof CustomerHealthBucket];
 export type AppUsageInsightsDataset = typeof AppUsageInsightsDataset[keyof typeof AppUsageInsightsDataset];
 
 
@@ -6193,3 +6194,158 @@ export type ListBloodworkCorrectionsParams = {
 office?: OfficeIdParameter;
 };
 
+
+export interface CustomerHealthOffice {
+  providerId: string;
+  officeName: string;
+  providerName: string;
+  /** 1-based; tied scores share a rank */
+  rank: number;
+  /** 0-100, whole number */
+  score: number;
+  band: CustomerHealthBand;
+  parts: CustomerHealthScoreParts;
+  bucket: CustomerHealthBucket;
+  /** Created within the last 90 days with no order yet */
+  isNew: boolean;
+  /**
+     * UTC date of the last paid live-mode order; null = no orders on record
+     * @nullable
+     */
+  lastOrderDate: string | null;
+  /** @nullable */
+  lastOrderAt: string | null;
+  /** @nullable */
+  daysSinceLastOrder: number | null;
+  /** @nullable */
+  officeAgeDays: number | null;
+  activeSubscribers: number;
+  cancellingSubscriptions: number;
+  appUsers: number;
+  activeAppUsers30d: number;
+  activeAppUsersPrior30d: number;
+  staffEnrolled: number;
+  flags: CustomerHealthAttentionFlag[];
+}
+
+export type CustomerHealthResultBandCounts = {
+  healthy: number;
+  watch: number;
+  atRisk: number;
+};
+
+export type CustomerHealthDefinitionsBandThresholds = {
+  healthy: number;
+  watch: number;
+};
+
+export const CustomerHealthBucket = {
+  active: 'active',
+  quiet3to6: 'quiet3to6',
+  quiet6to12: 'quiet6to12',
+  quietOverYear: 'quietOverYear',
+} as const;
+
+export type CustomerHealthBand = typeof CustomerHealthBand[keyof typeof CustomerHealthBand];
+
+export type CustomerHealthDefinitionsWeights = {
+  recency: number;
+  subscribers: number;
+  appUsers: number;
+  activeAppUsers: number;
+  staff: number;
+};
+
+export interface CustomerHealthAttentionFlag {
+  kind: CustomerHealthAttentionFlagKind;
+  /** Plain-language reason including the days or counts involved */
+  reason: string;
+}
+
+export type CustomerHealthDefinitionsAttentionRulesPassingSixMonths = {
+  from: number;
+  to: number;
+};
+
+export type CustomerHealthAttentionFlagKind = typeof CustomerHealthAttentionFlagKind[keyof typeof CustomerHealthAttentionFlagKind];
+
+export const CustomerHealthAttentionFlagKind = {
+  leavingActive: 'leavingActive',
+  passingSixMonths: 'passingSixMonths',
+  activeUsersDrop: 'activeUsersDrop',
+  subscriptionsCancelling: 'subscriptionsCancelling',
+  atRisk: 'atRisk',
+} as const;
+
+/**
+ * The constants the score was computed with, so the page can show them without a second copy
+ */
+export interface CustomerHealthDefinitions {
+  weights: CustomerHealthDefinitionsWeights;
+  targets: CustomerHealthDefinitionsTargets;
+  recencyFullDays: number;
+  recencyZeroDays: number;
+  bucketBounds: CustomerHealthDefinitionsBucketBounds;
+  bandThresholds: CustomerHealthDefinitionsBandThresholds;
+  newOfficeDays: number;
+  attentionRules: CustomerHealthDefinitionsAttentionRules;
+}
+
+export type CustomerHealthDefinitionsTargets = {
+  subscribers: number;
+  appUsers: number;
+  staff: number;
+};
+
+export type CustomerHealthDefinitionsAttentionRules = {
+  leavingActive: CustomerHealthDefinitionsAttentionRulesLeavingActive;
+  passingSixMonths: CustomerHealthDefinitionsAttentionRulesPassingSixMonths;
+  activeUsersDropPct: number;
+  activeUsersDropMinPrior: number;
+};
+
+export type CustomerHealthResultBucketCounts = {
+  active: number;
+  quiet3to6: number;
+  quiet6to12: number;
+  quietOverYear: number;
+};
+
+/**
+ * Points earned per component (one decimal); they sum to the score before rounding
+ */
+export interface CustomerHealthScoreParts {
+  recency: number;
+  subscribers: number;
+  appUsers: number;
+  activeAppUsers: number;
+  staff: number;
+}
+
+export const CustomerHealthBand = {
+  healthy: 'healthy',
+  watch: 'watch',
+  atRisk: 'atRisk',
+} as const;
+
+export type CustomerHealthDefinitionsBucketBounds = {
+  active: number;
+  quiet3to6: number;
+  quiet6to12: number;
+};
+
+export interface CustomerHealthResult {
+  generatedAt: string;
+  /** Every active office, best score first */
+  offices: CustomerHealthOffice[];
+  bucketCounts: CustomerHealthResultBucketCounts;
+  bandCounts: CustomerHealthResultBandCounts;
+  /** Flagged offices, worst score first */
+  attention: CustomerHealthOffice[];
+  definitions: CustomerHealthDefinitions;
+}
+
+export type CustomerHealthDefinitionsAttentionRulesLeavingActive = {
+  from: number;
+  to: number;
+};

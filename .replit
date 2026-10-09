@@ -48,6 +48,14 @@ args = "offboarding-bundle-api"
 task = "workflow.run"
 args = "offboarding-bundle-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "customer-health-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "customer-health-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3012,6 +3020,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-offboarding && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "customer-health-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/customer-health src/routes/hq-customer-health.test.ts src/routes/office-customer-health.sql.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "customer-health-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:customer-health && pnpm --filter @workspace/thinnr-operations run test:patient-retention && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

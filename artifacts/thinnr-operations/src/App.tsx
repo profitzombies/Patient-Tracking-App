@@ -39,6 +39,7 @@ import { UnauthorizedState } from '@/components/admin/primitives';
 import HqOverview from '@/pages/admin/HqOverview';
 import AppUsage from '@/pages/admin/AppUsage';
 import PatientRetention from '@/pages/admin/PatientRetention';
+import CustomerHealth from '@/pages/admin/CustomerHealth';
 import Accounts from '@/pages/admin/Accounts';
 import AccountDetail from '@/pages/admin/AccountDetail';
 import OfficeDrillIn from '@/pages/admin/OfficeDrillIn';
@@ -119,6 +120,7 @@ function AdminArea() {
               <Route path="/admin" component={HqOverview} />
               <Route path="/admin/app-usage" component={AppUsage} />
               <Route path="/admin/patient-retention" component={PatientRetention} />
+              <Route path="/admin/customer-health" component={CustomerHealth} />
               <Route path="/admin/accounts" component={Accounts} />
               <Route path="/admin/accounts/:id" component={AccountDetail} />
               <Route path="/admin/conversations" component={Conversations} />

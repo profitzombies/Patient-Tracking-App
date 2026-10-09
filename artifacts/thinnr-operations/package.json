@@ -81,6 +81,7 @@
     "test:app-usage": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-app-usage.tsx",
     "test:office-insights": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-office-insights.tsx",
     "test:patient-retention": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-patient-retention.tsx",
+    "test:customer-health": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-customer-health.tsx",
     "test:idle-timeout": "TZ=UTC tsx --tsconfig tsconfig.idle-timeout.json scripts/verify-idle-timeout.tsx",
     "test:practice-launch": "TZ=UTC tsx --tsconfig tsconfig.system-health.json scripts/verify-practice-launch.tsx",
     "test:office-access-setup": "TZ=UTC tsx --tsconfig tsconfig.office-access.json scripts/verify-office-access-setup.tsx",

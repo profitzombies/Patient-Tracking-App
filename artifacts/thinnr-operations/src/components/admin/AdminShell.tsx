@@ -23,6 +23,7 @@ import {
   Settings2,
   Users,
   ActivitySquare,
+  HeartHandshake,
   HeartPulse,
   Smartphone,
   UserCheck,
@@ -53,6 +54,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin', label: 'Overview', mobileLabel: 'Overview', icon: LayoutDashboard },
   { path: '/admin/app-usage', label: 'App usage', mobileLabel: 'Usage', icon: Smartphone },
   { path: '/admin/patient-retention', label: 'Patient retention', mobileLabel: 'Retention', icon: UserCheck },
+  { path: '/admin/customer-health', label: 'Customer health', mobileLabel: 'Customers', icon: HeartHandshake },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/escalations', label: 'Escalations', icon: ActivitySquare },
@@ -82,7 +84,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
-  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage', '/admin/patient-retention'] },
+  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage', '/admin/patient-retention', '/admin/customer-health'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
   { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/payments', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },
@@ -96,7 +98,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const visibleNavItems = NAV_ITEMS.filter(
     (item) =>
       (item.path === '/security' ? effectiveRole !== null : canHq(effectiveRole, permissionForAdminPath(item.path))) &&
-      ((item.path !== '/admin/audit' && item.path !== '/admin/system-health') || authStatus === 'signed-in'),
+      ((item.path !== '/admin/audit' && item.path !== '/admin/system-health' && item.path !== '/admin/customer-health') || authStatus === 'signed-in'),
   );
   const [menuMode, setMenuMode] = useMenuMode();
   const scrollContainerRef = useRef<HTMLDivElement>(null);

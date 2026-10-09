@@ -6,6 +6,8 @@ export class MemoryStaffNotificationStore implements StaffNotificationStore {
   preferences = new Map<string, { emailEnabled: boolean; pushEnabled: boolean }>();
   office = new Map<string, { available: boolean; locked: boolean }>();
   attempts: Record<string, unknown>[] = [];
+  /** `${authUserId}:${kind}` → subscribed (absent = not subscribed). */
+  hqSubscriptions = new Map<string, boolean>();
   async registerToken(input: { authUserId: string; providerId: string; token: string; deviceId: string; platform: "ios" | "android" }) {
     let retired = 0;
     for (const row of this.tokens) {
@@ -39,4 +41,5 @@ export class MemoryStaffNotificationStore implements StaffNotificationStore {
   }
   async insertAttempts(rows: Record<string, unknown>[]) { this.attempts.push(...rows); }
   async disableToken(id: string, _reason: StaffTokenDisableReason) { const token = this.tokens.find((row) => row.id === id); if (token) token.disabled_at = new Date().toISOString(); }
+  async hqSubscribed(authUserId: string, preferenceKind: string) { return this.hqSubscriptions.get(`${authUserId}:${preferenceKind}`) === true; }
 }

@@ -56,6 +56,7 @@ export type HealthSortKey =
   | 'rank'
   | 'officeName'
   | 'score'
+  | 'scoreChange'
   | 'daysSinceLastOrder'
   | 'activeSubscribers'
   | 'appUsers'
@@ -75,6 +76,7 @@ export const HEALTH_COLUMNS: readonly HealthColumn[] = [
   { key: 'rank', label: 'Rank', short: '#', help: 'Position by health score; tied scores share a rank', align: 'right' },
   { key: 'officeName', label: 'Office', short: 'Office', help: 'The practice; opens its HQ account page', align: 'left' },
   { key: 'score', label: 'Health score', short: 'Score', help: 'Health score out of 100 with its band', align: 'right' },
+  { key: 'scoreChange', label: 'Change since last week', short: 'vs last week', help: 'Health score now minus the score the Monday weekly run recorded last week; — before the first weekly run', align: 'right' },
   { key: 'daysSinceLastOrder', label: 'Last order', short: 'Last order', help: 'Date of the most recent paid shop order and days since', align: 'right' },
   { key: 'activeSubscribers', label: 'App subscribers', short: 'Subscribers', help: 'Distinct patients with an active product subscription', align: 'right' },
   { key: 'appUsers', label: 'App users', short: 'App users', help: 'Patients with a claimed, activated account', align: 'right' },
@@ -147,7 +149,7 @@ export function filterHealthRows(rows: readonly CustomerHealthOffice[], group: H
 const bucketIndex = (bucket: CustomerHealthBucket) => BUCKET_ORDER.indexOf(bucket);
 
 function compareNullable(a: number | null, b: number | null, dir: 1 | -1): number {
-  // "No orders on record" always sinks, whichever direction the column is sorted.
+  // "No orders on record" (and "—" before the first weekly snapshot) always sinks, whichever direction the column is sorted.
   if (a === null && b === null) return 0;
   if (a === null) return 1;
   if (b === null) return -1;
@@ -163,6 +165,7 @@ export function sortHealthRows(rows: readonly CustomerHealthOffice[], sort: Heal
     switch (sort.key) {
       case 'officeName': primary = dir * a.officeName.localeCompare(b.officeName); break;
       case 'daysSinceLastOrder': primary = compareNullable(a.daysSinceLastOrder, b.daysSinceLastOrder, dir); break;
+      case 'scoreChange': primary = compareNullable(a.scoreChange, b.scoreChange, dir); break;
       case 'bucket': primary = dir * (bucketIndex(a.bucket) - bucketIndex(b.bucket)); break;
       default: primary = dir * (a[sort.key] - b[sort.key]);
     }
@@ -180,6 +183,20 @@ export function formatDaysAgo(days: number | null): string {
   if (days === null) return 'No orders on record';
   if (days === 0) return 'Today';
   return days === 1 ? '1 day ago' : `${fmtCount(days)} days ago`;
+}
+
+/** "vs last week": signed change, "0" for no movement, an em dash before the first weekly snapshot. */
+export function formatScoreChange(change: number | null): string {
+  if (change === null) return '—';
+  if (change === 0) return '0';
+  return change > 0 ? `+${fmtCount(change)}` : `−${fmtCount(Math.abs(change))}`;
+}
+
+/** Plain words for screen readers and tooltips. */
+export function describeScoreChange(change: number | null): string {
+  if (change === null) return 'No weekly snapshot yet';
+  if (change === 0) return 'Unchanged since last week';
+  return `${change > 0 ? 'Up' : 'Down'} ${fmtCount(Math.abs(change))} since last week`;
 }
 
 export function countFlagged(rows: readonly CustomerHealthOffice[]): number {
@@ -203,6 +220,7 @@ export function healthDefinitions(d: CustomerHealthDefinitions): HealthDefinitio
     { term: 'Staff enrolled', text: 'Enabled, linked team members of the office plus the provider account holder, who is the implicit owner.' },
     { term: 'Health score', text: `Out of 100. Most recent order ${weights.recency} points — full points at ${d.recencyFullDays} days or less since the last order, falling evenly to zero at ${d.recencyZeroDays} days; no order on record scores zero. App subscribers ${weights.subscribers} points, full at ${targets.subscribers}. App users ${weights.appUsers} points, full at ${targets.appUsers}. Active app users ${weights.activeAppUsers} points, scaled by the share of app users active in 30 days (zero with no app users). Staff enrolled ${weights.staff} points, full at ${targets.staff}.` },
     { term: 'Bands', text: `Healthy ${bandThresholds.healthy} and above. Watch ${bandThresholds.watch}–${bandThresholds.healthy - 1}. At risk below ${bandThresholds.watch}. Tied scores share a rank.` },
+    { term: 'Change since last week', text: 'Every Monday at 9:00 am in the organization\'s time zone a weekly run records each office\'s score. The change is today\'s score minus the score recorded in the previous week\'s run — "—" until that first run exists. The same run sends the Monday summary email to HQ members who turned it on for themselves.' },
     { term: 'Needs attention this week', text: `Flagged when any of these hold: last order ${attentionRules.leavingActive.from}–${attentionRules.leavingActive.to} days ago (about to leave Active); last order ${attentionRules.passingSixMonths.from}–${attentionRules.passingSixMonths.to} days ago (about to pass six months); active app users down ${attentionRules.activeUsersDropPct}% or more versus the previous 30 days (only when that window had at least ${attentionRules.activeUsersDropMinPrior}); one or more active subscriptions set to cancel at period end; or the score is At risk and the office is not New.` },
   ];
 }

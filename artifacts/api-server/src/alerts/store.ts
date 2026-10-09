@@ -26,6 +26,12 @@ export interface StaffNotificationStore {
   update(id: string, patch: Record<string, unknown>, leaseOwner: string): Promise<boolean>;
   insertAttempts(rows: Record<string, unknown>[]): Promise<void>;
   disableToken(id: string, reason: StaffTokenDisableReason): Promise<void>;
+  /**
+   * Whether an HQ member's own opt-in notification (weekly Customer health
+   * summary) is still on AND their HQ membership is still active. Checked at
+   * send time so a toggle turned off after enqueue is honoured.
+   */
+  hqSubscribed(authUserId: string, preferenceKind: string): Promise<boolean>;
 }
 function rows(result: { status: number; json: unknown }, label: string): StaffPushToken[] {
   if (result.status >= 300) throw new Error(`${label} failed (${result.status})`);
@@ -84,5 +90,14 @@ export const supabaseStaffNotificationStore: StaffNotificationStore = {
   async disableToken(id, reason) {
     const result = await supabaseAdmin("PATCH", `/rest/v1/staff_push_tokens?id=eq.${enc(id)}`, { disabled_at: new Date().toISOString(), disabled_reason: reason }, "return=minimal");
     if (result.status >= 300) throw new Error(`staff token disable failed (${result.status})`);
+  },
+  async hqSubscribed(authUserId, preferenceKind) {
+    const [pref, member] = await Promise.all([
+      supabaseAdmin("GET", `/rest/v1/hq_member_notification_preferences?auth_user_id=eq.${enc(authUserId)}&kind=eq.${enc(preferenceKind)}&select=enabled&limit=1`),
+      supabaseAdmin("GET", `/rest/v1/hq_memberships?auth_user_id=eq.${enc(authUserId)}&status=eq.active&select=auth_user_id&limit=1`),
+    ]);
+    if (pref.status >= 300 || member.status >= 300) throw new Error("hq subscription check failed");
+    const row = Array.isArray(pref.json) ? pref.json[0] as Record<string, unknown> | undefined : undefined;
+    return row?.enabled === true && Array.isArray(member.json) && member.json.length > 0;
   },
 };

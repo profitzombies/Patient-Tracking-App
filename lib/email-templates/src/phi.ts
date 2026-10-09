@@ -48,6 +48,7 @@ export const EMAIL_TEMPLATE_PHI_CLASS: Record<EmailTemplateId, EmailPhiClass> = 
   "coach-chat-flag": "operational",
   "system-threshold-alert": "operational",
   "office-access-restricted": "operational",
+  "weekly-customer-health-summary": "operational",
 };
 
 /** Templates that may address a patient or staff member by full name. */

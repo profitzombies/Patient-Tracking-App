@@ -16,8 +16,10 @@ import {
   BAND_LABELS,
   BUCKET_SHORT,
   HEALTH_COLUMNS,
+  describeScoreChange,
   formatCount,
   formatDaysAgo,
+  formatScoreChange,
   type HealthSort,
   type HealthSortKey,
 } from '@/lib/customer-health';
@@ -37,6 +39,22 @@ const BAND_CHIP: Record<CustomerHealthBand, string> = { healthy: CHIP_COBALT, wa
 
 export function BandPill({ band, testId }: { band: CustomerHealthBand; testId?: string }) {
   return <span className={BAND_CHIP[band]} data-testid={testId} data-band={band}>{BAND_LABELS[band]}</span>;
+}
+
+/** "vs last week": signed and coloured when a snapshot exists, a muted em dash before the first weekly run. */
+export function ScoreChange({ change, testId, className = '' }: { change: number | null; testId?: string; className?: string }) {
+  const tone = change === null ? 'text-muted-foreground' : change > 0 ? 'text-primary' : change < 0 ? 'text-[#b65c22]' : 'text-navy';
+  return (
+    <span
+      className={`font-semibold tabular-nums ${tone} ${className}`}
+      title={describeScoreChange(change)}
+      aria-label={describeScoreChange(change)}
+      data-testid={testId}
+      data-change={change === null ? 'none' : change > 0 ? 'up' : change < 0 ? 'down' : 'flat'}
+    >
+      {formatScoreChange(change)}
+    </span>
+  );
 }
 
 export function NewBadge() {
@@ -70,7 +88,7 @@ export function CustomerHealthTable({ rows, sort, onSort, groupLabel }: Customer
     <div className="overflow-x-auto">
       <table className="w-full min-w-[900px] text-left text-xs" data-testid="table-customer-health">
         <caption className="sr-only">
-          Every active office ranked by health score, with last order, app subscribers, app users, active app users, staff enrolled, order-recency group and attention flags. Choose an office name to open its account page.
+          Every active office ranked by health score, with the change since last week's Monday snapshot, last order, app subscribers, app users, active app users, staff enrolled, order-recency group and attention flags. Choose an office name to open its account page.
         </caption>
         <thead>
           <tr className="border-b border-border text-[10px] text-muted-foreground">
@@ -119,6 +137,9 @@ export function CustomerHealthTable({ rows, sort, onSort, groupLabel }: Customer
                   <b className="text-sm" data-testid={`health-score-${row.providerId}`}>{row.score}</b>
                   <BandPill band={row.band} testId={`health-band-${row.providerId}`} />
                 </span>
+              </td>
+              <td className="px-3 py-3 text-right tabular-nums">
+                <ScoreChange change={row.scoreChange} testId={`health-change-${row.providerId}`} />
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-navy" data-testid={`health-last-order-${row.providerId}`}>
                 {row.lastOrderAt ? (

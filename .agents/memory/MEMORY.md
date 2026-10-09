@@ -160,4 +160,4 @@
 - [Prod/dev Supabase split](prod-dev-split.md) — stale live suites ≠ split regressions; Stripe test events reach prod; every migration (drops too) must be listed in the apply runner.
 - [Office patient groups](patient-groups.md) — office-scoped labels, HQ read-only via ?office=, nested membership responses; roster now reads memberships (stub it in roster fakes); throwaway offices need the launch waiver.
 - [RTR React Query polling](rtr-react-query-polling.md) — isServer is frozen at import: call environmentManager.setIsServer(() => false) or refetchInterval never fires in Node suites; bundle rows need billingIdentity.
-- [HQ Customer health](hq-customer-health.md) — one RPC + one pure scoring module (definitions echoed by the API); At-risk flag skips New offices; active-membership HQ tester recipe with dev-mode inline email+SMS codes.
+- [HQ Customer health](hq-customer-health.md) — one RPC + one pure scoring module; weekly email: ISO-week run row written last, send-time opt-out re-check, staff mail ignores dev delivery mode.

@@ -32,30 +32,6 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "demo-removal-web"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "demo-removal-mobile"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "offboarding-bundle-api"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "offboarding-bundle-web"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "customer-health-api"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "customer-health-web"
-
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3042,6 +3018,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:customer-health && pnpm --filter @workspace/thinnr-operations run test:patient-retention && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "weekly-customer-health-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/customer-health src/jobs/definitions/weekly-customer-health.test.ts src/routes/hq-customer-health.test.ts src/alerts/staff-sender.test.ts src/claim/email-templates.test.ts src/routes/hq-staff-alerts.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "weekly-customer-health-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:customer-health && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

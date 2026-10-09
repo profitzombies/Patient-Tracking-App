@@ -12,6 +12,11 @@ import type { CustomerHealthResultBucketCounts } from './customerHealthResultBuc
 
 export interface CustomerHealthResult {
   generatedAt: string;
+  /**
+     * ISO week (2026-W41) of the weekly snapshot the "vs last week" change compares against; null before the first Monday run
+     * @nullable
+     */
+  priorSnapshotWeek: string | null;
   /** Every active office, best score first */
   offices: CustomerHealthOffice[];
   bucketCounts: CustomerHealthResultBucketCounts;

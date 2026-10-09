@@ -608,6 +608,21 @@ export interface CustomerHealthOffice {
   activeAppUsersPrior30d: number;
   staffEnrolled: number;
   flags: CustomerHealthAttentionFlag[];
+  /**
+     * Score the Monday weekly run recorded for this office in the comparison week (see priorSnapshotWeek); null before a snapshot exists
+     * @nullable
+     */
+  priorWeekScore: number | null;
+  /**
+     * score minus priorWeekScore; null before a snapshot exists (the page shows an em dash)
+     * @nullable
+     */
+  scoreChange: number | null;
+}
+
+export interface HqWeeklyCustomerHealthEmailPreference {
+  /** True = the caller receives the summary every Monday at 9:00 am in the organization's time zone */
+  enabled: boolean;
 }
 
 export type CustomerHealthDefinitionsWeights = {
@@ -681,6 +696,11 @@ export type CustomerHealthResultBandCounts = {
 
 export interface CustomerHealthResult {
   generatedAt: string;
+  /**
+     * ISO week (2026-W41) of the weekly snapshot the "vs last week" change compares against; null before the first Monday run
+     * @nullable
+     */
+  priorSnapshotWeek: string | null;
   /** Every active office, best score first */
   offices: CustomerHealthOffice[];
   bucketCounts: CustomerHealthResultBucketCounts;
@@ -6352,4 +6372,3 @@ export type ListBloodworkCorrectionsParams = {
  */
 office?: OfficeIdParameter;
 };
-

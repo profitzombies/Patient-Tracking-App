@@ -66,7 +66,47 @@ export function renderSystemThresholdEmail(row: StaffNotificationRow): RenderedE
   return renderEmailTemplate(email.templateId, email.variables);
 }
 export function isSystemThresholdRow(row: StaffNotificationRow): boolean {
-  return row.kind === "system_threshold" || (row.provider_id === null && row.kind !== "staff_attention_digest");
+  return row.kind === "system_threshold" || (row.provider_id === null && row.kind !== "staff_attention_digest" && !isWeeklyCustomerHealthRow(row));
+}
+/** The kind the Monday Customer health summary rides on (HQ-addressed, opt-in per member). */
+export const WEEKLY_CUSTOMER_HEALTH_ROW_KIND = "weekly_customer_health";
+/** The hq_member_notification_preferences kind the sender re-checks before sending it. */
+export const WEEKLY_CUSTOMER_HEALTH_PREFERENCE = "weekly_customer_health_email";
+export function isWeeklyCustomerHealthRow(row: StaffNotificationRow): boolean {
+  return row.kind === WEEKLY_CUSTOMER_HEALTH_ROW_KIND;
+}
+function weeklyChangeLabel(change: unknown): string {
+  if (typeof change !== "number" || !Number.isFinite(change)) return "—";
+  if (change === 0) return "no change";
+  return `${change > 0 ? "+" : "−"}${Math.abs(change)} vs last week`;
+}
+/**
+ * The weekly summary email: every number was snapshotted on the row by the
+ * job, so the email reads exactly what that Monday's run saw. Office names
+ * and counts only; " · " inside an office name is flattened because the
+ * template splits lines on it.
+ */
+export function weeklyCustomerHealthEmail(row: StaffNotificationRow): StaffEmail {
+  const data = (row.data ?? {}) as Record<string, unknown>;
+  const flat = (value: unknown) => String(value ?? "").replace(/ · /g, " - ").replace(/\n/g, " ").trim();
+  const buckets = Array.isArray(data.bucketCounts) ? data.bucketCounts as Array<Record<string, unknown>> : [];
+  const attention = Array.isArray(data.attention) ? data.attention as Array<Record<string, unknown>> : [];
+  return { templateId: "weekly-customer-health-summary", variables: {
+    name: typeof data.recipientName === "string" ? data.recipientName : "",
+    weekLabel: typeof data.weekLabel === "string" && data.weekLabel ? data.weekLabel : row.title,
+    officeCount: String(Number(data.officeCount ?? 0)),
+    bucketCounts: buckets.map((bucket) => `${flat(bucket.label)} · ${Number(bucket.count ?? 0)}`).join("\n"),
+    attentionCount: String(Number(data.attentionCount ?? attention.length)),
+    attention: attention.map((item) => {
+      const reasons = Array.isArray(item.reasons) ? item.reasons.map(flat).filter(Boolean).join("; ") : flat(item.reason);
+      return [flat(item.officeName), String(Number(item.score ?? 0)), flat(item.band), weeklyChangeLabel(item.change), reasons || "Flagged on the Customer health page"].join(" · ");
+    }).join("\n"),
+    healthLink: `${publicOrigin()}/admin/customer-health`,
+  } };
+}
+export function renderWeeklyCustomerHealthEmail(row: StaffNotificationRow): RenderedEmail {
+  const email = weeklyCustomerHealthEmail(row);
+  return renderEmailTemplate(email.templateId, email.variables);
 }
 /** The kind HQ office-access restriction alerts carry. */
 export const OFFICE_ACCESS_RESTRICTED_KIND = "office_access_restricted";
@@ -173,6 +213,7 @@ async function sendEmail(row: StaffNotificationRow): Promise<void> {
   if (!row.email) throw new Error("staff email delivery is not configured");
   const email = isOfficeAccessRestrictedRow(row)
     ? officeAccessRestrictedEmail(row)
+    : isWeeklyCustomerHealthRow(row) ? weeklyCustomerHealthEmail(row)
     : isSystemThresholdRow(row) ? systemThresholdEmail(row)
       : isCoachChatFlagRow(row) ? coachChatFlagEmail(row) : staffDigestEmail(row);
   await sendTemplatedEmail({
@@ -198,6 +239,13 @@ export async function runStaffNotificationTick(input: {
       if (isSystemThresholdRow(row) || row.provider_id === null) {
         if (row.channel !== "email") {
           if (await finish(input.store, row, input.owner, "suppressed", now, "channel_unsupported", summary)) summary.suppressed += 1;
+          continue;
+        }
+        // The weekly summary is opt-in per HQ member: re-check the toggle (and
+        // that the membership is still active) at send time, so turning it
+        // off between the Monday run and the send is honoured and recorded.
+        if (isWeeklyCustomerHealthRow(row) && !(await input.store.hqSubscribed(row.auth_user_id, WEEKLY_CUSTOMER_HEALTH_PREFERENCE))) {
+          if (await finish(input.store, row, input.owner, "suppressed", now, "unsubscribed", summary)) { summary.suppressed += 1; summary.optedOut += 1; }
           continue;
         }
         try {

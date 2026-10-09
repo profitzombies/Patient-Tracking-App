@@ -11,19 +11,33 @@
  * flagged offices with their reasons, worst score first, and a definitions
  * note spells out every rule from the constants the server scored with.
  *
+ * A personal "Email me this summary every Monday at 9am ET" switch lets any
+ * HQ member subscribe themselves to the weekly email; it reads and saves the
+ * caller's own preference immediately. The "vs last week" column compares
+ * each score with the Monday weekly run's snapshot and reads "—" until the
+ * first run exists.
+ *
  * Figures are as of now — the page does not read the shared date range.
  * Signed-in HQ only: the score, buckets and flags are computed on the server;
  * loading and failure are explicit and a failed load never shows zeros.
  */
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { AlertCircle, RefreshCw, X } from 'lucide-react';
-import type { CustomerHealthOffice, CustomerHealthResult } from '@workspace/api-client-react';
-import { getGetHqCustomerHealthQueryKey, useGetHqCustomerHealth } from '@workspace/api-client-react';
+import { AlertCircle, Mail, RefreshCw, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { CustomerHealthOffice, CustomerHealthResult, HqWeeklyCustomerHealthEmailPreference } from '@workspace/api-client-react';
+import {
+  getGetHqCustomerHealthQueryKey,
+  getGetHqWeeklyCustomerHealthEmailPreferenceQueryKey,
+  useGetHqCustomerHealth,
+  useGetHqWeeklyCustomerHealthEmailPreference,
+  useSetHqWeeklyCustomerHealthEmailPreference,
+} from '@workspace/api-client-react';
 import { Link } from 'wouter';
 import { BTN_SECONDARY, SectionCard } from '@/components/patient/heritage';
 import { AdminPage, PageHeader } from '@/components/admin/primitives';
-import { BandPill, CustomerHealthTable, NewBadge } from '@/components/admin/CustomerHealthTable';
+import { Switch } from '@/components/ui/switch';
+import { BandPill, CustomerHealthTable, NewBadge, ScoreChange } from '@/components/admin/CustomerHealthTable';
 import { useSession } from '@/contexts/session';
 import { formatLocalDate } from '@/lib/local-time';
 import { formatUpdatedAt } from '@/lib/app-usage';
@@ -57,6 +71,74 @@ interface CustomerHealthViewProps {
   onRefresh: () => void;
   urlState: HealthUrlState;
   onUrlState: (next: HealthUrlState) => void;
+  /** The personal weekly-email switch, rendered under the tiles (owned by the page so the view stays pure). */
+  weeklyEmail?: ReactNode;
+}
+
+export const WEEKLY_EMAIL_LABEL = 'Email me this summary every Monday at 9am ET';
+
+export type WeeklyEmailToggleState = 'loading' | 'error' | 'ready';
+
+interface WeeklyEmailToggleProps {
+  state: WeeklyEmailToggleState;
+  enabled: boolean;
+  saving: boolean;
+  saveFailed: boolean;
+  onChange: (enabled: boolean) => void;
+  onRetry: () => void;
+  /** ISO week of the snapshot today's scores are compared with, or null before the first weekly run. */
+  priorSnapshotWeek: string | null | undefined;
+}
+
+/** The caller's own Monday-email switch: shows the saved state, saves on every flip, and never pretends to know the state while it loads. */
+export function WeeklyEmailToggle({ state, enabled, saving, saveFailed, onChange, onRetry, priorSnapshotWeek }: WeeklyEmailToggleProps) {
+  const loading = state === 'loading';
+  const failed = state === 'error';
+  const status = loading
+    ? 'Checking your setting…'
+    : failed
+      ? 'Could not load your setting.'
+      : saving
+        ? 'Saving…'
+        : enabled
+          ? 'On — you get the counts, the offices to watch and why, every Monday morning.'
+          : 'Off — turn on to get the counts and the offices to watch every Monday morning.';
+  const comparison = priorSnapshotWeek === undefined
+    ? null
+    : priorSnapshotWeek === null
+      ? 'No weekly run yet — "vs last week" reads — until the first Monday run.'
+      : `"vs last week" compares with the Monday run for week ${priorSnapshotWeek}.`;
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-card-border bg-card px-4 py-3 shadow-soft" data-testid="card-health-weekly-email" data-state={state}>
+      <div className="flex min-w-0 items-start gap-3">
+        <Mail size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
+        <div className="min-w-0">
+          <label htmlFor="switch-health-weekly-email" className="block text-xs font-semibold text-navy">{WEEKLY_EMAIL_LABEL}</label>
+          <p className={`mt-0.5 text-[11px] ${failed ? 'text-destructive' : 'text-muted-foreground'}`} data-testid="text-health-weekly-email-status" aria-live="polite">
+            {status}
+            {failed && (
+              <>
+                {' '}
+                <button type="button" className="underline" onClick={onRetry} data-testid="button-health-weekly-email-retry">Try again</button>
+              </>
+            )}
+            {saveFailed && !saving && !failed && (
+              <span className="text-destructive" data-testid="text-health-weekly-email-save-error"> Your change was not saved — try again.</span>
+            )}
+          </p>
+          {comparison && <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid="text-health-prior-week">{comparison}</p>}
+        </div>
+      </div>
+      <Switch
+        id="switch-health-weekly-email"
+        checked={enabled}
+        onCheckedChange={onChange}
+        disabled={loading || failed || saving}
+        aria-label={WEEKLY_EMAIL_LABEL}
+        data-testid="switch-health-weekly-email"
+      />
+    </div>
+  );
 }
 
 /** A metric tile that doubles as the group filter (aria-pressed when it is the current narrowing). */
@@ -89,7 +171,7 @@ function GroupTile({ group, label, value, detail, pressed, onPress, tone = 'defa
   );
 }
 
-export function CustomerHealthView({ state, data, updatedLabel, refreshing, onRefresh, urlState, onUrlState }: CustomerHealthViewProps) {
+export function CustomerHealthView({ state, data, updatedLabel, refreshing, onRefresh, urlState, onUrlState, weeklyEmail }: CustomerHealthViewProps) {
   const loading = state === 'loading';
   const failed = state === 'error';
   const rows = data?.offices ?? [];
@@ -163,6 +245,8 @@ export function CustomerHealthView({ state, data, updatedLabel, refreshing, onRe
           tone="warm"
         />
       </div>
+
+      {weeklyEmail}
 
       {group && (
         <div className="mt-4 flex flex-wrap items-center gap-2 text-xs" data-testid="banner-health-group">
@@ -258,6 +342,7 @@ function AttentionRow({ office }: { office: CustomerHealthOffice }) {
       <span className="inline-flex items-center gap-2 tabular-nums">
         <b className="text-sm text-navy" data-testid={`attention-score-${office.providerId}`}>{office.score}</b>
         <BandPill band={office.band} />
+        <ScoreChange change={office.scoreChange} testId={`attention-change-${office.providerId}`} className="text-[11px]" />
       </span>
     </li>
   );
@@ -284,6 +369,29 @@ function useHealthUrlState(): [HealthUrlState, (next: HealthUrlState) => void] {
   return [state, set];
 }
 
+/** The caller's own weekly-email preference: identity-scoped read, immediate save, server value wins after every save. */
+function useWeeklyEmailPreference(authUserId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = [...getGetHqWeeklyCustomerHealthEmailPreferenceQueryKey(), authUserId];
+  const query = useGetHqWeeklyCustomerHealthEmailPreference({ query: { queryKey, retry: 1 } });
+  const mutation = useSetHqWeeklyCustomerHealthEmailPreference({
+    mutation: {
+      onSuccess: (saved: HqWeeklyCustomerHealthEmailPreference) => { queryClient.setQueryData(queryKey, saved); },
+    },
+  });
+  const state: WeeklyEmailToggleState = query.isPending ? 'loading' : query.isError ? 'error' : 'ready';
+  // While a save is in flight the switch shows what was asked for; a failed save falls back to the saved value.
+  const enabled = mutation.isPending ? mutation.variables.data.enabled : (query.data?.enabled ?? false);
+  return {
+    state,
+    enabled,
+    saving: mutation.isPending,
+    saveFailed: mutation.isError,
+    set: (next: boolean) => { mutation.mutate({ data: { enabled: next } }); },
+    retry: () => { void query.refetch(); },
+  };
+}
+
 export default function CustomerHealth() {
   const { authUser } = useSession();
   const [urlState, setUrlState] = useHealthUrlState();
@@ -293,10 +401,22 @@ export default function CustomerHealth() {
       retry: 1,
     },
   });
+  const weekly = useWeeklyEmailPreference(authUser?.id);
   // A failed read is reported, never papered over with the previous figures.
   const state: CustomerHealthViewState = query.isPending ? 'loading' : query.isError ? 'error' : 'ready';
   return (
     <CustomerHealthView
+      weeklyEmail={
+        <WeeklyEmailToggle
+          state={weekly.state}
+          enabled={weekly.enabled}
+          saving={weekly.saving}
+          saveFailed={weekly.saveFailed}
+          onChange={weekly.set}
+          onRetry={weekly.retry}
+          priorSnapshotWeek={query.isError || query.isPending ? undefined : query.data?.priorSnapshotWeek}
+        />
+      }
       state={state}
       data={query.isError ? undefined : query.data}
       updatedLabel={query.isError ? null : formatUpdatedAt(query.dataUpdatedAt)}

@@ -21,6 +21,12 @@
  *     clears it; sorting writes ?sort=&dir= and reorders; a shared URL
  *     restores both; the page never reads the shared date range;
  *   - Refresh refetches and the "Updated" stamp is present;
+ *   - "vs last week" per row and attention entry (signed, "—" before the first
+ *     weekly snapshot, sinks when sorted) and the comparison-week note;
+ *   - the personal Monday-email switch: checking state first, then the saved
+ *     value; flipping it PUTs immediately, shows "Saving…", lands on the server
+ *     value; a failed save reverts and says so; a failed read offers Try again
+ *     and the switch stays disabled; the read is identity-scoped;
  *   - a 502 renders Error tiles and the error notices (never zeros); Try
  *     again recovers;
  *   - Support / Content lack the page permission; Admin has it.
@@ -32,7 +38,7 @@ import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { Route, Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CustomerHealthDefinitions, CustomerHealthOffice, CustomerHealthResult } from '@workspace/api-client-react';
+import type { CustomerHealthDefinitions, CustomerHealthOffice, CustomerHealthResult, HqWeeklyCustomerHealthEmailPreference } from '@workspace/api-client-react';
 import { __setSession } from './a11y-stubs/session';
 import { __setHqData } from './a11y-stubs/hq-data';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
@@ -43,8 +49,10 @@ import {
   DEFAULT_HEALTH_SORT,
   HEALTH_COLUMNS,
   countFlagged,
+  describeScoreChange,
   filterHealthRows,
   formatDaysAgo,
+  formatScoreChange,
   healthDefinitions,
   healthSearchFor,
   nextSort,
@@ -63,6 +71,8 @@ g.window.removeEventListener ??= () => {};
 g.window.location ??= { assign: () => {} };
 g.window.setInterval ??= (...args: Parameters<typeof setInterval>) => setInterval(...args);
 g.window.clearInterval ??= (id: ReturnType<typeof setInterval>) => clearInterval(id);
+// Radix Switch checks `instanceof HTMLFormElement` for form resets; there is no DOM here.
+g.HTMLFormElement ??= class HTMLFormElement {};
 
 let failures = 0;
 function check(name: string, condition: boolean, detail = '') {
@@ -109,26 +119,29 @@ function office(id: string, name: string, partial: Partial<CustomerHealthOffice>
     lastOrderDate: days === null ? null : agoIso(days).slice(0, 10), lastOrderAt: days === null ? null : agoIso(days), daysSinceLastOrder: days,
     officeAgeDays: 400, activeSubscribers: 0, cancellingSubscriptions: 0, appUsers: 0, activeAppUsers30d: 0, activeAppUsersPrior30d: 0, staffEnrolled: 0,
     flags: [],
+    priorWeekScore: null, scoreChange: null,
     ...partial,
   };
 }
 
 const OFFICES: CustomerHealthOffice[] = [
-  office('harbor', 'Harbor Clinic', { rank: 1, score: 92, band: 'healthy', bucket: 'active', daysSinceLastOrder: 12, activeSubscribers: 14, appUsers: 40, activeAppUsers30d: 31, staffEnrolled: 4 }),
-  office('summit', 'Summit Health', { rank: 2, score: 58, band: 'watch', bucket: 'active', daysSinceLastOrder: 75, activeSubscribers: 5, appUsers: 18, activeAppUsers30d: 6, activeAppUsersPrior30d: 10, staffEnrolled: 2,
+  office('harbor', 'Harbor Clinic', { rank: 1, score: 92, band: 'healthy', bucket: 'active', daysSinceLastOrder: 12, priorWeekScore: 88, scoreChange: 4, activeSubscribers: 14, appUsers: 40, activeAppUsers30d: 31, staffEnrolled: 4 }),
+  office('summit', 'Summit Health', { rank: 2, score: 58, band: 'watch', bucket: 'active', daysSinceLastOrder: 75, priorWeekScore: 65, scoreChange: -7, activeSubscribers: 5, appUsers: 18, activeAppUsers30d: 6, activeAppUsersPrior30d: 10, staffEnrolled: 2,
     flags: [{ kind: 'leavingActive', reason: 'Last order 75 days ago — about to leave Active (90-day mark).' }, { kind: 'activeUsersDrop', reason: 'Active app users down 40% — 6 in the last 30 days vs 10 in the 30 days before.' }] }),
-  office('cedar', 'Cedar Wellness', { rank: 3, score: 41, band: 'watch', bucket: 'quiet3to6', daysSinceLastOrder: 160, activeSubscribers: 3, appUsers: 12, activeAppUsers30d: 5, staffEnrolled: 1,
+  office('cedar', 'Cedar Wellness', { rank: 3, score: 41, band: 'watch', bucket: 'quiet3to6', daysSinceLastOrder: 160, priorWeekScore: 41, scoreChange: 0, activeSubscribers: 3, appUsers: 12, activeAppUsers30d: 5, staffEnrolled: 1,
     flags: [{ kind: 'passingSixMonths', reason: 'Last order 160 days ago — about to pass six months without an order.' }] }),
-  office('birch', 'Birch Medical', { rank: 4, score: 22, band: 'atRisk', bucket: 'quiet6to12', daysSinceLastOrder: 300, activeSubscribers: 1, cancellingSubscriptions: 1, appUsers: 6, activeAppUsers30d: 1, staffEnrolled: 1,
+  office('birch', 'Birch Medical', { rank: 4, score: 22, band: 'atRisk', bucket: 'quiet6to12', daysSinceLastOrder: 300, priorWeekScore: 25, scoreChange: -3, activeSubscribers: 1, cancellingSubscriptions: 1, appUsers: 6, activeAppUsers30d: 1, staffEnrolled: 1,
     flags: [{ kind: 'subscriptionsCancelling', reason: '1 active subscription set to cancel at period end.' }, { kind: 'atRisk', reason: 'Health score is At risk (below 40) and the office is not new.' }] }),
   office('aspen', 'Aspen Family Care', { rank: 5, score: 9, band: 'atRisk', bucket: 'quietOverYear', daysSinceLastOrder: null, appUsers: 3, activeAppUsers30d: 1, staffEnrolled: 1,
     flags: [{ kind: 'atRisk', reason: 'Health score is At risk (below 40) and the office is not new.' }] }),
   office('willow', 'Willow Springs', { rank: 6, score: 0, band: 'atRisk', bucket: 'quietOverYear', daysSinceLastOrder: null, isNew: true, officeAgeDays: 12 }),
 ];
 
+let priorSnapshotWeek: string | null = '2026-W40';
 function liveResult(): CustomerHealthResult {
   return {
     generatedAt: NOW.toISOString(),
+    priorSnapshotWeek,
     offices: OFFICES,
     bucketCounts: { active: 2, quiet3to6: 1, quiet6to12: 1, quietOverYear: 2 },
     bandCounts: { healthy: 1, watch: 2, atRisk: 3 },
@@ -153,8 +166,9 @@ console.log('rules');
     JSON.stringify(nextSort(DEFAULT_HEALTH_SORT, 'score')) === JSON.stringify({ key: 'score', direction: 'desc' })
       && JSON.stringify(nextSort({ key: 'score', direction: 'desc' }, 'score')) === JSON.stringify({ key: 'score', direction: 'asc' })
       && nextSort(DEFAULT_HEALTH_SORT, 'daysSinceLastOrder').direction === 'asc' && nextSort(DEFAULT_HEALTH_SORT, 'bucket').direction === 'asc');
-  check('columns: rank, office, score, last order, subscribers, app users, active, staff, recency',
-    HEALTH_COLUMNS.map((c) => c.key).join() === 'rank,officeName,score,daysSinceLastOrder,activeSubscribers,appUsers,activeAppUsers30d,staffEnrolled,bucket');
+  check('columns: rank, office, score, vs last week, last order, subscribers, app users, active, staff, recency',
+    HEALTH_COLUMNS.map((c) => c.key).join() === 'rank,officeName,score,scoreChange,daysSinceLastOrder,activeSubscribers,appUsers,activeAppUsers30d,staffEnrolled,bucket');
+  check('vs last week column starts high-first', nextSort(DEFAULT_HEALTH_SORT, 'scoreChange').direction === 'desc' && parseHealthSearch('?sort=scoreChange').sort.key === 'scoreChange');
 
   check('filter by bucket', filterHealthRows(OFFICES, 'active').map((o) => o.providerId).join() === 'harbor,summit' && filterHealthRows(OFFICES, 'quietOverYear').map((o) => o.providerId).join() === 'aspen,willow');
   check('filter by attention = any flag', filterHealthRows(OFFICES, 'attention').map((o) => o.providerId).join() === 'summit,cedar,birch,aspen' && countFlagged(OFFICES) === 4);
@@ -169,14 +183,19 @@ console.log('rules');
   check('office name sorts alphabetically', ids(sortHealthRows(OFFICES, { key: 'officeName', direction: 'asc' })) === 'aspen,birch,cedar,harbor,summit,willow');
   check('counts sort high-first with rank as the tiebreak', ids(sortHealthRows(OFFICES, { key: 'staffEnrolled', direction: 'desc' })) === 'harbor,summit,cedar,birch,aspen,willow'
     && ids(sortHealthRows(OFFICES, { key: 'appUsers', direction: 'asc' })) === 'willow,aspen,birch,cedar,summit,harbor');
+  check('vs last week: no snapshot sinks both ways, ties by rank', ids(sortHealthRows(OFFICES, { key: 'scoreChange', direction: 'desc' })) === 'harbor,cedar,birch,summit,aspen,willow'
+    && ids(sortHealthRows(OFFICES, { key: 'scoreChange', direction: 'asc' })) === 'summit,birch,cedar,harbor,aspen,willow', ids(sortHealthRows(OFFICES, { key: 'scoreChange', direction: 'asc' })));
   check('bucket sorts in group order', ids(sortHealthRows(OFFICES, { key: 'bucket', direction: 'desc' })) === 'aspen,willow,birch,cedar,harbor,summit' && BUCKET_ORDER.join() === 'active,quiet3to6,quiet6to12,quietOverYear');
 
+  check('formatScoreChange: signed, 0 flat, em dash before the first snapshot', formatScoreChange(4) === '+4' && formatScoreChange(-7) === '−7' && formatScoreChange(0) === '0' && formatScoreChange(null) === '—' && formatScoreChange(1234) === '+1,234');
+  check('describeScoreChange reads plainly', describeScoreChange(4) === 'Up 4 since last week' && describeScoreChange(-7) === 'Down 7 since last week' && describeScoreChange(0) === 'Unchanged since last week' && describeScoreChange(null) === 'No weekly snapshot yet');
   check('formatDaysAgo', formatDaysAgo(null) === 'No orders on record' && formatDaysAgo(0) === 'Today' && formatDaysAgo(1) === '1 day ago' && formatDaysAgo(1234) === '1,234 days ago');
 
   const defs = healthDefinitions(DEFINITIONS);
   const text = (term: string) => defs.find((d) => d.term === term)?.text ?? '';
   check('definitions cover customers, order, groups, New, caveat, four counts, score, bands, attention',
-    defs.map((d) => d.term).join('|') === 'Customers|Most recent order|Order-recency groups|New|No orders on record|App subscribers|App users|Active app users|Staff enrolled|Health score|Bands|Needs attention this week');
+    defs.map((d) => d.term).join('|') === 'Customers|Most recent order|Order-recency groups|New|No orders on record|App subscribers|App users|Active app users|Staff enrolled|Health score|Bands|Change since last week|Needs attention this week');
+  check('the weekly run and the email are explained', text('Change since last week').includes('Monday at 9:00 am') && text('Change since last week').includes('Monday summary email'));
   check('group bounds come from the server constants', text('Order-recency groups').includes('last 90 days') && text('Order-recency groups').includes('91–180') && text('Order-recency groups').includes('181–365') && text('Order-recency groups').includes('more than 365'));
   check('score weights and targets are spelled out', text('Health score').includes('Most recent order 40 points') && text('Health score').includes('30 days or less') && text('Health score').includes('zero at 365')
     && text('Health score').includes('App subscribers 15 points, full at 10') && text('Health score').includes('App users 15 points, full at 25') && text('Health score').includes('Staff enrolled 15 points, full at 3'));
@@ -197,13 +216,34 @@ console.log('permissions');
 
 const requests: string[] = [];
 const healthRequests = () => requests.filter((r) => r.includes('/api/hq/customer-health'));
+const PREF_PATH = '/api/hq/notification-preferences/weekly-customer-health';
+const prefRequests = (method?: string) => requests.filter((r) => r.includes(PREF_PATH) && (!method || r.startsWith(`${method} `)));
 let status = 200;
 let hold: (() => void) | null = null;
+let prefStatus = 200;
+let prefPutStatus = 200;
+let prefHold: (() => void) | null = null;
+let prefPutHold: (() => void) | null = null;
+let savedPreference: HqWeeklyCustomerHealthEmailPreference = { enabled: false };
+const putBodies: unknown[] = [];
 g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   const method = (init?.method ?? 'GET').toUpperCase();
   requests.push(`${method} ${url}`);
   const json = (payload: unknown, code = 200) => new Response(JSON.stringify(payload), { status: code, headers: { 'Content-Type': 'application/json' } });
+  if (url.includes(PREF_PATH)) {
+    if (method === 'PUT') {
+      if (prefPutHold) await new Promise<void>((resolve) => { prefPutHold = resolve; });
+      const body = JSON.parse(String(init?.body)) as HqWeeklyCustomerHealthEmailPreference;
+      putBodies.push(body);
+      if (prefPutStatus !== 200) return json({ error: 'Could not save.' }, prefPutStatus);
+      savedPreference = { enabled: body.enabled };
+      return json(savedPreference);
+    }
+    if (prefHold) await new Promise<void>((resolve) => { prefHold = resolve; });
+    if (prefStatus !== 200) return json({ error: 'Could not load.' }, prefStatus);
+    return json(savedPreference);
+  }
   if (url.includes('/api/hq/customer-health')) {
     if (hold) await new Promise<void>((resolve) => { hold = resolve; });
     if (status !== 200) return json({ error: 'Could not load customer health right now.' }, status);
@@ -237,10 +277,15 @@ console.log('live page');
 {
   requests.length = 0;
   hold = () => {};
+  prefHold = () => {};
   const { renderer, client, currentUrl, unmount } = await mount('/admin/customer-health');
   await settle(2);
   const root = renderer.root;
   const snapshot = () => JSON.stringify(renderer.toJSON());
+  check('weekly-email switch is disabled and non-committal while its read is pending', byTestId(root, 'switch-health-weekly-email')[0].props.disabled === true
+    && byTestId(root, 'switch-health-weekly-email')[0].props['aria-checked'] === false && textOf(byTestId(root, 'text-health-weekly-email-status')[0]) === 'Checking your setting…'
+    && byTestId(root, 'text-health-prior-week').length === 0);
+  const releasePref = prefHold; prefHold = null; releasePref();
   check('loading: tiles show — and the table / attention / definitions show loading copy (no numbers)',
     textOf(byTestId(root, 'text-health-active')[0]) === '—' && textOf(byTestId(root, 'text-health-attention')[0]) === '—'
       && byTestId(root, 'text-health-table-loading').length === 1 && byTestId(root, 'text-health-attention-loading').length === 1 && byTestId(root, 'text-health-definitions-loading').length === 1
@@ -249,6 +294,15 @@ console.log('live page');
   const release = hold; hold = null; release();
   await settle();
   check('one live request, no date-range params', healthRequests().length === 1 && /GET \/api\/hq\/customer-health$/.test(healthRequests()[0]), requests.join('\n'));
+  check('the preference was read once, GET only, and the page made no other calls', prefRequests('GET').length === 1 && prefRequests('PUT').length === 0 && requests.length === 2, requests.join('\n'));
+  check('vs last week per row: signed, flat, em dash before a snapshot',
+    textOf(byTestId(root, 'health-change-harbor')[0]) === '+4' && byTestId(root, 'health-change-harbor')[0].props['data-change'] === 'up'
+      && textOf(byTestId(root, 'health-change-summit')[0]) === '−7' && byTestId(root, 'health-change-summit')[0].props['data-change'] === 'down'
+      && textOf(byTestId(root, 'health-change-cedar')[0]) === '0' && textOf(byTestId(root, 'health-change-willow')[0]) === '—' && byTestId(root, 'health-change-willow')[0].props['data-change'] === 'none'
+      && byTestId(root, 'health-change-willow')[0].props['aria-label'] === 'No weekly snapshot yet');
+  check('attention entries carry the change too', textOf(byTestId(root, 'attention-change-summit')[0]) === '−7' && textOf(byTestId(root, 'attention-change-aspen')[0]) === '—');
+  check('the comparison week is named', textOf(byTestId(root, 'text-health-prior-week')[0]).includes('week 2026-W40'), textOf(byTestId(root, 'text-health-prior-week')[0] ?? root));
+  check('"vs last week" header sorts', byTestId(root, 'sort-health-scoreChange').length === 1);
   check('ready: bucket tiles and the attention tile carry the counts',
     textOf(byTestId(root, 'text-health-active')[0]) === '2' && textOf(byTestId(root, 'text-health-quiet3to6')[0]) === '1' && textOf(byTestId(root, 'text-health-quiet6to12')[0]) === '1'
       && textOf(byTestId(root, 'text-health-quietOverYear')[0]) === '2' && textOf(byTestId(root, 'text-health-attention')[0]) === '4');
@@ -272,6 +326,33 @@ console.log('live page');
   check('no group banner at rest; bare URL', byTestId(root, 'banner-health-group').length === 0 && currentUrl() === '/admin/customer-health');
   const query = client.getQueryCache().findAll().find((q) => JSON.stringify(q.queryKey).includes('/api/hq/customer-health'));
   check('query key is identity-scoped', JSON.stringify(query?.queryKey).includes('"hq-1"'), JSON.stringify(query?.queryKey));
+  const prefQuery = client.getQueryCache().findAll().find((q) => JSON.stringify(q.queryKey).includes(PREF_PATH));
+  check('the preference query key is identity-scoped too', JSON.stringify(prefQuery?.queryKey).includes('"hq-1"'), JSON.stringify(prefQuery?.queryKey));
+
+  // The personal weekly-email switch.
+  const toggle = () => byTestId(root, 'switch-health-weekly-email')[0];
+  const toggleStatus = () => textOf(byTestId(root, 'text-health-weekly-email-status')[0]);
+  check('switch reads the saved value (off), labelled exactly, enabled once loaded', toggle().props['aria-checked'] === false && toggle().props.disabled !== true
+    && toggle().props['aria-label'] === 'Email me this summary every Monday at 9am ET' && root.findAll((n) => n.type === 'label' && textOf(n) === 'Email me this summary every Monday at 9am ET').length === 1
+    && toggleStatus().startsWith('Off'), `${JSON.stringify(toggle().props['aria-checked'])} | ${toggleStatus()}`);
+  prefPutHold = () => {};
+  await act(async () => { toggle().props.onClick(); });
+  await settle(2);
+  check('flipping it PUTs immediately and shows the requested state while saving', prefRequests('PUT').length === 1 && toggle().props['aria-checked'] === true && toggle().props.disabled === true && toggleStatus() === 'Saving…', `${prefRequests('PUT').length} | ${toggleStatus()}`);
+  const releasePut = prefPutHold; prefPutHold = null; releasePut();
+  await settle();
+  check('the save landed: body {enabled:true}, switch on, status reads On, no re-read needed', JSON.stringify(putBodies[0]) === '{"enabled":true}' && toggle().props['aria-checked'] === true && toggle().props.disabled !== true
+    && toggleStatus().startsWith('On') && savedPreference.enabled === true, toggleStatus());
+  check('saving did not refetch the health figures', healthRequests().length === 1);
+  // A failed save reverts to the saved value and says so.
+  prefPutStatus = 500;
+  await act(async () => { toggle().props.onClick(); });
+  await settle();
+  check('a failed save reverts to the saved value and reports it', toggle().props['aria-checked'] === true && byTestId(root, 'text-health-weekly-email-save-error').length === 1 && savedPreference.enabled === true, toggleStatus());
+  prefPutStatus = 200;
+  await act(async () => { toggle().props.onClick(); });
+  await settle();
+  check('turning it off saves {enabled:false}', JSON.stringify(putBodies[putBodies.length - 1]) === '{"enabled":false}' && toggle().props['aria-checked'] === false && toggleStatus().startsWith('Off') && byTestId(root, 'text-health-weekly-email-save-error').length === 0);
 
   // Clicking a tile narrows and writes ?group=.
   await act(async () => { byTestId(root, 'tile-health-quietOverYear')[0].props.onClick(); });
@@ -307,8 +388,12 @@ console.log('live page');
   check('Refresh issues a new request and the table stays', healthRequests().length === before + 1 && rowIds(root).join() === 'summit,harbor');
   await unmount();
 
+  savedPreference = { enabled: true };
+  priorSnapshotWeek = null;
   const shared = await mount('/admin/customer-health?group=quiet3to6&sort=officeName&dir=desc');
   await settle();
+  check('a subscriber sees the switch on at load', byTestId(shared.renderer.root, 'switch-health-weekly-email')[0].props['aria-checked'] === true && textOf(byTestId(shared.renderer.root, 'text-health-weekly-email-status')[0]).startsWith('On'));
+  check('before the first weekly run the comparison note says so', textOf(byTestId(shared.renderer.root, 'text-health-prior-week')[0]).startsWith('No weekly run yet'));
   check('a shared URL restores group and sort', rowIds(shared.renderer.root).join() === 'cedar' && byTestId(shared.renderer.root, 'tile-health-quiet3to6')[0].props['aria-pressed'] === true
     && shared.renderer.root.findAll((n) => n.type === 'th' && n.props['aria-sort'] === 'descending').length === 1);
   await shared.unmount();
@@ -318,7 +403,33 @@ console.log('live page');
   await act(async () => { byTestId(empty.renderer.root, 'sort-health-rank')[0].props.onClick(); });
   await settle(2);
   check('a group with nothing in it after a filter still reads honestly', rowIds(empty.renderer.root).join() === 'cedar');
+  await act(async () => { byTestId(empty.renderer.root, 'sort-health-scoreChange')[0].props.onClick(); });
+  await settle(2);
+  check('sorting by vs last week writes the URL', empty.currentUrl() === '/admin/customer-health?group=quiet3to6&sort=scoreChange&dir=desc', empty.currentUrl());
   await empty.unmount();
+  priorSnapshotWeek = '2026-W40';
+  savedPreference = { enabled: false };
+}
+
+console.log('weekly email — failed read');
+{
+  requests.length = 0;
+  prefStatus = 503;
+  const { renderer, unmount } = await mount('/admin/customer-health');
+  await settle();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_300)); });
+  await settle();
+  const root = renderer.root;
+  check('the preference read was retried once, then reported with the switch disabled (never a guessed Off)', prefRequests('GET').length === 2 && byTestId(root, 'switch-health-weekly-email')[0].props.disabled === true
+    && textOf(byTestId(root, 'text-health-weekly-email-status')[0]).startsWith('Could not load your setting.') && byTestId(root, 'button-health-weekly-email-retry').length === 1, String(prefRequests('GET').length));
+  check('the health figures still rendered independently', rowIds(root).length === 6);
+  prefStatus = 200;
+  savedPreference = { enabled: true };
+  await act(async () => { byTestId(root, 'button-health-weekly-email-retry')[0].props.onClick(); });
+  await settle();
+  check('Try again re-reads and recovers', byTestId(root, 'switch-health-weekly-email')[0].props.disabled !== true && byTestId(root, 'switch-health-weekly-email')[0].props['aria-checked'] === true);
+  await unmount();
+  savedPreference = { enabled: false };
 }
 
 console.log('live page — failure');

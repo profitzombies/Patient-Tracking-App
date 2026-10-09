@@ -326,6 +326,7 @@ export * from './hqPatientDeletionSteps';
 export * from './hqPatientRecordAccessEntry';
 export * from './hqPatientRecordAccessEntryAction';
 export * from './hqPatientRecordAccessResult';
+export * from './hqWeeklyCustomerHealthEmailPreference';
 export * from './inboxMetrics';
 export * from './inboxMetricsResult';
 export * from './inboxMetricsResultScope';

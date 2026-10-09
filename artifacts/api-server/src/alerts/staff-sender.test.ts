@@ -75,6 +75,62 @@ describe("staff notification sender", () => {
     expect(harness.store.notifications[0]?.status).toBe("sent");
   });
 
+  function weeklyRow(): StaffNotificationRow {
+    return {
+      ...row("email"), provider_id: null, kind: "weekly_customer_health", email: "hq@example.com", auth_user_id: "hq-user-1",
+      title: "Customer health · Monday, October 12, 2026", body: "1 office needs attention this week; 2 active offices scored.",
+      expires_at: "2026-10-19T13:00:00.000Z",
+      data: {
+        isoWeek: "2026-W42", weekLabel: "Monday, October 12, 2026", officeCount: 2, attentionCount: 1, recipientName: "Danielle",
+        bucketCounts: [{ label: "Active", count: 1 }, { label: "Quiet 3–6 months", count: 0 }, { label: "Quiet 6–12 months", count: 0 }, { label: "Quiet over a year / never ordered", count: 1 }],
+        attention: [{ providerId: "f", officeName: "Fern · Field Clinic", score: 3, band: "At risk", change: -12, reasons: ["2 of 2 app subscriptions cancel at period end.", "At risk: score 3."] }],
+      },
+    };
+  }
+
+  it("emails the weekly Customer health summary to a still-subscribed HQ member with no office checks", async () => {
+    policyState.quietHours = { mode: "custom", start: "00:00", end: "23:59" };
+    const harness = setup(weeklyRow());
+    harness.store.hqSubscriptions.set("hq-user-1:weekly_customer_health_email", true);
+    const officeState = vi.spyOn(harness.store, "officeState");
+    const subscribed = vi.spyOn(harness.store, "hqSubscribed");
+    const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "email-3" }), { status: 200 }));
+    const summary = await harness.tick();
+    expect(summary).toMatchObject({ sent: 1, suppressed: 0, optedOut: 0 });
+    expect(officeState).not.toHaveBeenCalled();
+    expect(subscribed).toHaveBeenCalledWith("hq-user-1", "weekly_customer_health_email");
+    const payload = JSON.parse(String(fetch.mock.calls[0]![1]?.body)) as { to: string[]; subject: string; html: string; text: string };
+    expect(payload.to).toEqual(["hq@example.com"]);
+    expect(payload.subject).toContain("Customer health");
+    expect(payload.html).toContain("Hello Danielle");
+    expect(payload.html).toContain("https://portal.example/admin/customer-health");
+    expect(payload.text).toContain("Active — 1");
+    expect(payload.text).toContain("Fern - Field Clinic");
+    expect(payload.text).toContain("−12 vs last week");
+    expect(payload.text).toContain("1 office needs attention this week");
+    expect(payload.text).not.toMatch(/patient [A-Z]/);
+    expect(harness.store.notifications[0]?.status).toBe("sent");
+  });
+
+  it("re-checks the personal subscription at send time: an opt-out after enqueue is suppressed as unsubscribed", async () => {
+    const harness = setup(weeklyRow());
+    // No preference row (or enabled=false, or the membership went inactive) all read as not subscribed.
+    const fetch = vi.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({ id: "never" }), { status: 200 }));
+    const summary = await harness.tick();
+    expect(summary).toMatchObject({ sent: 0, suppressed: 1, optedOut: 1 });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(harness.store.notifications[0]).toMatchObject({ status: "suppressed", suppression_reason: "unsubscribed" });
+  });
+
+  it("expiry wins over the subscription check: a week-old weekly row is marked expired without a send", async () => {
+    const harness = setup({ ...weeklyRow(), expires_at: "2026-10-11T11:00:00.000Z" });
+    harness.store.hqSubscriptions.set("hq-user-1:weekly_customer_health_email", true);
+    const fetch = vi.spyOn(global, "fetch");
+    await harness.tick();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(harness.store.notifications[0]).toMatchObject({ status: "expired" });
+  });
+
   it("suppresses a system threshold row on any channel but email", async () => {
     const harness = setup({ ...row("push"), provider_id: null, kind: "system_threshold" });
     const summary = await harness.tick();

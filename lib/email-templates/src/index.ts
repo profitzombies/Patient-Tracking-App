@@ -32,6 +32,7 @@ export const EMAIL_TEMPLATE_IDS = [
   "coach-chat-flag",
   "system-threshold-alert",
   "office-access-restricted",
+  "weekly-customer-health-summary",
   ...SHOP_EMAIL_TEMPLATE_IDS,
 ] as const;
 
@@ -369,6 +370,31 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       billingLink: "Office access board link",
     },
   },
+  {
+    id: "weekly-customer-health-summary",
+    name: "Weekly Customer health summary",
+    purpose: "Gives HQ members who asked for it a Monday-morning summary of the Customer health page: offices per order-recency bucket, the offices to watch this week and why, and a link back to the page.",
+    trigger: "The weekly-customer-health job, every Monday once it is 9:00 am in the organization's default time zone, for each HQ member who turned the summary on for themselves.",
+    audience: "Active HQ members who subscribed themselves on the Customer health page.",
+    sampleVariables: {
+      name: "Jordan",
+      weekLabel: "Monday, October 12, 2026",
+      officeCount: "18",
+      bucketCounts: "Active · 12\nQuiet 3–6 months · 3\nQuiet 6–12 months · 2\nQuiet over a year / never ordered · 1",
+      attentionCount: "2",
+      attention: "Lakeside Wellness · 34 · At risk · −12 vs last week · Last order 75 days ago — about to leave Active (90-day mark).\nHarbor Med Spa · 58 · Watch · — · 2 active subscriptions set to cancel at period end.",
+      healthLink: "https://operations.example.com/admin/customer-health",
+    },
+    variableLabels: {
+      name: "Recipient first name",
+      weekLabel: "Monday the summary covers",
+      officeCount: "Number of active offices scored",
+      bucketCounts: "Offices per order-recency bucket, one per line as bucket · count",
+      attentionCount: "Number of offices needing attention this week",
+      attention: "Offices to watch, one per line as office · score · band · change since last week · reason (empty when none)",
+      healthLink: "Customer health page link",
+    },
+  },
   ...SHOP_EMAIL_TEMPLATE_CATALOG,
 ] as const;
 
@@ -643,6 +669,7 @@ export function renderEmailTemplate(
   if (id === "coach-chat-flag") return renderCoachChatFlag(variables);
   if (id === "system-threshold-alert") return renderSystemThresholdAlert(variables);
   if (id === "office-access-restricted") return renderOfficeAccessRestricted(variables);
+  if (id === "weekly-customer-health-summary") return renderWeeklyCustomerHealthSummary(variables);
   const shop = renderShopEmail(id, variables);
   if (shop) return shop;
 
@@ -1043,6 +1070,100 @@ function renderOfficeAccessRestricted(variables: EmailVariables): RenderedEmail 
         ${paragraph("The office keeps its data and its patient payments, at the restricted revenue share, until it pays.")}
         ${button(billingLink, "Open office access", "#a8322a")}`,
       closing: "You receive this because you are an HQ administrator. Sent once per office, on the day it is restricted.",
+    }),
+  };
+}
+
+/** One "office · score · band · change · reason" line of the weekly summary. */
+interface WeeklyHealthAttentionLine { officeName: string; score: string; band: string; change: string; reason: string }
+function parseWeeklyHealthAttention(value: string): WeeklyHealthAttentionLine[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [officeName = "", score = "", band = "", change = "", ...rest] = line.split(" · ");
+      return { officeName, score, band, change, reason: rest.join(" · ") };
+    });
+}
+
+/**
+ * HQ's Monday Customer health summary. Operational only: office names,
+ * scores, counts and the attention reasons the page already shows (days
+ * since an order, subscriber and app-user counts) — never a patient.
+ */
+function renderWeeklyCustomerHealthSummary(variables: EmailVariables): RenderedEmail {
+  const name = variables.name?.trim() || "";
+  const weekLabel = requireVariable(variables, "weekLabel");
+  const officeCount = requireVariable(variables, "officeCount");
+  const buckets = parseLineItems(requireVariable(variables, "bucketCounts"));
+  const attentionCount = requireVariable(variables, "attentionCount");
+  const attention = parseWeeklyHealthAttention(variables.attention ?? "");
+  const healthLink = requireVariable(variables, "healthLink");
+  const count = Number(attentionCount);
+  const headline = count === 0 ? "No offices need attention this week" : count === 1 ? "1 office needs attention this week" : `${attentionCount} offices need attention this week`;
+  const subject = `Customer health · ${weekLabel}`;
+  const officesScored = `${officeCount} active ${officeCount === "1" ? "office" : "offices"} scored`;
+  const previewText = `${headline}. ${officesScored}.`;
+  const text = [
+    ...(name ? [`Hello ${name},`, ""] : []),
+    `Customer health for the week of ${weekLabel}: ${officesScored}.`,
+    "",
+    "Offices by last order:",
+    ...buckets.map((item) => (item.amount ? `${item.label} — ${item.amount}` : item.label)),
+    "",
+    `${headline}.`,
+    ...attention.map((item) => `${item.officeName} — ${item.score} (${item.band}), ${item.change}: ${item.reason}`),
+    "",
+    `Open Customer health: ${healthLink}`,
+    "",
+    "Office names and counts only; nothing about individual patients is included in email.",
+    "You receive this because you turned on the weekly summary for yourself on the Customer health page. Turn it off there at any time.",
+  ].join("\n");
+  const bucketRows = buckets
+    .map(
+      (item) => `<tr>
+        <td style="padding:10px 14px;border-bottom:1px solid #d9e3f1;font-size:15px;color:#203b64;vertical-align:top;">${escapeHtml(item.label)}</td>
+        <td align="right" style="padding:10px 14px;border-bottom:1px solid #d9e3f1;font-size:15px;font-weight:bold;color:#203b64;vertical-align:top;white-space:nowrap;">${escapeHtml(item.amount)}</td>
+      </tr>`,
+    )
+    .join("");
+  const attentionRows = attention
+    .map(
+      (item) => `<tr>
+        <td style="padding:12px 14px;border-bottom:1px solid #d9e3f1;vertical-align:top;">
+          <p style="margin:0 0 4px;font-size:15px;font-weight:bold;color:#203b64;">${escapeHtml(item.officeName)}</p>
+          <p style="margin:0;font-size:14px;line-height:1.5;color:#3b4a63;">${escapeHtml(item.reason)}</p>
+        </td>
+        <td align="right" style="padding:12px 14px;border-bottom:1px solid #d9e3f1;vertical-align:top;white-space:nowrap;">
+          <p style="margin:0 0 4px;font-size:15px;font-weight:bold;color:#203b64;">${escapeHtml(item.score)} <span style="font-weight:normal;color:#3b4a63;">· ${escapeHtml(item.band)}</span></p>
+          <p style="margin:0;font-size:13px;color:#3b4a63;">${escapeHtml(item.change)}</p>
+        </td>
+      </tr>`,
+    )
+    .join("");
+  return {
+    subject,
+    previewText,
+    text,
+    html: shell({
+      previewText,
+      eyebrow: "Customer health · Weekly summary",
+      heading: headline,
+      greeting: name || undefined,
+      bodyHtml: `${paragraph(`Here is the Customer health summary for the week of <strong>${escapeHtml(weekLabel)}</strong>.`)}
+        ${infoPanel("Active offices scored", officeCount)}
+        <p style="margin:0 0 6px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#315eae;">Offices by last order</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:2px solid #203b64;margin-bottom:24px;">
+          ${bucketRows}
+        </table>
+        <p style="margin:0 0 6px;font-size:10px;font-weight:bold;letter-spacing:1.4px;text-transform:uppercase;color:#315eae;">Pay attention this week · ${escapeHtml(attentionCount)}</p>
+        ${attentionRows
+          ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-top:2px solid #203b64;">${attentionRows}</table>`
+          : paragraph("No office is trending toward inactive this week.")}
+        ${button(healthLink, "Open Customer health")}
+        ${paragraph("Office names and counts only; nothing about individual patients is included in email.")}`,
+      closing: "You receive this because you turned on the weekly summary for yourself on the Customer health page. Turn it off there at any time.",
     }),
   };
 }

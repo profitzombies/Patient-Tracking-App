@@ -2240,6 +2240,34 @@ paths:
         "200":
           description: Ranked offices, bucket and band counts, the attention list and the definitions in force
           content: { application/json: { schema: { $ref: "#/components/schemas/CustomerHealthResult" } } }
+  /hq/notification-preferences/weekly-customer-health:
+    get:
+      operationId: getHqWeeklyCustomerHealthEmailPreference
+      tags: [hq]
+      summary: Whether the caller receives the Monday Customer health summary email
+      description: >-
+        Personal, not organizational: every active HQ member has their own toggle. Absent row = off.
+        Any active HQ membership may read its own preference.
+      responses:
+        "200":
+          description: The caller's current preference
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqWeeklyCustomerHealthEmailPreference" } } }
+    put:
+      operationId: setHqWeeklyCustomerHealthEmailPreference
+      tags: [hq]
+      summary: Turn the caller's Monday Customer health summary email on or off
+      description: >-
+        Saves immediately for the caller only. The summary goes out every Monday once it is 9:00 am in
+        the organization's default time zone; the sender re-checks this preference at send time, so
+        turning it off after a Monday run has queued the email still suppresses it.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/HqWeeklyCustomerHealthEmailPreference" } } }
+      responses:
+        "200":
+          description: The saved preference
+          content: { application/json: { schema: { $ref: "#/components/schemas/HqWeeklyCustomerHealthEmailPreference" } } }
+        "400": { description: enabled must be a boolean }
   /exports:
     get:
       operationId: listExports
@@ -3662,7 +3690,7 @@ components:
       required:
         [providerId, officeName, providerName, rank, score, band, parts, bucket, isNew, lastOrderDate, lastOrderAt,
          daysSinceLastOrder, officeAgeDays, activeSubscribers, cancellingSubscriptions, appUsers, activeAppUsers30d,
-         activeAppUsersPrior30d, staffEnrolled, flags]
+         activeAppUsersPrior30d, staffEnrolled, flags, priorWeekScore, scoreChange]
       properties:
         providerId: { type: string }
         officeName: { type: string }
@@ -3686,6 +3714,17 @@ components:
         flags:
           type: array
           items: { $ref: "#/components/schemas/CustomerHealthAttentionFlag" }
+        priorWeekScore:
+          type: ["number", "null"]
+          description: Score the Monday weekly run recorded for this office in the comparison week (see priorSnapshotWeek); null before a snapshot exists
+        scoreChange:
+          type: ["number", "null"]
+          description: score minus priorWeekScore; null before a snapshot exists (the page shows an em dash)
+    HqWeeklyCustomerHealthEmailPreference:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, description: "True = the caller receives the summary every Monday at 9:00 am in the organization's time zone" }
     CustomerHealthDefinitions:
       type: object
       description: The constants the score was computed with, so the page can show them without a second copy
@@ -3739,9 +3778,12 @@ components:
             activeUsersDropMinPrior: { type: number }
     CustomerHealthResult:
       type: object
-      required: [generatedAt, offices, bucketCounts, bandCounts, attention, definitions]
+      required: [generatedAt, offices, bucketCounts, bandCounts, attention, priorSnapshotWeek, definitions]
       properties:
         generatedAt: { type: string }
+        priorSnapshotWeek:
+          type: ["string", "null"]
+          description: ISO week (2026-W41) of the weekly snapshot the "vs last week" change compares against; null before the first Monday run
         offices:
           type: array
           description: Every active office, best score first

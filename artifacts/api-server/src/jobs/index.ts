@@ -34,6 +34,7 @@ import {
 import { appEventsBackfillJob, appEventsRollupJob } from "./definitions/app-events";
 import { dataGrowthSnapshotJob } from "./definitions/data-growth-snapshot";
 import { systemThresholdsJob } from "./definitions/system-thresholds";
+import { weeklyCustomerHealthJob } from "./definitions/weekly-customer-health";
 import { coldArchiveJob } from "./definitions/cold-archive";
 import { officeBundleExportJob } from "./definitions/office-bundle-export";
 import { officeOffboardingSealJob } from "./definitions/office-offboarding-seal";
@@ -94,6 +95,7 @@ export const ALL_JOBS: JobDefinition[] = [
   patientSignInMetricsJob,
   dataGrowthSnapshotJob,
   systemThresholdsJob,
+  weeklyCustomerHealthJob,
   coldArchiveJob,
   officeBundleExportJob,
   officeOffboardingSealJob,

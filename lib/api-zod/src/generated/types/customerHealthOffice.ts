@@ -41,4 +41,14 @@ export interface CustomerHealthOffice {
   activeAppUsersPrior30d: number;
   staffEnrolled: number;
   flags: CustomerHealthAttentionFlag[];
+  /**
+     * Score the Monday weekly run recorded for this office in the comparison week (see priorSnapshotWeek); null before a snapshot exists
+     * @nullable
+     */
+  priorWeekScore: number | null;
+  /**
+     * score minus priorWeekScore; null before a snapshot exists (the page shows an em dash)
+     * @nullable
+     */
+  scoreChange: number | null;
 }

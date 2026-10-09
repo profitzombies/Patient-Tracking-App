@@ -54,6 +54,10 @@ const migrationNames = [
   // HQ Customer health: per-office facts (last paid live order, subscribers,
   // app users, 30-day actives, staff) behind the practice health score.
   "20261204000000_office_customer_health.sql",
+  // Weekly Customer health email: per-HQ-member opt-in, one score snapshot
+  // per office per ISO week, the once-per-week run marker, and the new
+  // HQ-addressed outbox kind.
+  "20261205000000_weekly_customer_health.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.

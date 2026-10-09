@@ -166,6 +166,7 @@ import type {
   HqPatientDeletionResult,
   HqPatientDeletionsResult,
   HqPatientRecordAccessResult,
+  HqWeeklyCustomerHealthEmailPreference,
   InboxMetricsResult,
   KnowledgeCreateInput,
   KnowledgeDeleteResult,
@@ -8301,6 +8302,156 @@ export function useGetHqCustomerHealth<TData = Awaited<ReturnType<typeof getHqCu
 
 
 
+
+export const getGetHqWeeklyCustomerHealthEmailPreferenceUrl = () => {
+
+
+
+
+  return `/api/hq/notification-preferences/weekly-customer-health`
+}
+
+/**
+ * Personal, not organizational: every active HQ member has their own toggle. Absent row = off. Any active HQ membership may read its own preference.
+ * @summary Whether the caller receives the Monday Customer health summary email
+ */
+export const getHqWeeklyCustomerHealthEmailPreference = async ( options?: Parameters<typeof customFetch>[1]): Promise<HqWeeklyCustomerHealthEmailPreference> => {
+
+  return customFetch<HqWeeklyCustomerHealthEmailPreference>(getGetHqWeeklyCustomerHealthEmailPreferenceUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqWeeklyCustomerHealthEmailPreferenceQueryKey = () => {
+    return [
+    `/api/hq/notification-preferences/weekly-customer-health`
+    ] as const;
+    }
+
+
+export const getGetHqWeeklyCustomerHealthEmailPreferenceQueryOptions = <TData = Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqWeeklyCustomerHealthEmailPreferenceQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>> = ({ signal }) => getHqWeeklyCustomerHealthEmailPreference({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqWeeklyCustomerHealthEmailPreferenceQueryResult = NonNullable<Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>>
+export type GetHqWeeklyCustomerHealthEmailPreferenceQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether the caller receives the Monday Customer health summary email
+ */
+
+export function useGetHqWeeklyCustomerHealthEmailPreference<TData = Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqWeeklyCustomerHealthEmailPreference>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqWeeklyCustomerHealthEmailPreferenceQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSetHqWeeklyCustomerHealthEmailPreferenceUrl = () => {
+
+
+
+
+  return `/api/hq/notification-preferences/weekly-customer-health`
+}
+
+/**
+ * Saves immediately for the caller only. The summary goes out every Monday once it is 9:00 am in the organization's default time zone; the sender re-checks this preference at send time, so turning it off after a Monday run has queued the email still suppresses it.
+ * @summary Turn the caller's Monday Customer health summary email on or off
+ */
+export const setHqWeeklyCustomerHealthEmailPreference = async (hqWeeklyCustomerHealthEmailPreference: HqWeeklyCustomerHealthEmailPreference, options?: Parameters<typeof customFetch>[1]): Promise<HqWeeklyCustomerHealthEmailPreference> => {
+
+  return customFetch<HqWeeklyCustomerHealthEmailPreference>(getSetHqWeeklyCustomerHealthEmailPreferenceUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqWeeklyCustomerHealthEmailPreference)
+  }
+);}
+
+
+
+
+
+export const getSetHqWeeklyCustomerHealthEmailPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>, TError,{data: BodyType<HqWeeklyCustomerHealthEmailPreference>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>, TError,{data: BodyType<HqWeeklyCustomerHealthEmailPreference>}, TContext> => {
+
+const mutationKey = ['setHqWeeklyCustomerHealthEmailPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>, {data: BodyType<HqWeeklyCustomerHealthEmailPreference>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setHqWeeklyCustomerHealthEmailPreference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetHqWeeklyCustomerHealthEmailPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>>
+    export type SetHqWeeklyCustomerHealthEmailPreferenceMutationBody = BodyType<HqWeeklyCustomerHealthEmailPreference>
+    export type SetHqWeeklyCustomerHealthEmailPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Turn the caller's Monday Customer health summary email on or off
+ */
+export const useSetHqWeeklyCustomerHealthEmailPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>, TError,{data: BodyType<HqWeeklyCustomerHealthEmailPreference>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setHqWeeklyCustomerHealthEmailPreference>>,
+        TError,
+        {data: BodyType<HqWeeklyCustomerHealthEmailPreference>},
+        TContext
+      > => {
+      return useMutation(getSetHqWeeklyCustomerHealthEmailPreferenceMutationOptions(options));
+    }
 
 export const getListExportsUrl = (params?: ListExportsParams,) => {
   const normalizedParams = new URLSearchParams();

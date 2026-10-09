@@ -1,0 +1,84 @@
+Intermittent fasting / time-restricted eating
+GLP-1 companion
+Mediterranean
+Keto
+Low-glycemic / plate method
+Whole-food plant-based
+Flexitarian
+Paleo
+Whole30
+Anti-inflammatory
+Carnivore
+DASH
+ 13. Volumetrics
+ 14. Low FODMAP
+ 15. Perimenopause / menopause
+ 16. Fertility / pregnancy
+ 17. MIND
+ 18. GERD / reflux
+ 19. Portfolio
+ 20. Nordic
+ 21. Low-purine
+ 22. Low-oxalate
+ 23. AIP
+ 24. Guided elimination
+ 25. Low-histamine
+ 26. Specific Carbohydrate Diet
+Removed: bariatric staging, renal, medical ketogenic. Gluten-free moves to restrictions.
+Answers
+
+Ship this list
+Removed entirely. The diets left that recommend oversight show a short “consider talking to your care team” note. The only gate is the safety screening in #48.
+Yes, GLP-1 patients can pick a diet. GLP-1 companion is the suggested default for them.
+Yes. “No specific diet, just tracking” is a valid choice.
+One diet at a time. Restrictions, sensitivities and allergies layer on top of it.
+Yes. Finishing the protocol unlocks the picker, with THINNR maintenance as the default.
+Yes, visible on the roster and patient record. Providers can set or change it, and the patient gets notified.
+Not in v1. Same list for everyone.
+Draft them from standard sources (AHA, ADA, USDA, Monash for FODMAP).
+Yes. Auto-fill the targets when a diet is selected, and the patient can edit them.
+Agreed, and add a sample day. Shopping list is phase 2.
+Log with history.
+Acknowledge it briefly in chat.
+Re-label the checkmarks and filters as “Fits your diet.”  Menu scans still work using the coach’s judgment.
+Yes.
+The four-list split is correct. Keep allergies separate, with a mild/severe flag.
+Agreed as written.
+Yes, allow custom free-text items and tag them as custom.
+The whole catalog, with Approved Foods shown first.
+Yes, visible to providers. Store as PHI.
+Notify the provider only for severe allergies. Everything else stays patient-side.
+Allergies are required, with a “None” option. The other lists are skippable.
+Right after program choice, in this order: diet, allergies and sensitivities, restrictions, dislikes.
+Suggest adding it (“Want me to add broccoli to your dislikes?”). Don’t auto-add.
+Log it, flag it in the response, and never recommend it.
+Yes.
+One “Food preferences” page with the diet at the top and a section for each list.
+Changing the diet asks for one confirmation. List edits are instant.
+Yes.
+Plan it as a follow-up task. Don’t build it now, but keep the data model ready for it.
+Option (c). A rule sheet per diet is the authority, general knowledge fills the gaps, and a disclaimer applies.
+Yes, it’s wrong today. Fix it as part of this work.
+Matt and Jason sign off on content. Outside counsel reviews the condition claims and disclaimers before launch.
+Rule sheets only, with two exceptions: an eating-window timer for intermittent fasting and a day counter for Whole30. Elimination stages wait for phase 2.
+For low-glycemic, the coach’s judgment plus a disclaimer is fine. FODMAP, histamine, oxalate and purine need curated data, and they’re phase 2 anyway.
+Show the name, a plain-language summary and complexity. Hide evidence strength and supervision level.
+Not in v1. Hold until counsel clears it.
+A “fits your diet” check on each logged food, plus macros. No adherence score in v1.
+Yes, show the percentage of logged foods that fit the diet on the roster. Stall detection, check-ins, the leaderboard and rewards apply to everyone.
+Auto-calculate, with patient override (same as #10).
+The existing library with a diet-fit filter, plus AI-generated recipes on demand. Seeded recipes per diet are phase 2.
+Yes.
+For severe allergies, “may contain” counts as a hit. For everything else, only direct ingredients count.
+Yes, same list. For v1, kosher and halal exclude foods and the coach also respects rules like not mixing meat and dairy.
+Keep it visible. The coach just never suggests it.
+Yes, the office can edit, and the app logs who entered each item.
+Prompt once on next open, skippable.
+Yes, and store the answers:
+Fasting and keto ask about insulin and diabetes medication.
+Carnivore, Whole30, AIP and elimination get a brief eating-disorder screening question.
+
+Ask pregnancy and breastfeeding status once, as an optional question. If yes, block fasting, keto, carnivore, Whole30 and elimination, and suggest the fertility/pregnancy plan.
+Notify the care team when a patient picks an “oversight recommended” diet or answers yes to the medication question. Don’t auto-create a conversation.
+HQ edits it in the admin app.
+Included in the standard subscription for v1.

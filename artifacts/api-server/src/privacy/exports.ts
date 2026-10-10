@@ -190,6 +190,16 @@ export interface PatientArchiveSections {
     list: Array<Record<string, unknown>>;
     doseLogs: Array<Record<string, unknown>>;
   };
+  /** Eating plan: current + past diet picks, protocol episodes, safety blocks, the four lists, screening answers, activity level, target snapshots. */
+  diet: {
+    selections: Array<Record<string, unknown>>;
+    episodes: Array<Record<string, unknown>>;
+    blocks: Array<Record<string, unknown>>;
+    preferenceItems: Array<Record<string, unknown>>;
+    screeningAnswers: Array<Record<string, unknown>>;
+    activityLevels: Array<Record<string, unknown>>;
+    targetSnapshots: Array<Record<string, unknown>>;
+  };
   photos: Array<Record<string, unknown>>;
   media: Array<Record<string, unknown>>;
   chat: Array<{ conversation: Record<string, unknown>; messages: Array<Record<string, unknown>> }>;
@@ -228,7 +238,7 @@ const MAX_ROWS = 20_000;
 export async function loadPatientArchiveSections(patientId: string): Promise<PatientArchiveSections> {
   const pid = enc(patientId);
   const scope = `patient_id=eq.${pid}`;
-  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, rewardState, rewardEvents, rewardAwards, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess, editHistory] =
+  const [profile, consents, flags, diary, water, targets, prefs, foods, recipes, checkIns, rewardState, rewardEvents, rewardAwards, health, body, staffWeights, medications, doseLogs, photos, media, conversations, appUsage, recordAccess, editHistory, dietSelections, dietEpisodes, dietBlocks, dietItems, dietScreening, dietActivity, dietTargets] =
     await Promise.all([
       rows(`/rest/v1/patients?id=eq.${pid}&select=${PROFILE_FIELDS}&limit=1`, "profile"),
       rows(`/rest/v1/patient_consents?${scope}&select=${CONSENT_SELECT}&order=recorded_at.asc`, "consents"),
@@ -257,6 +267,13 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
       rows(`/rest/v1/patient_app_presence?${scope}&select=day,first_seen_at,last_seen_at,platform&order=day.asc&limit=${MAX_ROWS}`, "app usage"),
       loadPatientRecordAccess(patientId),
       rows(`/rest/v1/patient_edit_history?${scope}&select=change_id,family,record_id,field,old_value,new_value,change_kind,actor_kind,actor_name,audit_event_id,created_at&order=created_at.asc,change_id.asc,field.asc&limit=${MAX_ROWS}`, "edit history"),
+      rows(`/rest/v1/patient_diet_selections?${scope}&select=id,diet_slug,status,selected_by_role,settings,screening_snapshot,started_at,ended_at,created_at,updated_at&order=started_at.asc,created_at.asc&limit=${MAX_ROWS}`, "diet selections"),
+      rows(`/rest/v1/patient_protocol_episodes?${scope}&select=id,episode_number,started_on,ended_on,reason,started_by_role,note,created_at&order=episode_number.asc&limit=${MAX_ROWS}`, "protocol episodes"),
+      rows(`/rest/v1/patient_diet_blocks?${scope}&select=id,selection_id,diet_slug,questions,status,override_challenged_at,reviewed_by_name,reviewed_at,review_note,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "diet safety blocks"),
+      rows(`/rest/v1/patient_preference_items?${scope}&select=id,list,item_key,label,is_custom,severity,entered_by_role,entered_by_name,removed_at,removed_by_role,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "diet preference lists"),
+      rows(`/rest/v1/patient_screening_answers?${scope}&select=id,question,answer,context_diet_slug,answered_by_role,created_at&order=created_at.asc&limit=${MAX_ROWS}`, "diet screening answers"),
+      rows(`/rest/v1/patient_activity_levels?${scope}&select=id,level,source,recorded_on,recorded_by_role,created_at&order=recorded_on.asc,created_at.asc&limit=${MAX_ROWS}`, "activity levels"),
+      rows(`/rest/v1/patient_target_snapshots?${scope}&select=date_key,phase,program_day,inputs,calculated,effective,created_at,updated_at&order=date_key.asc&limit=${MAX_ROWS}`, "target snapshots"),
     ]);
   const businessNames = new Map<string, string>();
   await Promise.all(
@@ -439,6 +456,10 @@ export async function loadPatientArchiveSections(patientId: string): Promise<Pat
     },
     measurements: { healthImports: health, bodyMeasurements: body, clinicWeights: staffWeights },
     medications: { list: medications, doseLogs },
+    diet: {
+      selections: dietSelections, episodes: dietEpisodes, blocks: dietBlocks, preferenceItems: dietItems,
+      screeningAnswers: dietScreening, activityLevels: dietActivity, targetSnapshots: dietTargets,
+    },
     photos,
     media,
     chat,
@@ -499,6 +520,7 @@ export function archiveJsonSections(sections: PatientArchiveSections): Array<{ n
     { name: "rewards.json", body: json(sections.rewards ?? { state: null, events: [], awards: [] }) },
     { name: "measurements.json", body: json(sections.measurements) },
     { name: "medications.json", body: json(sections.medications) },
+    { name: "diet.json", body: json(sections.diet) },
     { name: "photos.json", body: json(sections.photos) },
     { name: "chat.json", body: json(sections.chat) },
     { name: "coach-memory.json", body: json(sections.coachMemory) },
@@ -554,6 +576,7 @@ export const ARCHIVE_FILE_GUIDE: ReadonlyArray<readonly [string, string]> = [
   ["check-ins.json", "Check-ins (weight, mood, side effects, notes)"],
   ["measurements.json", "Imported health data, body measurements, clinic-recorded weights"],
   ["medications.json", "Medication list and dose logs (taken / skipped)"],
+  ["diet.json", "Eating plan: diet choices and history, protocol episodes and restarts, safety screening answers and provider reviews, allergies / sensitivities / restrictions / dislikes, activity level history, daily target snapshots"],
   ["photos.json", "Progress photo records (bytes under media/)"],
   ["chat.json", "AI and retained human transcripts, labeled by channel and business; human staff are attributed only as Care Team"],
   ["coach-memory.json", "Patient-reported memories, approval/lifecycle states, sources, dates, and reusable-memory exclusions. Archiving keeps memory. Forgetting excludes reusable memory, not the original saved conversation."],
@@ -562,7 +585,7 @@ export const ARCHIVE_FILE_GUIDE: ReadonlyArray<readonly [string, string]> = [
   ["billing.json", "Orders, items, totals, fulfillment, and product subscription status. No Stripe identifiers."],
   ["app-usage.json", "Days the app was opened (first/last seen and platform per local day)"],
   ["record-access.json", "Who viewed the record: each staff or HQ open of the record, photos, lab reports, medication list, or a transcript (date, office, viewer role; repeats within 15 minutes recorded once)"],
-  ["edit-history.json", "Every correction to the record (profile, status, weights, measurements, medications, staff notes) with the prior value, new value, who changed it, and when"],
+  ["edit-history.json", "Every correction to the record (profile, status, weights, measurements, medications, eating plan lists, staff notes) with the prior value, new value, who changed it, and when"],
   ["bloodwork/files/", "Original committed bloodwork source files"],
 ];
 
@@ -688,6 +711,8 @@ export async function buildPatientArchive(
       "check-ins.json      Check-ins (weight, mood, side effects, notes)",
       "measurements.json   Imported health data, body measurements, clinic-recorded weights",
       "medications.json    Medication list and dose logs (taken / skipped)",
+      "diet.json           Eating plan: diet choices and history, protocol episodes and restarts, safety screening answers and provider reviews,",
+      "                    allergies / sensitivities / restrictions / dislikes, activity level history, daily target snapshots",
       "photos.json         Progress photo records (bytes under media/)",
       "chat.json           AI and retained human transcripts, labeled by channel and business; human staff are attributed only as Care Team",
       "coach-memory.json   Patient-reported memories, approval/lifecycle states, sources, dates, and reusable-memory exclusions",
@@ -698,7 +723,7 @@ export async function buildPatientArchive(
       "record-access.json  Who viewed your record: each time office or HQ staff opened your record, photos, lab reports,",
       "                    medication list, or a conversation transcript (date, office, and the viewer's role; repeated views",
       "                    by the same person within 15 minutes are recorded once)",
-      "edit-history.json   Every correction to your record (profile, status, weights, measurements, medications, staff notes) with the prior value, new value, who changed it, and when",
+      "edit-history.json   Every correction to your record (profile, status, weights, measurements, medications, eating plan lists, staff notes) with the prior value, new value, who changed it, and when",
       "bloodwork/files/    Original committed bloodwork source files included within the archive size limit",
     ].join("\n"),
   );

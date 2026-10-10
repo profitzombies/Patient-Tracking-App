@@ -5,6 +5,622 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type DietComplexity = typeof DietComplexity[keyof typeof DietComplexity];
+
+
+export const DietComplexity = {
+  simple: 'simple',
+  moderate: 'moderate',
+  advanced: 'advanced',
+} as const;
+
+export type DietReviewStatus = typeof DietReviewStatus[keyof typeof DietReviewStatus];
+
+
+export const DietReviewStatus = {
+  draft: 'draft',
+  reviewed: 'reviewed',
+  published: 'published',
+  retired: 'retired',
+} as const;
+
+export type DietEvidenceStrength = typeof DietEvidenceStrength[keyof typeof DietEvidenceStrength];
+
+
+export const DietEvidenceStrength = {
+  strong: 'strong',
+  moderate: 'moderate',
+  limited: 'limited',
+  emerging: 'emerging',
+} as const;
+
+export type DietSupervisionLevel = typeof DietSupervisionLevel[keyof typeof DietSupervisionLevel];
+
+
+export const DietSupervisionLevel = {
+  none: 'none',
+  recommended: 'recommended',
+  required: 'required',
+} as const;
+
+export type ActivityLevel = typeof ActivityLevel[keyof typeof ActivityLevel];
+
+
+export const ActivityLevel = {
+  sedentary: 'sedentary',
+  light: 'light',
+  moderate: 'moderate',
+  active: 'active',
+  very_active: 'very_active',
+} as const;
+
+export type ProgramPhase = typeof ProgramPhase[keyof typeof ProgramPhase];
+
+
+export const ProgramPhase = {
+  protocol: 'protocol',
+  maintenance: 'maintenance',
+} as const;
+
+export type DietScreeningQuestion = typeof DietScreeningQuestion[keyof typeof DietScreeningQuestion];
+
+
+export const DietScreeningQuestion = {
+  medication: 'medication',
+  eating_disorder: 'eating_disorder',
+  pregnancy: 'pregnancy',
+} as const;
+
+export type DietScreeningAnswerValue = typeof DietScreeningAnswerValue[keyof typeof DietScreeningAnswerValue];
+
+
+export const DietScreeningAnswerValue = {
+  yes: 'yes',
+  no: 'no',
+  skipped: 'skipped',
+} as const;
+
+/**
+ * Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.
+ */
+export interface DietScreeningAnswers {
+  medication?: DietScreeningAnswerValue;
+  eating_disorder?: DietScreeningAnswerValue;
+  pregnancy?: DietScreeningAnswerValue;
+}
+
+export type PreferenceListName = typeof PreferenceListName[keyof typeof PreferenceListName];
+
+
+export const PreferenceListName = {
+  allergy: 'allergy',
+  sensitivity: 'sensitivity',
+  restriction: 'restriction',
+  dislike: 'dislike',
+} as const;
+
+export type AllergySeverity = typeof AllergySeverity[keyof typeof AllergySeverity];
+
+
+export const AllergySeverity = {
+  mild: 'mild',
+  severe: 'severe',
+} as const;
+
+/**
+ * Machine-readable fit rules the shared food classifier evaluates (tag allow / deny lists and nutrient bounds). Opaque to clients.
+ */
+export interface DietFitRules { [key: string]: unknown }
+
+export interface PatientDietEntry {
+  slug: string;
+  name: string;
+  /** Plain-language summary */
+  summary: string;
+  complexity: DietComplexity;
+  ruleSheet: string[];
+  sampleDay: string[];
+  /** Short 'consider talking to your care team' note when the diet recommends oversight */
+  oversightNote: string | null;
+  pregnancyBlocked: boolean;
+  screeningQuestions: DietScreeningQuestion[];
+  fitRules: DietFitRules;
+  sortOrder: number;
+}
+
+export interface PatientDietLibrary {
+  disclaimer: string;
+  entries: PatientDietEntry[];
+}
+
+export type DietSettingsFastingWindow = {
+  /** HH:MM */
+  eatingStart: string;
+  /** HH:MM */
+  eatingEnd: string;
+} | null;
+
+export interface DietSettings {
+  fastingWindow?: DietSettingsFastingWindow;
+  whole30StartDate?: string | null;
+}
+
+export type DietSelectionStatus = typeof DietSelectionStatus[keyof typeof DietSelectionStatus];
+
+
+export const DietSelectionStatus = {
+  active: 'active',
+  pending_review: 'pending_review',
+  superseded: 'superseded',
+  rejected: 'rejected',
+  withdrawn: 'withdrawn',
+} as const;
+
+export type DietSelectionSelectedByRole = typeof DietSelectionSelectedByRole[keyof typeof DietSelectionSelectedByRole];
+
+
+export const DietSelectionSelectedByRole = {
+  patient: 'patient',
+  staff: 'staff',
+  system: 'system',
+} as const;
+
+export interface DietSelection {
+  id: string;
+  dietSlug: string;
+  status: DietSelectionStatus;
+  selectedByRole: DietSelectionSelectedByRole;
+  settings: DietSettings;
+  screeningSnapshot: DietScreeningAnswers;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export type DietBlockStatus = typeof DietBlockStatus[keyof typeof DietBlockStatus];
+
+
+export const DietBlockStatus = {
+  pending: 'pending',
+  overridden: 'overridden',
+  rejected: 'rejected',
+  withdrawn: 'withdrawn',
+} as const;
+
+export interface DietBlock {
+  id: string;
+  selectionId: string;
+  dietSlug: string;
+  /** Which screening answers caused the block */
+  questions: DietScreeningQuestion[];
+  status: DietBlockStatus;
+  overrideStartedAt: string | null;
+  reviewedBy: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  createdAt: string;
+}
+
+export type DietPreferenceItemEnteredByRole = typeof DietPreferenceItemEnteredByRole[keyof typeof DietPreferenceItemEnteredByRole];
+
+
+export const DietPreferenceItemEnteredByRole = {
+  patient: 'patient',
+  staff: 'staff',
+  migration: 'migration',
+} as const;
+
+export interface DietPreferenceItem {
+  id: string;
+  list: PreferenceListName;
+  key: string;
+  label: string;
+  isCustom: boolean;
+  severity: AllergySeverity | null;
+  enteredByRole: DietPreferenceItemEnteredByRole;
+  enteredByName: string | null;
+  createdAt: string;
+}
+
+export interface DietPreferenceItemEnvelope {
+  item: DietPreferenceItem;
+}
+
+export interface DietPreferenceList {
+  items: DietPreferenceItem[];
+}
+
+export interface DietPreferenceInput {
+  list: PreferenceListName;
+  /** Catalog item key; omit for a custom item */
+  key?: string;
+  /**
+     * Free text for a custom item
+     * @maxLength 80
+     */
+  label?: string;
+  severity?: AllergySeverity;
+}
+
+export interface ActivityLevelRecord {
+  level: ActivityLevel;
+  source: string;
+  recordedOn: string;
+}
+
+export interface DietPhase {
+  programDay: number;
+  phase: ProgramPhase;
+  phaseName: string;
+  maintenanceDay: number;
+  dietPickerLocked: boolean;
+  episodeId: string | null;
+  episodeNumber: number | null;
+  episodeStartedOn: string | null;
+}
+
+export type PatientDietStateScreening = {
+  answers: DietScreeningAnswers;
+  pregnancyConflict: boolean;
+};
+
+export interface PatientDietState {
+  dateKey: string;
+  programId: string;
+  phase: DietPhase;
+  currentDiet: DietSelection | null;
+  /** The diet in force; null while the protocol locks the picker */
+  effectiveDietSlug: string | null;
+  pendingSelection: DietSelection | null;
+  pendingBlock: DietBlock | null;
+  suggestedDefaultSlug: string | null;
+  screening: PatientDietStateScreening;
+  preferences: DietPreferenceItem[];
+  activityLevel: ActivityLevelRecord | null;
+}
+
+export interface DietChoiceRequest {
+  dietSlug: string;
+  answers?: DietScreeningAnswers;
+  settings?: DietSettings;
+  activityLevel?: ActivityLevel | null;
+}
+
+export type DietChoiceActiveStatus = typeof DietChoiceActiveStatus[keyof typeof DietChoiceActiveStatus];
+
+
+export const DietChoiceActiveStatus = {
+  active: 'active',
+} as const;
+
+export interface DietChoiceActive {
+  status: DietChoiceActiveStatus;
+  selection: DietSelection;
+  previousDietSlug: string | null;
+  oversightRecommended: boolean;
+}
+
+export type DietChoicePendingStatus = typeof DietChoicePendingStatus[keyof typeof DietChoicePendingStatus];
+
+
+export const DietChoicePendingStatus = {
+  pending_review: 'pending_review',
+} as const;
+
+export type DietChoicePendingReason = typeof DietChoicePendingReason[keyof typeof DietChoicePendingReason];
+
+
+export const DietChoicePendingReason = {
+  pregnancy: 'pregnancy',
+  screening: 'screening',
+} as const;
+
+export interface DietChoicePending {
+  status: DietChoicePendingStatus;
+  reason: DietChoicePendingReason;
+  questions: DietScreeningQuestion[];
+  suggestedSlug: string | null;
+  message?: string;
+  selection: DietSelection;
+  block: DietBlock;
+}
+
+export type DietChoiceConflictCode = typeof DietChoiceConflictCode[keyof typeof DietChoiceConflictCode];
+
+
+export const DietChoiceConflictCode = {
+  DIET_LOCKED: 'DIET_LOCKED',
+  NOT_SELECTABLE: 'NOT_SELECTABLE',
+  NOT_FOUND: 'NOT_FOUND',
+  NOT_OVERRIDABLE: 'NOT_OVERRIDABLE',
+  CHALLENGE_MISMATCH: 'CHALLENGE_MISMATCH',
+  CHALLENGE_EXPIRED: 'CHALLENGE_EXPIRED',
+  NO_DIET: 'NO_DIET',
+  DUPLICATE: 'DUPLICATE',
+} as const;
+
+/**
+ * Present with NOT_OVERRIDABLE.
+ */
+export type DietChoiceConflictReason = typeof DietChoiceConflictReason[keyof typeof DietChoiceConflictReason];
+
+
+export const DietChoiceConflictReason = {
+  pregnancy: 'pregnancy',
+  diet_unavailable: 'diet_unavailable',
+} as const;
+
+export interface DietChoiceConflict {
+  error: string;
+  code: DietChoiceConflictCode;
+  /** Present with NOT_OVERRIDABLE. */
+  reason?: DietChoiceConflictReason;
+  programDay?: number;
+}
+
+export type DietScreeningRequiredCode = typeof DietScreeningRequiredCode[keyof typeof DietScreeningRequiredCode];
+
+
+export const DietScreeningRequiredCode = {
+  SCREENING_REQUIRED: 'SCREENING_REQUIRED',
+} as const;
+
+export interface DietScreeningRequired {
+  error: string;
+  code: DietScreeningRequiredCode;
+  questions: DietScreeningQuestion[];
+}
+
+export interface DietCleared {
+  ok: true;
+  previousDietSlug: string | null;
+}
+
+export interface DietScreeningResult {
+  answers: DietScreeningAnswers;
+  pregnancyConflict: boolean;
+  suggestedSlug: string | null;
+}
+
+export interface DayTargets {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  waterOz: number;
+}
+
+/**
+ * Any subset; null clears that override.
+ */
+export interface TargetOverrideInput {
+  /**
+     * @minimum 0
+     * @maximum 20000
+     */
+  calories?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 2000
+     */
+  protein?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 2000
+     */
+  carbs?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 2000
+     */
+  fat?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 200
+     */
+  waterOz?: number | null;
+}
+
+export type PatientTargetsOverrides = {
+  calories: number | null;
+  protein: number | null;
+  carbs: number | null;
+  fat: number | null;
+  waterOz: number | null;
+};
+
+export type PatientTargetsOverriddenItem = typeof PatientTargetsOverriddenItem[keyof typeof PatientTargetsOverriddenItem];
+
+
+export const PatientTargetsOverriddenItem = {
+  calories: 'calories',
+  protein: 'protein',
+  carbs: 'carbs',
+  fat: 'fat',
+  waterOz: 'waterOz',
+} as const;
+
+export type PatientTargetsGoalDirection = typeof PatientTargetsGoalDirection[keyof typeof PatientTargetsGoalDirection];
+
+
+export const PatientTargetsGoalDirection = {
+  lose: 'lose',
+  hold: 'hold',
+  gain: 'gain',
+} as const;
+
+export type PatientTargetsMissingItem = typeof PatientTargetsMissingItem[keyof typeof PatientTargetsMissingItem];
+
+
+export const PatientTargetsMissingItem = {
+  gender: 'gender',
+  age: 'age',
+  height: 'height',
+  weight: 'weight',
+  activityLevel: 'activityLevel',
+} as const;
+
+export interface PatientTargets {
+  dateKey: string;
+  phase: ProgramPhase;
+  programDay: number;
+  maintenanceDay: number;
+  calculated: DayTargets;
+  effective: DayTargets;
+  overrides: PatientTargetsOverrides;
+  overridden: PatientTargetsOverriddenItem[];
+  bmr: number | null;
+  maintenanceCalories: number | null;
+  goalDirection: PatientTargetsGoalDirection;
+  rampStep: number;
+  ramping: boolean;
+  missing: PatientTargetsMissingItem[];
+  activityLevel: ActivityLevel | null;
+}
+
+export type ProtocolEpisodeStartedByRole = typeof ProtocolEpisodeStartedByRole[keyof typeof ProtocolEpisodeStartedByRole];
+
+
+export const ProtocolEpisodeStartedByRole = {
+  patient: 'patient',
+  staff: 'staff',
+  system: 'system',
+} as const;
+
+export interface ProtocolEpisode {
+  id: string;
+  episodeNumber: number;
+  startedOn: string;
+  endedOn: string | null;
+  reason: string;
+  startedByRole: ProtocolEpisodeStartedByRole;
+  note: string | null;
+  createdAt: string;
+}
+
+export type HqDietLibraryEntry = PatientDietEntry & ({
+  id: string;
+  oversightRecommended: boolean;
+  evidenceStrength: DietEvidenceStrength;
+  supervisionLevel: DietSupervisionLevel;
+  sources: string[];
+  reviewStatus: DietReviewStatus;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  publishedAt: string | null;
+  version: number;
+  updatedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+});
+
+export type OfficePatientDietHistoryTargetSnapshotsItem = { [key: string]: unknown };
+
+export type OfficePatientDietHistory = {
+  selections: DietSelection[];
+  blocks: DietBlock[];
+  episodes: ProtocolEpisode[];
+  activity: ActivityLevelRecord[];
+  targetSnapshots: OfficePatientDietHistoryTargetSnapshotsItem[];
+};
+
+export type OfficePatientDiet = PatientDietState & {
+  targets: PatientTargets;
+  history: OfficePatientDietHistory;
+  library: HqDietLibraryEntry[];
+};
+
+export interface DietOverrideChallenge {
+  /** Opaque token the confirm call must echo */
+  challenge: string;
+  /** The second confirmation prompt ("Are you sure you want to do this?") */
+  confirmText: string;
+  expiresAt: string;
+  block: DietBlock;
+}
+
+export type DietOverrideResultStatus = typeof DietOverrideResultStatus[keyof typeof DietOverrideResultStatus];
+
+
+export const DietOverrideResultStatus = {
+  active: 'active',
+} as const;
+
+export interface DietOverrideResult {
+  status: DietOverrideResultStatus;
+  block: DietBlock;
+  selection: DietSelection;
+  previousDietSlug: string | null;
+}
+
+export interface ProtocolRestartResult {
+  episode: ProtocolEpisode;
+  state: PatientDietState;
+}
+
+export interface DietLibrarySettings {
+  disclaimer: string;
+  oversightNoteText: string;
+}
+
+export interface HqDietLibrary {
+  entries: HqDietLibraryEntry[];
+  settings: DietLibrarySettings;
+}
+
+export type HqDietLibraryEntryDetailVersionsItem = {
+  version: number;
+  changedBy: string | null;
+  changeNote: string | null;
+  createdAt: string;
+};
+
+export interface HqDietLibraryEntryDetail {
+  entry: HqDietLibraryEntry;
+  versions: HqDietLibraryEntryDetailVersionsItem[];
+}
+
+/**
+ * Any subset of editable fields; unknown keys are ignored.
+ */
+export interface HqDietLibraryEntryPatch {
+  /** @minimum 1 */
+  expectedVersion: number;
+  /** @maxLength 500 */
+  changeNote?: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name?: string;
+  /**
+     * @minLength 1
+     * @maxLength 600
+     */
+  summary?: string;
+  complexity?: DietComplexity;
+  ruleSheet?: string[];
+  sampleDay?: string[];
+  sources?: string[];
+  oversightRecommended?: boolean;
+  pregnancyBlocked?: boolean;
+  screeningQuestions?: DietScreeningQuestion[];
+  fitRules?: DietFitRules;
+  evidenceStrength?: DietEvidenceStrength;
+  supervisionLevel?: DietSupervisionLevel;
+  /**
+     * @minimum 0
+     * @maximum 10000
+     */
+  sortOrder?: number;
+}
+
+export interface HqDietLibraryEntryUpdate {
+  entry: HqDietLibraryEntry;
+  /** True when this edit pulled a published entry back to draft */
+  unpublished: boolean;
+}
+
 /**
  * Display size of a patient photo. thumb (~320 px) for grids and chat previews, medium (~1024 px) for tap-in views, original for downloads and exports. Variants are derived at upload and backfilled for older photos; a request for a variant that does not exist yet is served as the original.
  */
@@ -1390,6 +2006,7 @@ export const PatientEditHistoryFamily = {
   measurement: 'measurement',
   medication: 'medication',
   note: 'note',
+  diet: 'diet',
 } as const;
 
 /**
@@ -6311,6 +6928,159 @@ export const GetHqLegalHoldsStatus = {
   lifted: 'lifted',
   all: 'all',
 } as const;
+
+export type UpdatePatientDietSettings200 = {
+  selection: DietSelection;
+};
+
+export type AnswerPatientDietScreeningBody = {
+  answers: DietScreeningAnswers;
+};
+
+/**
+ * Where the answer came from; defaults to settings
+ */
+export type RecordPatientActivityLevelBodySource = typeof RecordPatientActivityLevelBodySource[keyof typeof RecordPatientActivityLevelBodySource];
+
+
+export const RecordPatientActivityLevelBodySource = {
+  settings: 'settings',
+  check_in: 'check_in',
+} as const;
+
+export type RecordPatientActivityLevelBody = {
+  level: ActivityLevel;
+  /** Where the answer came from; defaults to settings */
+  source?: RecordPatientActivityLevelBodySource;
+};
+
+export type RecordPatientActivityLevel200 = {
+  activityLevel: ActivityLevelRecord;
+};
+
+export type UpdatePatientDietPreferenceBody = {
+  severity: AllergySeverity;
+};
+
+export type GetOfficePatientDietParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type SetOfficePatientDietParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ClearOfficePatientDietParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type StartOfficeDietBlockOverrideParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ConfirmOfficeDietBlockOverrideParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ConfirmOfficeDietBlockOverrideBody = {
+  challenge: string;
+  /** @maxLength 500 */
+  note?: string;
+};
+
+export type RejectOfficeDietBlockParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type RejectOfficeDietBlockBody = {
+  /** @maxLength 500 */
+  note?: string;
+};
+
+export type RejectOfficeDietBlock200Status = typeof RejectOfficeDietBlock200Status[keyof typeof RejectOfficeDietBlock200Status];
+
+
+export const RejectOfficeDietBlock200Status = {
+  rejected: 'rejected',
+} as const;
+
+export type RejectOfficeDietBlock200 = {
+  status: RejectOfficeDietBlock200Status;
+  block: DietBlock;
+};
+
+export type RestartOfficePatientProtocolParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type RestartOfficePatientProtocolBody = {
+  /** Defaults to the patient's local today; never in the future */
+  startedOn?: string;
+  /** @maxLength 500 */
+  note?: string;
+};
+
+export type AddOfficePatientDietPreferenceParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type RemoveOfficePatientDietPreferenceParams = {
+/**
+ * Required for HQ; ignored for provider staff, who are always own-office scoped
+ */
+office?: OfficeIdParameter;
+};
+
+export type ReviewHqDietLibraryEntryBody = {
+  status: DietReviewStatus;
+  /** @minimum 1 */
+  expectedVersion: number;
+};
+
+export type ReviewHqDietLibraryEntry200 = {
+  entry: HqDietLibraryEntry;
+};
+
+export type UpdateHqDietLibrarySettingsBody = {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  disclaimer?: string;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  oversightNoteText?: string;
+};
+
+export type UpdateHqDietLibrarySettings200 = {
+  settings: DietLibrarySettings;
+};
 
 export type ListBloodworkReportsParams = {
 /**

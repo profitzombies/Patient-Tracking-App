@@ -27,6 +27,7 @@ export const RECORD_ACCESS_ACTIONS = [
   "patient_bloodwork_viewed",
   "bloodwork_report_opened",
   "patient_medications_viewed",
+  "patient_diet_viewed",
   "conversation_transcript_opened",
 ] as const;
 export type RecordAccessAction = (typeof RECORD_ACCESS_ACTIONS)[number];

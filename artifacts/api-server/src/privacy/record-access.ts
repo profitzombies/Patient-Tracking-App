@@ -25,6 +25,7 @@ export const RECORD_ACCESS_LABELS: Record<RecordAccessAction, string> = {
   patient_bloodwork_viewed: "Viewed bloodwork list",
   bloodwork_report_opened: "Opened lab report",
   patient_medications_viewed: "Viewed medication list",
+  patient_diet_viewed: "Viewed diet and food preferences",
   conversation_transcript_opened: "Opened conversation transcript",
 };
 

@@ -3,6 +3,7 @@ import { inQuietWindow, localClock, parseQuietHours, quietWindowEnd } from "../n
 import { sendGuarded } from "../notifications/push-guard";
 import { effectivePolicyFor, loadOfficeOverrides, loadOrgPolicy } from "../lib/org-policy";
 import type { StaffNotificationRow, StaffNotificationStore } from "./store";
+import { DIET_STAFF_PUSH, DIET_STAFF_PUSH_KIND, isDietStaffKind } from "../diet/push-kinds";
 import { publicOrigin } from "../billing/app-origin";
 import { sendTemplatedEmail } from "../email/transport";
 import { renderEmailTemplate, type EmailTemplateId, type EmailVariables, type RenderedEmail } from "@workspace/email-templates";
@@ -198,6 +199,14 @@ export function staffPushContent(row: StaffNotificationRow): { title: string; bo
         route: "/(tabs)/patients", kind: COACH_CHAT_FLAG_ROW_KIND, category: "staff_alerts", notificationId: row.id,
         providerId: row.provider_id, flagId: typeof data.flagId === "string" ? data.flagId : null,
       },
+    };
+  }
+  if (isDietStaffKind(row.kind)) {
+    // Vendor boundary: the row's kind, copy and patient / record ids stay in
+    // the authenticated store; the push says only that a record needs review.
+    return {
+      title: DIET_STAFF_PUSH.title, body: DIET_STAFF_PUSH.body,
+      data: { route: "/(tabs)/patients", kind: DIET_STAFF_PUSH_KIND, category: "staff_alerts", notificationId: row.id, providerId: row.provider_id },
     };
   }
   const flaggedCount = Number(data.flaggedCount ?? 0);

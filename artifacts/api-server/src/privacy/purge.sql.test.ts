@@ -29,6 +29,7 @@ const ACCOUNT_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migra
 const PATIENT_GROUPS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000000_patient_groups.sql");
 const CHAT_FLAGS_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000001_coach_chat_flags_closure.sql");
 const REWARDS_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261201000002_patient_rewards_closure.sql");
+const DIET_CLOSURE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261206000002_patient_diet_closure.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -295,7 +296,11 @@ const finish = (requestId: string, status: string, error: string | null = null, 
     `select id, status, purged_at, next_attempt_at, last_error, lease_owner from public.patient_deletion_finish('${requestId}', '${status}', ${error === null ? "null" : `'${error}'`}, '{"storage":{"ok":true}}'::jsonb, ${retry === null ? "null" : retry})`,
   );
 
-describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real PostgreSQL)", () => {
+// Real-PostgreSQL work (initdb + the full migration chain + whole-record
+// purges) takes ~1 s per test alone but several times that when the
+// completion gate runs every suite at once; give it the same budget the
+// legal-holds / account-closure validation commands already pass on the CLI.
+describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real PostgreSQL)", { timeout: 60_000 }, () => {
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), "pp-"));
     dataDir = path.join(dir, "data");
@@ -604,7 +609,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
         activation_status text
       );
     `);
-    for (const file of [LEGAL_HOLDS_MIGRATION, ACCOUNT_CLOSURE_MIGRATION, CHAT_FLAGS_CLOSURE_MIGRATION, REWARDS_CLOSURE_MIGRATION]) {
+    for (const file of [LEGAL_HOLDS_MIGRATION, ACCOUNT_CLOSURE_MIGRATION, CHAT_FLAGS_CLOSURE_MIGRATION, REWARDS_CLOSURE_MIGRATION, DIET_CLOSURE_MIGRATION]) {
       execFileSync("psql", [...PSQL_ARGS().filter((arg) => arg !== "-At"), "-f", file], {
         stdio: "pipe",
         encoding: "utf8",
@@ -641,6 +646,22 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
         event_key text not null, primary key (patient_id, event_key)
       );
       insert into public.patient_reward_events (patient_id, event_key) values ('${PATIENT}', 'daily:food');
+      -- Diet programs: activity levels and target snapshots are personal; the
+      -- selection itself is part of the sealed care record.
+      create table public.patient_activity_levels (
+        id uuid primary key default gen_random_uuid(),
+        patient_id uuid not null references public.patients(id) on delete cascade, level text not null
+      );
+      create table public.patient_target_snapshots (
+        patient_id uuid not null references public.patients(id) on delete cascade, date_key date not null, primary key (patient_id, date_key)
+      );
+      create table public.patient_diet_selections (
+        id uuid primary key default gen_random_uuid(),
+        patient_id uuid not null references public.patients(id) on delete cascade, diet_slug text not null
+      );
+      insert into public.patient_activity_levels (patient_id, level) values ('${PATIENT}', 'light');
+      insert into public.patient_target_snapshots (patient_id, date_key) values ('${PATIENT}', '2026-10-10');
+      insert into public.patient_diet_selections (patient_id, diet_slug) values ('${PATIENT}', 'dash');
       insert into public.auth_sign_ins (user_id, realm) values ('${AUTH_USER}', 'patient');
       insert into public.account_security_state (user_id) values ('${AUTH_USER}');
     `);
@@ -663,6 +684,9 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient deletion lifecycle SQL (real Postg
     expect((closed.tables as Record<string, number>).coach_chat_flags).toBe(1);
     expect(countFor("patient_reward_events", PATIENT)).toBe(0);
     expect((closed.tables as Record<string, number>).patient_reward_events).toBe(1);
+    expect(countFor("patient_activity_levels", PATIENT)).toBe(0);
+    expect(countFor("patient_target_snapshots", PATIENT)).toBe(0);
+    expect(countFor("patient_diet_selections", PATIENT)).toBe(1);
     expect(countFor("patient_body_measurements", PATIENT)).toBe(1);
     expect(countFor("patient_medications", PATIENT)).toBe(1);
     expect(countFor("patient_bloodwork_reports", PATIENT)).toBe(1);

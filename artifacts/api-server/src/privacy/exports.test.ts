@@ -14,6 +14,7 @@ function emptySections(): PatientArchiveSections {
     checkIns: [],
     measurements: { healthImports: [], bodyMeasurements: [], clinicWeights: [] },
     medications: { list: [], doseLogs: [] },
+    diet: { selections: [], episodes: [], blocks: [], preferenceItems: [], screeningAnswers: [], activityLevels: [], targetSnapshots: [] },
     photos: [],
     media: [],
     chat: [],

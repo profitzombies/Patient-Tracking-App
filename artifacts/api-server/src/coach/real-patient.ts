@@ -13,24 +13,21 @@
  * stream opens. A real patient must never be silently grounded on the demo
  * patient's numbers.
  */
+import { FALLBACK_TARGETS, isActivityLevel, programDayBetween, type ActivityLevel } from "@workspace/diet-programs";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
-import { phaseNameForDay } from "./demo-patient";
+import { computePatientTargets, type TargetPatientRow } from "../diet/targets";
+import { episodeRecord, EPISODE_SELECT, type EpisodeRecord } from "../diet/store";
 import type { PatientContext, PatientDayTargets } from "./prompt";
 
 const enc = encodeURIComponent;
 
 /**
- * Program defaults, mirrored from the mobile app's data/patient-data.ts
- * DEFAULT_TARGETS. Per-patient overrides ride patient_target_overrides rows.
+ * Targets used only while the body numbers the calculator needs are missing
+ * (the shared calculator's fallback). Real targets come from the patient's
+ * goals, BMR, activity level and phase — never from a fixed table.
  */
-export const DEFAULT_TARGETS: PatientDayTargets = {
-  calories: 1500,
-  protein: 120,
-  carbs: 130,
-  fat: 50,
-  waterOz: 64,
-};
+export const DEFAULT_TARGETS: PatientDayTargets = { ...FALLBACK_TARGETS };
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -43,7 +40,7 @@ export function isDateKey(value: unknown): value is string {
   return value >= "2020-01-01" && value <= "2035-12-31";
 }
 
-export interface PatientProfile {
+export interface PatientProfile extends TargetPatientRow {
   name: string | null;
   first_name?: string | null;
   last_name?: string | null;
@@ -52,11 +49,11 @@ export interface PatientProfile {
   timezone?: string | null;
 }
 
-/** The clinical row facts the chat surfaces need (name, dates, timezone). */
+/** The clinical row facts the chat surfaces need (name, dates, timezone, body numbers for targets). */
 export async function fetchPatientProfile(patientId: string): Promise<PatientProfile> {
   const lookup = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_start_date,created_at,timezone`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_id,program_start_date,created_at,timezone,gender,date_of_birth,height_inches,current_weight,goal_weight`,
   );
   if (lookup.status >= 300 || !Array.isArray(lookup.json) || lookup.json.length === 0) {
     throw new Error(`patient profile lookup failed (${lookup.status})`);
@@ -76,19 +73,29 @@ export function firstNameOf(name: string | null | undefined): string {
 }
 
 /**
- * Day N of the program at the given date key, using the demo seed's
- * semantics (days since enrollment, clamped so the enrollment day itself
- * reads as day 1, never day 0). Falls back to the row's creation date when
- * no program start is recorded.
+ * Day N of the program at the given date key (shared rule: whole days since
+ * the current episode started, clamped so the start day reads as day 1).
+ * The clinical row's program_start_date mirrors the open protocol episode
+ * (a database trigger keeps them in step), so a provider restart moves it;
+ * the row's creation date is the fallback when no start is recorded.
  */
-export function programDayFor(profile: PatientProfile, todayKey: string): number {
-  const startRaw = profile.program_start_date ?? profile.created_at ?? todayKey;
-  const startKey = String(startRaw).slice(0, 10);
-  const start = Date.parse(`${startKey}T00:00:00Z`);
-  const today = Date.parse(`${todayKey}T00:00:00Z`);
-  if (!Number.isFinite(start) || !Number.isFinite(today)) return 1;
-  const days = Math.round((today - start) / 86_400_000);
-  return Math.max(1, Math.min(2000, days));
+export function programDayFor(profile: Pick<PatientProfile, "program_start_date" | "created_at">, todayKey: string): number {
+  return programDayBetween(profile.program_start_date ?? profile.created_at ?? todayKey, todayKey);
+}
+
+/** The open protocol episode, or null when the row predates the episode ledger. */
+export async function fetchOpenEpisode(patientId: string): Promise<EpisodeRecord | null> {
+  const res = await supabaseAdmin("GET", `/rest/v1/patient_protocol_episodes?patient_id=eq.${enc(patientId)}&ended_on=is.null&select=${EPISODE_SELECT}&order=episode_number.desc&limit=1`);
+  if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`protocol episode lookup failed (${res.status})`);
+  return res.json[0] ? episodeRecord(res.json[0] as Record<string, unknown>) : null;
+}
+
+/** The latest recorded activity level, or null when never asked. */
+export async function fetchActivityLevel(patientId: string): Promise<ActivityLevel | null> {
+  const res = await supabaseAdmin("GET", `/rest/v1/patient_activity_levels?patient_id=eq.${enc(patientId)}&select=level&order=recorded_on.desc,created_at.desc&limit=1`);
+  if (res.status >= 300 || !Array.isArray(res.json)) throw new Error(`activity level lookup failed (${res.status})`);
+  const level = (res.json[0] as { level?: unknown } | undefined)?.level;
+  return isActivityLevel(level) ? level : null;
 }
 
 function sumField(rows: unknown[], field: string): number {
@@ -118,7 +125,7 @@ export async function realPatientContext(
       ? localDate
       : dayKeyInTimeZone(profile.timezone);
 
-  const [entries, water, overrides] = await Promise.all([
+  const [entries, water, overrides, episode, activityLevel] = await Promise.all([
     supabaseAdmin(
       "GET",
       `/rest/v1/patient_diary_entries?patient_id=eq.${enc(patientId)}&date_key=eq.${dateKey}&select=calories,protein,carbs,fat`,
@@ -131,6 +138,8 @@ export async function realPatientContext(
       "GET",
       `/rest/v1/patient_target_overrides?patient_id=eq.${enc(patientId)}&select=calories,protein,carbs,fat,water_oz`,
     ),
+    fetchOpenEpisode(patientId),
+    fetchActivityLevel(patientId),
   ]);
   if (entries.status >= 300 || !Array.isArray(entries.json)) {
     throw new Error(`patient diary lookup failed (${entries.status})`);
@@ -143,18 +152,21 @@ export async function realPatientContext(
   }
 
   const overrideRow = (overrides.json[0] ?? {}) as Record<string, unknown>;
-  const target = (key: keyof PatientDayTargets, column: string): number => {
+  const override = (column: string): number | null => {
     const value = overrideRow[column];
-    return typeof value === "number" && Number.isFinite(value) ? value : DEFAULT_TARGETS[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
   };
+  // Diet choice never changes targets: goals + BMR + activity + phase do.
+  const computed = computePatientTargets(profile, episode, activityLevel, {
+    calories: override("calories"), protein: override("protein"), carbs: override("carbs"), fat: override("fat"), waterOz: override("water_oz"),
+  }, dateKey);
 
   const waterRow = (water.json[0] ?? {}) as Record<string, unknown>;
-  const programDay = programDayFor(profile, dateKey);
 
   return {
     firstName: firstNameOf(profile.name),
-    programDay,
-    phaseName: phaseNameForDay(programDay),
+    programDay: computed.phase.programDay,
+    phaseName: computed.phase.phaseName,
     today: {
       dateKey,
       calories: sumField(entries.json, "calories"),
@@ -163,13 +175,7 @@ export async function realPatientContext(
       fat: sumField(entries.json, "fat"),
       waterOz:
         typeof waterRow.oz === "number" && Number.isFinite(waterRow.oz) ? waterRow.oz : 0,
-      targets: {
-        calories: target("calories", "calories"),
-        protein: target("protein", "protein"),
-        carbs: target("carbs", "carbs"),
-        fat: target("fat", "fat"),
-        waterOz: target("waterOz", "water_oz"),
-      },
+      targets: { ...computed.targets.effective },
     },
   };
 }

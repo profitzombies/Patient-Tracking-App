@@ -26,8 +26,9 @@ const FAMILY_LABELS: Record<PatientEditHistoryFamily, string> = {
   measurement: 'Measurements',
   medication: 'Medications',
   note: 'Staff notes',
+  diet: 'Diet',
 };
-const FAMILY_ORDER: PatientEditHistoryFamily[] = ['profile', 'status', 'weight', 'measurement', 'medication', 'note'];
+const FAMILY_ORDER: PatientEditHistoryFamily[] = ['profile', 'status', 'weight', 'measurement', 'medication', 'note', 'diet'];
 
 const FIELD_LABELS: Record<string, string> = {
   firstName: 'First name',

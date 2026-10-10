@@ -21,7 +21,9 @@ import type {
 
 import type {
   AddOfficeConversationNoteParams,
+  AddOfficePatientDietPreferenceParams,
   AddOfficePatientGroupMemberParams,
+  AnswerPatientDietScreeningBody,
   AppUsageInsights,
   AppUsageResult,
   AssignOfficeConversationParams,
@@ -44,6 +46,7 @@ import type {
   CatalogSearchResult,
   CatalogSelectionInput,
   CatalogSelectionResult,
+  ClearOfficePatientDietParams,
   CoachAvailability,
   CoachChatInput,
   CoachConversationAppendInput,
@@ -61,6 +64,8 @@ import type {
   CoachMenuScanResult,
   CoachRecipeImageInput,
   CoachRecipeImageResult,
+  ConfirmOfficeDietBlockOverrideBody,
+  ConfirmOfficeDietBlockOverrideParams,
   ConversationAssignInput,
   ConversationEscalationInput,
   ConversationEscalationResult,
@@ -83,6 +88,19 @@ import type {
   DeleteBloodworkReportParams,
   DeleteOfficePatientGroup200,
   DeleteOfficePatientGroupParams,
+  DietChoiceActive,
+  DietChoiceConflict,
+  DietChoicePending,
+  DietChoiceRequest,
+  DietCleared,
+  DietOverrideChallenge,
+  DietOverrideResult,
+  DietPreferenceInput,
+  DietPreferenceItemEnvelope,
+  DietPreferenceList,
+  DietScreeningRequired,
+  DietScreeningResult,
+  DietSettings,
   EngagementTrendResult,
   EscalateOfficeConversationParams,
   ExportDownloadResult,
@@ -129,6 +147,7 @@ import type {
   GetOfficeOffboardingBundleDownloadUrlParams,
   GetOfficeOverviewParams,
   GetOfficePatientCoachConversationParams,
+  GetOfficePatientDietParams,
   GetOfficePatientRecordParams,
   GetOfficeRosterParams,
   GetOfficeSettingsParams,
@@ -138,6 +157,10 @@ import type {
   HqAuditEventsResult,
   HqConversationEventsResult,
   HqConversationSummaryResult,
+  HqDietLibrary,
+  HqDietLibraryEntryDetail,
+  HqDietLibraryEntryPatch,
+  HqDietLibraryEntryUpdate,
   HqDriveOrderInput,
   HqDriveOrderResult,
   HqEscalationResolveInput,
@@ -208,6 +231,7 @@ import type {
   OfficeOffboardingHandoverInput,
   OfficeOffboardingResult,
   OfficeOverridesInput,
+  OfficePatientDiet,
   OfficePatientRecord,
   OfficeReactivationRefusal,
   OfficeRosterResult,
@@ -220,6 +244,8 @@ import type {
   PatientCareTeamResult,
   PatientCareTeamStartInput,
   PatientCareTeamStartResult,
+  PatientDietLibrary,
+  PatientDietState,
   PatientEditHistoryPage,
   PatientGroupInput,
   PatientGroupListResult,
@@ -227,25 +253,40 @@ import type {
   PatientGroupResult,
   PatientGroupUpdateInput,
   PatientRetentionResult,
+  PatientTargets,
   ProgressPhotoFileParams,
+  ProtocolRestartResult,
   ReadOfficeConversationParams,
+  RecordPatientActivityLevel200,
+  RecordPatientActivityLevelBody,
   RegisterStaffNotificationDeviceBody,
+  RejectOfficeDietBlock200,
+  RejectOfficeDietBlockBody,
+  RejectOfficeDietBlockParams,
+  RemoveOfficePatientDietPreferenceParams,
   RemoveOfficePatientGroupMemberParams,
   ReplyOfficeConversationParams,
+  RestartOfficePatientProtocolBody,
+  RestartOfficePatientProtocolParams,
   RetryBloodworkExtractionParams,
   ReviewBloodworkReportParams,
+  ReviewHqDietLibraryEntry200,
+  ReviewHqDietLibraryEntryBody,
   RunSystemJobBody,
   SearchHqFilesParams,
   SearchOfficeFilesParams,
   SetOfficeConversationStatusParams,
+  SetOfficePatientDietParams,
   SignOfficePatientPhotoPage200,
   SignOfficePatientPhotoPageBody,
   SignOfficePatientPhotoPageParams,
+  StartOfficeDietBlockOverrideParams,
   SupportChatInput,
   SystemHealthResult,
   SystemJobRunResult,
   SystemJobStartedResult,
   SystemPerformanceResult,
+  TargetOverrideInput,
   TrainingAttachmentDownloadResult,
   TrainingAttachmentFinalizeInput,
   TrainingAttachmentFinalizeResult,
@@ -266,12 +307,16 @@ import type {
   TrainingUploadUrlInput,
   TrainingUploadUrlResult,
   UnregisterStaffNotificationDeviceBody,
+  UpdateHqDietLibrarySettings200,
+  UpdateHqDietLibrarySettingsBody,
   UpdateOfficeAlertPreferences200,
   UpdateOfficeAlertPreferencesBody,
   UpdateOfficeAlertSettingsParams,
   UpdateOfficePatientFollowUpParams,
   UpdateOfficePatientGroupParams,
-  UpdateOfficeSettingsOverridesParams
+  UpdateOfficeSettingsOverridesParams,
+  UpdatePatientDietPreferenceBody,
+  UpdatePatientDietSettings200
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -12211,6 +12256,2072 @@ export const useLiftHqLegalHold = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getLiftHqLegalHoldMutationOptions(options));
+    }
+
+export const getGetPatientDietLibraryUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/library`
+}
+
+/**
+ * @summary Published eating plans a patient may choose, plus the disclaimer
+ */
+export const getPatientDietLibrary = async ( options?: Parameters<typeof customFetch>[1]): Promise<PatientDietLibrary> => {
+
+  return customFetch<PatientDietLibrary>(getGetPatientDietLibraryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientDietLibraryQueryKey = () => {
+    return [
+    `/api/patient-data/diet/library`
+    ] as const;
+    }
+
+
+export const getGetPatientDietLibraryQueryOptions = <TData = Awaited<ReturnType<typeof getPatientDietLibrary>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientDietLibraryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientDietLibrary>>> = ({ signal }) => getPatientDietLibrary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientDietLibrary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientDietLibraryQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientDietLibrary>>>
+export type GetPatientDietLibraryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Published eating plans a patient may choose, plus the disclaimer
+ */
+
+export function useGetPatientDietLibrary<TData = Awaited<ReturnType<typeof getPatientDietLibrary>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientDietLibraryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPatientDietUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet`
+}
+
+/**
+ * @summary The patient's phase, current diet, pending review, lists, screening answers and activity level
+ */
+export const getPatientDiet = async ( options?: Parameters<typeof customFetch>[1]): Promise<PatientDietState> => {
+
+  return customFetch<PatientDietState>(getGetPatientDietUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientDietQueryKey = () => {
+    return [
+    `/api/patient-data/diet`
+    ] as const;
+    }
+
+
+export const getGetPatientDietQueryOptions = <TData = Awaited<ReturnType<typeof getPatientDiet>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDiet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientDietQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientDiet>>> = ({ signal }) => getPatientDiet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientDiet>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientDietQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientDiet>>>
+export type GetPatientDietQueryError = ErrorType<void>
+
+
+/**
+ * @summary The patient's phase, current diet, pending review, lists, screening answers and activity level
+ */
+
+export function useGetPatientDiet<TData = Awaited<ReturnType<typeof getPatientDiet>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDiet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientDietQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getChoosePatientDietUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet`
+}
+
+/**
+ * 200 when the diet is in force, 202 when the pick is parked for the care team (a yes to pregnancy on a blocked diet, or a yes to a screening question), 409 DIET_LOCKED while the THINNR protocol runs, 422 SCREENING_REQUIRED when a question the diet asks is unanswered. Diet choice never changes calorie or macro targets.
+ * @summary Choose a diet, answering its safety questions
+ */
+export const choosePatientDiet = async (dietChoiceRequest: DietChoiceRequest, options?: Parameters<typeof customFetch>[1]): Promise<DietChoiceActive | DietChoicePending> => {
+
+  return customFetch<DietChoiceActive | DietChoicePending>(getChoosePatientDietUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dietChoiceRequest)
+  }
+);}
+
+
+
+
+
+export const getChoosePatientDietMutationOptions = <TError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof choosePatientDiet>>, TError,{data: BodyType<DietChoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof choosePatientDiet>>, TError,{data: BodyType<DietChoiceRequest>}, TContext> => {
+
+const mutationKey = ['choosePatientDiet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof choosePatientDiet>>, {data: BodyType<DietChoiceRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  choosePatientDiet(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChoosePatientDietMutationResult = NonNullable<Awaited<ReturnType<typeof choosePatientDiet>>>
+    export type ChoosePatientDietMutationBody = BodyType<DietChoiceRequest>
+    export type ChoosePatientDietMutationError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>
+
+    /**
+ * @summary Choose a diet, answering its safety questions
+ */
+export const useChoosePatientDiet = <TError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof choosePatientDiet>>, TError,{data: BodyType<DietChoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof choosePatientDiet>>,
+        TError,
+        {data: BodyType<DietChoiceRequest>},
+        TContext
+      > => {
+      return useMutation(getChoosePatientDietMutationOptions(options));
+    }
+
+export const getClearPatientDietUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet`
+}
+
+/**
+ * @summary Go back to no diet (history is kept)
+ */
+export const clearPatientDiet = async ( options?: Parameters<typeof customFetch>[1]): Promise<DietCleared> => {
+
+  return customFetch<DietCleared>(getClearPatientDietUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearPatientDietMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPatientDiet>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearPatientDiet>>, TError,void, TContext> => {
+
+const mutationKey = ['clearPatientDiet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearPatientDiet>>, void> = () => {
+
+
+          return  clearPatientDiet(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearPatientDietMutationResult = NonNullable<Awaited<ReturnType<typeof clearPatientDiet>>>
+
+    export type ClearPatientDietMutationError = ErrorType<void>
+
+    /**
+ * @summary Go back to no diet (history is kept)
+ */
+export const useClearPatientDiet = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPatientDiet>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearPatientDiet>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClearPatientDietMutationOptions(options));
+    }
+
+export const getUpdatePatientDietSettingsUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/settings`
+}
+
+/**
+ * @summary Save per-diet settings (fasting window, Whole30 start date)
+ */
+export const updatePatientDietSettings = async (dietSettings: DietSettings, options?: Parameters<typeof customFetch>[1]): Promise<UpdatePatientDietSettings200> => {
+
+  return customFetch<UpdatePatientDietSettings200>(getUpdatePatientDietSettingsUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dietSettings)
+  }
+);}
+
+
+
+
+
+export const getUpdatePatientDietSettingsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietSettings>>, TError,{data: BodyType<DietSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietSettings>>, TError,{data: BodyType<DietSettings>}, TContext> => {
+
+const mutationKey = ['updatePatientDietSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePatientDietSettings>>, {data: BodyType<DietSettings>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updatePatientDietSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePatientDietSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updatePatientDietSettings>>>
+    export type UpdatePatientDietSettingsMutationBody = BodyType<DietSettings>
+    export type UpdatePatientDietSettingsMutationError = ErrorType<void>
+
+    /**
+ * @summary Save per-diet settings (fasting window, Whole30 start date)
+ */
+export const useUpdatePatientDietSettings = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietSettings>>, TError,{data: BodyType<DietSettings>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePatientDietSettings>>,
+        TError,
+        {data: BodyType<DietSettings>},
+        TContext
+      > => {
+      return useMutation(getUpdatePatientDietSettingsMutationOptions(options));
+    }
+
+export const getAnswerPatientDietScreeningUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/screening`
+}
+
+/**
+ * A yes to pregnancy while the current diet is pregnancy-blocked warns the patient and notifies the care team; the response names the suggested fertility / pregnancy plan.
+ * @summary Record screening answers outside a diet pick (pregnancy / breastfeeding is asked once, optionally)
+ */
+export const answerPatientDietScreening = async (answerPatientDietScreeningBody: AnswerPatientDietScreeningBody, options?: Parameters<typeof customFetch>[1]): Promise<DietScreeningResult> => {
+
+  return customFetch<DietScreeningResult>(getAnswerPatientDietScreeningUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(answerPatientDietScreeningBody)
+  }
+);}
+
+
+
+
+
+export const getAnswerPatientDietScreeningMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerPatientDietScreening>>, TError,{data: BodyType<AnswerPatientDietScreeningBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof answerPatientDietScreening>>, TError,{data: BodyType<AnswerPatientDietScreeningBody>}, TContext> => {
+
+const mutationKey = ['answerPatientDietScreening'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof answerPatientDietScreening>>, {data: BodyType<AnswerPatientDietScreeningBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  answerPatientDietScreening(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnswerPatientDietScreeningMutationResult = NonNullable<Awaited<ReturnType<typeof answerPatientDietScreening>>>
+    export type AnswerPatientDietScreeningMutationBody = BodyType<AnswerPatientDietScreeningBody>
+    export type AnswerPatientDietScreeningMutationError = ErrorType<void>
+
+    /**
+ * @summary Record screening answers outside a diet pick (pregnancy / breastfeeding is asked once, optionally)
+ */
+export const useAnswerPatientDietScreening = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerPatientDietScreening>>, TError,{data: BodyType<AnswerPatientDietScreeningBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof answerPatientDietScreening>>,
+        TError,
+        {data: BodyType<AnswerPatientDietScreeningBody>},
+        TContext
+      > => {
+      return useMutation(getAnswerPatientDietScreeningMutationOptions(options));
+    }
+
+export const getRecordPatientActivityLevelUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/activity`
+}
+
+/**
+ * @summary Record today's activity level (asked at diet selection and every weekly check-in)
+ */
+export const recordPatientActivityLevel = async (recordPatientActivityLevelBody: RecordPatientActivityLevelBody, options?: Parameters<typeof customFetch>[1]): Promise<RecordPatientActivityLevel200> => {
+
+  return customFetch<RecordPatientActivityLevel200>(getRecordPatientActivityLevelUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(recordPatientActivityLevelBody)
+  }
+);}
+
+
+
+
+
+export const getRecordPatientActivityLevelMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordPatientActivityLevel>>, TError,{data: BodyType<RecordPatientActivityLevelBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recordPatientActivityLevel>>, TError,{data: BodyType<RecordPatientActivityLevelBody>}, TContext> => {
+
+const mutationKey = ['recordPatientActivityLevel'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recordPatientActivityLevel>>, {data: BodyType<RecordPatientActivityLevelBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  recordPatientActivityLevel(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecordPatientActivityLevelMutationResult = NonNullable<Awaited<ReturnType<typeof recordPatientActivityLevel>>>
+    export type RecordPatientActivityLevelMutationBody = BodyType<RecordPatientActivityLevelBody>
+    export type RecordPatientActivityLevelMutationError = ErrorType<void>
+
+    /**
+ * @summary Record today's activity level (asked at diet selection and every weekly check-in)
+ */
+export const useRecordPatientActivityLevel = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recordPatientActivityLevel>>, TError,{data: BodyType<RecordPatientActivityLevelBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recordPatientActivityLevel>>,
+        TError,
+        {data: BodyType<RecordPatientActivityLevelBody>},
+        TContext
+      > => {
+      return useMutation(getRecordPatientActivityLevelMutationOptions(options));
+    }
+
+export const getListPatientDietPreferencesUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/preferences`
+}
+
+/**
+ * @summary Allergies, sensitivities, restrictions and dislikes
+ */
+export const listPatientDietPreferences = async ( options?: Parameters<typeof customFetch>[1]): Promise<DietPreferenceList> => {
+
+  return customFetch<DietPreferenceList>(getListPatientDietPreferencesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPatientDietPreferencesQueryKey = () => {
+    return [
+    `/api/patient-data/diet/preferences`
+    ] as const;
+    }
+
+
+export const getListPatientDietPreferencesQueryOptions = <TData = Awaited<ReturnType<typeof listPatientDietPreferences>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPatientDietPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPatientDietPreferencesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPatientDietPreferences>>> = ({ signal }) => listPatientDietPreferences({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPatientDietPreferences>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPatientDietPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof listPatientDietPreferences>>>
+export type ListPatientDietPreferencesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Allergies, sensitivities, restrictions and dislikes
+ */
+
+export function useListPatientDietPreferences<TData = Awaited<ReturnType<typeof listPatientDietPreferences>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPatientDietPreferences>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPatientDietPreferencesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddPatientDietPreferenceUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/preferences`
+}
+
+/**
+ * Catalog items go by key; free text becomes a custom item. Allergies need a mild / severe flag; severe allergies notify the care team.
+ * @summary Add an item to one of the four lists
+ */
+export const addPatientDietPreference = async (dietPreferenceInput: DietPreferenceInput, options?: Parameters<typeof customFetch>[1]): Promise<DietPreferenceItemEnvelope> => {
+
+  return customFetch<DietPreferenceItemEnvelope>(getAddPatientDietPreferenceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dietPreferenceInput)
+  }
+);}
+
+
+
+
+
+export const getAddPatientDietPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPatientDietPreference>>, TError,{data: BodyType<DietPreferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addPatientDietPreference>>, TError,{data: BodyType<DietPreferenceInput>}, TContext> => {
+
+const mutationKey = ['addPatientDietPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addPatientDietPreference>>, {data: BodyType<DietPreferenceInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  addPatientDietPreference(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddPatientDietPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof addPatientDietPreference>>>
+    export type AddPatientDietPreferenceMutationBody = BodyType<DietPreferenceInput>
+    export type AddPatientDietPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Add an item to one of the four lists
+ */
+export const useAddPatientDietPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPatientDietPreference>>, TError,{data: BodyType<DietPreferenceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addPatientDietPreference>>,
+        TError,
+        {data: BodyType<DietPreferenceInput>},
+        TContext
+      > => {
+      return useMutation(getAddPatientDietPreferenceMutationOptions(options));
+    }
+
+export const getUpdatePatientDietPreferenceUrl = (itemId: string,) => {
+
+
+
+
+  return `/api/patient-data/diet/preferences/${itemId}`
+}
+
+/**
+ * @summary Change an allergy's mild / severe flag
+ */
+export const updatePatientDietPreference = async (itemId: string,
+    updatePatientDietPreferenceBody: UpdatePatientDietPreferenceBody, options?: Parameters<typeof customFetch>[1]): Promise<DietPreferenceItemEnvelope> => {
+
+  return customFetch<DietPreferenceItemEnvelope>(getUpdatePatientDietPreferenceUrl(itemId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updatePatientDietPreferenceBody)
+  }
+);}
+
+
+
+
+
+export const getUpdatePatientDietPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietPreference>>, TError,{itemId: string;data: BodyType<UpdatePatientDietPreferenceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietPreference>>, TError,{itemId: string;data: BodyType<UpdatePatientDietPreferenceBody>}, TContext> => {
+
+const mutationKey = ['updatePatientDietPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePatientDietPreference>>, {itemId: string;data: BodyType<UpdatePatientDietPreferenceBody>}> = (props) => {
+          const {itemId,data} = props ?? {};
+
+          return  updatePatientDietPreference(itemId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePatientDietPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof updatePatientDietPreference>>>
+    export type UpdatePatientDietPreferenceMutationBody = BodyType<UpdatePatientDietPreferenceBody>
+    export type UpdatePatientDietPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Change an allergy's mild / severe flag
+ */
+export const useUpdatePatientDietPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePatientDietPreference>>, TError,{itemId: string;data: BodyType<UpdatePatientDietPreferenceBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePatientDietPreference>>,
+        TError,
+        {itemId: string;data: BodyType<UpdatePatientDietPreferenceBody>},
+        TContext
+      > => {
+      return useMutation(getUpdatePatientDietPreferenceMutationOptions(options));
+    }
+
+export const getRemovePatientDietPreferenceUrl = (itemId: string,) => {
+
+
+
+
+  return `/api/patient-data/diet/preferences/${itemId}`
+}
+
+/**
+ * @summary Remove an item (kept as history)
+ */
+export const removePatientDietPreference = async (itemId: string, options?: Parameters<typeof customFetch>[1]): Promise<OkResult> => {
+
+  return customFetch<OkResult>(getRemovePatientDietPreferenceUrl(itemId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemovePatientDietPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePatientDietPreference>>, TError,{itemId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removePatientDietPreference>>, TError,{itemId: string}, TContext> => {
+
+const mutationKey = ['removePatientDietPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removePatientDietPreference>>, {itemId: string}> = (props) => {
+          const {itemId} = props ?? {};
+
+          return  removePatientDietPreference(itemId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemovePatientDietPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof removePatientDietPreference>>>
+
+    export type RemovePatientDietPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove an item (kept as history)
+ */
+export const useRemovePatientDietPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removePatientDietPreference>>, TError,{itemId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removePatientDietPreference>>,
+        TError,
+        {itemId: string},
+        TContext
+      > => {
+      return useMutation(getRemovePatientDietPreferenceMutationOptions(options));
+    }
+
+export const getGetPatientDietTargetsUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/targets`
+}
+
+/**
+ * Mifflin-St Jeor BMR with the activity factor; protocol days follow the program, maintenance ramps calories in steps toward the maintenance level; patient overrides win. Diet choice has no effect.
+ * @summary Today's calculated and effective calorie / macro targets
+ */
+export const getPatientDietTargets = async ( options?: Parameters<typeof customFetch>[1]): Promise<PatientTargets> => {
+
+  return customFetch<PatientTargets>(getGetPatientDietTargetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientDietTargetsQueryKey = () => {
+    return [
+    `/api/patient-data/diet/targets`
+    ] as const;
+    }
+
+
+export const getGetPatientDietTargetsQueryOptions = <TData = Awaited<ReturnType<typeof getPatientDietTargets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietTargets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientDietTargetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientDietTargets>>> = ({ signal }) => getPatientDietTargets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientDietTargets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientDietTargetsQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientDietTargets>>>
+export type GetPatientDietTargetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Today's calculated and effective calorie / macro targets
+ */
+
+export function useGetPatientDietTargets<TData = Awaited<ReturnType<typeof getPatientDietTargets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietTargets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientDietTargetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getOverridePatientDietTargetsUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/targets`
+}
+
+/**
+ * @summary Override one or more targets (null clears an override)
+ */
+export const overridePatientDietTargets = async (targetOverrideInput: TargetOverrideInput, options?: Parameters<typeof customFetch>[1]): Promise<PatientTargets> => {
+
+  return customFetch<PatientTargets>(getOverridePatientDietTargetsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(targetOverrideInput)
+  }
+);}
+
+
+
+
+
+export const getOverridePatientDietTargetsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof overridePatientDietTargets>>, TError,{data: BodyType<TargetOverrideInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof overridePatientDietTargets>>, TError,{data: BodyType<TargetOverrideInput>}, TContext> => {
+
+const mutationKey = ['overridePatientDietTargets'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof overridePatientDietTargets>>, {data: BodyType<TargetOverrideInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  overridePatientDietTargets(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OverridePatientDietTargetsMutationResult = NonNullable<Awaited<ReturnType<typeof overridePatientDietTargets>>>
+    export type OverridePatientDietTargetsMutationBody = BodyType<TargetOverrideInput>
+    export type OverridePatientDietTargetsMutationError = ErrorType<void>
+
+    /**
+ * @summary Override one or more targets (null clears an override)
+ */
+export const useOverridePatientDietTargets = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof overridePatientDietTargets>>, TError,{data: BodyType<TargetOverrideInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof overridePatientDietTargets>>,
+        TError,
+        {data: BodyType<TargetOverrideInput>},
+        TContext
+      > => {
+      return useMutation(getOverridePatientDietTargetsMutationOptions(options));
+    }
+
+export const getGetOfficePatientDietUrl = (patientId: string,
+    params?: GetOfficePatientDietParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet?${stringifiedParams}` : `/api/office/patients/${patientId}/diet`
+}
+
+/**
+ * Office-scoped like the patient record (HQ names the office). Reading the page is recorded as a record access. The library is included so the staff picker shows every entry a patient could be put on.
+ * @summary A patient's diet state, pending safety block, lists, screening, targets and full history
+ */
+export const getOfficePatientDiet = async (patientId: string,
+    params?: GetOfficePatientDietParams, options?: Parameters<typeof customFetch>[1]): Promise<OfficePatientDiet> => {
+
+  return customFetch<OfficePatientDiet>(getGetOfficePatientDietUrl(patientId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOfficePatientDietQueryKey = (patientId: string,
+    params?: GetOfficePatientDietParams,) => {
+    return [
+    `/api/office/patients/${patientId}/diet`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOfficePatientDietQueryOptions = <TData = Awaited<ReturnType<typeof getOfficePatientDiet>>, TError = ErrorType<void>>(patientId: string,
+    params?: GetOfficePatientDietParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientDiet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOfficePatientDietQueryKey(patientId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOfficePatientDiet>>> = ({ signal }) => getOfficePatientDiet(patientId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: patientId !== null && patientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientDiet>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOfficePatientDietQueryResult = NonNullable<Awaited<ReturnType<typeof getOfficePatientDiet>>>
+export type GetOfficePatientDietQueryError = ErrorType<void>
+
+
+/**
+ * @summary A patient's diet state, pending safety block, lists, screening, targets and full history
+ */
+
+export function useGetOfficePatientDiet<TData = Awaited<ReturnType<typeof getOfficePatientDiet>>, TError = ErrorType<void>>(
+ patientId: string,
+    params?: GetOfficePatientDietParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOfficePatientDiet>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOfficePatientDietQueryOptions(patientId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSetOfficePatientDietUrl = (patientId: string,
+    params?: SetOfficePatientDietParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet?${stringifiedParams}` : `/api/office/patients/${patientId}/diet`
+}
+
+/**
+ * @summary Put a patient on a diet (same screening and lock rules as the patient; audited; care team notified)
+ */
+export const setOfficePatientDiet = async (patientId: string,
+    dietChoiceRequest: DietChoiceRequest,
+    params?: SetOfficePatientDietParams, options?: Parameters<typeof customFetch>[1]): Promise<DietChoiceActive | DietChoicePending> => {
+
+  return customFetch<DietChoiceActive | DietChoicePending>(getSetOfficePatientDietUrl(patientId,params),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dietChoiceRequest)
+  }
+);}
+
+
+
+
+
+export const getSetOfficePatientDietMutationOptions = <TError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setOfficePatientDiet>>, TError,{patientId: string;data: BodyType<DietChoiceRequest>;params?: SetOfficePatientDietParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setOfficePatientDiet>>, TError,{patientId: string;data: BodyType<DietChoiceRequest>;params?: SetOfficePatientDietParams}, TContext> => {
+
+const mutationKey = ['setOfficePatientDiet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setOfficePatientDiet>>, {patientId: string;data: BodyType<DietChoiceRequest>;params?: SetOfficePatientDietParams}> = (props) => {
+          const {patientId,data,params} = props ?? {};
+
+          return  setOfficePatientDiet(patientId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetOfficePatientDietMutationResult = NonNullable<Awaited<ReturnType<typeof setOfficePatientDiet>>>
+    export type SetOfficePatientDietMutationBody = BodyType<DietChoiceRequest>
+    export type SetOfficePatientDietMutationError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>
+
+    /**
+ * @summary Put a patient on a diet (same screening and lock rules as the patient; audited; care team notified)
+ */
+export const useSetOfficePatientDiet = <TError = ErrorType<void | DietChoiceConflict | DietScreeningRequired>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setOfficePatientDiet>>, TError,{patientId: string;data: BodyType<DietChoiceRequest>;params?: SetOfficePatientDietParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setOfficePatientDiet>>,
+        TError,
+        {patientId: string;data: BodyType<DietChoiceRequest>;params?: SetOfficePatientDietParams},
+        TContext
+      > => {
+      return useMutation(getSetOfficePatientDietMutationOptions(options));
+    }
+
+export const getClearOfficePatientDietUrl = (patientId: string,
+    params?: ClearOfficePatientDietParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet?${stringifiedParams}` : `/api/office/patients/${patientId}/diet`
+}
+
+/**
+ * @summary Take a patient off their diet (history kept; audited)
+ */
+export const clearOfficePatientDiet = async (patientId: string,
+    params?: ClearOfficePatientDietParams, options?: Parameters<typeof customFetch>[1]): Promise<DietCleared> => {
+
+  return customFetch<DietCleared>(getClearOfficePatientDietUrl(patientId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearOfficePatientDietMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearOfficePatientDiet>>, TError,{patientId: string;params?: ClearOfficePatientDietParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearOfficePatientDiet>>, TError,{patientId: string;params?: ClearOfficePatientDietParams}, TContext> => {
+
+const mutationKey = ['clearOfficePatientDiet'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearOfficePatientDiet>>, {patientId: string;params?: ClearOfficePatientDietParams}> = (props) => {
+          const {patientId,params} = props ?? {};
+
+          return  clearOfficePatientDiet(patientId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearOfficePatientDietMutationResult = NonNullable<Awaited<ReturnType<typeof clearOfficePatientDiet>>>
+
+    export type ClearOfficePatientDietMutationError = ErrorType<void>
+
+    /**
+ * @summary Take a patient off their diet (history kept; audited)
+ */
+export const useClearOfficePatientDiet = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearOfficePatientDiet>>, TError,{patientId: string;params?: ClearOfficePatientDietParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearOfficePatientDiet>>,
+        TError,
+        {patientId: string;params?: ClearOfficePatientDietParams},
+        TContext
+      > => {
+      return useMutation(getClearOfficePatientDietMutationOptions(options));
+    }
+
+export const getStartOfficeDietBlockOverrideUrl = (patientId: string,
+    blockId: string,
+    params?: StartOfficeDietBlockOverrideParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet/blocks/${blockId}/override?${stringifiedParams}` : `/api/office/patients/${patientId}/diet/blocks/${blockId}/override`
+}
+
+/**
+ * @summary Step one of the provider override — issues the "Are you sure?" challenge
+ */
+export const startOfficeDietBlockOverride = async (patientId: string,
+    blockId: string,
+    params?: StartOfficeDietBlockOverrideParams, options?: Parameters<typeof customFetch>[1]): Promise<DietOverrideChallenge> => {
+
+  return customFetch<DietOverrideChallenge>(getStartOfficeDietBlockOverrideUrl(patientId,blockId,params),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getStartOfficeDietBlockOverrideMutationOptions = <TError = ErrorType<void | DietChoiceConflict>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;params?: StartOfficeDietBlockOverrideParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;params?: StartOfficeDietBlockOverrideParams}, TContext> => {
+
+const mutationKey = ['startOfficeDietBlockOverride'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startOfficeDietBlockOverride>>, {patientId: string;blockId: string;params?: StartOfficeDietBlockOverrideParams}> = (props) => {
+          const {patientId,blockId,params} = props ?? {};
+
+          return  startOfficeDietBlockOverride(patientId,blockId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartOfficeDietBlockOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof startOfficeDietBlockOverride>>>
+
+    export type StartOfficeDietBlockOverrideMutationError = ErrorType<void | DietChoiceConflict>
+
+    /**
+ * @summary Step one of the provider override — issues the "Are you sure?" challenge
+ */
+export const useStartOfficeDietBlockOverride = <TError = ErrorType<void | DietChoiceConflict>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;params?: StartOfficeDietBlockOverrideParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startOfficeDietBlockOverride>>,
+        TError,
+        {patientId: string;blockId: string;params?: StartOfficeDietBlockOverrideParams},
+        TContext
+      > => {
+      return useMutation(getStartOfficeDietBlockOverrideMutationOptions(options));
+    }
+
+export const getConfirmOfficeDietBlockOverrideUrl = (patientId: string,
+    blockId: string,
+    params?: ConfirmOfficeDietBlockOverrideParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet/blocks/${blockId}/override/confirm?${stringifiedParams}` : `/api/office/patients/${patientId}/diet/blocks/${blockId}/override/confirm`
+}
+
+/**
+ * @summary Step two — confirm the challenge; the override is timestamped with who did it and the diet starts
+ */
+export const confirmOfficeDietBlockOverride = async (patientId: string,
+    blockId: string,
+    confirmOfficeDietBlockOverrideBody: ConfirmOfficeDietBlockOverrideBody,
+    params?: ConfirmOfficeDietBlockOverrideParams, options?: Parameters<typeof customFetch>[1]): Promise<DietOverrideResult> => {
+
+  return customFetch<DietOverrideResult>(getConfirmOfficeDietBlockOverrideUrl(patientId,blockId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(confirmOfficeDietBlockOverrideBody)
+  }
+);}
+
+
+
+
+
+export const getConfirmOfficeDietBlockOverrideMutationOptions = <TError = ErrorType<void | DietChoiceConflict>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;data: BodyType<ConfirmOfficeDietBlockOverrideBody>;params?: ConfirmOfficeDietBlockOverrideParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;data: BodyType<ConfirmOfficeDietBlockOverrideBody>;params?: ConfirmOfficeDietBlockOverrideParams}, TContext> => {
+
+const mutationKey = ['confirmOfficeDietBlockOverride'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>, {patientId: string;blockId: string;data: BodyType<ConfirmOfficeDietBlockOverrideBody>;params?: ConfirmOfficeDietBlockOverrideParams}> = (props) => {
+          const {patientId,blockId,data,params} = props ?? {};
+
+          return  confirmOfficeDietBlockOverride(patientId,blockId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmOfficeDietBlockOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>>
+    export type ConfirmOfficeDietBlockOverrideMutationBody = BodyType<ConfirmOfficeDietBlockOverrideBody>
+    export type ConfirmOfficeDietBlockOverrideMutationError = ErrorType<void | DietChoiceConflict>
+
+    /**
+ * @summary Step two — confirm the challenge; the override is timestamped with who did it and the diet starts
+ */
+export const useConfirmOfficeDietBlockOverride = <TError = ErrorType<void | DietChoiceConflict>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>, TError,{patientId: string;blockId: string;data: BodyType<ConfirmOfficeDietBlockOverrideBody>;params?: ConfirmOfficeDietBlockOverrideParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmOfficeDietBlockOverride>>,
+        TError,
+        {patientId: string;blockId: string;data: BodyType<ConfirmOfficeDietBlockOverrideBody>;params?: ConfirmOfficeDietBlockOverrideParams},
+        TContext
+      > => {
+      return useMutation(getConfirmOfficeDietBlockOverrideMutationOptions(options));
+    }
+
+export const getRejectOfficeDietBlockUrl = (patientId: string,
+    blockId: string,
+    params?: RejectOfficeDietBlockParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet/blocks/${blockId}/reject?${stringifiedParams}` : `/api/office/patients/${patientId}/diet/blocks/${blockId}/reject`
+}
+
+/**
+ * @summary Decline a blocked pick; the patient keeps their current plan
+ */
+export const rejectOfficeDietBlock = async (patientId: string,
+    blockId: string,
+    rejectOfficeDietBlockBody?: RejectOfficeDietBlockBody,
+    params?: RejectOfficeDietBlockParams, options?: Parameters<typeof customFetch>[1]): Promise<RejectOfficeDietBlock200> => {
+
+  return customFetch<RejectOfficeDietBlock200>(getRejectOfficeDietBlockUrl(patientId,blockId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(rejectOfficeDietBlockBody)
+  }
+);}
+
+
+
+
+
+export const getRejectOfficeDietBlockMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOfficeDietBlock>>, TError,{patientId: string;blockId: string;data?: BodyType<RejectOfficeDietBlockBody>;params?: RejectOfficeDietBlockParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof rejectOfficeDietBlock>>, TError,{patientId: string;blockId: string;data?: BodyType<RejectOfficeDietBlockBody>;params?: RejectOfficeDietBlockParams}, TContext> => {
+
+const mutationKey = ['rejectOfficeDietBlock'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rejectOfficeDietBlock>>, {patientId: string;blockId: string;data?: BodyType<RejectOfficeDietBlockBody>;params?: RejectOfficeDietBlockParams}> = (props) => {
+          const {patientId,blockId,data,params} = props ?? {};
+
+          return  rejectOfficeDietBlock(patientId,blockId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RejectOfficeDietBlockMutationResult = NonNullable<Awaited<ReturnType<typeof rejectOfficeDietBlock>>>
+    export type RejectOfficeDietBlockMutationBody = BodyType<RejectOfficeDietBlockBody> | undefined
+    export type RejectOfficeDietBlockMutationError = ErrorType<void>
+
+    /**
+ * @summary Decline a blocked pick; the patient keeps their current plan
+ */
+export const useRejectOfficeDietBlock = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rejectOfficeDietBlock>>, TError,{patientId: string;blockId: string;data?: BodyType<RejectOfficeDietBlockBody>;params?: RejectOfficeDietBlockParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof rejectOfficeDietBlock>>,
+        TError,
+        {patientId: string;blockId: string;data?: BodyType<RejectOfficeDietBlockBody>;params?: RejectOfficeDietBlockParams},
+        TContext
+      > => {
+      return useMutation(getRejectOfficeDietBlockMutationOptions(options));
+    }
+
+export const getRestartOfficePatientProtocolUrl = (patientId: string,
+    params?: RestartOfficePatientProtocolParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/protocol/restart?${stringifiedParams}` : `/api/office/patients/${patientId}/protocol/restart`
+}
+
+/**
+ * @summary Put the patient back on the 42-day protocol from day one (new episode; every prior record kept)
+ */
+export const restartOfficePatientProtocol = async (patientId: string,
+    restartOfficePatientProtocolBody?: RestartOfficePatientProtocolBody,
+    params?: RestartOfficePatientProtocolParams, options?: Parameters<typeof customFetch>[1]): Promise<ProtocolRestartResult> => {
+
+  return customFetch<ProtocolRestartResult>(getRestartOfficePatientProtocolUrl(patientId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(restartOfficePatientProtocolBody)
+  }
+);}
+
+
+
+
+
+export const getRestartOfficePatientProtocolMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartOfficePatientProtocol>>, TError,{patientId: string;data?: BodyType<RestartOfficePatientProtocolBody>;params?: RestartOfficePatientProtocolParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restartOfficePatientProtocol>>, TError,{patientId: string;data?: BodyType<RestartOfficePatientProtocolBody>;params?: RestartOfficePatientProtocolParams}, TContext> => {
+
+const mutationKey = ['restartOfficePatientProtocol'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restartOfficePatientProtocol>>, {patientId: string;data?: BodyType<RestartOfficePatientProtocolBody>;params?: RestartOfficePatientProtocolParams}> = (props) => {
+          const {patientId,data,params} = props ?? {};
+
+          return  restartOfficePatientProtocol(patientId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestartOfficePatientProtocolMutationResult = NonNullable<Awaited<ReturnType<typeof restartOfficePatientProtocol>>>
+    export type RestartOfficePatientProtocolMutationBody = BodyType<RestartOfficePatientProtocolBody> | undefined
+    export type RestartOfficePatientProtocolMutationError = ErrorType<void>
+
+    /**
+ * @summary Put the patient back on the 42-day protocol from day one (new episode; every prior record kept)
+ */
+export const useRestartOfficePatientProtocol = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartOfficePatientProtocol>>, TError,{patientId: string;data?: BodyType<RestartOfficePatientProtocolBody>;params?: RestartOfficePatientProtocolParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restartOfficePatientProtocol>>,
+        TError,
+        {patientId: string;data?: BodyType<RestartOfficePatientProtocolBody>;params?: RestartOfficePatientProtocolParams},
+        TContext
+      > => {
+      return useMutation(getRestartOfficePatientProtocolMutationOptions(options));
+    }
+
+export const getAddOfficePatientDietPreferenceUrl = (patientId: string,
+    params?: AddOfficePatientDietPreferenceParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet/preferences?${stringifiedParams}` : `/api/office/patients/${patientId}/diet/preferences`
+}
+
+/**
+ * @summary Add a list item on the patient's behalf (audited, attributed to the staff member)
+ */
+export const addOfficePatientDietPreference = async (patientId: string,
+    dietPreferenceInput: DietPreferenceInput,
+    params?: AddOfficePatientDietPreferenceParams, options?: Parameters<typeof customFetch>[1]): Promise<DietPreferenceItemEnvelope> => {
+
+  return customFetch<DietPreferenceItemEnvelope>(getAddOfficePatientDietPreferenceUrl(patientId,params),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dietPreferenceInput)
+  }
+);}
+
+
+
+
+
+export const getAddOfficePatientDietPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientDietPreference>>, TError,{patientId: string;data: BodyType<DietPreferenceInput>;params?: AddOfficePatientDietPreferenceParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientDietPreference>>, TError,{patientId: string;data: BodyType<DietPreferenceInput>;params?: AddOfficePatientDietPreferenceParams}, TContext> => {
+
+const mutationKey = ['addOfficePatientDietPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addOfficePatientDietPreference>>, {patientId: string;data: BodyType<DietPreferenceInput>;params?: AddOfficePatientDietPreferenceParams}> = (props) => {
+          const {patientId,data,params} = props ?? {};
+
+          return  addOfficePatientDietPreference(patientId,data,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddOfficePatientDietPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof addOfficePatientDietPreference>>>
+    export type AddOfficePatientDietPreferenceMutationBody = BodyType<DietPreferenceInput>
+    export type AddOfficePatientDietPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a list item on the patient's behalf (audited, attributed to the staff member)
+ */
+export const useAddOfficePatientDietPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addOfficePatientDietPreference>>, TError,{patientId: string;data: BodyType<DietPreferenceInput>;params?: AddOfficePatientDietPreferenceParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addOfficePatientDietPreference>>,
+        TError,
+        {patientId: string;data: BodyType<DietPreferenceInput>;params?: AddOfficePatientDietPreferenceParams},
+        TContext
+      > => {
+      return useMutation(getAddOfficePatientDietPreferenceMutationOptions(options));
+    }
+
+export const getRemoveOfficePatientDietPreferenceUrl = (patientId: string,
+    itemId: string,
+    params?: RemoveOfficePatientDietPreferenceParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/office/patients/${patientId}/diet/preferences/${itemId}?${stringifiedParams}` : `/api/office/patients/${patientId}/diet/preferences/${itemId}`
+}
+
+/**
+ * @summary Remove a list item on the patient's behalf (audited)
+ */
+export const removeOfficePatientDietPreference = async (patientId: string,
+    itemId: string,
+    params?: RemoveOfficePatientDietPreferenceParams, options?: Parameters<typeof customFetch>[1]): Promise<OkResult> => {
+
+  return customFetch<OkResult>(getRemoveOfficePatientDietPreferenceUrl(patientId,itemId,params),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveOfficePatientDietPreferenceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientDietPreference>>, TError,{patientId: string;itemId: string;params?: RemoveOfficePatientDietPreferenceParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientDietPreference>>, TError,{patientId: string;itemId: string;params?: RemoveOfficePatientDietPreferenceParams}, TContext> => {
+
+const mutationKey = ['removeOfficePatientDietPreference'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeOfficePatientDietPreference>>, {patientId: string;itemId: string;params?: RemoveOfficePatientDietPreferenceParams}> = (props) => {
+          const {patientId,itemId,params} = props ?? {};
+
+          return  removeOfficePatientDietPreference(patientId,itemId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveOfficePatientDietPreferenceMutationResult = NonNullable<Awaited<ReturnType<typeof removeOfficePatientDietPreference>>>
+
+    export type RemoveOfficePatientDietPreferenceMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove a list item on the patient's behalf (audited)
+ */
+export const useRemoveOfficePatientDietPreference = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeOfficePatientDietPreference>>, TError,{patientId: string;itemId: string;params?: RemoveOfficePatientDietPreferenceParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeOfficePatientDietPreference>>,
+        TError,
+        {patientId: string;itemId: string;params?: RemoveOfficePatientDietPreferenceParams},
+        TContext
+      > => {
+      return useMutation(getRemoveOfficePatientDietPreferenceMutationOptions(options));
+    }
+
+export const getListHqDietLibraryUrl = () => {
+
+
+
+
+  return `/api/hq/diet-library`
+}
+
+/**
+ * Content permission. Only published entries reach patients; publishing is the launch switch after owner sign-off and counsel review.
+ * @summary Every diet library entry in every review status, plus the disclaimer and oversight note text
+ */
+export const listHqDietLibrary = async ( options?: Parameters<typeof customFetch>[1]): Promise<HqDietLibrary> => {
+
+  return customFetch<HqDietLibrary>(getListHqDietLibraryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListHqDietLibraryQueryKey = () => {
+    return [
+    `/api/hq/diet-library`
+    ] as const;
+    }
+
+
+export const getListHqDietLibraryQueryOptions = <TData = Awaited<ReturnType<typeof listHqDietLibrary>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHqDietLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListHqDietLibraryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listHqDietLibrary>>> = ({ signal }) => listHqDietLibrary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listHqDietLibrary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListHqDietLibraryQueryResult = NonNullable<Awaited<ReturnType<typeof listHqDietLibrary>>>
+export type ListHqDietLibraryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Every diet library entry in every review status, plus the disclaimer and oversight note text
+ */
+
+export function useListHqDietLibrary<TData = Awaited<ReturnType<typeof listHqDietLibrary>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listHqDietLibrary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListHqDietLibraryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetHqDietLibraryEntryUrl = (slug: string,) => {
+
+
+
+
+  return `/api/hq/diet-library/${slug}`
+}
+
+/**
+ * @summary One entry with its version history
+ */
+export const getHqDietLibraryEntry = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<HqDietLibraryEntryDetail> => {
+
+  return customFetch<HqDietLibraryEntryDetail>(getGetHqDietLibraryEntryUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetHqDietLibraryEntryQueryKey = (slug: string,) => {
+    return [
+    `/api/hq/diet-library/${slug}`
+    ] as const;
+    }
+
+
+export const getGetHqDietLibraryEntryQueryOptions = <TData = Awaited<ReturnType<typeof getHqDietLibraryEntry>>, TError = ErrorType<void>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqDietLibraryEntry>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetHqDietLibraryEntryQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getHqDietLibraryEntry>>> = ({ signal }) => getHqDietLibraryEntry(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getHqDietLibraryEntry>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetHqDietLibraryEntryQueryResult = NonNullable<Awaited<ReturnType<typeof getHqDietLibraryEntry>>>
+export type GetHqDietLibraryEntryQueryError = ErrorType<void>
+
+
+/**
+ * @summary One entry with its version history
+ */
+
+export function useGetHqDietLibraryEntry<TData = Awaited<ReturnType<typeof getHqDietLibraryEntry>>, TError = ErrorType<void>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getHqDietLibraryEntry>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetHqDietLibraryEntryQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateHqDietLibraryEntryUrl = (slug: string,) => {
+
+
+
+
+  return `/api/hq/diet-library/${slug}`
+}
+
+/**
+ * @summary Edit an entry (versioned; a published entry returns to draft until re-reviewed)
+ */
+export const updateHqDietLibraryEntry = async (slug: string,
+    hqDietLibraryEntryPatch: HqDietLibraryEntryPatch, options?: Parameters<typeof customFetch>[1]): Promise<HqDietLibraryEntryUpdate> => {
+
+  return customFetch<HqDietLibraryEntryUpdate>(getUpdateHqDietLibraryEntryUrl(slug),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(hqDietLibraryEntryPatch)
+  }
+);}
+
+
+
+
+
+export const getUpdateHqDietLibraryEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<HqDietLibraryEntryPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<HqDietLibraryEntryPatch>}, TContext> => {
+
+const mutationKey = ['updateHqDietLibraryEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateHqDietLibraryEntry>>, {slug: string;data: BodyType<HqDietLibraryEntryPatch>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  updateHqDietLibraryEntry(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateHqDietLibraryEntryMutationResult = NonNullable<Awaited<ReturnType<typeof updateHqDietLibraryEntry>>>
+    export type UpdateHqDietLibraryEntryMutationBody = BodyType<HqDietLibraryEntryPatch>
+    export type UpdateHqDietLibraryEntryMutationError = ErrorType<void>
+
+    /**
+ * @summary Edit an entry (versioned; a published entry returns to draft until re-reviewed)
+ */
+export const useUpdateHqDietLibraryEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<HqDietLibraryEntryPatch>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateHqDietLibraryEntry>>,
+        TError,
+        {slug: string;data: BodyType<HqDietLibraryEntryPatch>},
+        TContext
+      > => {
+      return useMutation(getUpdateHqDietLibraryEntryMutationOptions(options));
+    }
+
+export const getReviewHqDietLibraryEntryUrl = (slug: string,) => {
+
+
+
+
+  return `/api/hq/diet-library/${slug}/review`
+}
+
+/**
+ * Publishing requires the entry to be reviewed first. Every transition is audited.
+ * @summary Move an entry between draft, reviewed, published and retired
+ */
+export const reviewHqDietLibraryEntry = async (slug: string,
+    reviewHqDietLibraryEntryBody: ReviewHqDietLibraryEntryBody, options?: Parameters<typeof customFetch>[1]): Promise<ReviewHqDietLibraryEntry200> => {
+
+  return customFetch<ReviewHqDietLibraryEntry200>(getReviewHqDietLibraryEntryUrl(slug),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(reviewHqDietLibraryEntryBody)
+  }
+);}
+
+
+
+
+
+export const getReviewHqDietLibraryEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<ReviewHqDietLibraryEntryBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<ReviewHqDietLibraryEntryBody>}, TContext> => {
+
+const mutationKey = ['reviewHqDietLibraryEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>, {slug: string;data: BodyType<ReviewHqDietLibraryEntryBody>}> = (props) => {
+          const {slug,data} = props ?? {};
+
+          return  reviewHqDietLibraryEntry(slug,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReviewHqDietLibraryEntryMutationResult = NonNullable<Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>>
+    export type ReviewHqDietLibraryEntryMutationBody = BodyType<ReviewHqDietLibraryEntryBody>
+    export type ReviewHqDietLibraryEntryMutationError = ErrorType<void>
+
+    /**
+ * @summary Move an entry between draft, reviewed, published and retired
+ */
+export const useReviewHqDietLibraryEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>, TError,{slug: string;data: BodyType<ReviewHqDietLibraryEntryBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reviewHqDietLibraryEntry>>,
+        TError,
+        {slug: string;data: BodyType<ReviewHqDietLibraryEntryBody>},
+        TContext
+      > => {
+      return useMutation(getReviewHqDietLibraryEntryMutationOptions(options));
+    }
+
+export const getUpdateHqDietLibrarySettingsUrl = () => {
+
+
+
+
+  return `/api/hq/diet-library-settings`
+}
+
+/**
+ * @summary Edit the disclaimer and the "consider talking to your care team" note
+ */
+export const updateHqDietLibrarySettings = async (updateHqDietLibrarySettingsBody: UpdateHqDietLibrarySettingsBody, options?: Parameters<typeof customFetch>[1]): Promise<UpdateHqDietLibrarySettings200> => {
+
+  return customFetch<UpdateHqDietLibrarySettings200>(getUpdateHqDietLibrarySettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateHqDietLibrarySettingsBody)
+  }
+);}
+
+
+
+
+
+export const getUpdateHqDietLibrarySettingsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibrarySettings>>, TError,{data: BodyType<UpdateHqDietLibrarySettingsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibrarySettings>>, TError,{data: BodyType<UpdateHqDietLibrarySettingsBody>}, TContext> => {
+
+const mutationKey = ['updateHqDietLibrarySettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateHqDietLibrarySettings>>, {data: BodyType<UpdateHqDietLibrarySettingsBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateHqDietLibrarySettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateHqDietLibrarySettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateHqDietLibrarySettings>>>
+    export type UpdateHqDietLibrarySettingsMutationBody = BodyType<UpdateHqDietLibrarySettingsBody>
+    export type UpdateHqDietLibrarySettingsMutationError = ErrorType<void>
+
+    /**
+ * @summary Edit the disclaimer and the "consider talking to your care team" note
+ */
+export const useUpdateHqDietLibrarySettings = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateHqDietLibrarySettings>>, TError,{data: BodyType<UpdateHqDietLibrarySettingsBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateHqDietLibrarySettings>>,
+        TError,
+        {data: BodyType<UpdateHqDietLibrarySettingsBody>},
+        TContext
+      > => {
+      return useMutation(getUpdateHqDietLibrarySettingsMutationOptions(options));
     }
 
 export const getListBloodworkReportsUrl = (patientId: string,

@@ -1508,7 +1508,6 @@ router.get("/patient-data/state", async (req, res) => {
         todayKey: today,
         programDay: programDayFor(
           {
-            name: canonicalProfile.name,
             program_start_date:
               typeof profile.program_start_date === "string" ? profile.program_start_date : null,
             created_at: typeof profile.created_at === "string" ? profile.created_at : null,

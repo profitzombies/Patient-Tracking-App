@@ -1475,7 +1475,7 @@ export const listOfficePatientEditHistoryQueryOffsetMin = 0;
 
 export const ListOfficePatientEditHistoryQueryParams = zod.object({
   "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped'),
-  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note']).optional(),
+  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note', 'diet']).optional(),
   "limit": zod.coerce.number().min(1).max(listOfficePatientEditHistoryQueryLimitMax).default(listOfficePatientEditHistoryQueryLimitDefault),
   "offset": zod.coerce.number().min(listOfficePatientEditHistoryQueryOffsetMin).default(listOfficePatientEditHistoryQueryOffsetDefault)
 })
@@ -1483,7 +1483,7 @@ export const ListOfficePatientEditHistoryQueryParams = zod.object({
 export const ListOfficePatientEditHistoryResponse = zod.object({
   "changes": zod.array(zod.object({
   "changeId": zod.string(),
-  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note']),
+  "family": zod.enum(['profile', 'status', 'weight', 'measurement', 'medication', 'note', 'diet']),
   "recordId": zod.string(),
   "changeKind": zod.enum(['create', 'update', 'delete']),
   "actorKind": zod.enum(['provider', 'team_member', 'hq', 'patient', 'system']),
@@ -6977,6 +6977,1274 @@ export const LiftHqLegalHoldResponse = zod.object({
   "liftReason": zod.string().nullable(),
   "active": zod.boolean()
 }).describe('One legal hold. targetLabel is a display name resolved for HQ (office name, or the patient\'s name for HQ readers); the reason is HQ-typed free text.')
+})
+
+
+/**
+ * @summary Published eating plans a patient may choose, plus the disclaimer
+ */
+export const GetPatientDietLibraryResponse = zod.object({
+  "disclaimer": zod.string(),
+  "entries": zod.array(zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}))
+})
+
+
+/**
+ * @summary The patient's phase, current diet, pending review, lists, screening answers and activity level
+ */
+export const GetPatientDietResponse = zod.object({
+  "dateKey": zod.coerce.date(),
+  "programId": zod.string(),
+  "phase": zod.object({
+  "programDay": zod.number(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "phaseName": zod.string(),
+  "maintenanceDay": zod.number(),
+  "dietPickerLocked": zod.boolean(),
+  "episodeId": zod.string().nullable(),
+  "episodeNumber": zod.number().nullable(),
+  "episodeStartedOn": zod.coerce.date().nullable()
+}),
+  "currentDiet": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "effectiveDietSlug": zod.string().nullable().describe('The diet in force; null while the protocol locks the picker'),
+  "pendingSelection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "pendingBlock": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}).nullable(),
+  "suggestedDefaultSlug": zod.string().nullable(),
+  "screening": zod.object({
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "pregnancyConflict": zod.boolean()
+}),
+  "preferences": zod.array(zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "activityLevel": zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+}).nullable()
+})
+
+
+/**
+ * 200 when the diet is in force, 202 when the pick is parked for the care team (a yes to pregnancy on a blocked diet, or a yes to a screening question), 409 DIET_LOCKED while the THINNR protocol runs, 422 SCREENING_REQUIRED when a question the diet asks is unanswered. Diet choice never changes calorie or macro targets.
+ * @summary Choose a diet, answering its safety questions
+ */
+export const ChoosePatientDietBody = zod.object({
+  "dietSlug": zod.string(),
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).optional().describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}).optional(),
+  "activityLevel": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']).nullish()
+})
+
+export const ChoosePatientDietResponse = zod.object({
+  "status": zod.enum(['active']),
+  "selection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}),
+  "previousDietSlug": zod.string().nullable(),
+  "oversightRecommended": zod.boolean()
+})
+
+
+/**
+ * @summary Go back to no diet (history is kept)
+ */
+export const ClearPatientDietResponse = zod.object({
+  "ok": zod.literal(true),
+  "previousDietSlug": zod.string().nullable()
+})
+
+
+/**
+ * @summary Save per-diet settings (fasting window, Whole30 start date)
+ */
+export const UpdatePatientDietSettingsBody = zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+})
+
+export const UpdatePatientDietSettingsResponse = zod.object({
+  "selection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+})
+})
+
+
+/**
+ * A yes to pregnancy while the current diet is pregnancy-blocked warns the patient and notifies the care team; the response names the suggested fertility / pregnancy plan.
+ * @summary Record screening answers outside a diet pick (pregnancy / breastfeeding is asked once, optionally)
+ */
+export const AnswerPatientDietScreeningBody = zod.object({
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.')
+})
+
+export const AnswerPatientDietScreeningResponse = zod.object({
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "pregnancyConflict": zod.boolean(),
+  "suggestedSlug": zod.string().nullable()
+})
+
+
+/**
+ * @summary Record today's activity level (asked at diet selection and every weekly check-in)
+ */
+export const RecordPatientActivityLevelBody = zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.enum(['settings', 'check_in']).optional().describe('Where the answer came from; defaults to settings')
+})
+
+export const RecordPatientActivityLevelResponse = zod.object({
+  "activityLevel": zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Allergies, sensitivities, restrictions and dislikes
+ */
+export const ListPatientDietPreferencesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * Catalog items go by key; free text becomes a custom item. Allergies need a mild / severe flag; severe allergies notify the care team.
+ * @summary Add an item to one of the four lists
+ */
+export const addPatientDietPreferenceBodyLabelMax = 80;
+
+
+
+export const AddPatientDietPreferenceBody = zod.object({
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string().optional().describe('Catalog item key; omit for a custom item'),
+  "label": zod.string().max(addPatientDietPreferenceBodyLabelMax).optional().describe('Free text for a custom item'),
+  "severity": zod.enum(['mild', 'severe']).optional()
+})
+
+export const AddPatientDietPreferenceResponse = zod.object({
+  "item": zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Change an allergy's mild / severe flag
+ */
+export const UpdatePatientDietPreferenceParams = zod.object({
+  "itemId": zod.coerce.string()
+})
+
+export const UpdatePatientDietPreferenceBody = zod.object({
+  "severity": zod.enum(['mild', 'severe'])
+})
+
+export const UpdatePatientDietPreferenceResponse = zod.object({
+  "item": zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Remove an item (kept as history)
+ */
+export const RemovePatientDietPreferenceParams = zod.object({
+  "itemId": zod.coerce.string()
+})
+
+export const RemovePatientDietPreferenceResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+/**
+ * Mifflin-St Jeor BMR with the activity factor; protocol days follow the program, maintenance ramps calories in steps toward the maintenance level; patient overrides win. Diet choice has no effect.
+ * @summary Today's calculated and effective calorie / macro targets
+ */
+export const GetPatientDietTargetsResponse = zod.object({
+  "dateKey": zod.coerce.date(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "programDay": zod.number(),
+  "maintenanceDay": zod.number(),
+  "calculated": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "effective": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "overrides": zod.object({
+  "calories": zod.number().nullable(),
+  "protein": zod.number().nullable(),
+  "carbs": zod.number().nullable(),
+  "fat": zod.number().nullable(),
+  "waterOz": zod.number().nullable()
+}),
+  "overridden": zod.array(zod.enum(['calories', 'protein', 'carbs', 'fat', 'waterOz'])),
+  "bmr": zod.number().nullable(),
+  "maintenanceCalories": zod.number().nullable(),
+  "goalDirection": zod.enum(['lose', 'hold', 'gain']),
+  "rampStep": zod.number(),
+  "ramping": zod.boolean(),
+  "missing": zod.array(zod.enum(['gender', 'age', 'height', 'weight', 'activityLevel'])),
+  "activityLevel": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']).nullable()
+})
+
+
+/**
+ * @summary Override one or more targets (null clears an override)
+ */
+export const overridePatientDietTargetsBodyCaloriesMin = 0;
+export const overridePatientDietTargetsBodyCaloriesMax = 20000;
+
+export const overridePatientDietTargetsBodyProteinMin = 0;
+export const overridePatientDietTargetsBodyProteinMax = 2000;
+
+export const overridePatientDietTargetsBodyCarbsMin = 0;
+export const overridePatientDietTargetsBodyCarbsMax = 2000;
+
+export const overridePatientDietTargetsBodyFatMin = 0;
+export const overridePatientDietTargetsBodyFatMax = 2000;
+
+export const overridePatientDietTargetsBodyWaterOzMin = 0;
+export const overridePatientDietTargetsBodyWaterOzMax = 200;
+
+
+
+export const OverridePatientDietTargetsBody = zod.object({
+  "calories": zod.number().min(overridePatientDietTargetsBodyCaloriesMin).max(overridePatientDietTargetsBodyCaloriesMax).nullish(),
+  "protein": zod.number().min(overridePatientDietTargetsBodyProteinMin).max(overridePatientDietTargetsBodyProteinMax).nullish(),
+  "carbs": zod.number().min(overridePatientDietTargetsBodyCarbsMin).max(overridePatientDietTargetsBodyCarbsMax).nullish(),
+  "fat": zod.number().min(overridePatientDietTargetsBodyFatMin).max(overridePatientDietTargetsBodyFatMax).nullish(),
+  "waterOz": zod.number().min(overridePatientDietTargetsBodyWaterOzMin).max(overridePatientDietTargetsBodyWaterOzMax).nullish()
+}).describe('Any subset; null clears that override.')
+
+export const OverridePatientDietTargetsResponse = zod.object({
+  "dateKey": zod.coerce.date(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "programDay": zod.number(),
+  "maintenanceDay": zod.number(),
+  "calculated": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "effective": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "overrides": zod.object({
+  "calories": zod.number().nullable(),
+  "protein": zod.number().nullable(),
+  "carbs": zod.number().nullable(),
+  "fat": zod.number().nullable(),
+  "waterOz": zod.number().nullable()
+}),
+  "overridden": zod.array(zod.enum(['calories', 'protein', 'carbs', 'fat', 'waterOz'])),
+  "bmr": zod.number().nullable(),
+  "maintenanceCalories": zod.number().nullable(),
+  "goalDirection": zod.enum(['lose', 'hold', 'gain']),
+  "rampStep": zod.number(),
+  "ramping": zod.boolean(),
+  "missing": zod.array(zod.enum(['gender', 'age', 'height', 'weight', 'activityLevel'])),
+  "activityLevel": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']).nullable()
+})
+
+
+/**
+ * Office-scoped like the patient record (HQ names the office). Reading the page is recorded as a record access. The library is included so the staff picker shows every entry a patient could be put on.
+ * @summary A patient's diet state, pending safety block, lists, screening, targets and full history
+ */
+export const GetOfficePatientDietParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const GetOfficePatientDietQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const GetOfficePatientDietResponse = zod.object({
+  "dateKey": zod.coerce.date(),
+  "programId": zod.string(),
+  "phase": zod.object({
+  "programDay": zod.number(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "phaseName": zod.string(),
+  "maintenanceDay": zod.number(),
+  "dietPickerLocked": zod.boolean(),
+  "episodeId": zod.string().nullable(),
+  "episodeNumber": zod.number().nullable(),
+  "episodeStartedOn": zod.coerce.date().nullable()
+}),
+  "currentDiet": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "effectiveDietSlug": zod.string().nullable().describe('The diet in force; null while the protocol locks the picker'),
+  "pendingSelection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "pendingBlock": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}).nullable(),
+  "suggestedDefaultSlug": zod.string().nullable(),
+  "screening": zod.object({
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "pregnancyConflict": zod.boolean()
+}),
+  "preferences": zod.array(zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "activityLevel": zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+}).nullable()
+}).and(zod.object({
+  "targets": zod.object({
+  "dateKey": zod.coerce.date(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "programDay": zod.number(),
+  "maintenanceDay": zod.number(),
+  "calculated": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "effective": zod.object({
+  "calories": zod.number(),
+  "protein": zod.number(),
+  "carbs": zod.number(),
+  "fat": zod.number(),
+  "waterOz": zod.number()
+}),
+  "overrides": zod.object({
+  "calories": zod.number().nullable(),
+  "protein": zod.number().nullable(),
+  "carbs": zod.number().nullable(),
+  "fat": zod.number().nullable(),
+  "waterOz": zod.number().nullable()
+}),
+  "overridden": zod.array(zod.enum(['calories', 'protein', 'carbs', 'fat', 'waterOz'])),
+  "bmr": zod.number().nullable(),
+  "maintenanceCalories": zod.number().nullable(),
+  "goalDirection": zod.enum(['lose', 'hold', 'gain']),
+  "rampStep": zod.number(),
+  "ramping": zod.boolean(),
+  "missing": zod.array(zod.enum(['gender', 'age', 'height', 'weight', 'activityLevel'])),
+  "activityLevel": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']).nullable()
+}),
+  "history": zod.object({
+  "selections": zod.array(zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+})),
+  "blocks": zod.array(zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "episodes": zod.array(zod.object({
+  "id": zod.string(),
+  "episodeNumber": zod.number(),
+  "startedOn": zod.coerce.date(),
+  "endedOn": zod.coerce.date().nullable(),
+  "reason": zod.string(),
+  "startedByRole": zod.enum(['patient', 'staff', 'system']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "activity": zod.array(zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+})),
+  "targetSnapshots": zod.array(zod.record(zod.string(), zod.unknown()))
+}),
+  "library": zod.array(zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}).and(zod.object({
+  "id": zod.string(),
+  "oversightRecommended": zod.boolean(),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']),
+  "sources": zod.array(zod.string()),
+  "reviewStatus": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable(),
+  "version": zod.number(),
+  "updatedBy": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})))
+}))
+
+
+/**
+ * @summary Put a patient on a diet (same screening and lock rules as the patient; audited; care team notified)
+ */
+export const SetOfficePatientDietParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const SetOfficePatientDietQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const SetOfficePatientDietBody = zod.object({
+  "dietSlug": zod.string(),
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).optional().describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}).optional(),
+  "activityLevel": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']).nullish()
+})
+
+export const SetOfficePatientDietResponse = zod.object({
+  "status": zod.enum(['active']),
+  "selection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}),
+  "previousDietSlug": zod.string().nullable(),
+  "oversightRecommended": zod.boolean()
+})
+
+
+/**
+ * @summary Take a patient off their diet (history kept; audited)
+ */
+export const ClearOfficePatientDietParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const ClearOfficePatientDietQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const ClearOfficePatientDietResponse = zod.object({
+  "ok": zod.literal(true),
+  "previousDietSlug": zod.string().nullable()
+})
+
+
+/**
+ * @summary Step one of the provider override — issues the "Are you sure?" challenge
+ */
+export const StartOfficeDietBlockOverrideParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "blockId": zod.coerce.string()
+})
+
+export const StartOfficeDietBlockOverrideQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const StartOfficeDietBlockOverrideResponse = zod.object({
+  "challenge": zod.string().describe('Opaque token the confirm call must echo'),
+  "confirmText": zod.string().describe('The second confirmation prompt (\"Are you sure you want to do this?\")'),
+  "expiresAt": zod.coerce.date(),
+  "block": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Step two — confirm the challenge; the override is timestamped with who did it and the diet starts
+ */
+export const ConfirmOfficeDietBlockOverrideParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "blockId": zod.coerce.string()
+})
+
+export const ConfirmOfficeDietBlockOverrideQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const confirmOfficeDietBlockOverrideBodyNoteMax = 500;
+
+
+
+export const ConfirmOfficeDietBlockOverrideBody = zod.object({
+  "challenge": zod.string(),
+  "note": zod.string().max(confirmOfficeDietBlockOverrideBodyNoteMax).optional()
+})
+
+export const ConfirmOfficeDietBlockOverrideResponse = zod.object({
+  "status": zod.enum(['active']),
+  "block": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),
+  "selection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}),
+  "previousDietSlug": zod.string().nullable()
+})
+
+
+/**
+ * @summary Decline a blocked pick; the patient keeps their current plan
+ */
+export const RejectOfficeDietBlockParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "blockId": zod.coerce.string()
+})
+
+export const RejectOfficeDietBlockQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const rejectOfficeDietBlockBodyNoteMax = 500;
+
+
+
+export const RejectOfficeDietBlockBody = zod.object({
+  "note": zod.string().max(rejectOfficeDietBlockBodyNoteMax).optional()
+})
+
+export const RejectOfficeDietBlockResponse = zod.object({
+  "status": zod.enum(['rejected']),
+  "block": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Put the patient back on the 42-day protocol from day one (new episode; every prior record kept)
+ */
+export const RestartOfficePatientProtocolParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const RestartOfficePatientProtocolQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const restartOfficePatientProtocolBodyNoteMax = 500;
+
+
+
+export const RestartOfficePatientProtocolBody = zod.object({
+  "startedOn": zod.coerce.date().optional().describe('Defaults to the patient\'s local today; never in the future'),
+  "note": zod.string().max(restartOfficePatientProtocolBodyNoteMax).optional()
+})
+
+export const RestartOfficePatientProtocolResponse = zod.object({
+  "episode": zod.object({
+  "id": zod.string(),
+  "episodeNumber": zod.number(),
+  "startedOn": zod.coerce.date(),
+  "endedOn": zod.coerce.date().nullable(),
+  "reason": zod.string(),
+  "startedByRole": zod.enum(['patient', 'staff', 'system']),
+  "note": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),
+  "state": zod.object({
+  "dateKey": zod.coerce.date(),
+  "programId": zod.string(),
+  "phase": zod.object({
+  "programDay": zod.number(),
+  "phase": zod.enum(['protocol', 'maintenance']),
+  "phaseName": zod.string(),
+  "maintenanceDay": zod.number(),
+  "dietPickerLocked": zod.boolean(),
+  "episodeId": zod.string().nullable(),
+  "episodeNumber": zod.number().nullable(),
+  "episodeStartedOn": zod.coerce.date().nullable()
+}),
+  "currentDiet": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "effectiveDietSlug": zod.string().nullable().describe('The diet in force; null while the protocol locks the picker'),
+  "pendingSelection": zod.object({
+  "id": zod.string(),
+  "dietSlug": zod.string(),
+  "status": zod.enum(['active', 'pending_review', 'superseded', 'rejected', 'withdrawn']),
+  "selectedByRole": zod.enum(['patient', 'staff', 'system']),
+  "settings": zod.object({
+  "fastingWindow": zod.object({
+  "eatingStart": zod.string().describe('HH:MM'),
+  "eatingEnd": zod.string().describe('HH:MM')
+}).nullish(),
+  "whole30StartDate": zod.coerce.date().nullish()
+}),
+  "screeningSnapshot": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "startedAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable()
+}).nullable(),
+  "pendingBlock": zod.object({
+  "id": zod.string(),
+  "selectionId": zod.string(),
+  "dietSlug": zod.string(),
+  "questions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).describe('Which screening answers caused the block'),
+  "status": zod.enum(['pending', 'overridden', 'rejected', 'withdrawn']),
+  "overrideStartedAt": zod.coerce.date().nullable(),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedByName": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "reviewNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}).nullable(),
+  "suggestedDefaultSlug": zod.string().nullable(),
+  "screening": zod.object({
+  "answers": zod.object({
+  "medication": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "eating_disorder": zod.enum(['yes', 'no', 'skipped']).optional(),
+  "pregnancy": zod.enum(['yes', 'no', 'skipped']).optional()
+}).describe('Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.'),
+  "pregnancyConflict": zod.boolean()
+}),
+  "preferences": zod.array(zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})),
+  "activityLevel": zod.object({
+  "level": zod.enum(['sedentary', 'light', 'moderate', 'active', 'very_active']),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+}).nullable()
+})
+})
+
+
+/**
+ * @summary Add a list item on the patient's behalf (audited, attributed to the staff member)
+ */
+export const AddOfficePatientDietPreferenceParams = zod.object({
+  "patientId": zod.coerce.string()
+})
+
+export const AddOfficePatientDietPreferenceQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const addOfficePatientDietPreferenceBodyLabelMax = 80;
+
+
+
+export const AddOfficePatientDietPreferenceBody = zod.object({
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string().optional().describe('Catalog item key; omit for a custom item'),
+  "label": zod.string().max(addOfficePatientDietPreferenceBodyLabelMax).optional().describe('Free text for a custom item'),
+  "severity": zod.enum(['mild', 'severe']).optional()
+})
+
+export const AddOfficePatientDietPreferenceResponse = zod.object({
+  "item": zod.object({
+  "id": zod.string(),
+  "list": zod.enum(['allergy', 'sensitivity', 'restriction', 'dislike']),
+  "key": zod.string(),
+  "label": zod.string(),
+  "isCustom": zod.boolean(),
+  "severity": zod.enum(['mild', 'severe']).nullable(),
+  "enteredByRole": zod.enum(['patient', 'staff', 'migration']),
+  "enteredByName": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+})
+
+
+/**
+ * @summary Remove a list item on the patient's behalf (audited)
+ */
+export const RemoveOfficePatientDietPreferenceParams = zod.object({
+  "patientId": zod.coerce.string(),
+  "itemId": zod.coerce.string()
+})
+
+export const RemoveOfficePatientDietPreferenceQueryParams = zod.object({
+  "office": zod.coerce.string().optional().describe('Required for HQ; ignored for provider staff, who are always own-office scoped')
+})
+
+export const RemoveOfficePatientDietPreferenceResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+/**
+ * Content permission. Only published entries reach patients; publishing is the launch switch after owner sign-off and counsel review.
+ * @summary Every diet library entry in every review status, plus the disclaimer and oversight note text
+ */
+export const ListHqDietLibraryResponse = zod.object({
+  "entries": zod.array(zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}).and(zod.object({
+  "id": zod.string(),
+  "oversightRecommended": zod.boolean(),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']),
+  "sources": zod.array(zod.string()),
+  "reviewStatus": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable(),
+  "version": zod.number(),
+  "updatedBy": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))),
+  "settings": zod.object({
+  "disclaimer": zod.string(),
+  "oversightNoteText": zod.string()
+})
+})
+
+
+/**
+ * @summary One entry with its version history
+ */
+export const GetHqDietLibraryEntryParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+export const GetHqDietLibraryEntryResponse = zod.object({
+  "entry": zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}).and(zod.object({
+  "id": zod.string(),
+  "oversightRecommended": zod.boolean(),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']),
+  "sources": zod.array(zod.string()),
+  "reviewStatus": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable(),
+  "version": zod.number(),
+  "updatedBy": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "versions": zod.array(zod.object({
+  "version": zod.number(),
+  "changedBy": zod.string().nullable(),
+  "changeNote": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Edit an entry (versioned; a published entry returns to draft until re-reviewed)
+ */
+export const UpdateHqDietLibraryEntryParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+
+export const updateHqDietLibraryEntryBodyChangeNoteMax = 500;
+
+export const updateHqDietLibraryEntryBodyNameMax = 80;
+
+export const updateHqDietLibraryEntryBodySummaryMax = 600;
+
+export const updateHqDietLibraryEntryBodySortOrderMin = 0;
+export const updateHqDietLibraryEntryBodySortOrderMax = 10000;
+
+
+
+export const UpdateHqDietLibraryEntryBody = zod.object({
+  "expectedVersion": zod.number().min(1),
+  "changeNote": zod.string().max(updateHqDietLibraryEntryBodyChangeNoteMax).optional(),
+  "name": zod.string().min(1).max(updateHqDietLibraryEntryBodyNameMax).optional(),
+  "summary": zod.string().min(1).max(updateHqDietLibraryEntryBodySummaryMax).optional(),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']).optional(),
+  "ruleSheet": zod.array(zod.string()).optional(),
+  "sampleDay": zod.array(zod.string()).optional(),
+  "sources": zod.array(zod.string()).optional(),
+  "oversightRecommended": zod.boolean().optional(),
+  "pregnancyBlocked": zod.boolean().optional(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])).optional(),
+  "fitRules": zod.record(zod.string(), zod.unknown()).optional().describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']).optional(),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']).optional(),
+  "sortOrder": zod.number().min(updateHqDietLibraryEntryBodySortOrderMin).max(updateHqDietLibraryEntryBodySortOrderMax).optional()
+}).describe('Any subset of editable fields; unknown keys are ignored.')
+
+export const UpdateHqDietLibraryEntryResponse = zod.object({
+  "entry": zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}).and(zod.object({
+  "id": zod.string(),
+  "oversightRecommended": zod.boolean(),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']),
+  "sources": zod.array(zod.string()),
+  "reviewStatus": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable(),
+  "version": zod.number(),
+  "updatedBy": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "unpublished": zod.boolean().describe('True when this edit pulled a published entry back to draft')
+})
+
+
+/**
+ * Publishing requires the entry to be reviewed first. Every transition is audited.
+ * @summary Move an entry between draft, reviewed, published and retired
+ */
+export const ReviewHqDietLibraryEntryParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+
+
+
+export const ReviewHqDietLibraryEntryBody = zod.object({
+  "status": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "expectedVersion": zod.number().min(1)
+})
+
+export const ReviewHqDietLibraryEntryResponse = zod.object({
+  "entry": zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "summary": zod.string().describe('Plain-language summary'),
+  "complexity": zod.enum(['simple', 'moderate', 'advanced']),
+  "ruleSheet": zod.array(zod.string()),
+  "sampleDay": zod.array(zod.string()),
+  "oversightNote": zod.string().nullable().describe('Short \'consider talking to your care team\' note when the diet recommends oversight'),
+  "pregnancyBlocked": zod.boolean(),
+  "screeningQuestions": zod.array(zod.enum(['medication', 'eating_disorder', 'pregnancy'])),
+  "fitRules": zod.record(zod.string(), zod.unknown()).describe('Machine-readable fit rules the shared food classifier evaluates (tag allow \/ deny lists and nutrient bounds). Opaque to clients.'),
+  "sortOrder": zod.number()
+}).and(zod.object({
+  "id": zod.string(),
+  "oversightRecommended": zod.boolean(),
+  "evidenceStrength": zod.enum(['strong', 'moderate', 'limited', 'emerging']),
+  "supervisionLevel": zod.enum(['none', 'recommended', 'required']),
+  "sources": zod.array(zod.string()),
+  "reviewStatus": zod.enum(['draft', 'reviewed', 'published', 'retired']),
+  "reviewedBy": zod.string().nullable(),
+  "reviewedAt": zod.coerce.date().nullable(),
+  "publishedAt": zod.coerce.date().nullable(),
+  "version": zod.number(),
+  "updatedBy": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
+})
+
+
+/**
+ * @summary Edit the disclaimer and the "consider talking to your care team" note
+ */
+export const updateHqDietLibrarySettingsBodyDisclaimerMax = 2000;
+
+export const updateHqDietLibrarySettingsBodyOversightNoteTextMax = 2000;
+
+
+
+export const UpdateHqDietLibrarySettingsBody = zod.object({
+  "disclaimer": zod.string().min(1).max(updateHqDietLibrarySettingsBodyDisclaimerMax).optional(),
+  "oversightNoteText": zod.string().min(1).max(updateHqDietLibrarySettingsBodyOversightNoteTextMax).optional()
+})
+
+export const UpdateHqDietLibrarySettingsResponse = zod.object({
+  "settings": zod.object({
+  "disclaimer": zod.string(),
+  "oversightNoteText": zod.string()
+})
 })
 
 

@@ -35,6 +35,11 @@ const CLINICAL_TABLES = new Set([
   "patient_operational_follow_ups",
   "office_attention_seen",
   "patient_group_members", // office labels on the chart; kept with the sealed record, removed at final purge
+  "patient_diet_selections", // diet choices and their history are part of the care record
+  "patient_protocol_episodes", // protocol runs / restarts define the clinical calendar
+  "patient_diet_blocks", // safety blocks and provider overrides are clinical decisions
+  "patient_preference_items", // allergies and restrictions inform care; kept with the sealed record
+  "patient_screening_answers", // PHI screening answers stay with the sealed record
   "billing_orders",
   "billing_subscriptions",
   "billing_payers",

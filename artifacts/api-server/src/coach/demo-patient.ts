@@ -15,26 +15,15 @@
  * it — the demo-parity suite is the place to catch drift.
  */
 
+import { phaseNameForDay as sharedPhaseNameForDay } from "@workspace/diet-programs";
+
 export const DEMO_PATIENT_FIRST_NAME = "Emma";
 
 /** Days since enrollment at the fixed anchor date (day 94 of the program). */
 export const DEMO_PROGRAM_DAY = 94;
 
-/** Verbatim phase names + day boundaries from the program instructions. */
-const PHASES: Array<{ name: string; startDay: number; endDay: number | null }> = [
-  { name: "Metabolic Activation Phase", startDay: 1, endDay: 2 },
-  { name: "Metabolic Thinning Phase", startDay: 3, endDay: 39 },
-  { name: "Metabolic Transition Phase", startDay: 40, endDay: 42 },
-  { name: "Metabolic Normalization Phase", startDay: 43, endDay: null },
-];
-
-export function phaseNameForDay(day: number): string {
-  const d = Math.max(1, Math.floor(day));
-  const phase =
-    PHASES.find((p) => d >= p.startDay && (p.endDay === null || d <= p.endDay)) ??
-    PHASES[PHASES.length - 1];
-  return phase.name;
-}
+/** Verbatim phase names + day boundaries live in the shared diet-programs library. */
+export const phaseNameForDay = sharedPhaseNameForDay;
 
 /**
  * Stall-outreach trend for the demo patient, matching what the mobile app

@@ -58,6 +58,13 @@ const migrationNames = [
   // per office per ISO week, the once-per-week run marker, and the new
   // HQ-addressed outbox kind.
   "20261205000000_weekly_customer_health.sql",
+  // Diet programs: the HQ-editable diet library (seed rendered from
+  // lib/diet-programs), per-patient diet state (selections, protocol
+  // episodes, blocks, preference lists, screening answers, activity levels,
+  // target snapshots) and their closure classification.
+  "20261206000000_diet_library.sql",
+  "20261206000001_patient_diet.sql",
+  "20261206000002_patient_diet_closure.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -280,6 +287,36 @@ await query(`
          select 1 from pg_constraint
           where conrelid = 'public.billing_payouts'::regclass
             and contype = 'c' and pg_get_constraintdef(oid) like '%amount_cents >= 0%'
+       )
+       -- Diet programs: library seeded (27 entries incl. just_tracking), every
+       -- patient-owned diet table guarded and service-role only, restart RPC
+       -- present, closure list extended.
+       or to_regclass('public.diet_library_entries') is null
+       or (select count(*) from public.diet_library_entries) < 27
+       or not exists (select 1 from public.diet_library_entries where slug = 'just_tracking' and review_status = 'published')
+       or to_regprocedure('public.patient_protocol_restart(uuid,date,uuid,text)') is null
+       or exists (
+         select 1 from unnest(array['patient_protocol_episodes','patient_diet_selections','patient_diet_blocks',
+                                    'patient_preference_items','patient_screening_answers','patient_activity_levels',
+                                    'patient_target_snapshots']) as t(name)
+          where to_regclass('public.' || t.name) is null
+             or not exists (
+               select 1 from pg_trigger
+                where tgrelid = ('public.' || t.name)::regclass and tgname = 'patient_identity_write_guard' and not tgisinternal
+             )
+             or has_table_privilege('anon', 'public.' || t.name, 'SELECT')
+             or has_table_privilege('authenticated', 'public.' || t.name, 'SELECT')
+       )
+       or not exists (
+         select 1 from pg_trigger
+          where tgrelid = 'public.patients'::regclass and tgname = 'patient_program_start_sync' and not tgisinternal
+       )
+       or position('patient_target_snapshots' in pg_get_functiondef('public.patient_close_rows(uuid)'::regprocedure)) = 0
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.staff_notifications'::regclass
+            and conname = 'staff_notifications_kind_check'
+            and pg_get_constraintdef(oid) like '%diet_allergy_severe%'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

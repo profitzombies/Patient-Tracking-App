@@ -22,6 +22,7 @@ import { guardPushMessage } from "../notifications/push-guard";
 import { MemoryStaffNotificationStore } from "./memory-store";
 import type { StaffNotificationRow } from "./store";
 import { runStaffNotificationTick } from "./staff-sender";
+import { DIET_STAFF_KINDS, DIET_STAFF_PUSH, DIET_STAFF_PUSH_KIND, DIET_STAFF_ROW_COPY } from "../diet/push-kinds";
 
 const NOW = new Date("2026-10-11T12:00:00.000Z");
 function row(channel: "push" | "email" = "push"): StaffNotificationRow {
@@ -207,6 +208,26 @@ describe("staff notification sender", () => {
     });
     for (const fragment of ["Riverside", "Sarah", "self_harm", "leaked"]) expect(JSON.stringify(message)).not.toContain(fragment);
     expect(guardPushMessage(message)).toEqual({ ok: true });
+  });
+  it("pushes every diet alert as one generic 'record needs review' message: no patient id, no diet / allergy / pregnancy wording", async () => {
+    for (const kind of DIET_STAFF_KINDS) {
+      const diet: StaffNotificationRow = {
+        ...row(), kind, title: DIET_STAFF_ROW_COPY[kind].title, body: DIET_STAFF_ROW_COPY[kind].body,
+        data: { patientId: "patient-77", providerId: "office-1", officeName: "Riverside Wellness", recipientName: "Sarah", day: "2026-10-11", selectionId: "sel-1", blockId: "blk-1", itemId: "item-1" },
+      };
+      const harness = setup(diet);
+      await harness.store.registerToken({ authUserId: diet.auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });
+      await harness.tick();
+      const message = harness.push.sent[0]?.[0]!;
+      expect(message.title).toBe(DIET_STAFF_PUSH.title);
+      expect(message.body).toBe(DIET_STAFF_PUSH.body);
+      expect(message.data).toEqual({ route: "/(tabs)/patients", kind: DIET_STAFF_PUSH_KIND, category: "staff_alerts", notificationId: harness.store.notifications[0]!.id, providerId: "office-1" });
+      const wire = JSON.stringify(message).toLowerCase();
+      for (const fragment of ["patient-77", "sel-1", "blk-1", "item-1", "riverside", "sarah", "diet", "allerg", "pregnan", "breastfeed", "eating", "screening", "medication"]) expect(wire).not.toContain(fragment);
+      expect(guardPushMessage(message)).toEqual({ ok: true });
+      // The authenticated row keeps the specific event.
+      expect(harness.store.notifications[0]?.kind).toBe(kind);
+    }
   });
   it("sends push and persists an accepted ticket", async () => {
     const harness = setup(); await harness.store.registerToken({ authUserId: row().auth_user_id, providerId: "office-1", token: "ExponentPushToken[staff]", deviceId: "device-123", platform: "ios" });

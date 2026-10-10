@@ -66,11 +66,23 @@ export const AUDIT_EXPORT_ACTIONS = [
   "patient_bloodwork_viewed",
   "bloodwork_report_opened",
   "patient_medications_viewed",
+  "patient_diet_viewed",
+  "patient_diet_set",
+  "patient_diet_cleared",
+  "patient_diet_block_override_started",
+  "patient_diet_block_overridden",
+  "patient_diet_block_rejected",
+  "patient_protocol_restarted",
+  "patient_preference_item_added",
+  "patient_preference_item_updated",
+  "patient_preference_item_removed",
+  "diet_library_updated",
+  "diet_library_reviewed",
   "conversation_transcript_opened",
   "office_bundle_export_requested",
   "office_bundle_export_downloaded",
 ] as const;
-const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos", "includeTombstones", "patients"]);
+const AUDIT_METADATA_KEYS = new Set(["reason", "role", "status", "field", "size", "contentType", "thread", "kind", "office", "rows", "exportId", "part", "parts", "reportId", "conversationId", "photos", "includeTombstones", "patients", "dietSlug", "previousDietSlug", "blockId", "selectionId", "episodeNumber", "list", "severity", "reviewStatus"]);
 
 export async function pageAll(pathWithoutPaging: string): Promise<Record<string, unknown>[]> {
   const billingPath = pathWithoutPaging.match(/^\/rest\/v1\/(billing_[a-z_]+)\?(.*)$/);

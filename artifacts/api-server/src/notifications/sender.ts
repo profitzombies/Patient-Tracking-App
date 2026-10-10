@@ -50,6 +50,7 @@ import {
 } from "./expo-push";
 import { evaluateSendPolicy } from "./policy";
 import { sendGuarded } from "./push-guard";
+import { DIET_PATIENT_PUSH, DIET_PATIENT_PUSH_KIND, isDietPatientKind } from "../diet/push-kinds";
 import { DEFAULT_TICK_POLICY, defaultsFor, type TickPolicy } from "./tick-policy";
 import type { AttemptInsert, NotificationStore } from "./store";
 import type { NotificationRow, NotificationStatus, PolicyContext, PushTokenRow } from "./types";
@@ -432,11 +433,23 @@ async function prepareRow(
           ...(typeof row.data.conversationId === "string" ? { conversationId: row.data.conversationId } : {}),
         }
       : row.data;
+  // Diet rows keep their specific kind and copy for the authenticated in-app
+  // list; the vendor sees one generic kind, generic copy, and a route only.
+  const diet = isDietPatientKind(row.kind);
+  const external = diet
+    ? {
+        title: DIET_PATIENT_PUSH.title,
+        body: DIET_PATIENT_PUSH.body,
+        data: { route: typeof row.data.route === "string" ? row.data.route : "/(tabs)/account", notificationId: row.id, kind: DIET_PATIENT_PUSH_KIND, category: row.category },
+      }
+    : {
+        title: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_TITLE : row.title,
+        body: row.kind === "care_team_reply" ? (isSuggestion ? CARE_TEAM_SUGGESTION_PUSH_BODY : CARE_TEAM_PUSH_BODY) : row.body,
+        data: { ...careTeamData, notificationId: row.id, kind: row.kind, category: row.category },
+      };
   const messages: PushMessage[] = tokens.map((token) => ({
     to: token.token,
-    title: row.kind === "care_team_reply" ? CARE_TEAM_PUSH_TITLE : row.title,
-    body: row.kind === "care_team_reply" ? (isSuggestion ? CARE_TEAM_SUGGESTION_PUSH_BODY : CARE_TEAM_PUSH_BODY) : row.body,
-    data: { ...careTeamData, notificationId: row.id, kind: row.kind, category: row.category },
+    ...external,
     sound: "default",
     channelId: PUSH_CHANNEL_ID,
     priority: "high",

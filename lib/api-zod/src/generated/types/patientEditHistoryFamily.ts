@@ -16,4 +16,5 @@ export const PatientEditHistoryFamily = {
   measurement: 'measurement',
   medication: 'medication',
   note: 'note',
+  diet: 'diet',
 } as const;

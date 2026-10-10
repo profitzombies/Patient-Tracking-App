@@ -32,6 +32,14 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-programs-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-programs-mobile"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -1302,7 +1310,6 @@ externalPort = 3001
 [[ports]]
 localPort = 19713
 externalPort = 80
-exposeLocalhost = true
 
 [[ports]]
 localPort = 21456
@@ -3040,6 +3047,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:customer-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "diet-programs-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/diet src/routes/patient-diet.test.ts src/routes/office-patient-diet.test.ts src/routes/hq-diet-library.test.ts src/privacy/exports.test.ts src/exports/patient-record.test.ts src/lib/audit-events.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "diet-programs-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/diet-programs && pnpm --filter @workspace/thinnr-mobile run test:diet-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

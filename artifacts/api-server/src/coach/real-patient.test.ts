@@ -28,6 +28,8 @@ const store = {
   entries: [] as Row[],
   water: [] as Row[],
   overrides: [] as Row[],
+  episodes: [] as Row[],
+  activity: [] as Row[],
   /** pathname substrings that fail once with a 500 */
   failOnce: new Set<string>(),
   /** date_key filters observed per table */
@@ -43,6 +45,8 @@ function resetStore() {
   store.entries = [];
   store.water = [];
   store.overrides = [];
+  store.episodes = [];
+  store.activity = [];
   store.failOnce.clear();
   store.seenDateKeys.clear();
 }
@@ -85,6 +89,12 @@ beforeAll(() => {
     }
     if (url.pathname === "/rest/v1/patient_target_overrides") {
       return Promise.resolve(json(200, store.overrides));
+    }
+    if (url.pathname === "/rest/v1/patient_protocol_episodes") {
+      return Promise.resolve(json(200, store.episodes));
+    }
+    if (url.pathname === "/rest/v1/patient_activity_levels") {
+      return Promise.resolve(json(200, store.activity));
     }
     return Promise.resolve(json(404, { message: `fake: no route ${url.pathname}` }));
   });

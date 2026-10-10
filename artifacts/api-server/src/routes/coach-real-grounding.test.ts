@@ -196,6 +196,9 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/patient_target_overrides") {
     return json(200, [{ calories: 1400 }]);
   }
+  if (url.pathname === "/rest/v1/patient_protocol_episodes" || url.pathname === "/rest/v1/patient_activity_levels") {
+    return json(200, []);
+  }
   if (url.pathname === "/rest/v1/hq_organization_settings" && fake.coachAvailable !== null) {
     return json(200, [{ coach_available: fake.coachAvailable, version: 1 }]);
   }

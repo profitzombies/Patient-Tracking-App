@@ -16,6 +16,7 @@ import {
   runNotificationTick,
 } from "./sender";
 import type { NotificationRow } from "./types";
+import { DIET_PATIENT_KINDS, DIET_PATIENT_PUSH, DIET_PATIENT_PUSH_KIND, DIET_PATIENT_ROW_COPY } from "../diet/push-kinds";
 import { DEFAULT_ORG_POLICY, NO_OVERRIDES, type OfficeOverrides } from "../lib/org-policy";
 import type { TickPolicy } from "./tick-policy";
 
@@ -539,6 +540,29 @@ describe("outbox sender", () => {
       for (const row of h.store.notifications.values()) expect(row).toMatchObject({ status: "sent", lease_owner: null });
       // The patient got exactly one push per reminder from B, plus A's stale request.
       expect(h.push.sent).toHaveLength(2);
+    });
+  });
+
+  describe("diet notice safety", () => {
+    it("sends one generic kind and copy for every diet row; the specific kind and copy stay on the row", async () => {
+      for (const kind of DIET_PATIENT_KINDS) {
+        const h = harness();
+        h.store.addToken(P1, TOKEN_A);
+        const copy = DIET_PATIENT_ROW_COPY[kind];
+        const { row } = await h.enqueue({
+          kind, category: copy.category, title: copy.title, body: copy.body,
+          data: { patientId: P1, route: "/(tabs)/account", day: "2026-07-01" }, dedupeKey: `${kind}:${P1}:2026-07-01`,
+        });
+        await h.tick();
+        expect(h.push.sent).toHaveLength(1);
+        const message = h.push.sent[0][0];
+        expect(message).toMatchObject({ title: DIET_PATIENT_PUSH.title, body: DIET_PATIENT_PUSH.body });
+        expect(message.data).toEqual({ route: "/(tabs)/account", notificationId: row.id, kind: DIET_PATIENT_PUSH_KIND, category: copy.category });
+        const wire = JSON.stringify(message).toLowerCase();
+        for (const fragment of [P1, "diet", "pregnan", "breastfeed", "eating", "plan", "answer"]) expect(wire).not.toContain(fragment);
+        expect(h.row(row.id).kind).toBe(kind);
+        expect(h.row(row.id).title).toBe(copy.title);
+      }
     });
   });
 

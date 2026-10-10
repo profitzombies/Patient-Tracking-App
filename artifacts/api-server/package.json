@@ -26,6 +26,7 @@
     "@napi-rs/canvas": "^0.1.80",
     "@workspace/api-zod": "workspace:*",
     "@workspace/app-usage-insights": "workspace:*",
+    "@workspace/diet-programs": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/email-templates": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",

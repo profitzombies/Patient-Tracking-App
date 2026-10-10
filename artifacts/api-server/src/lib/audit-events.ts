@@ -34,6 +34,17 @@ export const AUDIT_ACTIONS = [
   "patient_medication_added",
   "patient_medication_updated",
   "patient_medication_stopped",
+  "patient_diet_set",
+  "patient_diet_cleared",
+  "patient_diet_block_override_started",
+  "patient_diet_block_overridden",
+  "patient_diet_block_rejected",
+  "patient_protocol_restarted",
+  "patient_preference_item_added",
+  "patient_preference_item_updated",
+  "patient_preference_item_removed",
+  "diet_library_updated",
+  "diet_library_reviewed",
   "patient_group_created",
   "patient_group_renamed",
   "patient_group_deleted",
@@ -152,6 +163,7 @@ export const AUDIT_ACTIONS = [
   "patient_bloodwork_viewed",
   "bloodwork_report_opened",
   "patient_medications_viewed",
+  "patient_diet_viewed",
   "conversation_transcript_opened",
 ] as const;
 
@@ -178,6 +190,7 @@ export const AUDIT_METADATA_KEYS = [
   "choice", "patients", "sessions", "sealed", "held", "destroyed", "retainUntil",
   "lifetime", "endsAt", "restart", "plan", "priceCentsOverride", "paidThrough", "amountCents",
   "groupId", "patientId",
+  "dietSlug", "previousDietSlug", "blockId", "selectionId", "episodeId", "episodeNumber", "startedOn", "list", "itemKey", "severity", "reviewStatus",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);
 
@@ -200,6 +213,15 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_medication_added",
   "patient_medication_updated",
   "patient_medication_stopped",
+  "patient_diet_set",
+  "patient_diet_cleared",
+  "patient_diet_block_override_started",
+  "patient_diet_block_overridden",
+  "patient_diet_block_rejected",
+  "patient_protocol_restarted",
+  "patient_preference_item_added",
+  "patient_preference_item_updated",
+  "patient_preference_item_removed",
   "patient_group_created",
   "patient_group_renamed",
   "patient_group_deleted",
@@ -269,6 +291,7 @@ export const OFFICE_VISIBLE_ACTIONS = [
   "patient_bloodwork_viewed",
   "bloodwork_report_opened",
   "patient_medications_viewed",
+  "patient_diet_viewed",
   "conversation_transcript_opened",
 ] as const satisfies readonly AuditAction[];
 export const officeVisibleActions: ReadonlySet<string> = new Set(OFFICE_VISIBLE_ACTIONS);

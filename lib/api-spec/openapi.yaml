@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: coach
     description: AI coach chat for patients
+  - name: diet
+    description: Diet programs — the HQ-reviewed eating-plan library, each patient's chosen diet, phase, preference lists, safety screening and calculated targets
   - name: barcode
     description: >-
       Packaged-food lookup by barcode. The server answers from the shared
@@ -2975,6 +2977,356 @@ paths:
           content: { application/json: { schema: { $ref: "#/components/schemas/HqLegalHoldResult" } } }
         "404": { description: Hold not found }
         "409": { description: Hold already lifted }
+  /patient-data/diet/library:
+    get:
+      operationId: getPatientDietLibrary
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Published eating plans a patient may choose, plus the disclaimer
+      responses:
+        "200":
+          description: Published entries ("just tracking" is always included)
+          content: { application/json: { schema: { $ref: "#/components/schemas/PatientDietLibrary" } } }
+        "401": { description: "Patient session required" }
+  /patient-data/diet:
+    get:
+      operationId: getPatientDiet
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: The patient's phase, current diet, pending review, lists, screening answers and activity level
+      responses:
+        "200": { description: "Diet state", content: { application/json: { schema: { $ref: "#/components/schemas/PatientDietState" } } } }
+        "401": { description: "Patient session required" }
+    put:
+      operationId: choosePatientDiet
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Choose a diet, answering its safety questions
+      description: >-
+        200 when the diet is in force, 202 when the pick is parked for the
+        care team (a yes to pregnancy on a blocked diet, or a yes to a
+        screening question), 409 DIET_LOCKED while the THINNR protocol runs,
+        422 SCREENING_REQUIRED when a question the diet asks is unanswered.
+        Diet choice never changes calorie or macro targets.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceRequest" } } }
+      responses:
+        "200": { description: "Diet active", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceActive" } } } }
+        "202": { description: "Parked for provider review", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoicePending" } } } }
+        "400": { description: "Invalid body" }
+        "401": { description: "Patient session required" }
+        "404": { description: "Unknown diet" }
+        "409": { description: "Diet locked by the protocol or not published", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceConflict" } } } }
+        "422": { description: "Screening answers required", content: { application/json: { schema: { $ref: "#/components/schemas/DietScreeningRequired" } } } }
+    delete:
+      operationId: clearPatientDiet
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Go back to no diet (history is kept)
+      responses:
+        "200": { description: "Cleared", content: { application/json: { schema: { $ref: "#/components/schemas/DietCleared" } } } }
+        "401": { description: "Patient session required" }
+  /patient-data/diet/settings:
+    patch:
+      operationId: updatePatientDietSettings
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Save per-diet settings (fasting window, Whole30 start date)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/DietSettings" } } }
+      responses:
+        "200": { description: "Updated selection", content: { application/json: { schema: { type: object, required: [selection], properties: { selection: { $ref: "#/components/schemas/DietSelection" } } } } } }
+        "400": { description: "Invalid body" }
+        "409": { description: "No diet chosen yet" }
+  /patient-data/diet/screening:
+    post:
+      operationId: answerPatientDietScreening
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Record screening answers outside a diet pick (pregnancy / breastfeeding is asked once, optionally)
+      description: >-
+        A yes to pregnancy while the current diet is pregnancy-blocked warns
+        the patient and notifies the care team; the response names the
+        suggested fertility / pregnancy plan.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [answers], properties: { answers: { $ref: "#/components/schemas/DietScreeningAnswers" } } } } }
+      responses:
+        "200": { description: "Stored answers", content: { application/json: { schema: { $ref: "#/components/schemas/DietScreeningResult" } } } }
+        "400": { description: "Invalid or inapplicable answers" }
+  /patient-data/diet/activity:
+    post:
+      operationId: recordPatientActivityLevel
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Record today's activity level (asked at diet selection and every weekly check-in)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [level], properties: { level: { $ref: "#/components/schemas/ActivityLevel" }, source: { type: string, enum: [settings, check_in], description: "Where the answer came from; defaults to settings" } } } } }
+      responses:
+        "200": { description: "Recorded", content: { application/json: { schema: { type: object, required: [activityLevel], properties: { activityLevel: { $ref: "#/components/schemas/ActivityLevelRecord" } } } } } }
+        "400": { description: "Unknown level" }
+  /patient-data/diet/preferences:
+    get:
+      operationId: listPatientDietPreferences
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Allergies, sensitivities, restrictions and dislikes
+      responses:
+        "200": { description: "Active items across the four lists", content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceList" } } } }
+    post:
+      operationId: addPatientDietPreference
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Add an item to one of the four lists
+      description: Catalog items go by key; free text becomes a custom item. Allergies need a mild / severe flag; severe allergies notify the care team.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceInput" } } }
+      responses:
+        "201": { description: "Added", content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceItemEnvelope" } } } }
+        "400": { description: "Invalid item" }
+        "409": { description: "Already on the list" }
+  /patient-data/diet/preferences/{itemId}:
+    patch:
+      operationId: updatePatientDietPreference
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Change an allergy's mild / severe flag
+      parameters: [{ $ref: "#/components/parameters/DietPreferenceItemId" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [severity], properties: { severity: { $ref: "#/components/schemas/AllergySeverity" } } } } }
+      responses:
+        "200": { description: "Updated", content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceItemEnvelope" } } } }
+        "400": { description: "Invalid severity" }
+        "404": { description: "Not on the list" }
+    delete:
+      operationId: removePatientDietPreference
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Remove an item (kept as history)
+      parameters: [{ $ref: "#/components/parameters/DietPreferenceItemId" }]
+      responses:
+        "200": { description: "Removed", content: { application/json: { schema: { $ref: "#/components/schemas/OkResult" } } } }
+        "404": { description: "Not on the list" }
+  /patient-data/diet/targets:
+    get:
+      operationId: getPatientDietTargets
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Today's calculated and effective calorie / macro targets
+      description: >-
+        Mifflin-St Jeor BMR with the activity factor; protocol days follow the
+        program, maintenance ramps calories in steps toward the maintenance
+        level; patient overrides win. Diet choice has no effect.
+      responses:
+        "200": { description: "Targets", content: { application/json: { schema: { $ref: "#/components/schemas/PatientTargets" } } } }
+    put:
+      operationId: overridePatientDietTargets
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: Override one or more targets (null clears an override)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/TargetOverrideInput" } } }
+      responses:
+        "200": { description: "Targets after the override", content: { application/json: { schema: { $ref: "#/components/schemas/PatientTargets" } } } }
+        "400": { description: "Invalid value" }
+  /office/patients/{patientId}/diet:
+    get:
+      operationId: getOfficePatientDiet
+      tags: [diet]
+      summary: A patient's diet state, pending safety block, lists, screening, targets and full history
+      description: >-
+        Office-scoped like the patient record (HQ names the office). Reading
+        the page is recorded as a record access. The library is included so
+        the staff picker shows every entry a patient could be put on.
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200": { description: "Diet state with history", content: { application/json: { schema: { $ref: "#/components/schemas/OfficePatientDiet" } } } }
+        "401": { description: "Missing or invalid staff session" }
+        "403": { description: "Not authorized for provider reads" }
+        "404": { description: "Patient unavailable in this office" }
+        "409": { description: "Record sealed (closed account)" }
+    put:
+      operationId: setOfficePatientDiet
+      tags: [diet]
+      summary: Put a patient on a diet (same screening and lock rules as the patient; audited; care team notified)
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceRequest" } } }
+      responses:
+        "200": { description: "Diet active", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceActive" } } } }
+        "202": { description: "Parked as a pending block for provider review", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoicePending" } } } }
+        "400": { description: "Invalid body" }
+        "404": { description: "Patient or diet not found" }
+        "409": { description: "Locked, unpublished, or record sealed", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceConflict" } } } }
+        "422": { description: "Screening answers required", content: { application/json: { schema: { $ref: "#/components/schemas/DietScreeningRequired" } } } }
+    delete:
+      operationId: clearOfficePatientDiet
+      tags: [diet]
+      summary: Take a patient off their diet (history kept; audited)
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200": { description: "Cleared", content: { application/json: { schema: { $ref: "#/components/schemas/DietCleared" } } } }
+        "404": { description: "Patient unavailable in this office" }
+        "409": { description: "Record sealed" }
+  /office/patients/{patientId}/diet/blocks/{blockId}/override:
+    post:
+      operationId: startOfficeDietBlockOverride
+      tags: [diet]
+      summary: Step one of the provider override — issues the "Are you sure?" challenge
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/DietBlockId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200": { description: "Challenge issued", content: { application/json: { schema: { $ref: "#/components/schemas/DietOverrideChallenge" } } } }
+        "404": { description: "No pending block with that id" }
+        "409": { description: "Not overridable (code NOT_OVERRIDABLE, reason pregnancy | diet_unavailable): the block is re-checked against the patient's latest answers and the current library row; reject instead", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceConflict" } } } }
+  /office/patients/{patientId}/diet/blocks/{blockId}/override/confirm:
+    post:
+      operationId: confirmOfficeDietBlockOverride
+      tags: [diet]
+      summary: Step two — confirm the challenge; the override is timestamped with who did it and the diet starts
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/DietBlockId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [challenge], properties: { challenge: { type: string }, note: { type: string, maxLength: 500 } } } } }
+      responses:
+        "200": { description: "Override recorded and diet active", content: { application/json: { schema: { $ref: "#/components/schemas/DietOverrideResult" } } } }
+        "400": { description: "Missing challenge" }
+        "404": { description: "No pending block with that id" }
+        "409": { description: "Challenge mismatch or expired, or not overridable on re-check (NOT_OVERRIDABLE, reason pregnancy | diet_unavailable)", content: { application/json: { schema: { $ref: "#/components/schemas/DietChoiceConflict" } } } }
+  /office/patients/{patientId}/diet/blocks/{blockId}/reject:
+    post:
+      operationId: rejectOfficeDietBlock
+      tags: [diet]
+      summary: Decline a blocked pick; the patient keeps their current plan
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/DietBlockId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, properties: { note: { type: string, maxLength: 500 } } } } }
+      responses:
+        "200": { description: "Rejected", content: { application/json: { schema: { type: object, required: [status, block], properties: { status: { type: string, enum: [rejected] }, block: { $ref: "#/components/schemas/DietBlock" } } } } } }
+        "404": { description: "No pending block with that id" }
+  /office/patients/{patientId}/protocol/restart:
+    post:
+      operationId: restartOfficePatientProtocol
+      tags: [diet]
+      summary: Put the patient back on the 42-day protocol from day one (new episode; every prior record kept)
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, properties: { startedOn: { type: string, format: date, description: "Defaults to the patient's local today; never in the future" }, note: { type: string, maxLength: 500 } } } } }
+      responses:
+        "200": { description: "New episode and the resulting diet state", content: { application/json: { schema: { $ref: "#/components/schemas/ProtocolRestartResult" } } } }
+        "400": { description: "Invalid start date" }
+        "404": { description: "Patient unavailable in this office" }
+        "409": { description: "Record sealed" }
+  /office/patients/{patientId}/diet/preferences:
+    post:
+      operationId: addOfficePatientDietPreference
+      tags: [diet]
+      summary: Add a list item on the patient's behalf (audited, attributed to the staff member)
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/OfficeId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceInput" } } }
+      responses:
+        "201": { description: "Added", content: { application/json: { schema: { $ref: "#/components/schemas/DietPreferenceItemEnvelope" } } } }
+        "400": { description: "Invalid item" }
+        "409": { description: "Already on the list or record sealed" }
+  /office/patients/{patientId}/diet/preferences/{itemId}:
+    delete:
+      operationId: removeOfficePatientDietPreference
+      tags: [diet]
+      summary: Remove a list item on the patient's behalf (audited)
+      parameters:
+        - $ref: "#/components/parameters/OfficePatientId"
+        - $ref: "#/components/parameters/DietPreferenceItemId"
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200": { description: "Removed", content: { application/json: { schema: { $ref: "#/components/schemas/OkResult" } } } }
+        "404": { description: "Not on the list" }
+  /hq/diet-library:
+    get:
+      operationId: listHqDietLibrary
+      tags: [diet]
+      summary: Every diet library entry in every review status, plus the disclaimer and oversight note text
+      description: Content permission. Only published entries reach patients; publishing is the launch switch after owner sign-off and counsel review.
+      responses:
+        "200": { description: "Library", content: { application/json: { schema: { $ref: "#/components/schemas/HqDietLibrary" } } } }
+        "401": { description: "Missing or invalid staff session" }
+        "403": { description: "Content permission required" }
+  /hq/diet-library/{slug}:
+    get:
+      operationId: getHqDietLibraryEntry
+      tags: [diet]
+      summary: One entry with its version history
+      parameters: [{ $ref: "#/components/parameters/DietSlug" }]
+      responses:
+        "200": { description: "Entry", content: { application/json: { schema: { $ref: "#/components/schemas/HqDietLibraryEntryDetail" } } } }
+        "404": { description: "Unknown slug" }
+    put:
+      operationId: updateHqDietLibraryEntry
+      tags: [diet]
+      summary: Edit an entry (versioned; a published entry returns to draft until re-reviewed)
+      parameters: [{ $ref: "#/components/parameters/DietSlug" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/HqDietLibraryEntryPatch" } } }
+      responses:
+        "200": { description: "Updated entry", content: { application/json: { schema: { $ref: "#/components/schemas/HqDietLibraryEntryUpdate" } } } }
+        "400": { description: "Invalid field" }
+        "404": { description: "Unknown slug" }
+        "409": { description: "The entry changed since it was opened (RECORD_CHANGED)" }
+  /hq/diet-library/{slug}/review:
+    post:
+      operationId: reviewHqDietLibraryEntry
+      tags: [diet]
+      summary: Move an entry between draft, reviewed, published and retired
+      description: Publishing requires the entry to be reviewed first. Every transition is audited.
+      parameters: [{ $ref: "#/components/parameters/DietSlug" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [status, expectedVersion], properties: { status: { $ref: "#/components/schemas/DietReviewStatus" }, expectedVersion: { type: number, minimum: 1 } } } } }
+      responses:
+        "200": { description: "Entry after the transition", content: { application/json: { schema: { type: object, required: [entry], properties: { entry: { $ref: "#/components/schemas/HqDietLibraryEntry" } } } } } }
+        "400": { description: "Invalid status or missing expectedVersion" }
+        "404": { description: "Unknown slug" }
+        "409": { description: "Stale version, not yet reviewed, or no change" }
+  /hq/diet-library-settings:
+    put:
+      operationId: updateHqDietLibrarySettings
+      tags: [diet]
+      summary: Edit the disclaimer and the "consider talking to your care team" note
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { disclaimer: { type: string, minLength: 1, maxLength: 2000 }, oversightNoteText: { type: string, minLength: 1, maxLength: 2000 } } } } }
+      responses:
+        "200": { description: "Settings", content: { application/json: { schema: { type: object, required: [settings], properties: { settings: { $ref: "#/components/schemas/DietLibrarySettings" } } } } } }
+        "400": { description: "Invalid text" }
   /bloodwork/patients/{patientId}/reports:
     get:
       operationId: listBloodworkReports
@@ -3278,6 +3630,399 @@ components:
       type: http
       scheme: bearer
   schemas:
+    DietComplexity:
+      type: string
+      enum: [simple, moderate, advanced]
+    DietReviewStatus:
+      type: string
+      enum: [draft, reviewed, published, retired]
+    DietEvidenceStrength:
+      type: string
+      enum: [strong, moderate, limited, emerging]
+    DietSupervisionLevel:
+      type: string
+      enum: [none, recommended, required]
+    ActivityLevel:
+      type: string
+      enum: [sedentary, light, moderate, active, very_active]
+    ProgramPhase:
+      type: string
+      enum: [protocol, maintenance]
+    DietScreeningQuestion:
+      type: string
+      enum: [medication, eating_disorder, pregnancy]
+    DietScreeningAnswerValue:
+      type: string
+      enum: ["yes", "no", skipped]
+    DietScreeningAnswers:
+      type: object
+      description: Answers keyed by question. Stored as PHI; a yes to medication or pregnancy drives the safety rules.
+      properties:
+        medication: { $ref: "#/components/schemas/DietScreeningAnswerValue" }
+        eating_disorder: { $ref: "#/components/schemas/DietScreeningAnswerValue" }
+        pregnancy: { $ref: "#/components/schemas/DietScreeningAnswerValue" }
+    PreferenceListName:
+      type: string
+      enum: [allergy, sensitivity, restriction, dislike]
+    AllergySeverity:
+      type: string
+      enum: [mild, severe]
+    DietFitRules:
+      type: object
+      description: Machine-readable fit rules the shared food classifier evaluates (tag allow / deny lists and nutrient bounds). Opaque to clients.
+      additionalProperties: true
+    PatientDietEntry:
+      type: object
+      required: [slug, name, summary, complexity, ruleSheet, sampleDay, oversightNote, pregnancyBlocked, screeningQuestions, fitRules, sortOrder]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        summary: { type: string, description: Plain-language summary }
+        complexity: { $ref: "#/components/schemas/DietComplexity" }
+        ruleSheet: { type: array, items: { type: string } }
+        sampleDay: { type: array, items: { type: string } }
+        oversightNote: { type: string, nullable: true, description: "Short 'consider talking to your care team' note when the diet recommends oversight" }
+        pregnancyBlocked: { type: boolean }
+        screeningQuestions: { type: array, items: { $ref: "#/components/schemas/DietScreeningQuestion" } }
+        fitRules: { $ref: "#/components/schemas/DietFitRules" }
+        sortOrder: { type: number }
+    PatientDietLibrary:
+      type: object
+      required: [disclaimer, entries]
+      properties:
+        disclaimer: { type: string }
+        entries: { type: array, items: { $ref: "#/components/schemas/PatientDietEntry" } }
+    DietSettings:
+      type: object
+      properties:
+        fastingWindow:
+          type: object
+          nullable: true
+          required: [eatingStart, eatingEnd]
+          properties:
+            eatingStart: { type: string, description: "HH:MM" }
+            eatingEnd: { type: string, description: "HH:MM" }
+        whole30StartDate: { type: string, format: date, nullable: true }
+    DietSelection:
+      type: object
+      required: [id, dietSlug, status, selectedByRole, settings, screeningSnapshot, startedAt, endedAt]
+      properties:
+        id: { type: string }
+        dietSlug: { type: string }
+        status: { type: string, enum: [active, pending_review, superseded, rejected, withdrawn] }
+        selectedByRole: { type: string, enum: [patient, staff, system] }
+        settings: { $ref: "#/components/schemas/DietSettings" }
+        screeningSnapshot: { $ref: "#/components/schemas/DietScreeningAnswers" }
+        startedAt: { type: string, format: date-time, nullable: true }
+        endedAt: { type: string, format: date-time, nullable: true }
+    DietBlock:
+      type: object
+      required: [id, selectionId, dietSlug, questions, status, overrideStartedAt, reviewedBy, reviewedByName, reviewedAt, reviewNote, createdAt]
+      properties:
+        id: { type: string }
+        selectionId: { type: string }
+        dietSlug: { type: string }
+        questions: { type: array, items: { $ref: "#/components/schemas/DietScreeningQuestion" }, description: Which screening answers caused the block }
+        status: { type: string, enum: [pending, overridden, rejected, withdrawn] }
+        overrideStartedAt: { type: string, format: date-time, nullable: true }
+        reviewedBy: { type: string, nullable: true }
+        reviewedByName: { type: string, nullable: true }
+        reviewedAt: { type: string, format: date-time, nullable: true }
+        reviewNote: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    DietPreferenceItem:
+      type: object
+      required: [id, list, key, label, isCustom, severity, enteredByRole, enteredByName, createdAt]
+      properties:
+        id: { type: string }
+        list: { $ref: "#/components/schemas/PreferenceListName" }
+        key: { type: string }
+        label: { type: string }
+        isCustom: { type: boolean }
+        severity: { allOf: [{ $ref: "#/components/schemas/AllergySeverity" }], nullable: true }
+        enteredByRole: { type: string, enum: [patient, staff, migration] }
+        enteredByName: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    DietPreferenceItemEnvelope:
+      type: object
+      required: [item]
+      properties:
+        item: { $ref: "#/components/schemas/DietPreferenceItem" }
+    DietPreferenceList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/DietPreferenceItem" } }
+    DietPreferenceInput:
+      type: object
+      required: [list]
+      properties:
+        list: { $ref: "#/components/schemas/PreferenceListName" }
+        key: { type: string, description: Catalog item key; omit for a custom item }
+        label: { type: string, maxLength: 80, description: Free text for a custom item }
+        severity: { $ref: "#/components/schemas/AllergySeverity" }
+    ActivityLevelRecord:
+      type: object
+      required: [level, source, recordedOn]
+      properties:
+        level: { $ref: "#/components/schemas/ActivityLevel" }
+        source: { type: string }
+        recordedOn: { type: string, format: date }
+    DietPhase:
+      type: object
+      required: [programDay, phase, phaseName, maintenanceDay, dietPickerLocked, episodeId, episodeNumber, episodeStartedOn]
+      properties:
+        programDay: { type: number }
+        phase: { $ref: "#/components/schemas/ProgramPhase" }
+        phaseName: { type: string }
+        maintenanceDay: { type: number }
+        dietPickerLocked: { type: boolean }
+        episodeId: { type: string, nullable: true }
+        episodeNumber: { type: number, nullable: true }
+        episodeStartedOn: { type: string, format: date, nullable: true }
+    PatientDietState:
+      type: object
+      required: [dateKey, programId, phase, currentDiet, effectiveDietSlug, pendingSelection, pendingBlock, suggestedDefaultSlug, screening, preferences, activityLevel]
+      properties:
+        dateKey: { type: string, format: date }
+        programId: { type: string }
+        phase: { $ref: "#/components/schemas/DietPhase" }
+        currentDiet: { allOf: [{ $ref: "#/components/schemas/DietSelection" }], nullable: true }
+        effectiveDietSlug: { type: string, nullable: true, description: The diet in force; null while the protocol locks the picker }
+        pendingSelection: { allOf: [{ $ref: "#/components/schemas/DietSelection" }], nullable: true }
+        pendingBlock: { allOf: [{ $ref: "#/components/schemas/DietBlock" }], nullable: true }
+        suggestedDefaultSlug: { type: string, nullable: true }
+        screening:
+          type: object
+          required: [answers, pregnancyConflict]
+          properties:
+            answers: { $ref: "#/components/schemas/DietScreeningAnswers" }
+            pregnancyConflict: { type: boolean }
+        preferences: { type: array, items: { $ref: "#/components/schemas/DietPreferenceItem" } }
+        activityLevel: { allOf: [{ $ref: "#/components/schemas/ActivityLevelRecord" }], nullable: true }
+    DietChoiceRequest:
+      type: object
+      required: [dietSlug]
+      properties:
+        dietSlug: { type: string }
+        answers: { $ref: "#/components/schemas/DietScreeningAnswers" }
+        settings: { $ref: "#/components/schemas/DietSettings" }
+        activityLevel: { allOf: [{ $ref: "#/components/schemas/ActivityLevel" }], nullable: true }
+    DietChoiceActive:
+      type: object
+      required: [status, selection, previousDietSlug, oversightRecommended]
+      properties:
+        status: { type: string, enum: [active] }
+        selection: { $ref: "#/components/schemas/DietSelection" }
+        previousDietSlug: { type: string, nullable: true }
+        oversightRecommended: { type: boolean }
+    DietChoicePending:
+      type: object
+      required: [status, reason, questions, suggestedSlug, selection, block]
+      properties:
+        status: { type: string, enum: [pending_review] }
+        reason: { type: string, enum: [pregnancy, screening] }
+        questions: { type: array, items: { $ref: "#/components/schemas/DietScreeningQuestion" } }
+        suggestedSlug: { type: string, nullable: true }
+        message: { type: string }
+        selection: { $ref: "#/components/schemas/DietSelection" }
+        block: { $ref: "#/components/schemas/DietBlock" }
+    DietChoiceConflict:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [DIET_LOCKED, NOT_SELECTABLE, NOT_FOUND, NOT_OVERRIDABLE, CHALLENGE_MISMATCH, CHALLENGE_EXPIRED, NO_DIET, DUPLICATE] }
+        reason: { type: string, enum: [pregnancy, diet_unavailable], description: "Present with NOT_OVERRIDABLE." }
+        programDay: { type: number }
+    DietScreeningRequired:
+      type: object
+      required: [error, code, questions]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [SCREENING_REQUIRED] }
+        questions: { type: array, items: { $ref: "#/components/schemas/DietScreeningQuestion" } }
+    DietCleared:
+      type: object
+      required: [ok, previousDietSlug]
+      properties:
+        ok: { type: boolean, const: true }
+        previousDietSlug: { type: string, nullable: true }
+    DietScreeningResult:
+      type: object
+      required: [answers, pregnancyConflict, suggestedSlug]
+      properties:
+        answers: { $ref: "#/components/schemas/DietScreeningAnswers" }
+        pregnancyConflict: { type: boolean }
+        suggestedSlug: { type: string, nullable: true }
+    DayTargets:
+      type: object
+      required: [calories, protein, carbs, fat, waterOz]
+      properties:
+        calories: { type: number }
+        protein: { type: number }
+        carbs: { type: number }
+        fat: { type: number }
+        waterOz: { type: number }
+    TargetOverrideInput:
+      type: object
+      description: Any subset; null clears that override.
+      properties:
+        calories: { type: number, nullable: true, minimum: 0, maximum: 20000 }
+        protein: { type: number, nullable: true, minimum: 0, maximum: 2000 }
+        carbs: { type: number, nullable: true, minimum: 0, maximum: 2000 }
+        fat: { type: number, nullable: true, minimum: 0, maximum: 2000 }
+        waterOz: { type: number, nullable: true, minimum: 0, maximum: 200 }
+    PatientTargets:
+      type: object
+      required: [dateKey, phase, programDay, maintenanceDay, calculated, effective, overrides, overridden, bmr, maintenanceCalories, goalDirection, rampStep, ramping, missing, activityLevel]
+      properties:
+        dateKey: { type: string, format: date }
+        phase: { $ref: "#/components/schemas/ProgramPhase" }
+        programDay: { type: number }
+        maintenanceDay: { type: number }
+        calculated: { $ref: "#/components/schemas/DayTargets" }
+        effective: { $ref: "#/components/schemas/DayTargets" }
+        overrides:
+          type: object
+          required: [calories, protein, carbs, fat, waterOz]
+          properties:
+            calories: { type: number, nullable: true }
+            protein: { type: number, nullable: true }
+            carbs: { type: number, nullable: true }
+            fat: { type: number, nullable: true }
+            waterOz: { type: number, nullable: true }
+        overridden: { type: array, items: { type: string, enum: [calories, protein, carbs, fat, waterOz] } }
+        bmr: { type: number, nullable: true }
+        maintenanceCalories: { type: number, nullable: true }
+        goalDirection: { type: string, enum: [lose, hold, gain] }
+        rampStep: { type: number }
+        ramping: { type: boolean }
+        missing: { type: array, items: { type: string, enum: [gender, age, height, weight, activityLevel] } }
+        activityLevel: { allOf: [{ $ref: "#/components/schemas/ActivityLevel" }], nullable: true }
+    ProtocolEpisode:
+      type: object
+      required: [id, episodeNumber, startedOn, endedOn, reason, startedByRole, note, createdAt]
+      properties:
+        id: { type: string }
+        episodeNumber: { type: number }
+        startedOn: { type: string, format: date }
+        endedOn: { type: string, format: date, nullable: true }
+        reason: { type: string }
+        startedByRole: { type: string, enum: [patient, staff, system] }
+        note: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+    HqDietLibraryEntry:
+      allOf:
+        - $ref: "#/components/schemas/PatientDietEntry"
+        - type: object
+          required: [id, oversightRecommended, evidenceStrength, supervisionLevel, sources, reviewStatus, reviewedBy, reviewedAt, publishedAt, version, updatedBy, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            oversightRecommended: { type: boolean }
+            evidenceStrength: { $ref: "#/components/schemas/DietEvidenceStrength" }
+            supervisionLevel: { $ref: "#/components/schemas/DietSupervisionLevel" }
+            sources: { type: array, items: { type: string } }
+            reviewStatus: { $ref: "#/components/schemas/DietReviewStatus" }
+            reviewedBy: { type: string, nullable: true }
+            reviewedAt: { type: string, format: date-time, nullable: true }
+            publishedAt: { type: string, format: date-time, nullable: true }
+            version: { type: number }
+            updatedBy: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    OfficePatientDiet:
+      allOf:
+        - $ref: "#/components/schemas/PatientDietState"
+        - type: object
+          required: [targets, history, library]
+          properties:
+            targets: { $ref: "#/components/schemas/PatientTargets" }
+            history:
+              type: object
+              required: [selections, blocks, episodes, activity, targetSnapshots]
+              properties:
+                selections: { type: array, items: { $ref: "#/components/schemas/DietSelection" } }
+                blocks: { type: array, items: { $ref: "#/components/schemas/DietBlock" } }
+                episodes: { type: array, items: { $ref: "#/components/schemas/ProtocolEpisode" } }
+                activity: { type: array, items: { $ref: "#/components/schemas/ActivityLevelRecord" } }
+                targetSnapshots: { type: array, items: { type: object, additionalProperties: true } }
+            library: { type: array, items: { $ref: "#/components/schemas/HqDietLibraryEntry" } }
+    DietOverrideChallenge:
+      type: object
+      required: [challenge, confirmText, expiresAt, block]
+      properties:
+        challenge: { type: string, description: Opaque token the confirm call must echo }
+        confirmText: { type: string, description: "The second confirmation prompt (\"Are you sure you want to do this?\")" }
+        expiresAt: { type: string, format: date-time }
+        block: { $ref: "#/components/schemas/DietBlock" }
+    DietOverrideResult:
+      type: object
+      required: [status, block, selection, previousDietSlug]
+      properties:
+        status: { type: string, enum: [active] }
+        block: { $ref: "#/components/schemas/DietBlock" }
+        selection: { $ref: "#/components/schemas/DietSelection" }
+        previousDietSlug: { type: string, nullable: true }
+    ProtocolRestartResult:
+      type: object
+      required: [episode, state]
+      properties:
+        episode: { $ref: "#/components/schemas/ProtocolEpisode" }
+        state: { $ref: "#/components/schemas/PatientDietState" }
+    DietLibrarySettings:
+      type: object
+      required: [disclaimer, oversightNoteText]
+      properties:
+        disclaimer: { type: string }
+        oversightNoteText: { type: string }
+    HqDietLibrary:
+      type: object
+      required: [entries, settings]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/HqDietLibraryEntry" } }
+        settings: { $ref: "#/components/schemas/DietLibrarySettings" }
+    HqDietLibraryEntryDetail:
+      type: object
+      required: [entry, versions]
+      properties:
+        entry: { $ref: "#/components/schemas/HqDietLibraryEntry" }
+        versions:
+          type: array
+          items:
+            type: object
+            required: [version, changedBy, changeNote, createdAt]
+            properties:
+              version: { type: number }
+              changedBy: { type: string, nullable: true }
+              changeNote: { type: string, nullable: true }
+              createdAt: { type: string, format: date-time }
+    HqDietLibraryEntryPatch:
+      type: object
+      required: [expectedVersion]
+      description: Any subset of editable fields; unknown keys are ignored.
+      properties:
+        expectedVersion: { type: number, minimum: 1 }
+        changeNote: { type: string, maxLength: 500 }
+        name: { type: string, minLength: 1, maxLength: 80 }
+        summary: { type: string, minLength: 1, maxLength: 600 }
+        complexity: { $ref: "#/components/schemas/DietComplexity" }
+        ruleSheet: { type: array, items: { type: string } }
+        sampleDay: { type: array, items: { type: string } }
+        sources: { type: array, items: { type: string } }
+        oversightRecommended: { type: boolean }
+        pregnancyBlocked: { type: boolean }
+        screeningQuestions: { type: array, items: { $ref: "#/components/schemas/DietScreeningQuestion" } }
+        fitRules: { $ref: "#/components/schemas/DietFitRules" }
+        evidenceStrength: { $ref: "#/components/schemas/DietEvidenceStrength" }
+        supervisionLevel: { $ref: "#/components/schemas/DietSupervisionLevel" }
+        sortOrder: { type: number, minimum: 0, maximum: 10000 }
+    HqDietLibraryEntryUpdate:
+      type: object
+      required: [entry, unpublished]
+      properties:
+        entry: { $ref: "#/components/schemas/HqDietLibraryEntry" }
+        unpublished: { type: boolean, description: True when this edit pulled a published entry back to draft }
     PhotoSize:
       type: string
       enum: [thumb, medium, original]
@@ -4265,7 +5010,7 @@ components:
         version: { type: number }
     PatientEditHistoryFamily:
       type: string
-      enum: [profile, status, weight, measurement, medication, note]
+      enum: [profile, status, weight, measurement, medication, note, diet]
     PatientEditHistoryValue:
       description: A recorded field value; null when the field was empty (or the record did not exist / was removed).
       oneOf:
@@ -7554,6 +8299,21 @@ components:
       required: false
       schema: { type: string }
       description: Required for HQ; ignored for provider staff, who are always own-office scoped
+    DietSlug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string }
+    DietBlockId:
+      name: blockId
+      in: path
+      required: true
+      schema: { type: string }
+    DietPreferenceItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string }
     ExportId:
       name: exportId
       in: path

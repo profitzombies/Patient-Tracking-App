@@ -32,6 +32,7 @@ function sectionsFor(patient: (typeof PATIENTS)[number]): PatientArchiveSections
     checkIns: [{ check_in_id: `c-${patient.id}`, date_key: "2026-09-01", weight: 190, mood: "ok" }],
     measurements: { healthImports: [], bodyMeasurements: [], clinicWeights: [] },
     medications: { list: [], doseLogs: [] },
+    diet: { selections: [], episodes: [], blocks: [], preferenceItems: [], screeningAnswers: [], activityLevels: [], targetSnapshots: [] },
     photos: [{ photo_id: `ph-${patient.id}`, date_key: "2026-08-01", label: "Week 0", angle: "front", object_path: `/objects/patient-media/${patient.id}/photo-1.jpg` }],
     media: [], chat: [], coachMemory: { memories: [], exclusions: [] },
     bloodwork: { reports: [], files: [], results: [], corrections: [], incompleteTranscriptionPages: [] },

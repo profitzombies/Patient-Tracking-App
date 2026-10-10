@@ -14,7 +14,7 @@
 import { supabaseAdmin } from "./supabase-admin";
 import type { AuditActorKind } from "./admin-audit";
 
-export const EDIT_HISTORY_FAMILIES = ["profile", "status", "weight", "measurement", "medication", "note"] as const;
+export const EDIT_HISTORY_FAMILIES = ["profile", "status", "weight", "measurement", "medication", "note", "diet"] as const;
 export type EditHistoryFamily = (typeof EDIT_HISTORY_FAMILIES)[number];
 export type EditHistoryChangeKind = "create" | "update" | "delete";
 export type EditHistoryActorKind = Extract<AuditActorKind, "provider" | "team_member" | "hq" | "patient" | "system">;

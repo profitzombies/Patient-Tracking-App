@@ -53,6 +53,12 @@ function sections(): PatientArchiveSections {
         { id: "d3", medication_id: "m1", due_date: "2026-08-17", status: "taken" },
       ],
     },
+    diet: {
+      selections: [{ id: "s1", diet_slug: "mediterranean", status: "active", selected_by_role: "patient", settings: {}, screening_snapshot: {}, started_at: "2026-09-01T00:00:00Z", ended_at: null }],
+      episodes: [{ id: "e1", episode_number: 1, started_on: "2026-07-01", ended_on: null, reason: "enrolled", started_by_role: "system" }],
+      blocks: [], preferenceItems: [{ id: "p1", list: "allergies", item_key: "peanut", label: "Peanut", is_custom: false, severity: "severe", entered_by_role: "patient" }],
+      screeningAnswers: [], activityLevels: [{ id: "a1", level: "light", source: "diet_selection", recorded_on: "2026-09-01" }], targetSnapshots: [],
+    },
     photos: [
       { photo_id: "ph1", date_key: "2026-08-01", label: "Week 0", angle: "front", object_path: "/objects/patient-media/p-1/photo-1.jpg" },
       { photo_id: "ph2", date_key: "2026-08-15", label: "Week 2", angle: "front", object_path: "/objects/patient-media/p-1/photo-2.jpg" },

@@ -35,6 +35,7 @@ import { objectStorage } from "../lib/objectStorage";
 import { isOwnPatientMediaPath } from "./patient-media";
 import { isPhotoSize, resolvePhotoObjectPath, type PhotoSize } from "../lib/photo-variants";
 import { programDayFor } from "../coach/real-patient";
+import { PROTOCOL_LENGTH_DAYS } from "@workspace/diet-programs";
 import { dayKeyInTimeZone } from "../lib/local-day";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { auditRecordAccess } from "../lib/record-access-audit";
@@ -91,7 +92,6 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
   const programDay = programStartDate
     ? programDayFor(
         {
-          name: canonicalName(row),
           program_start_date: programStartDate,
           created_at: row.created_at ? String(row.created_at) : null,
         },
@@ -131,8 +131,10 @@ export function patientDto(row: PatientRosterRow, asOf?: string) {
       weightChange: numericOrNull(row.weight_gain_lost),
       lastLogDate: row.last_log_date ? String(row.last_log_date) : null,
       day: programDay,
-      stage: programDay == null ? null : programDay <= 42 ? "protocol" : "maintenance",
-      week: programDay == null ? null : programDay <= 42 ? Math.ceil(programDay / 7) : null,
+      // Phase is derived from the current protocol episode (the clinical
+      // row's start date mirrors the open episode, so a restart moves it).
+      stage: programDay == null ? null : programDay <= PROTOCOL_LENGTH_DAYS ? "protocol" : "maintenance",
+      week: programDay == null ? null : programDay <= PROTOCOL_LENGTH_DAYS ? Math.ceil(programDay / 7) : null,
     },
     invitation: invited
       ? {

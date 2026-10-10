@@ -180,6 +180,7 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/patient_diary_entries") return json(200, [{ calories: 300, protein: 30, carbs: 20, fat: 10 }]);
   if (url.pathname === "/rest/v1/patient_water_days") return json(200, [{ oz: 40 }]);
   if (url.pathname === "/rest/v1/patient_target_overrides") return json(200, []);
+  if (url.pathname === "/rest/v1/patient_protocol_episodes" || url.pathname === "/rest/v1/patient_activity_levels") return json(200, []);
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
 

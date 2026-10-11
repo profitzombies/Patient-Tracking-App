@@ -1,6 +1,6 @@
 /**
- * Read-only refund and dispute ledger. Kind filters are applied
- * locally in demo and sent with the device-local range for signed-in staff.
+ * Read-only refund and dispute ledger. Kind filters are sent with the
+ * device-local range to the office billing API.
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -17,7 +17,6 @@ import {
 } from '@/components/payments/primitives';
 import { RangePicker, usePaymentsRange } from '@/components/payments/range';
 import { useOfficeRefunds } from '@/hooks/useOfficeBilling';
-import { DEMO_REFUNDS } from '@/data/office-payments-demo';
 import { formatDate, formatDateTime, type PillTone } from '@/lib/office-billing-format';
 import type { OfficeRefundRow } from '@/lib/office-billing-types';
 import { useColors } from '@/hooks/useColors';
@@ -52,14 +51,12 @@ export default function RefundsScreen() {
   const initialKind = params.kind === 'refund' || params.kind === 'dispute' ? params.kind : '';
   const [kind, setKind] = React.useState(initialKind);
   const controls = { kind, setKind };
-  const demoRows = DEMO_REFUNDS.filter((row) => !kind || row.kind === kind);
 
   return (
     <PaymentsScreen
       section="refunds"
       title="Refunds and disputes"
       sub="Money returned to patients and card disputes on your orders. To issue a refund, open the transaction and choose Refund."
-      demo={<RefundsView {...controls} rows={demoRows} />}
       live={(ctx) => <LiveRefunds ctx={ctx} {...controls} />}
     />
   );

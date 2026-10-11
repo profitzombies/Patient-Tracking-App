@@ -392,7 +392,7 @@ async function main() {
   const tree = await mountLive();
   await signIn(P1);
   await waitFor('hydrated both medications', () => account.kind === 'real' && ctx.medications.length === 2);
-  assert('demo-free doseLogs start empty', ctx.doseLogs.length === 0);
+  assert('doseLogs start empty', ctx.doseLogs.length === 0);
   const plan = reminderPlanFor(ctx.medications, true, ctx.todayKey);
   assert('device plan from the hydrated list: 3 daily + 1 weekly', plan.items.length === 4 && plan.items.filter(i => i.weekday !== null).length === 1);
   assert('card renders today with four dose rows', byTestID(tree, 'today-medications') !== null
@@ -479,17 +479,17 @@ async function main() {
     && !reminderPlanFor(ctx.medications, true, shiftDateKey(ctx.todayKey, 1)).items.some(i => i.data.medicationId === SHOT_ID));
   assert('stop announced with its reminder consequence', announcements.some(a => a.includes('stopped') && a.includes('reminders are cancelled')));
 
-  // ── 6 · Demo persona untouched ─────────────────────────────────────────────
-  section('demo persona: no medications, no card, no writes');
+  // ── 6 · Signed-out session untouched ─────────────────────────────────────────────
+  section('signed-out: no medications, no card, no writes');
   const callsBefore = apiCalls.length;
   await signIn(null);
-  await waitFor('back to the demo persona', () => account.kind === 'demo');
-  assert('demo has no medications or dose logs', ctx.medications.length === 0 && ctx.doseLogs.length === 0);
-  assert('card and section render nothing actionable for the demo', byTestID(tree, 'today-medications') === null && byTestID(tree, 'account-medications-empty') !== null);
-  let demoLogged = true;
-  await act(async () => { demoLogged = await ctx.logDose({ medicationId: DROPS_ID, dueDate: TODAY, dueTime: '08:00', status: 'taken', source: 'check_in' }); });
-  assert('demo dose log is refused', demoLogged === false);
-  assert('no API traffic from the demo', apiCalls.filter(c => c.method !== 'GET').length === apiCalls.slice(0, callsBefore).filter(c => c.method !== 'GET').length);
+  await waitFor('back to the signed-out state', () => account.kind === 'signed-out');
+  assert('signed-out has no medications or dose logs', ctx.medications.length === 0 && ctx.doseLogs.length === 0);
+  assert('card and section render nothing actionable while signed out', byTestID(tree, 'today-medications') === null && byTestID(tree, 'account-medications-empty') !== null);
+  let localLogged = true;
+  await act(async () => { localLogged = await ctx.logDose({ medicationId: DROPS_ID, dueDate: TODAY, dueTime: '08:00', status: 'taken', source: 'check_in' }); });
+  assert('signed-out dose log is refused', localLogged === false);
+  assert('no API traffic while signed out', apiCalls.filter(c => c.method !== 'GET').length === apiCalls.slice(0, callsBefore).filter(c => c.method !== 'GET').length);
 
   await act(async () => { tree.unmount(); });
 

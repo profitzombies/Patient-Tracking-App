@@ -23,7 +23,6 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { CareTeamComposeContext, CareTeamUnreadContext } from '@/context/CareTeamUnreadContext';
 import { subscribeChatSync } from '@/lib/chat-sync-events';
 import { missingTokenMessage, supabase } from '@/lib/supabase';
-import { TODAY } from '@/data/patient-data';
 
 export type CareTeamConversation = GeneratedCareTeamConversation;
 export type PatientCareTeamMessage = GeneratedCareTeamMessage;
@@ -173,70 +172,6 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
   selectedRef.current = selectedConversation;
   currentRef.current = currentConversation;
 
-  const demoMessages = useRef<PatientCareTeamMessage[]>([
-    {
-      seq: 1,
-      clientId: 'demo-care-team-welcome',
-      sender: 'care_team',
-      text: 'Hello! I am your care coordinator. How can I help you today?',
-      createdAt: new Date(TODAY.getTime() - 86_400_000).toISOString(),
-    },
-    {
-      seq: 2,
-      clientId: 'demo-care-team-product',
-      sender: 'care_team',
-      text: 'I think Boost could be a helpful addition to your routine.',
-      createdAt: new Date(TODAY.getTime() - 3_600_000).toISOString(),
-      suggestion: {
-        mode: 'individual',
-        items: [{
-          productId: 'demo-boost',
-          slug: 'boost',
-          name: 'Boost',
-          imageUrl: null,
-          purchase: 'one_time',
-          cadenceWeeks: null,
-          quantity: 1,
-          unitPriceCents: 4900,
-        }],
-        totalCents: 4900,
-      },
-    },
-    {
-      seq: 3,
-      clientId: 'demo-care-team-bundle',
-      sender: 'care_team',
-      text: 'Here is the care bundle we discussed.',
-      createdAt: TODAY.toISOString(),
-      suggestion: {
-        mode: 'bundle',
-        items: [
-          {
-            productId: 'demo-boost',
-            slug: 'boost',
-            name: 'Boost',
-            imageUrl: null,
-            purchase: 'one_time',
-            cadenceWeeks: null,
-            quantity: 1,
-            unitPriceCents: 4900,
-          },
-          {
-            productId: 'demo-control',
-            slug: 'control',
-            name: 'Control',
-            imageUrl: null,
-            purchase: 'subscription',
-            cadenceWeeks: 4,
-            quantity: 1,
-            unitPriceCents: 5310,
-          },
-        ],
-        totalCents: 10210,
-      },
-    },
-  ]);
-  const demoNextSeq = useRef(4);
 
   const isCurrent = useCallback((operation: Operation) =>
     operationRef.current.epoch === operation.epoch &&
@@ -338,28 +273,6 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
   const loadData = useCallback(async (background = false): Promise<void> => {
     if (resolving || account.kind === 'unresolved') return;
     const operation = { ...operationRef.current };
-    if (account.kind === 'demo') {
-      const conversation: CareTeamConversation = {
-        id: 'demo-thread',
-        providerId: 'demo-provider',
-        businessName: 'MED SPA OPERATIONS DEMO',
-        current: true,
-        canSend: true,
-        status: 'open',
-        unreadCount: 0,
-        lastMessageSeq: demoNextSeq.current - 1,
-        lastReadSeq: demoNextSeq.current - 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      if (!isCurrent(operation)) return;
-      setCurrentConversation(conversation);
-      setSelectedConversation(conversation);
-      messagesRef.current = [...demoMessages.current];
-      setMessages([...demoMessages.current]);
-      setError(null);
-      return;
-    }
 
     if (!background) setLoading(true);
     try {
@@ -496,7 +409,6 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
     fetchedTailRef.current = 0;
     loadGenerationRef.current += 1;
     setError(null);
-    if (account.kind === 'demo') return;
     const operation = { ...operationRef.current };
     void (async () => {
       setLoading(true);
@@ -550,25 +462,6 @@ export function CareTeamChatProvider({ children }: { children: React.ReactNode }
       [clientId]: { text: normalized, status: 'sending', threadId: targetThreadId },
     }));
 
-    if (account.kind === 'demo') {
-      const message: PatientCareTeamMessage = {
-        seq: demoNextSeq.current++,
-        clientId,
-        sender: 'patient',
-        text: normalized,
-        createdAt: new Date().toISOString(),
-      };
-      if (!isCurrent(operation)) return;
-      demoMessages.current = mergeMessages(demoMessages.current, [message]);
-      messagesRef.current = [...demoMessages.current];
-      setMessages([...demoMessages.current]);
-      setPendingMessages(previous => {
-        const next = { ...previous };
-        delete next[clientId];
-        return next;
-      });
-      return;
-    }
     if (account.kind !== 'real') return;
 
     try {

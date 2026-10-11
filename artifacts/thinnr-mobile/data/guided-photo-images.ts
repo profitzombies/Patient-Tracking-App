@@ -5,7 +5,7 @@
  * require() calls, so the map is spelled out per angle — the same rule as
  * data/recipe-images.ts.
  *
- * On web these double as the demo "captured frames": live capture is
+ * On web these double as the preview "captured frames": live capture is
  * native-only, so the simulated camera hands these back at the shutter.
  */
 import type { ImageSourcePropType } from 'react-native';

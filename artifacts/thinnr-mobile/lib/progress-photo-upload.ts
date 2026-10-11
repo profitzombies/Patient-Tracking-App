@@ -10,9 +10,9 @@
  * grid asks progressPhotoDisplayUrl() for a fresh redirect URL at render
  * time.
  *
- * DEMO PERSONA: zero network and zero prep — the grid entry simply keeps
- * the on-device capture uri (native camera cache file; on web, the bundled
- * pose asset), exactly as the demo behaved before accounts existed.
+ * WITHOUT AN UPLOADER (no real account): zero network and zero prep — the
+ * grid entry simply keeps the on-device capture uri (native camera cache
+ * file; on web, the bundled pose asset).
  *
  * Failures are per-shot. A shot whose PREP failed is reported in `failed`
  * (the caller keeps the on-device shot and retries). A shot that prepped
@@ -31,7 +31,7 @@ export interface UploadedShotRef {
   angle: GuidedAngle;
   /** Stored object path — present when the shot uploaded to the account. */
   objectPath?: string;
-  /** On-device uri — present for the demo persona's local-only grid, and
+  /** On-device uri — present for a local-only grid (no uploader), and
    *  for an account shot whose upload is deferred to the offline queue
    *  (then it is the prepared JPEG data URI). */
   uri?: string;
@@ -74,7 +74,7 @@ export function progressPhotoDisplayUrl(objectPath: string, size?: PhotoSize): s
  * Never throws: every shot ends up in `uploaded` or `failed`.
  *
  * With an `uploader` (real account) each shot is prepped and uploaded,
- * yielding an object path. Without one (demo persona) nothing leaves the
+ * yielding an object path. Without one (no real account) nothing leaves the
  * device: the ref keeps the capture uri and cannot fail.
  */
 export async function uploadGuidedShots(

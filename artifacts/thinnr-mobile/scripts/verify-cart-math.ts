@@ -35,7 +35,8 @@ import {
   validateAddress,
   type CheckoutDeps,
 } from '../lib/checkout-flow';
-import { buildDemoShop, findShopProduct } from '../lib/shop-catalog';
+import { findShopProduct } from '../lib/shop-catalog';
+import { buildSampleShop } from './fixtures/sample-shop';
 import type { CartCheckoutResponse, PublicLinkProduct, ShippingAddress } from '../lib/patient-billing-types';
 
 let checks = 0;
@@ -46,7 +47,7 @@ function assert(label: string, condition: boolean) {
 }
 function section(label: string) { console.log(`\n· ${label}`); }
 
-const shop = buildDemoShop();
+const shop = buildSampleShop();
 const products = shop.products;
 const control = findShopProduct(products, 'control') as PublicLinkProduct;
 const subscribable = products.find(product => product.subscription_available && product.subscription_unit_price_cents !== null) as PublicLinkProduct;
@@ -55,8 +56,8 @@ const other = products.find(product => product.product_id !== subscribable.produ
 const address: ShippingAddress = { name: 'Pat Example', line1: '1 Main St', line2: null, city: 'Austin', state: 'tx', postal_code: '78701', country: 'us', phone: null };
 
 async function main() {
-  section('demo storefront');
-  assert('demo shop lists the full catalog with page content', products.length >= 9 && products.every(product => product.slug && product.tagline && product.benefits.length > 0 && product.faqs.length > 0));
+  section('sample storefront');
+  assert('sample shop lists the full catalog with page content', products.length >= 9 && products.every(product => product.slug && product.tagline && product.benefits.length > 0 && product.faqs.length > 0));
   assert('findShopProduct resolves by product id, slug, and legacy catalog id', findShopProduct(products, control.product_id) === control && findShopProduct(products, 'control') === control && findShopProduct(products, 'prod1') !== undefined);
   assert('subscribe-and-save price is the list price less the percent', subscribable.subscription_unit_price_cents === Math.round(subscribable.unit_price_cents * (100 - shop.subscribe_save_percent) / 100));
 

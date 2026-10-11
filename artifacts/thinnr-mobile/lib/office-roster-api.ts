@@ -1,7 +1,7 @@
 /**
  * Client for the office live roster + patient invitation endpoints
- * (/api/office/* on the API server). Staff accounts only — the demo persona
- * never touches these endpoints, and the office is ALWAYS derived from the
+ * (/api/office/* on the API server). Staff accounts only — nothing here runs
+ * while signed out, and the office is ALWAYS derived from the
  * signed-in staff member's bearer token on the server; this client never
  * names one.
  *

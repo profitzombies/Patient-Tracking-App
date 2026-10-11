@@ -36,7 +36,7 @@
  * same in-surface fallback style as the meal camera. On web the identical
  * flow runs against a simulated feed: a scripted lean settling into the
  * band and synthetic probe frames, both through the SAME engine — so the
- * whole line-up, gate included, demos inside the fit-to-iPhone shell.
+ * whole line-up, gate included, previews inside the fit-to-iPhone shell.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -69,7 +69,7 @@ import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox
 import { overlayTopPad, screenTopPad } from '@/constants/layout';
 import { GUIDED_POSE_IMAGES } from '@/data/guided-photo-images';
 import { CAPTURE_TONE_SOUND, HOLD_LOST_SOUND, TICK_SOUND } from '@/data/guided-photo-sounds';
-import { ENROLLMENT_DAYS, formatDateKey } from '@/data/patient-data';
+import { formatDateKey } from '@/data/patient-data';
 import {
   COUNTDOWN_SECONDS,
   GUIDED_ANGLES,
@@ -126,7 +126,7 @@ const CONTROL_SCRIM = 'rgba(16, 22, 31, 0.42)';
 /** Deeper scrim behind full-width text bands. */
 const BAND_SCRIM = 'rgba(14, 20, 29, 0.62)';
 /** Simulated-feed backdrop on web, where live capture is native-only. */
-const DEMO_FEED_BG = '#232E3C';
+const SIMULATED_FEED_BG = '#232E3C';
 
 type Stage =
   | { kind: 'setup' }
@@ -261,12 +261,12 @@ function ErrorNote({ text, testID }: { text: string; testID?: string }) {
 }
 
 /** Web stand-in for the live camera: a quiet, obviously-simulated feed. */
-function DemoFeed() {
+function SimulatedFeed() {
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: DEMO_FEED_BG }]}>
-      <View style={styles.demoBadge} pointerEvents="none">
+    <View style={[StyleSheet.absoluteFill, { backgroundColor: SIMULATED_FEED_BG }]}>
+      <View style={styles.simulatedBadge} pointerEvents="none">
         <Feather name="video" size={11} color="#DDE5EF" />
-        <Text style={styles.demoBadgeText}>SIMULATED CAMERA</Text>
+        <Text style={styles.simulatedBadgeText}>SIMULATED CAMERA</Text>
       </View>
     </View>
   );
@@ -624,7 +624,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
 
   // Web: the scripted lean settles into the band through the SAME
   // smoothing pipeline. Virtual time advances on the probe-interval scale
-  // so shortened demo/suite knobs play the settle proportionally faster.
+  // so shortened preview/suite knobs play the settle proportionally faster.
   useEffect(() => {
     if (stage.kind !== 'positioning' || !isWeb) return;
     const timer = setInterval(() => {
@@ -636,7 +636,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
 
   // ── Positioning probe loop ────────────────────────────────────────────
   // ~1 Hz tiny frames through the adaptive detector; web feeds synthetic
-  // frames through the SAME code path so the demo behaves like the phone.
+  // frames through the SAME code path so the web preview behaves like the phone.
   useEffect(() => {
     if (stage.kind !== 'positioning') return;
     let disposed = false;
@@ -852,7 +852,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       let shot: GuidedShot | null = null;
       if (isWeb) {
-        // Live capture is native-only: the demo hands back the bundled
+        // Live capture is native-only: the web preview hands back the bundled
         // posing illustration so review + upload run the real pipeline.
         try {
           const asset = Asset.fromModule(GUIDED_POSE_IMAGES[angle] as number);
@@ -949,7 +949,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
     announce('Saving your photos.');
     // Compression happens silently inside the upload pipeline; angles that
     // already landed on a previous attempt are not re-sent. A real account
-    // uploads through its authenticated media rail; the demo persona stays
+    // uploads through its authenticated media rail; a signed-out session stays
     // local-only (no uploader → refs keep the on-device uri, no network).
     const toUpload = all.filter(shot => !uploadedRef.current.has(shot.angle));
     const result = await uploadGuidedShots(
@@ -966,11 +966,9 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
       setStage({ kind: 'review' });
       return;
     }
-    // Live program week for real accounts; demo keeps the seeded enrollment
-    // figure (no entry facts), byte-identical to before. A signed-in account
-    // whose program calendar hasn't loaded labels by date instead of
-    // borrowing the demo's week.
-    const programDay = patient.entryFacts?.programDay ?? (account.kind === 'demo' ? ENROLLMENT_DAYS : null);
+    // Live program week for real accounts; an account whose program calendar
+    // hasn't loaded labels by date instead of guessing a week.
+    const programDay = patient.entryFacts?.programDay ?? null;
     const labelPrefix = programDay === null ? formatDateKey(patient.todayKey) : `Week ${Math.ceil(programDay / 7)}`;
     const entries = GUIDED_ANGLES.filter(
       angle => shots[angle] && uploadedRef.current.has(angle),
@@ -980,8 +978,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         dateKey: patient.todayKey,
         label: `${labelPrefix} ${GUIDED_ANGLE_LABELS[angle]}`,
         angle,
-        // Account shots reference their stored object; demo shots keep the
-        // on-device capture uri, exactly as before accounts existed. A
+        // Account shots reference their stored object; local-only shots keep
+        // the on-device capture uri. A
         // deferred shot passes its pinned upload id on to the queue.
         ...(ref.objectPath ? { objectPath: ref.objectPath } : { uri: ref.uri }),
         ...(ref.deferred && ref.uploadId ? { uploadId: ref.uploadId } : {}),
@@ -1016,8 +1014,8 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
   // Uploaded objects that never became grid rows (a failed grid write the
   // patient walked away from) must not stay on the account invisibly:
   // closing the session discards them server-side, best-effort. A
-  // successful save clears the refs first, and the demo persona's refs
-  // carry no object paths (nothing was uploaded), so this only fires for
+  // successful save clears the refs first, and local-only refs carry no
+  // object paths (nothing was uploaded), so this only fires for
   // abandoned real-account uploads.
   const discardUnsavedUploads = () => {
     const paths = Array.from(uploadedRef.current.values())
@@ -1149,7 +1147,7 @@ export function GuidedPhotoSession({ onSettle }: GuidedPhotoSessionProps) {
         />
       ) : null}
       {isWeb && stage.kind !== 'review' && stage.kind !== 'saving' ? (
-        <DemoFeed />
+        <SimulatedFeed />
       ) : null}
 
       {/* ── Setup ── */}
@@ -1780,7 +1778,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 4,
   },
-  demoBadge: {
+  simulatedBadge: {
     position: 'absolute',
     left: 10,
     bottom: '31%',
@@ -1792,7 +1790,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  demoBadgeText: {
+  simulatedBadgeText: {
     color: '#DDE5EF',
     fontSize: 10,
     fontFamily: 'Inter_700Bold',

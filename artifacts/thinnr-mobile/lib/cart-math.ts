@@ -7,8 +7,8 @@
  * quantities 1..10, at most 20 lines, subscription units priced at the
  * subscribe-and-save rate, shipping charged once for the one-time order and
  * once per subscription (each subscription ships on its own schedule). The
- * local quote is what the demo persona and the pre-quote render show; a real
- * cart always confirms against POST /cart/quote before checkout.
+ * local quote is what the pre-quote render shows; a real cart always
+ * confirms against POST /cart/quote before checkout.
  */
 import type {
   CartCheckoutItem,
@@ -133,8 +133,8 @@ export function pruneCartLines(lines: CartLine[], products: PublicLinkProduct[])
 
 /** Server-equivalent quote computed from the storefront the patient already holds. */
 /**
- * Client-side estimate of the server quote (used for the demo persona and as
- * the placeholder while the live quote loads). An office that collects sales
+ * Client-side estimate of the server quote (the placeholder while the live
+ * quote loads). An office that collects sales
  * tax cannot be estimated here: its tax and amount due stay unknown (null)
  * until the server has priced the cart for a shipping address.
  */

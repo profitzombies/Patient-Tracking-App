@@ -361,10 +361,6 @@ export default function NewBloodwork() {
 
   const handleUpload = async () => {
     if (busyOwnerRef.current || saveInFlightRef.current) return;
-    if (accountCtx.account.kind === 'demo') {
-      Alert.alert('Demo Mode', 'Uploading is disabled in demo mode.');
-      return;
-    }
     if (accountCtx.account.kind === 'unresolved') {
       const unresolvedRecovery = bloodworkEntryRecovery({
         accountKind: accountCtx.account.kind,
@@ -392,6 +388,7 @@ export default function NewBloodwork() {
       setRecovery(unresolvedRecovery);
       return;
     }
+    if (accountCtx.account.kind !== 'real') return;
     if (!title.trim() || files.length === 0) return;
     if (saveInFlightRef.current) return;
 

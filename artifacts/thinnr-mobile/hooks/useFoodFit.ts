@@ -12,7 +12,7 @@ import { fitContextFor, type DietState } from '@/lib/diet-state';
 import { describeFood, type DescribableFood } from '@/lib/food-description';
 
 export interface FoodFit {
-  /** Null until the diet slice has loaded (demo loads synchronously). */
+  /** Null until the diet slice has loaded. */
   context: ClassifierContext | null;
   /** True while the Approved Foods list is the fit source (protocol phase). */
   protocol: boolean;

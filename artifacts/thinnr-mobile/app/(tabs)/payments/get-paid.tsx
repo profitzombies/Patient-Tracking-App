@@ -18,7 +18,6 @@ export default function GetPaidScreen() {
       sub={SUB}
       allowNoAccount
       back={{ href: '/payments', label: 'Payments' }}
-      demo={<SetupCards demo />}
       live={(ctx) => <GetPaidLive ctx={ctx} />}
     />
   );
@@ -28,9 +27,9 @@ function mutationMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function SetupCards({ ctx, demo = false }: { ctx?: PaymentsLive; demo?: boolean }) {
+function SetupCards({ ctx }: { ctx: PaymentsLive }) {
   const [notice, setNotice] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
-  const oauth = useOfficeBillingMutation(ctx?.userId ?? 'demo', (_: void, scope) => officeBilling.oauthStart(scope), {
+  const oauth = useOfficeBillingMutation(ctx.userId, (_: void, scope) => officeBilling.oauthStart(scope), {
     invalidate: false,
     onSuccess: ({ url }) => {
       setNotice({ tone: 'good', text: 'Stripe connection opened in your browser.' });
@@ -38,14 +37,14 @@ function SetupCards({ ctx, demo = false }: { ctx?: PaymentsLive; demo?: boolean 
     },
     onError: (error) => setNotice({ tone: 'bad', text: `Stripe connection not started. ${mutationMessage(error, 'Try again.')}` }),
   });
-  const oauthAvailable = demo || Boolean(ctx?.status.oauth_available);
+  const oauthAvailable = Boolean(ctx.status.oauth_available);
   return (
     <>
       {notice ? <InlineNotice tone={notice.tone} testID="setup-notice">{notice.text}</InlineNotice> : null}
       <Panel title="Connect an existing Stripe account" sub="Use an account your office already manages.">
         <Body>Authorize THINNR to create charges and deduct the program fee.</Body>
         {oauthAvailable ? (
-          <Button label="Connect Stripe" testID="button-oauth-start" disabled={demo} busy={oauth.isPending} onPress={() => oauth.mutate()} />
+          <Button label="Connect Stripe" testID="button-oauth-start" busy={oauth.isPending} onPress={() => oauth.mutate()} />
         ) : (
           <Body testID="oauth-unavailable">Existing account connection is not configured yet. You can set up a new account now.</Body>
         )}

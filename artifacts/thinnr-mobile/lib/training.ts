@@ -19,11 +19,10 @@
  * module too (or vice versa), then run that suite.
  *
  * Mobile has no authoring transforms. Signed-in provider staff may complete
- * their own lessons and add office teammates through protected RPCs. The demo
- * Care Team persona browses with an EMPTY personal
- * completion map (same as the web's signed-out demo persona), so the
- * sequential-unlock frontier sits at the first lesson; team numbers come
- * from the live demo viewer/completion rows.
+ * their own lessons and add office teammates through protected RPCs. A
+ * learner with an EMPTY personal completion map starts with the
+ * sequential-unlock frontier at the first lesson; team numbers come from
+ * the office's live viewer/completion rows.
  *
  * Web lessons can host a real video file (HQ admins upload them; the row
  * then carries video_source/thumbnail_source). Mobile deliberately keeps the
@@ -609,8 +608,8 @@ export function isOfficeTeammate(
 
 /**
  * The office's team roster with per-person progress against one course
- * order. Mobile always browses the UNSCOPED demo office (`accountId ===
- * null`): every office-assigned learner, like the web demo persona.
+ * order. With `accountId === null` the roster is unscoped: every
+ * office-assigned learner, like the web portal.
  */
 export function officeRoster(
   viewers: TrainingViewer[],

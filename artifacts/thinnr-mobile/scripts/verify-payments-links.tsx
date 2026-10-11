@@ -1,7 +1,7 @@
 import React from 'react';
 import { sharedMessages } from 'react-native';
-import { check, finish, ids, isBlocked, mount, one, paths, press, release, requests, resetRequests, routerLog, section, setScript, settle, STAFF, text, textOf, type, writes } from './payments-stubs/harness';
-import { DEMO_LINKS, DEMO_PRICES } from '../data/office-payments-demo';
+import { check, finish, ids, mount, one, paths, press, release, requests, resetRequests, routerLog, section, setScript, settle, STAFF, text, textOf, type, writes } from './payments-stubs/harness';
+import { SAMPLE_LINKS, SAMPLE_PRICES } from './fixtures/sample-office-payments';
 import LinksScreen from '../app/(tabs)/payments/links';
 import type { OfficeBillingStatus, PaymentLink } from '../lib/office-billing-types';
 
@@ -14,14 +14,14 @@ const STATUS: OfficeBillingStatus = {
   }, offered_products: 2, links: 1, sandbox: true, oauth_available: true,
   viewer: { office_role: 'owner', can_manage: true }, office: { provider_id: 'p', office_name: 'Maple' },
 };
-const LINK: PaymentLink = { ...DEMO_LINKS[1], id: 'link-live', patient_id: 'pat-1', patient_name: 'Ava Reed', active: true, usable: true, uses: 0, max_uses: null };
+const LINK: PaymentLink = { ...SAMPLE_LINKS[1], id: 'link-live', patient_id: 'pat-1', patient_name: 'Ava Reed', active: true, usable: true, uses: 0, max_uses: null };
 let failure = '';
 let delayed = false;
 function script(links: PaymentLink[] = [LINK]) {
   setScript((req) => {
     if (req.path === '/api/billing/office/status') return { status: 200, body: STATUS };
     if (req.path === '/api/billing/office/links' && req.method === 'GET') return { status: 200, body: { items: links } };
-    if (req.path === '/api/billing/office/prices') return { status: 200, body: { products: DEMO_PRICES, settings: {} } };
+    if (req.path === '/api/billing/office/prices') return { status: 200, body: { products: SAMPLE_PRICES, settings: {} } };
     if (req.path === '/api/billing/office/patients/search') return { status: 200, body: { items: [{ id: 'pat-9', name: 'Nora Jones', email: 'nora@example.com', phone: null }] } };
     if (req.method === 'POST' && req.path === '/api/billing/office/links') {
       if (failure === 'create') return { status: 422, body: { error: 'Invalid link options' } };
@@ -35,12 +35,11 @@ function script(links: PaymentLink[] = [LINK]) {
 }
 
 async function main() {
-  section('Demo');
+  section('Signed out');
   resetRequests(); script();
-  const demo = await mount(<LinksScreen />, null);
-  check('pinned demo links render without fetches', requests.length === 0 && ids(demo.root, 'link-row-').length === DEMO_LINKS.length, paths().join(' | '));
-  check('all demo writes blocked', DEMO_LINKS.every((link) => isBlocked(demo.root, `button-edit-link-${link.id}`)) && DEMO_LINKS.filter((l) => l.active).every((link) => isBlocked(demo.root, `button-deactivate-link-${link.id}`)) && isBlocked(demo.root, 'button-create-patient-link') && isBlocked(demo.root, 'button-sell-to-patient'));
-  await demo.unmount();
+  const signedOut = await mount(<LinksScreen />, null);
+  check('signed-out mount holds the sign-in frame: no links, no fetch, no write controls', requests.length === 0 && !!one(signedOut.root, 'billing-session-loading') && ids(signedOut.root, 'link-row-').length === 0 && !one(signedOut.root, 'button-create-patient-link'), paths().join(' | '));
+  await signedOut.unmount();
 
   section('Live reads, search and navigation');
   resetRequests(); script();
@@ -91,13 +90,13 @@ async function main() {
   setScript((req) => {
     if (req.path.endsWith('/status')) return { status: 200, body: STATUS };
     if (req.path.endsWith('/links')) return { delay: true, body: { items: [LINK] } };
-    if (req.path.endsWith('/prices')) return { status: 200, body: { products: DEMO_PRICES, settings: {} } };
+    if (req.path.endsWith('/prices')) return { status: 200, body: { products: SAMPLE_PRICES, settings: {} } };
     return undefined;
   });
   const loading = await mount(<LinksScreen />, STAFF);
   check('query loading state renders', !!one(loading.root, 'links-loading'));
   release?.(); await settle(); await loading.unmount();
-  setScript((req) => req.path.endsWith('/status') ? { status: 200, body: STATUS } : req.path.endsWith('/links') && req.method === 'GET' ? { status: 500, body: { error: 'Links unavailable' } } : req.path.endsWith('/prices') ? { status: 200, body: { products: DEMO_PRICES, settings: {} } } : undefined);
+  setScript((req) => req.path.endsWith('/status') ? { status: 200, body: STATUS } : req.path.endsWith('/links') && req.method === 'GET' ? { status: 500, body: { error: 'Links unavailable' } } : req.path.endsWith('/prices') ? { status: 200, body: { products: SAMPLE_PRICES, settings: {} } } : undefined);
   const errored = await mount(<LinksScreen />, STAFF);
   check('read error has retry', !!one(errored.root, 'links-error-retry'));
   script(); await press(errored.root, 'links-error-retry'); check('retry recovers', !!one(errored.root, 'link-row-link-live')); await errored.unmount();

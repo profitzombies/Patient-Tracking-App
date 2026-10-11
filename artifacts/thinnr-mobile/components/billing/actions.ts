@@ -1,7 +1,6 @@
 /**
  * Platform seams the billing screens share: opening an external page
- * (receipts, carrier tracking), the demo-mode nudge that replaces every
- * write, and a destructive confirmation.
+ * (receipts, carrier tracking) and a destructive confirmation.
  */
 import { Alert, Linking, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -13,13 +12,6 @@ export async function openExternal(url: string): Promise<void> {
   }
   const opened = typeof window !== 'undefined' ? window.open(url, '_blank', 'noopener') : null;
   if (!opened) await Linking.openURL(url);
-}
-
-export function demoNudge(what = 'manage orders and subscriptions'): void {
-  const title = 'Demo mode';
-  const message = `Sign in with a patient account to ${what}.`;
-  if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert?.(`${title}\n\n${message}`);
-  else Alert.alert(title, message);
 }
 
 export function confirmDestructive(input: { title: string; message: string; confirmLabel: string; keepLabel: string }, proceed: () => void): void {

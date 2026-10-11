@@ -23,5 +23,5 @@ export function useSignedIn(): boolean {
  */
 export function useLivePatient(): boolean {
   const { account, getAccessToken, resolving } = usePatientAccount();
-  return account.kind !== 'demo' || Boolean(getAccessToken) || resolving === true;
+  return account.kind !== 'signed-out' || Boolean(getAccessToken) || resolving === true;
 }

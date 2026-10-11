@@ -4,27 +4,24 @@
  * PatientProvider; nothing else should render it.
  *
  * Resolution rules:
- *  - No Supabase config, or no session → demo account (the guided persona).
+ *  - No Supabase config, or no session → signed-out account.
  *  - Session resolves to kind 'patient' via /api/claim/whoami → real
  *    account: PatientProvider hydrates that patient's live diary.
- *  - Session resolves to any staff or demo-profile kind → demo account: a
- *    provider browsing the patient persona sees the seeded demo, never a
- *    real patient's diary.
+ *  - Session resolves to any staff kind → signed-out account: a provider
+ *    on a patient route never sees a real patient's diary.
  *  - The lookup fails (server unreachable) → the last successful resolution
  *    for this SAME user id, if there is one, so an offline cold start still
  *    opens the patient's cached diary and offline queue; otherwise
- *    'unresolved': seedless and write-blocked behind a retry, because
- *    showing the demo seed to a possibly-real patient would present someone
- *    else's history as theirs.
+ *    'unresolved': empty and write-blocked behind a retry.
  *
  * While a session's resolution is in flight the state reports
  * resolving=true and PatientProvider holds hydration, so a real patient
- * never sees a flash of the demo diary.
+ * never sees a flash of an empty diary.
  *
  * Once a REAL account is resolved the provider also runs the app-presence
  * heartbeat (lib/patient-presence-heartbeat): one ping on resolve and one
  * per debounced return to the foreground, so HQ's active-user figures see
- * a patient who merely opens the app. Demo and staff sessions never ping.
+ * a patient who merely opens the app. Staff sessions never ping.
  */
 import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { router } from 'expo-router';
@@ -50,7 +47,7 @@ import {
   isReenrollRequiredResolutionError,
 } from '@/lib/live-patient-entry';
 import {
-  DEMO_ACCOUNT_STATE,
+  SIGNED_OUT_ACCOUNT_STATE,
   PatientAccountContext,
   type PatientAccount,
   type PatientAccountState,
@@ -87,7 +84,7 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
     const accountFor = (role: AccountRole): PatientAccount =>
       role.kind === 'patient'
         ? { kind: 'real', patientId: role.patientId, api: patientDataApi }
-        : { kind: 'demo' };
+        : { kind: 'signed-out' };
     // A signup that just finished already knows its patient: resolve to it
     // at once so consent opens without waiting on the lookup below, which
     // still runs and has the final say.
@@ -151,17 +148,17 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<PatientAccountState>(() => {
-    if (!supabaseConfigured) return DEMO_ACCOUNT_STATE;
+    if (!supabaseConfigured) return SIGNED_OUT_ACCOUNT_STATE;
     if (sessionLoading) {
-      return { resolving: true, account: { kind: 'demo' }, accountNotice: null, retryResolve };
+      return { resolving: true, account: { kind: 'signed-out' }, accountNotice: null, retryResolve };
     }
     if (!userId) {
-      return { resolving: false, account: { kind: 'demo' }, accountNotice: null, retryResolve };
+      return { resolving: false, account: { kind: 'signed-out' }, accountNotice: null, retryResolve };
     }
     if (!resolved || resolved.forUserId !== userId) {
       return {
         resolving: true,
-        account: { kind: 'demo' },
+        account: { kind: 'signed-out' },
         accountNotice: null,
         retryResolve,
         getAccessToken: requireSessionAccessToken,
@@ -172,9 +169,9 @@ export function PatientAccountProvider({ children }: { children: ReactNode }) {
       account: resolved.account,
       accountNotice: resolved.notice,
       retryResolve,
-      // A live session exists (real, unresolved, or staff browsing the demo
-      // persona): expose its bearer supplier. Consumers decide per account
-      // kind whether to authenticate a call with it.
+      // A live session exists (real, unresolved, or a staff session on a
+      // patient route): expose its bearer supplier. Consumers decide per
+      // account kind whether to authenticate a call with it.
       getAccessToken: requireSessionAccessToken,
     };
   }, [sessionLoading, userId, resolved, retryResolve]);

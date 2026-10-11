@@ -5,8 +5,8 @@
  * so the account layer pings the server once when a real patient account
  * resolves and again each time the app returns to the foreground. Rules:
  *
- *  - Only `kind: 'real'` accounts ping. Demo, staff browsing the persona,
- *    and unresolved accounts never touch the network from here.
+ *  - Only `kind: 'real'` accounts ping. Signed-out, staff, and unresolved
+ *    accounts never touch the network from here.
  *  - Foreground pings are debounced (HEARTBEAT_DEBOUNCE_MS) so bouncing in
  *    and out of the app does not spam the server; the server throttles too.
  *  - Every ping is fenced by the account epoch it was started under: a

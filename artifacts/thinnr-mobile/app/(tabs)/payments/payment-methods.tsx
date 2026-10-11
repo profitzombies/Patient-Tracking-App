@@ -22,7 +22,6 @@ export default function PaymentMethodsScreen() {
       sub="Manage how your office pays THINNR."
       back={{ href: '/payments', label: 'Payments' }}
       allowAnyStaff
-      demo={<InlineNotice>Sign in with your office account to manage payment methods.</InlineNotice>}
       live={(ctx) => <PaymentMethodsLive userId={ctx.userId} />}
       accessLive={(userId) => <PaymentMethodsLive userId={userId} />}
     />

@@ -1,6 +1,6 @@
 /**
  * Office transaction list with status, search and cursor paging.
- * Demo rows filter locally; live filters are sent to the office billing API.
+ * Filters are sent to the office billing API.
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -19,7 +19,6 @@ import {
 } from '@/components/payments/primitives';
 import { RangePicker, usePaymentsRange } from '@/components/payments/range';
 import { useOfficeOrdersInfinite } from '@/hooks/useOfficeBilling';
-import { DEMO_ORDERS } from '@/data/office-payments-demo';
 import {
   FULFILLMENT_LABEL,
   ORDER_KIND_LABEL,
@@ -55,11 +54,6 @@ export default function TransactionsScreen() {
     q,
     setQ: setQState,
   };
-  const normalized = q.toLowerCase();
-  const demoRows = DEMO_ORDERS.filter((row) => (
-    (!status || row.status === status)
-    && (!q || `${row.order_number} ${row.payer.name}`.toLowerCase().includes(normalized))
-  ));
 
   return (
     <PaymentsScreen
@@ -67,7 +61,6 @@ export default function TransactionsScreen() {
       title="Transactions"
       sub="Orders and refunds for your office."
       refresh="transactions"
-      demo={<TransactionsView {...controls} rows={demoRows} />}
       live={(ctx) => <LiveTransactions ctx={ctx} {...controls} />}
     />
   );

@@ -18,7 +18,7 @@ import {
   type CartLine,
 } from '@/lib/cart-math';
 import { quoteCart } from '@/lib/patient-billing-api';
-import { buildDemoShop, findShopProduct } from '@/lib/shop-catalog';
+import { findShopProduct } from '@/lib/shop-catalog';
 import type { CartQuote } from '@/lib/patient-billing-types';
 
 export default function CareTeamBundleScreen() {
@@ -32,10 +32,7 @@ export default function CareTeamBundleScreen() {
   const suggestion = message?.sender === 'care_team' && message.suggestion?.mode === 'bundle'
     ? message.suggestion
     : null;
-  const shop = useMemo(
-    () => cart.shop ?? (cart.demo ? buildDemoShop() : null),
-    [cart.demo, cart.shop],
-  );
+  const shop = cart.shop;
 
   useEffect(() => {
     if (cart.shopStatus === 'idle') void cart.loadShop();
@@ -75,7 +72,7 @@ export default function CareTeamBundleScreen() {
   useEffect(() => {
     setLiveQuote(null);
     setQuoteError(null);
-    if (cart.demo || prepared.lines.length === 0) return;
+    if (prepared.lines.length === 0) return;
     let active = true;
     void quoteCart(toQuoteRequest(prepared.lines))
       .then(quote => {
@@ -89,9 +86,9 @@ export default function CareTeamBundleScreen() {
     return () => {
       active = false;
     };
-  }, [cart.demo, prepared.lines]);
+  }, [prepared.lines]);
 
-  const quote = cart.demo ? estimate : liveQuote;
+  const quote = liveQuote;
   // The rows show the prices your care team saw when they sent the bundle;
   // the summary is today's pricing. Say so when the two no longer agree.
   const sentSubtotal = suggestion
@@ -134,7 +131,7 @@ export default function CareTeamBundleScreen() {
     );
   }
 
-  const checkoutDisabled = cart.locked || prepared.lines.length === 0 || (!cart.demo && !quote);
+  const checkoutDisabled = cart.locked || prepared.lines.length === 0 || !quote;
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
       <ShopHeader title="Care team bundle" testIDPrefix="bundle" backFallback={'/care-team-chat' as Href} />

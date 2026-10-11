@@ -5,7 +5,7 @@
  * may start.
  *
  * Pure and deterministic — the same functions run under the native sensor
- * loop, the web demo feed, and the verification suite.
+ * loop, the web preview feed, and the verification suite.
  */
 
 import type { PositioningReading, PositioningStatus } from './photo-detection';

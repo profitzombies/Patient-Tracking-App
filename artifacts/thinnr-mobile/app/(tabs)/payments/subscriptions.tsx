@@ -9,7 +9,6 @@ import { useColors } from '@/hooks/useColors';
 import { officeBilling } from '@/lib/office-billing-api';
 import { CADENCE_LABEL, formatCents, formatDate, SUBSCRIPTION_STATUS_LABEL, subscriptionTone } from '@/lib/office-billing-format';
 import type { OfficePrice, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/office-billing-types';
-import { DEMO_PRICES, DEMO_SUBSCRIPTIONS } from '@/data/office-payments-demo';
 import { fonts } from '@/constants/colors';
 
 const TITLE = 'Product subscriptions';
@@ -32,7 +31,6 @@ export default function SubscriptionsScreen() {
       section="subscriptions"
       title={TITLE}
       sub={SUB}
-      demo={<SubscriptionsView items={DEMO_SUBSCRIPTIONS} products={DEMO_PRICES} demo />}
       live={(ctx) => <LiveSubscriptions ctx={ctx} />}
     />
   );
@@ -82,23 +80,22 @@ function LiveSubscriptions({ ctx }: { ctx: PaymentsLive }) {
   );
 }
 
-function SubscriptionsView({ items, products, demo = false, userId }: {
+function SubscriptionsView({ items, products, userId }: {
   items: SubscriptionRow[];
   products: OfficePrice[];
-  demo?: boolean;
-  userId?: string;
+  userId: string;
 }) {
   return (
     <Panel title="Subscriptions" testID="subscriptions-list">
       {!items.length ? <Empty testID="subscriptions-empty">No subscriptions match this status.</Empty> : null}
-      {items.map((row) => <SubscriptionCard key={row.id} row={row} products={products} demo={demo} userId={userId} />)}
+      {items.map((row) => <SubscriptionCard key={row.id} row={row} products={products} userId={userId} />)}
     </Panel>
   );
 }
 
 type Notice = { tone: 'good' | 'bad'; text: string } | null;
 
-function SubscriptionCard({ row, products, demo, userId }: { row: SubscriptionRow; products: OfficePrice[]; demo: boolean; userId?: string }) {
+function SubscriptionCard({ row, products, userId }: { row: SubscriptionRow; products: OfficePrice[]; userId: string }) {
   const colors = useColors();
   const [notice, setNotice] = useState<Notice>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -116,7 +113,7 @@ function SubscriptionCard({ row, products, demo, userId }: { row: SubscriptionRo
   const action = (
     success: string,
     run: (scope: { userId: string; signal?: AbortSignal }) => Promise<unknown>,
-  ) => useOfficeBillingMutation(userId ?? 'demo', (_: void, scope) => run(scope), {
+  ) => useOfficeBillingMutation(userId, (_: void, scope) => run(scope), {
     onSuccess: () => setNotice({ tone: 'good', text: success }),
     onError: (error) => setNotice({ tone: 'bad', text: error.message }),
   });
@@ -124,7 +121,7 @@ function SubscriptionCard({ row, products, demo, userId }: { row: SubscriptionRo
   const resume = action('Subscription resumed', (scope) => officeBilling.resumeSubscription(row.id, scope));
   const retry = action('Payment retry started', (scope) => officeBilling.retrySubscriptionPayment(row.id, scope));
   const resend = action('Payment link emailed', (scope) => officeBilling.resendSubscriptionPaymentEmail(row.id, scope));
-  const cancel = useOfficeBillingMutation(userId ?? 'demo', (later: boolean, scope) =>
+  const cancel = useOfficeBillingMutation(userId, (later: boolean, scope) =>
     officeBilling.cancelSubscription(row.id, { at_period_end: later }, scope), {
     onSuccess: (_data, later) => {
       setCancelOpen(false);
@@ -132,13 +129,13 @@ function SubscriptionCard({ row, products, demo, userId }: { row: SubscriptionRo
     },
     onError: (error) => setNotice({ tone: 'bad', text: error.message }),
   });
-  const quoteMutation = useOfficeBillingMutation(userId ?? 'demo', (productId: string, scope) =>
+  const quoteMutation = useOfficeBillingMutation(userId, (productId: string, scope) =>
     officeBilling.subscriptionChangeQuote(row.id, productId, scope), {
     invalidate: false,
     onSuccess: (result) => setQuote(result),
     onError: (error) => setQuoteError(error.message || 'Quote could not be loaded.'),
   });
-  const change = useOfficeBillingMutation(userId ?? 'demo', (productId: string, scope) =>
+  const change = useOfficeBillingMutation(userId, (productId: string, scope) =>
     officeBilling.changeSubscription(row.id, { product_id: productId }, scope), {
     onSuccess: () => {
       setChangeOpen(false);
@@ -177,11 +174,11 @@ function SubscriptionCard({ row, products, demo, userId }: { row: SubscriptionRo
       {row.pending_change ? <Body>Changes to {row.pending_change.product_name} ({formatCents(row.pending_change.unit_price_cents)}) on {formatDate(row.pending_change.effective_at)}</Body> : null}
       {live ? (
         <View style={styles.actions}>
-          {failed ? <Button small label="Retry payment" disabled={demo} busy={retry.isPending} onPress={() => retry.mutate()} testID={`button-retry-payment-${row.id}`} /> : null}
-          {failed ? <Button small label="Email patient a payment link" disabled={demo} busy={resend.isPending} onPress={() => resend.mutate()} testID={`button-resend-payment-email-${row.id}`} /> : null}
-          <Button small label={row.paused_at ? 'Resume' : 'Pause'} disabled={demo} busy={pause.isPending || resume.isPending} onPress={() => row.paused_at ? resume.mutate() : pause.mutate()} testID={`button-${row.paused_at ? 'resume' : 'pause'}-${row.id}`} />
-          <Button small label="Change product" disabled={demo} onPress={() => { setChangeOpen(true); setNextProduct(''); setQuote(null); setQuoteError(''); }} testID={`button-change-product-${row.id}`} />
-          {!row.cancel_at_period_end ? <Button small label="Cancel subscription…" variant="danger" disabled={demo} onPress={() => { setCancelTiming('later'); setConfirm(''); setCancelOpen(true); }} testID={`button-cancel-subscription-${row.id}`} /> : null}
+          {failed ? <Button small label="Retry payment" busy={retry.isPending} onPress={() => retry.mutate()} testID={`button-retry-payment-${row.id}`} /> : null}
+          {failed ? <Button small label="Email patient a payment link" busy={resend.isPending} onPress={() => resend.mutate()} testID={`button-resend-payment-email-${row.id}`} /> : null}
+          <Button small label={row.paused_at ? 'Resume' : 'Pause'} busy={pause.isPending || resume.isPending} onPress={() => row.paused_at ? resume.mutate() : pause.mutate()} testID={`button-${row.paused_at ? 'resume' : 'pause'}-${row.id}`} />
+          <Button small label="Change product" onPress={() => { setChangeOpen(true); setNextProduct(''); setQuote(null); setQuoteError(''); }} testID={`button-change-product-${row.id}`} />
+          {!row.cancel_at_period_end ? <Button small label="Cancel subscription…" variant="danger" onPress={() => { setCancelTiming('later'); setConfirm(''); setCancelOpen(true); }} testID={`button-cancel-subscription-${row.id}`} /> : null}
         </View>
       ) : null}
       {notice ? <InlineNotice tone={notice.tone} testID={`subscription-notice-${row.id}`}>{notice.text}</InlineNotice> : null}

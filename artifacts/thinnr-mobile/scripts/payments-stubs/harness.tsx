@@ -2,7 +2,7 @@
  * Shared harness for the Payments area suites (scripts/verify-payments-*.tsx,
  * run with tsconfig.payments.json). Renders REAL screens under
  * react-test-renderer with:
- *   - a scripted Supabase session (setStubSession) to pick demo vs live,
+ *   - a scripted Supabase session (setStubSession) for the signed-in office,
  *   - a scripted global fetch that records every request (URL, method,
  *     bearer, headers, JSON body) so suites can assert each write's shape,
  *   - a fresh QueryClient per mount (no retries, so failures surface fast).
@@ -11,7 +11,6 @@ import React, { act } from 'react';
 import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { OperationsProvider } from '../../context/OperationsContext';
 import { PaymentsRangeProvider } from '../../components/payments/range';
 import { setStubSession, type StubSession } from '../leaderboard-stubs/supabase';
 import { routerLog } from '../provider-training-stubs/expo-router';
@@ -21,7 +20,7 @@ setBillingRetryBaseMs(1);
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// Platform.OS is 'web' under the stub, so OperationsContext persists to localStorage.
+// Platform.OS is 'web' under the stub, so screen state persists to localStorage.
 const memory = new Map<string, string>();
 (globalThis as any).localStorage = {
   getItem: (key: string) => memory.get(key) ?? null,
@@ -122,7 +121,7 @@ export async function mount(element: React.ReactElement, session: StubSession | 
   await act(async () => {
     renderer = create(
       <QueryClientProvider client={client}>
-        <OperationsProvider><PaymentsRangeProvider>{element}</PaymentsRangeProvider></OperationsProvider>
+        <PaymentsRangeProvider>{element}</PaymentsRangeProvider>
       </QueryClientProvider>,
     );
   });

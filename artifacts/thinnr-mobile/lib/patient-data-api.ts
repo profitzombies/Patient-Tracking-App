@@ -1,7 +1,7 @@
 /**
  * Client for the live per-patient diary rail (/api/patient-data/* on the API
  * server) plus the whoami lookup that decides real-account mode. Real
- * accounts only — the demo persona never touches these endpoints.
+ * accounts only — nothing here runs while signed out.
  *
  * Every call sends the patient's current Supabase access token as a bearer
  * header; the server resolves it to a patients row and scopes every read and
@@ -327,8 +327,8 @@ export async function requireSessionAccessToken(): Promise<string | null> {
 
 /**
  * Resolves the signed-in session to an account kind via the claim flow's
- * whoami. Staff and demo-profile sessions come back 'other' (they browse the
- * seeded demo persona); only a linked patient row unlocks the live diary.
+ * whoami. Staff and other non-patient sessions come back 'other'; only a
+ * linked patient row unlocks the live diary.
  */
 export async function fetchAccountRole(): Promise<AccountRole> {
   const json = await authedRequest('GET', '/claim/whoami');
@@ -339,7 +339,7 @@ export async function fetchAccountRole(): Promise<AccountRole> {
       return { kind: 'patient', patientId };
     }
     // A patient without an id is a contract break — treat it as an outage
-    // rather than quietly dropping into demo data.
+    // rather than quietly rendering an empty patient.
     throw new PatientDataError(MALFORMED_MESSAGE);
   }
   return { kind: 'other' };

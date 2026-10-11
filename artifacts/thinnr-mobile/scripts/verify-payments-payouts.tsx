@@ -1,5 +1,5 @@
 /**
- * Payout verification: web-matched demo summary, authenticated live balances
+ * Payout verification: signed-out holding frame, authenticated live balances
  * and history, delayed/error states, and accessibility.
  */
 import React from 'react';
@@ -22,8 +22,6 @@ import {
 } from './payments-stubs/harness';
 import { setPathname } from './provider-training-stubs/expo-router';
 import PayoutsScreen from '../app/(tabs)/payments/payouts';
-import { DEMO_DASHBOARD } from '../data/office-payments-demo';
-import { formatCents } from '../lib/office-billing-format';
 
 const STATUS: any = { account: {}, sandbox: true, viewer: { can_manage: true }, office: {} };
 const DATA = {
@@ -64,16 +62,14 @@ function accessible(root: any): boolean {
 
 async function main() {
   setPathname('/payments/payouts');
-  section('Demo');
+  section('Signed out');
   resetRequests();
   liveScript();
   let mounted = await mount(<PayoutsScreen />, null);
   check(
-    'demo derives balance from pinned dashboard with no fetch',
-    requests.length === 0
-      && text(mounted.root, 'payouts-demo').includes(formatCents(DEMO_DASHBOARD.balance.available_cents)),
+    'signed-out mount holds the sign-in frame: no rows, no fetch',
+    requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'payout-row-').length === 0,
   );
-  check('demo has no write controls', !one(mounted.root, 'button-payout'));
   await mounted.unmount();
 
   section('Live');

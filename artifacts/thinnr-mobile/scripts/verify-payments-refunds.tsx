@@ -1,5 +1,5 @@
 /**
- * Refund/dispute ledger verification: demo isolation, exact range/filter/page
+ * Refund/dispute ledger verification: signed-out isolation, exact range/filter/page
  * requests, delayed and retry states, links, and accessibility.
  */
 import React from 'react';
@@ -23,7 +23,7 @@ import {
 } from './payments-stubs/harness';
 import { setPathname, setSearchParams } from './provider-training-stubs/expo-router';
 import RefundsScreen from '../app/(tabs)/payments/refunds';
-import { DEMO_REFUNDS } from '../data/office-payments-demo';
+import { SAMPLE_REFUNDS } from './fixtures/sample-office-payments';
 import { rangeForPreset } from '../components/payments/range';
 
 const STATUS: any = { account: {}, sandbox: true, viewer: { can_manage: true }, office: {} };
@@ -34,7 +34,7 @@ function liveScript(options?: { delayed?: boolean; error?: boolean }) {
     if (request.path !== '/api/billing/office/refunds') return undefined;
     if (options?.delayed) return { delay: true, body: { items: [], next_cursor: null } };
     if (options?.error) return { status: 400, body: { error: 'Refund list failed' } };
-    return { status: 200, body: { items: DEMO_REFUNDS, next_cursor: null, total: 41 } };
+    return { status: 200, body: { items: SAMPLE_REFUNDS, next_cursor: null, total: 41 } };
   });
 }
 
@@ -51,20 +51,15 @@ function accessible(root: any): boolean {
 
 async function main() {
   setPathname('/payments/refunds');
-  section('Demo');
   setSearchParams({});
+  section('Signed out');
   resetRequests();
   liveScript();
   let mounted = await mount(<RefundsScreen />, null);
   check(
-    'pinned demo rows and no fetch',
-    requests.length === 0 && ids(mounted.root, 'row-refund-').length === DEMO_REFUNDS.length,
+    'signed-out mount holds the sign-in frame: no rows, no fetch',
+    requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'row-refund-').length === 0,
   );
-  check('demo is read-only with no write buttons', !one(mounted.root, 'button-refund-confirm'));
-  await press(mounted.root, 'filter-refunds-dispute');
-  check('demo kind filter is local', ids(mounted.root, 'row-refund-').length === 1);
-  await press(mounted.root, 'row-refund-demo-dispute-1');
-  check('row opens its order', routerLog.some((call) => call.target.includes('demo-order-3')));
   await mounted.unmount();
 
   section('Live kind filters');
@@ -119,7 +114,7 @@ async function main() {
   check('4xx message is shown', text(mounted.root, 'refunds-error').includes('Refund list failed'));
   liveScript();
   await press(mounted.root, 'refunds-error-retry');
-  check('retry recovers', ids(mounted.root, 'row-refund-').length === DEMO_REFUNDS.length);
+  check('retry recovers', ids(mounted.root, 'row-refund-').length === SAMPLE_REFUNDS.length);
   await mounted.unmount();
 
   finish('payments-refunds');

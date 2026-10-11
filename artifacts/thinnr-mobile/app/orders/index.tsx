@@ -6,7 +6,6 @@ import { OrderCard } from '@/components/billing/BillingPieces';
 import { useBillingNotice } from '@/components/billing/useBillingNotice';
 import { useBillingResource } from '@/components/billing/useBillingResource';
 import { ErrorBox, GhostButton } from '@/components/onboarding/OnboardingFields';
-import { DEMO_ORDERS } from '@/data/patient-billing-demo';
 import { useColors } from '@/hooks/useColors';
 import { listOrders } from '@/lib/patient-billing-api';
 import { errorMessage, orderHref } from '@/lib/patient-billing-core';
@@ -17,7 +16,7 @@ const PAGE_SIZE = 20;
 export default function OrdersScreen() {
   const colors = useColors();
   const load = useCallback((): Promise<PatientOrderList> => listOrders(null, PAGE_SIZE), []);
-  const orders = useBillingResource<PatientOrderList>(load, () => ({ items: DEMO_ORDERS, next_cursor: null }), 'orders');
+  const orders = useBillingResource<PatientOrderList>(load, 'orders');
   const notice = useBillingNotice();
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
@@ -49,7 +48,7 @@ export default function OrdersScreen() {
   const refresh = async () => {
     const failure = await orders.refresh();
     if (failure) notice.announce(`Couldn't refresh orders. ${failure}`);
-    else AccessibilityInfo.announceForAccessibility(orders.demo ? 'Demo orders are up to date' : 'Orders updated');
+    else AccessibilityInfo.announceForAccessibility('Orders updated');
   };
 
   return (
@@ -60,7 +59,6 @@ export default function OrdersScreen() {
       error={orders.error}
       onRetry={() => void orders.reload()}
       hasContent={orders.data !== null}
-      demo={orders.demo}
       notice={notice.notice}
       onDismissNotice={notice.dismiss}
       onRefresh={() => void refresh()}

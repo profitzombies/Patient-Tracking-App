@@ -6,13 +6,8 @@
  * sections. All program wording is verbatim from docs/thinnr-program/.
  * Heritage language: paper cards, serif section titles, rounded
  * pale-cobalt chips; colors and radii come from shared theme tokens.
- *
- * A clearly-labeled, screen-local DEMO PREVIEW control lets a sales demo
- * dial in any program day (e.g. Day 1 → Activation badged "Current")
- * without touching the demo dataset — it defaults to the real day and
- * affects only this screen and the phase cards it opens.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PageScrollView as ScrollView } from '@/components/ui/PageScrollView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,12 +20,9 @@ import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { useLivePatient } from '@/hooks/useLivePatient';
-import { ENROLLMENT_DAYS } from '@/data/patient-data';
 import {
   clampProgramDay,
   FORMULA_SECTION,
-  MAX_PROGRAM_DAY,
   phaseForDay,
   phaseStatusForDay,
   PHASES_SECTION,
@@ -39,9 +31,6 @@ import {
   WELCOME_SECTION,
   type ProgramPhaseId,
 } from '@/data/program-instructions';
-
-// Emma's actual program day, from the fixed-anchor demo dataset.
-const REAL_DAY = clampProgramDay(ENROLLMENT_DAYS);
 
 // One icon per "Taking the Formula" paragraph (sublingual dose, schedule,
 // spacing, no food/drink, don't skip). UI chrome only.
@@ -53,16 +42,8 @@ export default function InstructionsScreen() {
   const pathname = usePathname();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const patient = usePatient();
-  // The demo persona gets Emma's seeded day plus the screen-local preview; a
-  // signed-in patient gets their own program day, or none while it loads.
-  const live = useLivePatient();
-  const isDemo = !live;
-  const realDay: number | null = live
-    ? patient.entryFacts?.programDay ?? null
-    : patient.entryFacts?.programDay ?? REAL_DAY;
-
-  // Screen-local demo preview: defaults to the patient's real program day.
-  const [previewDay, setPreviewDay] = useState(realDay ?? REAL_DAY);
+  // The patient's own program day, or none while it loads.
+  const realDay: number | null = patient.entryFacts?.programDay ?? null;
 
   const topPad = Math.max(insets.top, Platform.OS === 'web' ? 24 : 12);
   const bottomPad = Platform.OS === 'web' ? 32 : insets.bottom + 24;
@@ -75,11 +56,8 @@ export default function InstructionsScreen() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  const demoDay = clampProgramDay(previewDay);
-  const effectiveDay: number | null = isDemo ? demoDay : realDay === null ? null : clampProgramDay(realDay);
-  const isPreviewing = isDemo && demoDay !== REAL_DAY;
+  const effectiveDay: number | null = realDay === null ? null : clampProgramDay(realDay);
   const currentPhase = effectiveDay === null ? null : phaseForDay(effectiveDay);
-  const demoPhase = phaseForDay(demoDay);
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -94,10 +72,6 @@ export default function InstructionsScreen() {
     });
   };
 
-  const setDay = (day: number) => {
-    Haptics.selectionAsync();
-    setPreviewDay(clampProgramDay(day));
-  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -127,109 +101,6 @@ export default function InstructionsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}>
-        {/* ── Demo-only program day preview ── */}
-        {isDemo && <View
-          testID="demo-preview-panel"
-          style={[
-            styles.demoPanel,
-            { backgroundColor: colors.warnBg, borderColor: colors.warnBorder, borderRadius: colors.radius },
-          ]}
-        >
-          <View style={styles.demoTopRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.demoLabel, { color: colors.warnText }]}>DEMO PREVIEW</Text>
-              <Text style={[styles.demoSub, { color: colors.warnText }]}>
-                Program day — affects this screen only
-              </Text>
-            </View>
-            <View style={styles.demoStepper}>
-              <Pressable
-                testID="demo-day-minus"
-                onPress={() => setDay(demoDay - 1)}
-                disabled={demoDay <= 1}
-                style={({ pressed }) => [
-                  styles.demoStepBtn,
-                  {
-                    borderColor: colors.warnBorder,
-                    borderRadius: colors.radiusSm,
-                    backgroundColor: pressed ? colors.accent : colors.card,
-                  },
-                  demoDay <= 1 && { opacity: 0.35 },
-                ]}
-              >
-                <Feather name="minus" size={13} color={colors.warnText} />
-              </Pressable>
-              <Text testID="demo-day-value" style={[styles.demoValue, { color: colors.warnText }]}>
-                Day {demoDay}
-              </Text>
-              <Pressable
-                testID="demo-day-plus"
-                onPress={() => setDay(demoDay + 1)}
-                disabled={demoDay >= MAX_PROGRAM_DAY}
-                style={({ pressed }) => [
-                  styles.demoStepBtn,
-                  {
-                    borderColor: colors.warnBorder,
-                    borderRadius: colors.radiusSm,
-                    backgroundColor: pressed ? colors.accent : colors.card,
-                  },
-                  demoDay >= MAX_PROGRAM_DAY && { opacity: 0.35 },
-                ]}
-              >
-                <Feather name="plus" size={13} color={colors.warnText} />
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.demoChipRow}>
-            {PROGRAM_PHASES.map(phase => {
-              const isActive = demoPhase.id === phase.id;
-              return (
-                <Pressable
-                  key={phase.id}
-                  testID={`demo-day-chip-${phase.startDay}`}
-                  onPress={() => setDay(phase.startDay)}
-                  style={({ pressed }) => [
-                    styles.demoChip,
-                    { borderRadius: colors.radiusSm },
-                    isActive
-                      ? { backgroundColor: colors.warnText, borderColor: colors.warnText }
-                      : { backgroundColor: 'transparent', borderColor: colors.warnBorder },
-                    pressed && { opacity: 0.75 },
-                  ]}
-                >
-                  <Text
-                    style={[styles.demoChipText, { color: isActive ? colors.warnBg : colors.warnText }]}
-                  >
-                    Day {phase.startDay}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            {isPreviewing && (
-              <Pressable
-                testID="demo-day-reset"
-                onPress={() => setDay(REAL_DAY)}
-                style={({ pressed }) => [
-                  styles.demoChip,
-                  styles.demoResetChip,
-                  { borderColor: colors.warnBorder, borderRadius: colors.radiusSm },
-                  pressed && { opacity: 0.75 },
-                ]}
-              >
-                <Feather name="rotate-ccw" size={10} color={colors.warnText} />
-                <Text style={[styles.demoChipText, { color: colors.warnText }]}>Reset</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {isPreviewing && (
-            <Text testID="demo-preview-hint" style={[styles.demoHint, { color: colors.warnText }]}>
-              Previewing Day {demoDay} — your real program day is Day {REAL_DAY}.
-            </Text>
-          )}
-        </View>}
-
         {/* ── Current phase ── */}
         {currentPhase && effectiveDay !== null ? (
           <>
@@ -423,74 +294,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-  },
-  // ── Demo preview panel ──
-  demoPanel: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    padding: 12,
-  },
-  demoTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  demoLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.4,
-    fontFamily: 'Inter_700Bold',
-  },
-  demoSub: {
-    fontSize: 10,
-    marginTop: 2,
-    fontFamily: 'Inter_400Regular',
-  },
-  demoStepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  demoStepBtn: {
-    width: 26,
-    height: 26,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  demoValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-    minWidth: 52,
-    textAlign: 'center',
-  },
-  demoChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-  },
-  demoChip: {
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  demoResetChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  demoChipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    fontFamily: 'Inter_700Bold',
-  },
-  demoHint: {
-    fontSize: 10.5,
-    lineHeight: 15,
-    marginTop: 9,
-    fontFamily: 'Inter_400Regular',
   },
   // ── Sections ──
   sectionTitle: {

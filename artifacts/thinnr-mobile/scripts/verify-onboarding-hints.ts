@@ -2,16 +2,16 @@
  * Onboarding blocked-Next "what's missing" hint regression check.
  *
  * Renders the REAL onboarding step components (OnboardingFrame +
- * StepsAccount / StepsProfile) with react-test-renderer under tsx
+ * StepsProfile) with react-test-renderer under tsx
  * (tsconfig.onboarding-hints.json maps every native-only bare specifier to a
  * Node stub; expo-router is a recording stub) and pins the blocked-Next
- * feedback contract on the steps with distinct hint logic — contact,
- * verification code, password, weight — plus the no-hint fallback (gender):
+ * feedback contract on the steps with distinct hint logic — goal weight,
+ * weight — plus the no-hint fallback (gender):
  *   1. tapping a dimmed Next shows the step-correct hint text in the
  *      ob-next-hint ErrorBox (and re-taps never duplicate it),
- *   2. the hint tracks the CURRENT gap live (password: requirements →
- *      blocked password → confirm missing → mismatch; contact: phone ↔
- *      email wording; weight: missing ↔ out-of-range wording),
+ *   2. the hint tracks the CURRENT gap live (goal weight: missing → below
+ *      the floor → above current weight; weight: missing ↔ out-of-range
+ *      wording),
  *   3. a blocked tap NEVER advances the step (the router records no push),
  *      while valid input advances to exactly the flow's next step,
  *   4. the hint clears the moment input becomes valid, and stays hidden on
@@ -25,15 +25,14 @@
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints
  */
-import React, { act } from 'react';
+import React, { act, useEffect } from 'react';
 // Resolves to scripts/onboarding-hints-stubs/expo-router.ts — the SAME module
 // instance the components under test import, so the log below sees their calls.
 import { routerLog } from 'expo-router';
 
-import { OnboardingProvider } from '../context/OnboardingContext';
+import { OnboardingProvider, useOnboarding } from '../context/OnboardingContext';
 import { OnboardingFrame } from '../components/onboarding/OnboardingFrame';
-import { ContactStep, PasswordStep, VerifyStep } from '../components/onboarding/StepsAccount';
-import { WeightStep } from '../components/onboarding/StepsProfile';
+import { GoalWeightStep, WeightStep } from '../components/onboarding/StepsProfile';
 import { DEFAULT_ANSWERS, visibleSteps, type StepKey } from '../data/onboarding-data';
 
 let checks = 0;
@@ -207,13 +206,18 @@ async function unmount(renderer: Mounted) {
 
 // ── Expected hint copy (must stay in lockstep with the step components) ─────
 
-const HINT_CONTACT_PHONE = 'Enter a complete phone number, like (555) 123-4567, so we can text your code.';
-const HINT_CONTACT_EMAIL = 'Enter a valid email address, like you@example.com, so we can send your code.';
-const HINT_VERIFY = 'Enter all 6 digits of your verification code first.';
-const HINT_PW_REQUIREMENTS = "Your password doesn't meet all the requirements below yet.";
-const HINT_PW_BLOCKED = "That password can't be used — try something more unique.";
-const HINT_PW_CONFIRM = 'Re-enter your password in the confirm field.';
-const HINT_PW_MISMATCH = "The two passwords don't match yet.";
+const HINT_GOAL_MISSING = 'Enter your goal weight to continue.';
+const HINT_GOAL_FLOOR = 'Enter a goal of at least 80 lb.';
+const HINT_GOAL_ABOVE_CURRENT = 'Set a goal below your current weight of 215 lb.';
+
+/** GoalWeightStep with a current weight on file, so the above-current rule is reachable. */
+function GoalWeightWithCurrent() {
+  const { answers, patch } = useOnboarding();
+  useEffect(() => {
+    if (answers.currentWeight !== '215') patch({ currentWeight: '215' });
+  }, [answers.currentWeight, patch]);
+  return React.createElement(GoalWeightStep);
+}
 const HINT_WEIGHT_MISSING = 'Enter your current weight to continue.';
 const HINT_WEIGHT_RANGE = 'Enter a weight between 80 and 500 lb.';
 const ERROR_WRONG_CODE = "That code didn't match. For this demo, use 123456.";
@@ -236,152 +240,56 @@ async function main() {
   if (!TestRenderer.create) throw new Error('react-test-renderer did not expose create()');
   createRenderer = TestRenderer.create.bind(TestRenderer) as CreateRenderer;
 
-  // ── 1. Contact step: phone ↔ email hints, clear-on-valid, advance ─────────
+  // ── 1. Goal-weight step: missing → floor → above-current wording ─────────
   {
     resetRouter();
-    const r = await mount(React.createElement(ContactStep));
+    const r = await mount(React.createElement(GoalWeightWithCurrent));
 
-    assertNoHint(r, 'contact: before any tap');
-    assertNextBlockedButTappable(r, 'contact: empty phone');
+    assertNoHint(r, 'goal: before any tap');
+    assertNextBlockedButTappable(r, 'goal: empty input');
 
-    await tap(r, 'ob-next', 'contact: blocked tap');
-    assertHintText(r, 'contact: blocked tap (phone mode)', HINT_CONTACT_PHONE);
-    assertErrorBoxA11y(hintNode(r), 'contact: hint box');
-    assertEqual('contact: blocked tap never advances', pushes().length, 0);
+    await tap(r, 'ob-next', 'goal: blocked tap');
+    assertHintText(r, 'goal: blocked tap', HINT_GOAL_MISSING);
+    assertErrorBoxA11y(hintNode(r), 'goal: hint box');
+    assertEqual('goal: blocked tap never advances', pushes().length, 0);
 
-    await tap(r, 'ob-next', 'contact: second blocked tap');
-    assertHintText(r, 'contact: re-tap keeps a single hint box', HINT_CONTACT_PHONE);
-    assertEqual('contact: re-tap still never advances', pushes().length, 0);
+    await tap(r, 'ob-next', 'goal: second blocked tap');
+    assertHintText(r, 'goal: re-tap keeps a single hint box', HINT_GOAL_MISSING);
+    assertEqual('goal: re-tap still never advances', pushes().length, 0);
 
-    // Partial input: still blocked, the hint stays up.
-    await typeText(r, 'ob-contact-input', '555123', 'contact: partial phone');
-    assertHintText(r, 'contact: partial phone keeps the hint', HINT_CONTACT_PHONE);
+    // The hint tracks the CURRENT problem live.
+    await typeText(r, 'ob-goal-input', '50', 'goal: below the floor');
+    assertHintText(r, 'goal: below the floor swaps to the floor hint', HINT_GOAL_FLOOR);
+    await typeText(r, 'ob-goal-input', '230', 'goal: above current weight');
+    assertHintText(r, 'goal: above current swaps to the current-weight hint', HINT_GOAL_ABOVE_CURRENT);
+    await tap(r, 'ob-next', 'goal: tap while above current');
+    assertEqual('goal: above-current tap never advances', pushes().length, 0);
 
     // Valid input: the hint clears without another tap.
-    await typeText(r, 'ob-contact-input', '5551234567', 'contact: full phone');
-    assertNoHint(r, 'contact: hint clears once the phone number is complete');
-    assertNextEnabled(r, 'contact: complete phone');
+    await typeText(r, 'ob-goal-input', '180', 'goal: valid goal');
+    assertNoHint(r, 'goal: hint clears once the goal is valid');
+    assertNextEnabled(r, 'goal: valid goal');
 
     // Relapse: emptying the field re-blocks Next but must NOT resurrect the
     // hint until the patient taps again.
-    await typeText(r, 'ob-contact-input', '', 'contact: cleared input');
-    assertNextBlockedButTappable(r, 'contact: cleared input');
-    assertNoHint(r, 'contact: relapse stays quiet until the next tap');
+    await typeText(r, 'ob-goal-input', '', 'goal: cleared input');
+    assertNextBlockedButTappable(r, 'goal: cleared input');
+    assertNoHint(r, 'goal: relapse stays quiet until the next tap');
+    await tap(r, 'ob-next', 'goal: blocked tap after relapse');
+    assertHintText(r, 'goal: relapse tap shows the missing hint again', HINT_GOAL_MISSING);
 
-    // Email mode gets its own wording.
-    await tap(r, 'pill-email', 'contact: switch to email');
-    await tap(r, 'ob-next', 'contact: blocked tap (email mode)');
-    assertHintText(r, 'contact: blocked tap (email mode)', HINT_CONTACT_EMAIL);
-    await typeText(r, 'ob-contact-input', 'emma@', 'contact: partial email');
-    assertHintText(r, 'contact: partial email keeps the hint', HINT_CONTACT_EMAIL);
+    await typeText(r, 'ob-goal-input', '180', 'goal: valid again');
+    assertNoHint(r, 'goal: hint clears again');
+    assertEqual('goal: nothing advanced while blocked', pushes().length, 0);
 
-    await typeText(r, 'ob-contact-input', 'emma@example.com', 'contact: valid email');
-    assertNoHint(r, 'contact: hint clears once the email is valid');
-    assertEqual('contact: nothing advanced while blocked', pushes().length, 0);
-
-    await tap(r, 'ob-next', 'contact: valid tap');
-    assertEqual('contact: valid tap advances exactly once', pushes().length, 1);
-    assertEqual('contact: valid tap advances to the next step', pushes()[0] ?? '', nextStepAfter('contact'));
+    await tap(r, 'ob-next', 'goal: valid tap');
+    assertEqual('goal: valid tap advances exactly once', pushes().length, 1);
+    assertEqual('goal: valid tap advances to the next step', pushes()[0] ?? '', nextStepAfter('goal-weight'));
 
     await unmount(r);
   }
 
-  // ── 2. Verification-code step: length hint, wrong-code error, advance ─────
-  {
-    resetRouter();
-    const r = await mount(React.createElement(VerifyStep));
-
-    assertNoHint(r, 'verify: before any tap');
-    await tap(r, 'ob-next', 'verify: blocked tap');
-    assertHintText(r, 'verify: blocked tap with empty code', HINT_VERIFY);
-    assertErrorBoxA11y(hintNode(r), 'verify: hint box');
-    assertEqual('verify: blocked tap never advances', pushes().length, 0);
-
-    await typeText(r, 'ob-code-input', '12345', 'verify: five digits');
-    assertHintText(r, 'verify: five digits keep the hint', HINT_VERIFY);
-    assertNextBlockedButTappable(r, 'verify: five digits');
-
-    // Six WRONG digits: the blocked hint clears (input is complete), and the
-    // submit path shows the step's own inline error instead — no advance.
-    await typeText(r, 'ob-code-input', '654321', 'verify: wrong code');
-    assertNoHint(r, 'verify: hint clears once six digits are in');
-    await tap(r, 'ob-next', 'verify: submit wrong code');
-    assertEqual('verify: wrong code never advances', pushes().length, 0);
-    {
-      const errorBox = mustFindOne(r, 'ob-code-error', 'verify: wrong-code error box');
-      checks += 1;
-      if (errorBox) {
-        assertEqual("verify: wrong-code error text", collectText(errorBox), ERROR_WRONG_CODE);
-        assertErrorBoxA11y(errorBox, 'verify: wrong-code error box');
-      }
-    }
-
-    // Editing the code clears the inline error; the right code advances.
-    await typeText(r, 'ob-code-input', '123456', 'verify: correct code');
-    assertEqual(
-      'verify: editing clears the wrong-code error',
-      hostsByTestID(r, 'ob-code-error').length,
-      0,
-    );
-    await tap(r, 'ob-next', 'verify: submit correct code');
-    assertEqual('verify: correct code advances exactly once', pushes().length, 1);
-    assertEqual('verify: advances to the next step', pushes()[0] ?? '', nextStepAfter('verify'));
-
-    await unmount(r);
-  }
-
-  // ── 3. Password step: the hint tracks the current gap live ────────────────
-  {
-    resetRouter();
-    const r = await mount(React.createElement(PasswordStep));
-
-    await tap(r, 'ob-next', 'password: blocked tap');
-    assertHintText(r, 'password: empty fields', HINT_PW_REQUIREMENTS);
-    assertErrorBoxA11y(hintNode(r), 'password: hint box');
-
-    // Still failing the checklist: same wording.
-    await typeText(r, 'ob-password', 'Aa1!', 'password: too short');
-    assertHintText(r, 'password: too short keeps the requirements hint', HINT_PW_REQUIREMENTS);
-
-    // Meets the checklist but is on the blocklist: hint swaps live, and the
-    // step's own inline blocked-password box appears alongside.
-    await typeText(r, 'ob-password', 'Password1!', 'password: blocked password');
-    assertHintText(r, 'password: blocked password swaps the hint live', HINT_PW_BLOCKED);
-    {
-      const blockedBox = mustFindOne(r, 'ob-password-blocked', 'password: inline blocked box');
-      checks += 1;
-      if (blockedBox) assertErrorBoxA11y(blockedBox, 'password: inline blocked box');
-    }
-    await tap(r, 'ob-next', 'password: tap while blocked password');
-    assertEqual('password: blocked password never advances', pushes().length, 0);
-
-    // Acceptable password, no confirmation yet.
-    await typeText(r, 'ob-password', 'Emerald9!', 'password: strong password');
-    assertHintText(r, 'password: missing confirmation', HINT_PW_CONFIRM);
-    assertEqual(
-      'password: inline blocked box clears for an allowed password',
-      hostsByTestID(r, 'ob-password-blocked').length,
-      0,
-    );
-
-    // Mismatched confirmation.
-    await typeText(r, 'ob-password-confirm', 'Emerald9', 'password: mismatch');
-    assertHintText(r, 'password: mismatch', HINT_PW_MISMATCH);
-    await tap(r, 'ob-next', 'password: tap while mismatched');
-    assertEqual('password: mismatch never advances', pushes().length, 0);
-
-    // Match: hint clears, Next advances.
-    await typeText(r, 'ob-password-confirm', 'Emerald9!', 'password: match');
-    assertNoHint(r, 'password: hint clears once the passwords match');
-    assertNextEnabled(r, 'password: match');
-    await tap(r, 'ob-next', 'password: valid tap');
-    assertEqual('password: valid tap advances exactly once', pushes().length, 1);
-    assertEqual('password: advances to the next step', pushes()[0] ?? '', nextStepAfter('password'));
-
-    await unmount(r);
-  }
-
-  // ── 4. Weight step (profile): missing ↔ out-of-range wording ──────────────
+  // ── 2. Weight step (profile): missing ↔ out-of-range wording ──────────────
   {
     resetRouter();
     const r = await mount(React.createElement(WeightStep));
@@ -408,7 +316,7 @@ async function main() {
     await unmount(r);
   }
 
-  // ── 5. No-hint fallback: a frame without nextBlockedHint hard-disables ────
+  // ── 3. No-hint fallback: a frame without nextBlockedHint hard-disables ────
   // Synthetic OnboardingFrame probe (not a real step) so this section keeps
   // pinning the frame/PrimaryButton contract even as individual steps gain
   // their own hints: no hint configured → the button is truly disabled, taps

@@ -110,8 +110,8 @@ export default function BloodworkIndex() {
       accountCtx.retryResolve();
       return;
     }
-    // Demo mode still opens the existing form so its explicit demo denial is
-    // visible at save time; it never gets a live report request.
+    // A signed-out shell still opens the form so its explicit sign-in
+    // denial is visible at save time; it never gets a live report request.
     router.push('/bloodwork/new');
   };
 
@@ -169,7 +169,7 @@ export default function BloodworkIndex() {
           <Feather name="plus" size={18} color={colors.primaryForeground} />
           <Text style={[styles.addText, { color: colors.primaryForeground }]}>Add report</Text>
         </Pressable>
-        {entryRecovery && accountCtx.account.kind !== 'demo' ? (
+        {entryRecovery ? (
           <View
             testID="bloodwork-entry-recovery"
             accessibilityRole="alert"

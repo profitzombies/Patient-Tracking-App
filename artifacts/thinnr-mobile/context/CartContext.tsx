@@ -1,13 +1,12 @@
 /**
  * The patient's shopping cart and the storefront it draws from.
  *
- * Lines persist per account (the guided demo keeps its own cart, each real
- * patient theirs) so a cart survives an app restart, and never leaks between
- * sign-ins on a shared device. The storefront (GET /patient-data/billing/shop)
- * is fetched once here and shared by the shop grid, product page, cart, and
- * checkout, so all four agree on prices, cadences, and availability. Demo
- * accounts get the bundled demo storefront synchronously; real accounts get
- * either the live storefront or an explicit error, never demo data.
+ * Lines persist per account (each real patient keeps their own cart) so a
+ * cart survives an app restart, and never leaks between sign-ins on a shared
+ * device. The storefront (GET /patient-data/billing/shop) is fetched once
+ * here and shared by the shop grid, product page, cart, and checkout, so all
+ * four agree on prices, cadences, and availability. Accounts get either the
+ * live storefront or an explicit error, never placeholder data.
  *
  * The pay attempt in flight (cart id + exact request + authorized quote)
  * persists next to the lines, written and confirmed BEFORE the request
@@ -36,7 +35,6 @@ import {
 import type { PendingAttempt } from '@/lib/checkout-flow';
 import { getShop } from '@/lib/patient-billing-api';
 import type { CartCheckoutItem, PatientShop } from '@/lib/patient-billing-types';
-import { buildDemoShop } from '@/lib/shop-catalog';
 
 const STORAGE_PREFIX = 'thinnr_cart_v1:';
 
@@ -53,7 +51,7 @@ export type ShopStatus = 'idle' | 'loading' | 'ready' | 'error';
 export interface CartScope {
   /** Storage key of the cart the attempt was started from (one per account). */
   readonly key: string;
-  /** The patient the cart belongs to; 'demo' for the persona. */
+  /** The patient the cart belongs to. */
   readonly patientId: string;
 }
 
@@ -67,7 +65,6 @@ export class CartScopeChangedError extends Error {
 export interface CartContextValue {
   /** True once the persisted cart for the current account has been read. */
   hydrated: boolean;
-  demo: boolean;
   lines: CartLine[];
   /** Sum of quantities, for the launcher badge. */
   count: number;
@@ -196,13 +193,12 @@ function errorMessage(caught: unknown): string {
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const { account, resolving } = usePatientAccount();
-  // PatientAccountProvider temporarily carries a demo-shaped account while a
-  // signed-in session is resolving. That is a loading sentinel, not the demo
-  // persona: opening a shop during this window could pin demo products and
-  // Stripe configuration onto the real patient's checkout.
-  const scope = resolving ? null : account.kind === 'real' ? account.patientId : account.kind === 'demo' ? 'demo' : null;
+  // PatientAccountProvider carries a signed-out account while a signed-in
+  // session is resolving. That is a loading sentinel: no cart scope exists
+  // until the real patient is known, so nothing can be pinned onto the
+  // wrong patient's checkout.
+  const scope = resolving ? null : account.kind === 'real' ? account.patientId : null;
   const storageKey = scope ? `${STORAGE_PREFIX}${scope}` : null;
-  const demo = !resolving && account.kind === 'demo';
 
   const [lines, setLines] = useState<CartLine[]>([]);
   const [pending, setPendingState] = useState<PendingAttempt | null>(null);
@@ -274,12 +270,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setShopError('Your account could not be reached. Retry when you are online.');
       return null;
     }
-    if (account.kind === 'demo') {
-      const built = buildDemoShop();
-      setShop(built);
-      setShopStatus('ready');
-      setShopError(null);
-      return built;
+    if (account.kind === 'signed-out') {
+      setShop(null);
+      setShopStatus('error');
+      setShopError('Sign in to browse your office’s shop.');
+      return null;
     }
     if (inFlight.current && !force) return inFlight.current;
     const requestScope = scope;
@@ -318,7 +313,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // without relying on when React runs a state updater.
   const linesRef = useRef(lines);
   linesRef.current = lines;
-  const locked = pending !== null && !demo;
+  const locked = pending !== null;
   const add = useCallback((line: CartLine): AddCartResult => {
     if (pendingRef.current) return { ok: false, lines: linesRef.current, reason: 'locked' };
     const result = addCartLine(linesRef.current, line);
@@ -421,7 +416,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<CartContextValue>(() => ({
     hydrated,
-    demo,
     lines,
     count: cartItemCount(lines),
     locked,
@@ -441,7 +435,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     shopStatus: scopedShopStatus,
     shopError: scopedShopError,
     loadShop,
-  }), [hydrated, demo, lines, locked, add, replaceLines, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, scopedShop, scopedShopStatus, scopedShopError, loadShop]);
+  }), [hydrated, lines, locked, add, replaceLines, setQuantity, setCadence, remove, clear, pending, scopeValue, isCurrentScope, commitPending, abandonPending, settlePending, scopedShop, scopedShopStatus, scopedShopError, loadShop]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

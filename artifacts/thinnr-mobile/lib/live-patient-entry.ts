@@ -7,7 +7,7 @@ export interface LiveEntryGateInput {
   modeHydrated: boolean;
   mode: 'patient' | 'staff' | null;
   accountResolving: boolean;
-  accountKind: 'demo' | 'unresolved' | 'real';
+  accountKind: 'signed-out' | 'unresolved' | 'real';
   patientHydrated: boolean;
   onboardingComplete: boolean | null;
   /**
@@ -148,7 +148,7 @@ export function liveEntryDecision(input: LiveEntryGateInput): LiveEntryDecision 
   return { kind: 'allow' };
 }
 
-/** Device-local calendar day, intentionally independent of the demo anchor. */
+/** Device-local calendar day, intentionally independent of the fixed data anchor. */
 export function localTodayKey(now = new Date()): string {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');

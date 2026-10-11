@@ -30,13 +30,8 @@ import {
   type OutreachGateState,
   type WeighIn,
 } from '../data/stall-nudge';
-import {
-  buildSeedCheckIns,
-  buildSeedEntries,
-  PATIENT_PROFILE,
-  toDateKey,
-  TODAY_KEY,
-} from '../data/patient-data';
+import { toDateKey, TODAY_KEY } from '../data/patient-data';
+import { buildSeedCheckIns, buildSeedEntries, SAMPLE_PROFILE } from './fixtures/seeded-history';
 
 let checks = 0;
 let failures = 0;
@@ -263,13 +258,13 @@ assert(
   ),
 );
 
-console.log('\n— Seeded demo patient (the record the app actually shows) —');
+console.log('\n— Sample history fixture (a plateaued, off-plan record) —');
 
-// Reproduce PatientContext's projections for a fresh install: seed diary
-// entries classified, seed check-in weights plus the enrollment baseline.
+// Reproduce PatientContext's projections over the deterministic fixture:
+// diary entries classified, check-in weights plus the enrollment baseline.
 const seededEntries = classifyEntries(buildSeedEntries());
 const byDate = new Map<string, number>();
-byDate.set(toDateKey(new Date(PATIENT_PROFILE.startDate)), PATIENT_PROFILE.startingWeight);
+byDate.set(toDateKey(new Date(SAMPLE_PROFILE.startDate)), SAMPLE_PROFILE.startingWeight);
 [...buildSeedCheckIns()]
   .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1))
   .forEach((c) => {
@@ -280,25 +275,25 @@ const seededWeighIns = [...byDate.entries()]
   .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
 const seeded = assessNudge(seededEntries, seededWeighIns, TODAY_KEY);
 
-assert('the demo patient is mid-episode (trigger active)', seeded.active);
-eq('demo crossing day', seeded.crossedOnKey, '2026-08-13');
+assert('the sample record is mid-episode (trigger active)', seeded.active);
+eq('sample crossing day', seeded.crossedOnKey, '2026-08-13');
 eq(
-  'demo adherence counts (loggedDays/classified/offPlan)',
+  'sample adherence counts (loggedDays/classified/offPlan)',
   [seeded.adherence.loggedDays, seeded.adherence.classified, seeded.adherence.offPlan],
   [14, 55, 30],
 );
 assert(
-  'demo off-plan share = 30/55',
+  'sample off-plan share = 30/55',
   seeded.adherence.offPlanShare !== null &&
     Math.abs(seeded.adherence.offPlanShare - 30 / 55) < 1e-9,
 );
 eq(
-  'demo weigh-in window (count/span)',
+  'sample weigh-in window (count/span)',
   [seeded.stall.weighIns, seeded.stall.spanDays],
   [10, 18],
 );
 assert(
-  'demo drop sits inside the stall threshold',
+  'sample drop sits inside the stall threshold',
   seeded.stall.dropLb !== null && Math.abs(seeded.stall.dropLb) <= STALL_MAX_DROP_LB,
 );
 assert(

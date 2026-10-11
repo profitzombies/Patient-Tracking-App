@@ -128,10 +128,6 @@ async function main() {
   assert('required staff factor hides switch', has(tree, 'security-second-factor') && !has(tree, 'security-second-factor-switch') && requiredCopy.length > 0);
   tree.unmount();
 
-  const beforeDemo = calls.length; tree = await mount(React.createElement(AccountSecurity, { demo: true }));
-  assert('demo is read-only deterministic preview', has(tree, 'security-preview-note') && has(tree, 'security-signin-0') && disabled(tree, 'security-password-start') === true && disabled(tree, 'security-signout-others') === true && calls.length === beforeDemo);
-  tree.unmount();
-
   tree = await mount(React.createElement(AppModeProvider, null, React.createElement(PatientLoginScreen)));
   await type(tree, 'login-phone', '5552221212'); await type(tree, 'login-password', 'forced'); await press(tree, 'login-submit');
   assert('forced reset shows server text and routes into recovery', text(tree, 'login-error').includes('Reset your password') && has(tree, 'recovery-start'));

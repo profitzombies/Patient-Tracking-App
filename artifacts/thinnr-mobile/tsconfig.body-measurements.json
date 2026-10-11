@@ -2,12 +2,10 @@
   // tsx config for scripts/verify-body-measurements.tsx ONLY (not part of
   // typecheck — tsconfig.json includes the app sources alone).
   //
-  // Runs the REAL OperationsContext and the REAL staff BodyMeasurementsCard /
-  // LogVisitSheet under react-test-renderer: react-native and its native
-  // neighbours map to the onboarding-gate Node stand-ins (Platform.OS is
-  // 'web', so persistence rides an in-memory localStorage the suite installs),
-  // and AppModal is the patient-fab stub that renders children only while
-  // visible. Every other '@/…' import resolves to the real code.
+  // Runs the REAL staff BodyMeasurementsCard / LogVisitSheet under
+  // react-test-renderer: react-native and its native neighbours map to the
+  // onboarding-gate Node stand-ins, and AppModal is the patient-fab stub
+  // that renders children only while visible. Every other '@/…' import resolves to the real code.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",

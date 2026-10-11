@@ -1,5 +1,5 @@
 /**
- * Fulfillment queue verification: pinned read-only demo, exact status queries,
+ * Fulfillment queue verification: signed-out holding frame, exact status queries,
  * delayed/error states, order navigation and accessibility.
  */
 import React from 'react';
@@ -23,7 +23,7 @@ import {
 } from './payments-stubs/harness';
 import { setPathname, setSearchParams } from './provider-training-stubs/expo-router';
 import FulfillmentScreen from '../app/(tabs)/payments/fulfillment';
-import { DEMO_FULFILLMENT } from '../data/office-payments-demo';
+import { SAMPLE_FULFILLMENT } from './fixtures/sample-office-payments';
 
 const STATUS: any = { account: {}, sandbox: true, viewer: { can_manage: true }, office: {} };
 
@@ -34,9 +34,9 @@ function liveScript(options?: { delayed?: boolean; error?: boolean }) {
     if (options?.delayed) return { delay: true, body: { items: [], next_cursor: null } };
     if (options?.error) return { status: 400, body: { error: 'Queue unavailable' } };
     const status = url.searchParams.get('status') ?? 'to_ship';
-    const matching = DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === status);
+    const matching = SAMPLE_FULFILLMENT.filter((order) => order.fulfillment_status === status);
     if (url.searchParams.get('cursor')) {
-      const source = matching[0] ?? DEMO_FULFILLMENT[0];
+      const source = matching[0] ?? SAMPLE_FULFILLMENT[0];
       return {
         status: 200,
         body: {
@@ -69,19 +69,14 @@ function accessible(root: any): boolean {
 async function main() {
   setPathname('/payments/fulfillment');
   setSearchParams({});
-  section('Demo');
+  section('Signed out');
   resetRequests();
   liveScript();
   let mounted = await mount(<FulfillmentScreen />, null);
-  const waiting = DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === 'to_ship');
   check(
-    'pinned waiting rows and no fetch',
-    requests.length === 0 && ids(mounted.root, 'link-fulfillment-order-').length === waiting.length,
+    'signed-out mount holds the sign-in frame: no rows, no fetch',
+    requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'link-fulfillment-order-').length === 0,
   );
-  check('demo has no write controls', !one(mounted.root, 'button-mark-shipped'));
-  await press(mounted.root, 'filter-fulfillment-shipped');
-  const shipped = DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === 'shipped');
-  check('demo stage filters locally', ids(mounted.root, 'link-fulfillment-order-').length === shipped.length);
   await mounted.unmount();
 
   section('Live status filters');
@@ -113,12 +108,13 @@ async function main() {
   const link = ids(mounted.root, 'link-fulfillment-order-')[0];
   await press(mounted.root, link);
   check('order link opens detail', routerLog.some((call) => call.target.includes('/payments/transactions/')));
+  check('no write controls on the phone', !one(mounted.root, 'button-mark-shipped'));
   check('all controls are accessible', accessible(mounted.root));
   await mounted.unmount();
 
   section('Warehouse state (read-only on the phone)');
   resetRequests();
-  const base = DEMO_FULFILLMENT.find((order) => order.fulfillment_status === 'to_ship')!;
+  const base = SAMPLE_FULFILLMENT.find((order) => order.fulfillment_status === 'to_ship')!;
   const sent = { state: 'sent', warehouse_order_id: '1436188', warehouse_status: 'Imported', sent_at: '2026-10-11T14:04:00Z', error: null, attempts: 1, next_attempt_at: null, last_attempt_at: '2026-10-11T14:04:00Z' };
   const rejected = { ...sent, state: 'needs_attention', warehouse_order_id: null, warehouse_status: null, sent_at: null, error: 'ItemSKU not recognized: CONTROL-OLD' };
   const queued = { ...sent, state: 'pending', warehouse_order_id: null, warehouse_status: null, sent_at: null, attempts: 0, last_attempt_at: null, next_attempt_at: '2026-10-11T14:06:00Z' };

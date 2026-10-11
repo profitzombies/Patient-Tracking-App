@@ -18,8 +18,7 @@
  *          non-empty, on-screen message (alert role + polite live region for
  *          screen readers) and does NOT navigate;
  *        - while still blocked, the hint stays up and tracks the current
- *          problem (e.g. out-of-range weight, impossible date, mismatched
- *          passwords);
+ *          problem (e.g. out-of-range weight, impossible date);
  *        - a valid selection/entry clears the hint;
  *        - Next then advances with exactly one router.push to the correct
  *          next step for the current answers.
@@ -46,12 +45,6 @@ import {
 } from '../components/onboarding/StepsProfile';
 import { InjectionDayStep } from '../components/onboarding/StepsPrefs';
 import { AllergiesStep, DietStep } from '../components/onboarding/StepsDiet';
-import {
-  ContactStep,
-  PasswordStep,
-  ProviderCodeStep,
-  VerifyStep,
-} from '../components/onboarding/StepsAccount';
 import { clearRouterCalls, routerCalls } from './onboarding-gate-stubs/expo-router';
 
 let checks = 0;
@@ -356,66 +349,6 @@ interface GatedStepSpec {
 
 const SPECS: GatedStepSpec[] = [
   {
-    key: 'contact',
-    component: ContactStep,
-    expectedNext: 'verify',
-    blockedPhases: [
-      {
-        label: 'partial phone number',
-        mutate: root => typeText(root, 'ob-contact-input', '555123', 'contact partial'),
-        hintContains: 'phone number',
-      },
-    ],
-    makeValid: root => typeText(root, 'ob-contact-input', '5551234567', 'contact valid'),
-  },
-  {
-    key: 'verify',
-    component: VerifyStep,
-    expectedNext: 'provider-code',
-    blockedPhases: [
-      {
-        label: 'partial code',
-        mutate: root => typeText(root, 'ob-code-input', '123', 'verify partial'),
-        hintContains: '6 digits',
-      },
-    ],
-    makeValid: root => typeText(root, 'ob-code-input', '123456', 'verify valid'),
-  },
-  {
-    key: 'provider-code',
-    component: ProviderCodeStep,
-    expectedNext: 'face-id',
-    blockedPhases: [
-      {
-        label: 'partial code',
-        mutate: root => typeText(root, 'ob-provider-input', '123', 'provider partial'),
-        hintContains: 'provider code',
-      },
-    ],
-    makeValid: root => typeText(root, 'ob-provider-input', '123456', 'provider valid'),
-  },
-  {
-    key: 'password',
-    component: PasswordStep,
-    expectedNext: 'height',
-    blockedPhases: [
-      {
-        label: 'blocked password',
-        mutate: root => {
-          typeText(root, 'ob-password', 'Abc123!x', 'password blocked');
-          typeText(root, 'ob-password-confirm', 'Abc123!x', 'password blocked confirm');
-        },
-        hintContains: "can't be used",
-      },
-      {
-        label: 'mismatched confirm',
-        mutate: root => typeText(root, 'ob-password', 'Vault9$k', 'password mismatch'),
-        hintContains: 'match',
-      },
-    ],
-    makeValid: root => typeText(root, 'ob-password-confirm', 'Vault9$k', 'password valid'),
-  },
-  {
     key: 'weight',
     component: WeightStep,
     expectedNext: 'gender',
@@ -461,7 +394,8 @@ const SPECS: GatedStepSpec[] = [
     key: 'started',
     component: StartedStep,
     prep: { program: 'thinnr' },
-    expectedNext: 'goal-weight',
+    // Every medication program confirms its start date next, started or not.
+    expectedNext: 'start-date',
     makeValid: root => tap(root, 'ob-started-yes', 'started valid'),
   },
   {

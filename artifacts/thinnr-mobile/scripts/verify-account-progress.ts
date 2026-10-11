@@ -7,9 +7,9 @@
  * drives the six formerly device-local slices against a scripted
  * patient-data API with a per-patient in-memory server store + byte bucket:
  *
- *   1. The demo persona is untouched: seeded photos/check-ins hydrate from
- *      the original storage key, and check-in / photo / nudge writes stay
- *      local with zero network.
+ *   1. The signed-out session stays local: nothing is seeded, the device
+ *      layer hydrates from the original storage key, and check-in / photo /
+ *      nudge writes stay local with zero network.
  *   2. A real patient's check-ins write through POST /patient-data/check-ins
  *      (same-day re-submit replaces the row on both sides) and drive the
  *      weight series; photos upload through the patient media rail
@@ -23,7 +23,7 @@
  *      and hydrates back; onboarding answers/completion and notification
  *      prefs persist through the same flags route from OnboardingContext.
  *   5. Failures roll back with the server's words; writes before server
- *      truth are blocked; accounts never bleed into each other or the demo.
+ *      truth are blocked; accounts never bleed into each other or the local layer.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:account-progress
  */
@@ -424,7 +424,7 @@ async function mountLive(): Promise<ReactTestRenderer> {
 }
 
 /** How every existing suite mounts the store — no account provider at all. */
-async function mountDemo(): Promise<ReactTestRenderer> {
+async function mountSignedOut(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(React.createElement(PatientProvider, null, React.createElement(Probe)));
@@ -483,14 +483,14 @@ function jpegDataUri(marker: string): string {
 // ─── The walk ────────────────────────────────────────────────────────────────
 
 async function main() {
-  // ── 1 · Demo persona untouched ─────────────────────────────────────────────
-  section('demo persona: seeded photos/check-ins, local writes, zero network');
-  let tree = await mountDemo();
-  assert('demo hydrates', ctx.hydrated);
-  assert('demo photos are seeded', ctx.photos.length > 0);
-  assert('demo check-ins are seeded', ctx.checkIns.length > 0);
-  assert('demo weight series is seeded', ctx.weightSeries.length > 0);
-  const demoPhotoCount = ctx.photos.length;
+  // ── 1 · Signed-out session stays local ─────────────────────────────────────────────
+  section('signed-out session: no seeds, local writes, zero network');
+  let tree = await mountSignedOut();
+  assert('signed-out hydrates', ctx.hydrated);
+  assert('signed-out photos are not seeded', ctx.photos.length === 0);
+  assert('signed-out check-ins are not seeded', ctx.checkIns.length === 0);
+  assert('signed-out weight series is not seeded', ctx.weightSeries.length === 0);
+  const localPhotoCount = ctx.photos.length;
   await act(async () => {
     await ctx.addCheckIn({ dateKey: TODAY_KEY, weight: 168, mood: 4, sideEffects: [], notes: 'Demo CheckIn Marker' });
   });
@@ -503,12 +503,12 @@ async function main() {
   await act(async () => {
     await ctx.markNudgeEngaged();
   });
-  assert('demo check-in lands locally', ctx.checkIns.some(c => c.notes === 'Demo CheckIn Marker'));
-  assert('demo photo lands locally with its uri', ctx.photos.some(p => p.label === 'Demo Photo Marker' && typeof p.uri === 'string'));
-  assert('demo nudge state lands locally', ctx.nudgeOptOut && ctx.nudgeEngaged);
-  const demoBlob = localStorageBacking.get(STORAGE_KEY) ?? '';
-  assert('demo layer persists under the original key', demoBlob.includes('Demo Photo Marker') && demoBlob.includes('Demo CheckIn Marker'));
-  assert('demo mode makes zero API calls', apiCalls.length === 0);
+  assert('signed-out check-in lands locally', ctx.checkIns.some(c => c.notes === 'Demo CheckIn Marker'));
+  assert('signed-out photo lands locally with its uri', ctx.photos.some(p => p.label === 'Demo Photo Marker' && typeof p.uri === 'string'));
+  assert('signed-out nudge state lands locally', ctx.nudgeOptOut && ctx.nudgeEngaged);
+  const localBlob = localStorageBacking.get(STORAGE_KEY) ?? '';
+  assert('signed-out layer persists under the original key', localBlob.includes('Demo Photo Marker') && localBlob.includes('Demo CheckIn Marker'));
+  assert('signed-out mode makes zero API calls', apiCalls.length === 0);
   await unmount(tree);
 
   // ── 2 · Fresh real patient: no seeds, defaults everywhere ─────────────────
@@ -857,7 +857,7 @@ async function main() {
     body: { error: 'Couldn’t load your diary right now. Please try again.' },
   });
   tree = await mountLive();
-  assert('failed hydration shows empty progress data, not the demo seed',
+  assert('failed hydration shows empty progress data, not a seed',
     ctx.photos.length === 0 && ctx.checkIns.length === 0);
   const checkInCallsBlocked = callsTo('patient-data/check-ins').length;
   const photoCallsBlocked = callsTo('patient-data/photos').length;
@@ -903,7 +903,7 @@ async function main() {
     onb.patch({ notifications: 'enabled', reminderMorning: '9:00 AM' });
   });
   await act(async () => {
-    onb.advance('contact');
+    onb.advance('height');
   });
   await settle();
   const advanceCall = lastCallTo('patient-data/setup');
@@ -975,7 +975,7 @@ async function main() {
   const setupCallsBeforeRetryCase = callsTo('patient-data/setup').length;
   await act(async () => {
     onb.patch({ notifications: 'later' });
-    onb.advance('contact');
+    onb.advance('height');
   });
   await settle();
   assert('failed checkpoint stays visible and retryable',
@@ -983,7 +983,7 @@ async function main() {
     && onb.saveError === 'That step didn’t save. Check your connection and try again.'
     && onb.answers.notifications === 'later');
   await act(async () => {
-    await onb.advance('contact');
+    await onb.advance('height');
   });
   await settle();
   const retriedCall = lastCallTo('patient-data/setup');
@@ -1014,27 +1014,27 @@ async function main() {
     onb.patch({ notifications: 'later' });
   });
   await act(async () => {
-    onb.advance('contact');
+    onb.advance('height');
   });
   await act(async () => {
     onb.endRun();
   });
   await settle();
-  assert('demo onboarding never touches the account',
+  assert('signed-out onboarding never touches the account',
     callsTo('patient-data/flags').length === flagCallsSignedOut);
   await unmount(tree);
 
   // ── 10 · Accounts never bleed ──────────────────────────────────────────────
-  section('sign-out / switch: demo returns, second account starts clean');
+  section('sign-out / switch: signed-out returns, second account starts clean');
   tree = await mountLive();
-  assert('sign-out returns the demo layer', account.account.kind === 'demo'
+  assert('sign-out returns the local layer', account.account.kind === 'signed-out'
     && ctx.photos.some(p => p.label === 'Demo Photo Marker')
-    && ctx.photos.length === demoPhotoCount + 1
+    && ctx.photos.length === localPhotoCount + 1
     && ctx.checkIns.some(c => c.notes === 'Demo CheckIn Marker')
     && ctx.nudgeOptOut);
-  assert('no account object paths leak into the demo grid',
+  assert('no account object paths leak into the local grid',
     !ctx.photos.some(p => (p.objectPath ?? '').includes('/patient-media/')));
-  assert('the demo persona holds no media token',
+  assert('the signed-out session holds no media token',
     !patientMediaDisplayUrl('/objects/patient-media/p-1/progress-x').includes('mt='));
 
   await signIn(P2);
@@ -1071,7 +1071,7 @@ async function main() {
         && (parsed.addedCheckIns ?? []).length === 0
         && parsed.nudgeOptOut === false;
     })());
-  assert('the demo layer never absorbed account rows',
+  assert('the local layer never absorbed account rows',
     !(localStorageBacking.get(STORAGE_KEY) ?? '').includes('patient-media'));
 
   await signIn(null);

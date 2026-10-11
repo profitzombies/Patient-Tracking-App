@@ -2,7 +2,7 @@
  * Activity level over time, for the Progress tab: the ledger of answers the
  * patient gave (diet selection, weekly check-ins, settings, staff), newest
  * first, with a five-step bar so a change reads at a glance. Real accounts
- * read the server history; the demo persona shows its seeded weeks. Errors
+ * read the server history. Errors
  * stay visible — an outage never looks like "never recorded".
  */
 import React from 'react';

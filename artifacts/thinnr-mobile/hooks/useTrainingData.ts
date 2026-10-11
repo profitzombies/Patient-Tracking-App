@@ -6,15 +6,16 @@
  * assembles them with the same rules (lib/training.ts), so every number a
  * phone shows agrees with the web portal for the same rows.
  *
- * Signed-out Care Team remains a read-only seeded demo. Signed-in provider
- * staff use the same RLS-backed office rows and narrow self-service RPCs as
+ * Signed-in provider staff use the same RLS-backed office rows and narrow self-service RPCs as
  * web; patients never receive a private training snapshot.
  *
  * States the screens must handle:
  *   'unconfigured' — the EXPO_PUBLIC_SUPABASE_* env vars are absent, so the
  *                    client is null (lib/supabase.ts). Screens explain that
  *                    training needs configuration instead of crashing.
- *   'loading'      — first fetch in flight.
+ *   'loading'      — session, profile, lock, or first fetch in flight.
+ *   'signed-out'   — no staff session: nothing is fetched and the screens
+ *                    show a sign-in holding card instead of a catalog.
  *   'error'        — any table failed; screens offer a retry.
  *   'ready'        — assembled snapshot available.
  */
@@ -42,7 +43,7 @@ import {
 
 /**
  * Per-table fetch guard, matching the web portal. PostgREST caps responses
- * at 1000 rows server-side anyway; the demo dataset is far smaller.
+ * at 1000 rows server-side anyway.
  */
 const FETCH_LIMIT = 1000;
 
@@ -86,7 +87,7 @@ export async function fetchTrainingSnapshot(client: SupabaseClient): Promise<Tra
   };
 }
 
-export type TrainingStatus = 'unconfigured' | 'loading' | 'error' | 'ready';
+export type TrainingStatus = 'unconfigured' | 'loading' | 'signed-out' | 'error' | 'ready';
 
 export interface TrainingData {
   status: TrainingStatus;
@@ -101,7 +102,7 @@ export interface TrainingData {
   completions: TrainingCompletion[];
   /** viewerId → (videoId → completion row), rebuilt with the snapshot. */
   completionIndex: CompletionIndex;
-  /** null is the deliberately unscoped, signed-out Care Team demo. */
+  /** null until a signed-in provider's office code resolves. */
   accountId: string | null;
   myViewer: TrainingViewer | null;
   isLiveStaff: boolean;
@@ -118,12 +119,14 @@ const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 /**
  * One shared react-query snapshot (Training home, course outline, and lesson
  * pages read one auth-scoped cache entry, refreshed after 30s like the web
- * portal). Signed-out Care Team mode receives the seeded demo snapshot;
- * signed-in providers receive only the office rows allowed by RLS.
+ * portal). Signed-in providers receive only the office rows allowed by RLS.
+ * Nothing is requested — not even the profile lookup — until a session
+ * exists, and the snapshot query stays disabled until that session resolves
+ * to an unlocked provider_staff account.
  */
 export function useTrainingData(): TrainingData {
   const queryClient = useQueryClient();
-  const { mode, hydrated: modeHydrated } = useAppMode();
+  const { hydrated: modeHydrated } = useAppMode();
   const { session, sessionLoading } = useSupabaseSession();
   const userId = session?.user.id ?? null;
   const profileQuery = useQuery({
@@ -164,8 +167,9 @@ export function useTrainingData(): TrainingData {
   const isLiveStaff = Boolean(
     userId && role === 'provider_staff' && accountId && lockQuery.isSuccess && !isOfficeLocked,
   );
-  const isDemo = modeHydrated && mode === 'staff' && !userId;
-  const permitted = isDemo || isLiveStaff;
+  // The snapshot is private: only a resolved, unlocked provider_staff session
+  // may request it. Signed-out mounts issue zero Supabase calls.
+  const permitted = isLiveStaff;
   const authScopeKey = `${userId ?? 'anon'}:${role ?? 'none'}:${accountId ?? ''}:locked=${isOfficeLocked}`;
   const query = useQuery({
     queryKey: ['mobile-training-data', authScopeKey],
@@ -182,6 +186,8 @@ export function useTrainingData(): TrainingData {
     ? 'unconfigured'
     : !modeHydrated || sessionLoading || !profileSettled || !lockSettled
       ? 'loading'
+      : !userId
+        ? 'signed-out'
       : !permitted
         ? 'error'
     : query.isError
@@ -193,7 +199,7 @@ export function useTrainingData(): TrainingData {
     status === 'error' && isOfficeLocked
       ? 'This office is locked by THINNR. Contact THINNR to restore training access.'
       : status === 'error' && !permitted
-      ? 'Training is private to signed-in provider staff. Use Care Team demo mode while signed out, or sign in with an office account.'
+      ? 'Training is private to signed-in provider staff. Sign in with an office account to continue.'
       : status === 'error'
       ? query.error instanceof Error
         ? query.error.message

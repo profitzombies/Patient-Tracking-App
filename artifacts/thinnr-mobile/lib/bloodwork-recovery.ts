@@ -326,7 +326,7 @@ export function classifyBloodworkError(error: unknown): BloodworkRecovery {
 }
 
 export interface BloodworkEntryStateInput {
-  accountKind: 'demo' | 'unresolved' | 'real';
+  accountKind: 'signed-out' | 'unresolved' | 'real';
   accountResolving: boolean;
   patientHydrated: boolean;
   onboardingComplete: boolean | null;
@@ -341,7 +341,7 @@ export interface BloodworkEntryStateInput {
 export function bloodworkEntryRecovery(
   input: BloodworkEntryStateInput,
 ): BloodworkRecovery | null {
-  if (input.accountKind === 'demo') return null;
+  if (input.accountKind === 'signed-out') return null;
   if (input.accountResolving || input.accountKind === 'unresolved' || !input.patientHydrated) {
     return recoveryFor('ACCOUNT_LOOKUP_UNAVAILABLE', 'retry');
   }

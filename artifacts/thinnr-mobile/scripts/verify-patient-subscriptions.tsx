@@ -1,6 +1,6 @@
 /**
- * Subscriptions list + detail contract check: demo dataset with disabled
- * write controls, live list/detail, and every self-service action's request
+ * Subscriptions list + detail contract check: signed-out holding frame,
+ * live list/detail, and every self-service action's request
  * shape (move next, skip, pause/resume, cancel with confirmation, address,
  * plan, card, retry payment with and without a different card), each
  * confirming via the notice and re-reading the record.
@@ -11,9 +11,9 @@ import {
 import React, { act } from 'react';
 import SubscriptionsScreen from '../app/my-subscriptions/index';
 import SubscriptionDetailScreen from '../app/my-subscriptions/[id]';
-import { DEMO_SUBSCRIPTIONS } from '../data/patient-billing-demo';
+import { SAMPLE_SUBSCRIPTIONS } from './fixtures/sample-patient-billing';
 import { moveWindow } from '../lib/patient-billing-core';
-import { routerCalls, clearRouterCalls, setSearchParams } from './patient-billing-stubs/expo-router';
+import { setSearchParams } from './patient-billing-stubs/expo-router';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
 import { announcements } from './onboarding-gate-stubs/react-native';
 
@@ -66,39 +66,21 @@ const posts = (action: string) => billingCalls().filter(call => call.method === 
 const lastNotice = () => announcements[announcements.length - 1] ?? '';
 
 async function main() {
-  section('demo subscriptions: rendered, writes disabled');
+  section('signed out renders nothing and fetches nothing');
   setStubSession(null);
   let tree = await mount(<SubscriptionsScreen />);
   const before = calls.length;
-  assert('demo list renders every demo subscription with its status', has(tree, 'screen-subscriptions-demo-note') && DEMO_SUBSCRIPTIONS.every(sub => has(tree, `card-subscription-${sub.id}`)) && text(tree, 'card-subscription-demo-sub-failed-status') === 'Payment failed' && text(tree, 'card-subscription-demo-sub-paused-status') === 'Paused' && text(tree, 'card-subscription-demo-sub-ending-status').startsWith('Ends'));
-  clearRouterCalls();
-  await press(tree, 'card-subscription-demo-sub-active');
-  assert('tapping opens the demo detail without network', routerCalls.some(call => call.target === '/my-subscriptions/demo-sub-active') && calls.length === before);
+  assert('signed-out list makes no request and shows no subscriptions or demo note', calls.length === before && has(tree, 'screen-subscriptions') && !has(tree, 'screen-subscriptions-demo-note') && SAMPLE_SUBSCRIPTIONS.every(sub => !has(tree, `card-subscription-${sub.id}`)));
   await unmount(tree);
-
-  setSearchParams({ id: 'demo-sub-active' });
+  setSearchParams({ id: SUB_ID });
   tree = await mount(<SubscriptionDetailScreen />);
-  assert('demo detail shows product, cadence, price, next shipment, card', text(tree, 'badge-subscription-status') === 'Active' && text(tree, 'text-subscription-total') === '$72.99' && text(tree, 'text-next-shipment').startsWith('Next shipment') && text(tree, 'text-subscription-card').includes('VISA •••• 4242'));
-  const demoButtons = ['button-move-next', 'button-skip-next', 'button-change-plan', 'button-change-address', 'button-change-card', 'button-pause', 'button-cancel'];
-  assert('every demo write control is disabled', demoButtons.every(id => isDisabled(tree, id)));
-  for (const id of demoButtons) await press(tree, id);
-  assert('pressing disabled demo controls nudges and never calls the network', alerts.length === demoButtons.length && calls.length === before && confirms === 0 && !has(tree, 'panel-move'));
-  await unmount(tree);
-  setSearchParams({ id: 'demo-sub-failed' });
-  tree = await mount(<SubscriptionDetailScreen />);
-  assert('demo failed renewal shows the failure card with disabled retry', has(tree, 'card-payment-failed') && text(tree, 'text-payment-failure').includes('declined') && isDisabled(tree, 'button-retry-payment') && has(tree, 'button-pay-invoice'));
-  await press(tree, 'button-pay-invoice');
-  assert('demo hosted invoice link does not open', opened.length === 0);
-  await unmount(tree);
-  setSearchParams({ id: 'demo-sub-paused' });
-  tree = await mount(<SubscriptionDetailScreen />);
-  assert('demo paused shows Resume and no Pause', has(tree, 'button-resume') && !has(tree, 'button-pause'));
+  assert('signed-out detail makes no request and offers no write controls', calls.length === before && !has(tree, 'badge-subscription-status') && !has(tree, 'button-cancel') && alerts.length === 0 && confirms === 0);
   await unmount(tree);
 
   section('live list and detail');
   await act(async () => setStubSession(session));
   tree = await mount(<SubscriptionsScreen />);
-  assert('live list renders current and ended sections', has(tree, `card-subscription-${SUB_ID}`) && text(tree, 'screen-subscriptions').includes('ENDED') && text(tree, 'card-subscription-55555555-5555-4555-8555-555555555555-status') === 'Canceled' && !has(tree, 'screen-subscriptions-demo-note'));
+  assert('live list renders current and ended sections', has(tree, `card-subscription-${SUB_ID}`) && text(tree, 'screen-subscriptions').includes('ENDED') && text(tree, 'card-subscription-55555555-5555-4555-8555-555555555555-status') === 'Canceled');
   await unmount(tree);
 
   setSearchParams({ id: SUB_ID });
@@ -209,10 +191,10 @@ async function main() {
   assert('a skip link that no longer applies explains itself instead of failing silently', text(tree, 'screen-subscription-error').includes('can no longer be skipped') && posts('skip-next').length === skipsBefore + 1 && confirms === confirmsBefore + 1);
   await unmount(tree);
   setStubSession(null);
-  setSearchParams({ id: 'demo-sub-active', action: 'skip' });
+  setSearchParams({ id: SUB_ID, action: 'skip' });
   const alertsBefore = alerts.length;
   tree = await mount(<SubscriptionDetailScreen />);
-  assert('a skip link on the demo persona nudges instead of confirming', alerts.length === alertsBefore + 1 && confirms === confirmsBefore + 1);
+  assert('a skip link while signed out neither confirms, nudges nor posts', alerts.length === alertsBefore && confirms === confirmsBefore + 1 && posts('skip-next').length === skipsBefore + 1);
   await unmount(tree);
   await act(async () => setStubSession(session));
   setSearchParams({ id: SUB_ID });

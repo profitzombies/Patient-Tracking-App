@@ -1,9 +1,8 @@
 /**
- * Training tab — the Care Team persona's window into the LIVE course
- * catalog. Unlike every other provider tab (seeded demo data), this screen
+ * Training tab — the Care Team's window into the LIVE course catalog. It
  * reads the same Supabase training tables as the web operations portal and
  * derives identical numbers: video counts, total duration, and team-average
- * progress for the unscoped demo office.
+ * progress for the signed-in office.
  *
  * Publishing stays with THINNR HQ on the web. Signed-in provider staff can
  * manage their own roster enrollment and lesson progress through RPCs.
@@ -50,8 +49,6 @@ export default function TrainingScreen() {
   const [saving, setSaving] = useState(false);
   const [formMessage, setFormMessage] = useState<string | null>(null);
 
-  // The demo Care Team browses the unscoped demo office: every learner that
-  // belongs to a provider office, exactly like the web demo persona.
   const flagship = liveCourses[0];
   const flagshipOrder = useMemo(() => flagship ? getOrderedVideos(flagship, true) : [], [flagship]);
   const roster = useMemo(
@@ -253,9 +250,7 @@ export default function TrainingScreen() {
           {/* Scope + read-only note */}
           <View style={styles.noteWrap}>
             <Text style={[styles.noteText, { color: colors.subtleText }]}>
-               {isLiveStaff
-                 ? 'Live catalog · Your office roster and your progress are secured by your staff sign-in.'
-                 : 'Live catalog · THINNR program training across every office in the demo. Demo browsing stays read-only.'}
+              Live catalog · Your office roster and your progress are secured by your staff sign-in.
             </Text>
           </View>
 

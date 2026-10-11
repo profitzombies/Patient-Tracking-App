@@ -1,7 +1,7 @@
 /**
  * Shop — every product the patient's office sells, at the patient's price.
  * Backed by the storefront (GET /patient-data/billing/shop) shared through
- * CartContext; the guided demo renders the bundled demo storefront. When the
+ * CartContext. When the
  * office has not connected payments the grid is replaced by a quiet
  * "not available yet" state rather than an error.
  */
@@ -48,11 +48,6 @@ export default function ShopScreen() {
               {(shop.office?.office_name ?? 'Your office').toUpperCase()}
               {shop.subscribe_save_percent > 0 ? ` · SUBSCRIBE & SAVE ${shop.subscribe_save_percent}%` : ''}
             </Text>
-            {cart.demo ? (
-              <Text testID="shop-demo-note" style={[styles.demoNote, { color: colors.orangeText }]}>
-                Demo shop — browse and build a cart; payment needs a patient account.
-              </Text>
-            ) : null}
             <View testID="shop-grid" style={styles.grid}>
               {products.map(product => (
                 <ProductTile key={product.product_id} product={product} />
@@ -106,7 +101,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16 },
   eyebrow: { fontSize: 9.5, letterSpacing: 1.4, fontFamily: 'Inter_700Bold', marginBottom: 10 },
-  demoNote: { fontSize: 11.5, lineHeight: 16, fontFamily: 'Inter_600SemiBold', marginBottom: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   tile: { width: '47.5%', flexGrow: 1, borderWidth: 1, overflow: 'hidden' },
   tileImageWrap: { aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, padding: 12 },

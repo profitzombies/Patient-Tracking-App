@@ -11,7 +11,6 @@ import {
   Body,
   Button,
   DetailList,
-  Empty,
   ErrorBox,
   FeeBreakdown,
   InlineNotice,
@@ -34,26 +33,19 @@ import {
   parseDollarsToCents,
 } from '@/lib/office-billing-format';
 import type { OrderDetail } from '@/lib/office-billing-types';
-import { DEMO_ORDER_DETAILS } from '@/data/office-payments-demo';
 import { useColors } from '@/hooks/useColors';
 
 type RefundPreset = 'remaining' | 'product' | 'product_shipping' | 'custom';
 
 export default function TransactionDetailScreen() {
   const { orderId = '' } = useLocalSearchParams<{ orderId: string }>();
-  const demoOrder = DEMO_ORDER_DETAILS[orderId];
   return (
     <PaymentsScreen
       section="transactions"
-      title={demoOrder?.order_number ?? 'Transaction'}
-      sub={demoOrder
-        ? `${demoOrder.payer.name} · ${formatDateTime(demoOrder.created_at)}`
-        : 'Order details and payment history.'}
+      title="Transaction"
+      sub="Order details and payment history."
       back={{ href: '/payments/transactions', label: 'Transactions' }}
       refresh="this transaction"
-      demo={demoOrder
-        ? <DetailView order={demoOrder} demo />
-        : <Empty>This transaction is not part of the guided demo.</Empty>}
       live={(ctx) => <LiveDetail ctx={ctx} orderId={orderId} />}
     />
   );
@@ -73,12 +65,10 @@ function LiveDetail({ ctx, orderId }: { ctx: PaymentsLive; orderId: string }) {
 
 function DetailView({
   order,
-  demo = false,
   userId,
 }: {
   order: OrderDetail;
-  demo?: boolean;
-  userId?: string;
+  userId: string;
 }) {
   const colors = useColors();
   const [refundOpen, setRefundOpen] = React.useState(false);
@@ -90,7 +80,6 @@ function DetailView({
         <Button
           label="Refund"
           variant="danger"
-          disabled={demo}
           testID="button-refund-open"
           onPress={() => setRefundOpen(true)}
         />
@@ -147,18 +136,16 @@ function DetailView({
         </Pressable>
       ) : null}
       <HistoryPanels order={order} />
-      {userId ? (
-        <RefundSheet
-          order={order}
-          userId={userId}
-          open={refundOpen}
-          onClose={() => setRefundOpen(false)}
-          onSuccess={(amount) => {
-            setRefundOpen(false);
-            setSuccess(`${formatCents(amount)} was refunded.`);
-          }}
-        />
-      ) : null}
+      <RefundSheet
+        order={order}
+        userId={userId}
+        open={refundOpen}
+        onClose={() => setRefundOpen(false)}
+        onSuccess={(amount) => {
+          setRefundOpen(false);
+          setSuccess(`${formatCents(amount)} was refunded.`);
+        }}
+      />
     </>
   );
 }

@@ -8,7 +8,7 @@
  * scripted patient-data + patient-media API with a per-patient in-memory
  * server store:
  *
- *   1. The demo persona is untouched: library items save locally under the
+ *   1. The signed-out session stays local: library items save locally under the
  *      original storage key, photos stay inline data URIs, zero network.
  *   2. A real patient's library lives on the account: creates, edits,
  *      deletes and undo write through POST /patient-data/library; photo
@@ -415,7 +415,7 @@ async function mountLive(): Promise<ReactTestRenderer> {
 }
 
 /** How every existing suite mounts the store — no account provider at all. */
-async function mountDemo(): Promise<ReactTestRenderer> {
+async function mountSignedOut(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(React.createElement(PatientProvider, null, React.createElement(Probe)));
@@ -481,41 +481,41 @@ const displayUrlFor = (photoPath: string) =>
 
 async function main() {
   // ── 1 · Demo persona untouched ─────────────────────────────────────────────
-  section('demo persona: library saves locally, photos stay data URIs, zero network');
-  let tree = await mountDemo();
-  assert('demo hydrates', ctx.hydrated);
-  assert('demo account is the context default', account.account.kind === 'demo' && !account.resolving);
-  let demoFood!: FoodItem;
+  section('signed-out session: library saves locally, photos stay data URIs, zero network');
+  let tree = await mountSignedOut();
+  assert('signed-out hydrates', ctx.hydrated);
+  assert('signed-out account is the context default', account.account.kind === 'signed-out' && !account.resolving);
+  let localFood!: FoodItem;
   await act(async () => {
-    demoFood = await ctx.addCustomFood(foodInput('Demo Jerky', { brand: 'Trailhead' }));
+    localFood = await ctx.addCustomFood(foodInput('Demo Jerky', { brand: 'Trailhead' }));
   });
   await act(async () => {
-    await ctx.setCustomFoodPhoto(demoFood.id, FOOD_PHOTO_URI);
+    await ctx.setCustomFoodPhoto(localFood.id, FOOD_PHOTO_URI);
   });
-  let demoRecipe!: SavedRecipe;
+  let localRecipe!: SavedRecipe;
   await act(async () => {
-    demoRecipe = await ctx.addSavedRecipe(recipeInput('Demo Chicken', { photoUri: RECIPE_PHOTO_URI }));
+    localRecipe = await ctx.addSavedRecipe(recipeInput('Demo Chicken', { photoUri: RECIPE_PHOTO_URI }));
   });
-  const demoFoodNow = ctx.customFoods.find(f => f.id === demoFood.id);
-  const demoRecipeNow = ctx.savedRecipes.find(r => r.id === demoRecipe.id);
-  assert('demo food saved with its data-URI photo inline', demoFoodNow?.photoUri === FOOD_PHOTO_URI && demoFoodNow?.photoPath === undefined);
-  assert('demo recipe saved with its data-URI photo inline', demoRecipeNow?.photoUri === RECIPE_PHOTO_URI && demoRecipeNow?.photoPath === undefined);
+  const localFoodNow = ctx.customFoods.find(f => f.id === localFood.id);
+  const localRecipeNow = ctx.savedRecipes.find(r => r.id === localRecipe.id);
+  assert('signed-out food saved with its data-URI photo inline', localFoodNow?.photoUri === FOOD_PHOTO_URI && localFoodNow?.photoPath === undefined);
+  assert('signed-out recipe saved with its data-URI photo inline', localRecipeNow?.photoUri === RECIPE_PHOTO_URI && localRecipeNow?.photoPath === undefined);
   assert(
-    'demo library persists under the original key',
+    'signed-out library persists under the original key',
     (localStorageBacking.get(STORAGE_KEY) ?? '').includes('Demo Jerky') &&
       (localStorageBacking.get(STORAGE_KEY) ?? '').includes('Demo Chicken'),
   );
-  assert('demo mode makes zero API calls', apiCalls.length === 0);
-  assert('demo mode stores no objects', storedObjects.size === 0);
+  assert('signed-out mode makes zero API calls', apiCalls.length === 0);
+  assert('signed-out mode stores no objects', storedObjects.size === 0);
   await unmount(tree);
 
-  // ── 2 · Fresh real patient: empty library, no demo bleed ──────────────────
+  // ── 2 · Fresh real patient: empty library, no local bleed ──────────────────
   section('fresh real patient: empty library');
   setStubSession(P1);
   tree = await mountLive();
   assert('account resolves to real p-1', account.account.kind === 'real');
   assert('real hydration completes', ctx.hydrated);
-  assert('fresh library is empty — no demo bleed', ctx.customFoods.length === 0 && ctx.savedRecipes.length === 0);
+  assert('fresh library is empty — no local bleed', ctx.customFoods.length === 0 && ctx.savedRecipes.length === 0);
   assert('no notice on clean hydration', notice === null);
 
   // ── 3 · Custom food CRUD writes through the account ───────────────────────
@@ -687,7 +687,7 @@ async function main() {
 
   // Account-owned exact configurations must survive a cached launch when the
   // state endpoint is unavailable. The snapshot key is scoped by p-1 and must
-  // not bleed through the demo/global local state.
+  // not bleed through the signed-out/global local state.
   const exactSnapshot = parseNutritionSnapshot({
     version: 1,
     source: { provider: 'usda', recordId: '171077', revision: 'exact' },
@@ -909,7 +909,7 @@ async function main() {
     && notice === null);
 
   // ── 7 · Accounts never bleed ───────────────────────────────────────────────
-  section('account isolation: second account, local persistence, demo return');
+  section('account isolation: second account, local persistence, signed-out return');
   holdNextImpact();
   let staleAdd!: Promise<FoodItem>;
   await act(async () => {
@@ -953,10 +953,10 @@ async function main() {
     }) && acct1Raw !== '');
 
   await signIn(null);
-  assert('sign-out returns the demo library intact', account.account.kind === 'demo'
+  assert('sign-out returns the local library intact', account.account.kind === 'signed-out'
     && ctx.customFoods.some(f => f.name === 'Demo Jerky' && f.photoUri === FOOD_PHOTO_URI)
     && ctx.savedRecipes.some(r => r.name === 'Demo Chicken' && r.photoUri === RECIPE_PHOTO_URI));
-  assert('no account rows leak into the demo library',
+  assert('no account rows leak into the local library',
     !ctx.customFoods.some(f => f.name.startsWith('P1 ') || f.name.startsWith('P2 '))
     && !ctx.savedRecipes.some(r => r.name.startsWith('P1 '))
     && (exactFood === null || !ctx.allFoods.some(item => item.id === exactFood!.id)));

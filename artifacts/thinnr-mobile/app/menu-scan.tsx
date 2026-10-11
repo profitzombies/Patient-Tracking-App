@@ -59,11 +59,10 @@ export default function MenuScanScreen() {
   const { mode, hydrated: modeHydrated } = useAppMode();
   const patientAccount = usePatientAccount();
   // Signed-in accounts authenticate the scan so the server can honor the
-  // account's consent and photo-analysis choice; the demo stays tokenless.
-  const scanAuth =
-    patientAccount.account.kind === 'demo'
-      ? {}
-      : { getAuthToken: patientAccount.getAccessToken ?? (async () => null) };
+  // account's consent and photo-analysis choice.
+  const scanAuth = patientAccount.getAccessToken
+    ? { getAuthToken: patientAccount.getAccessToken }
+    : {};
 
   const [phase, setPhase] = useState<Phase>({ kind: 'pick' });
   const [pickError, setPickError] = useState<string | null>(null);

@@ -1,8 +1,8 @@
 /**
  * Shop grid + cart screen contract check (real providers, scripted HTTP).
  *
- * Demo: the bundled storefront renders offline; the pay path is the demo
- * nudge. Real: the storefront comes from GET /billing/shop with a bearer,
+ * Signed out: an explicit sign-in state, no tiles, zero network.
+ * Real: the storefront comes from GET /billing/shop with a bearer,
  * tiles route to /product/<slug>, the cart quotes live from the server,
  * groups one-time vs subscription lines, edits and removes lines, persists
  * across a remount, and never leaks between accounts. Unavailable offices
@@ -19,14 +19,10 @@ import CartScreen from '../app/cart';
 import { routerLog } from './provider-training-stubs/expo-router';
 
 async function main() {
-  section('demo persona');
+  section('signed out');
   await signOut();
   let tree = await mount(<ShopScreen />);
-  const demoTiles = hosts(tree, 'shop-grid')[0]?.children.length ?? 0;
-  assert('demo shop renders the bundled catalog offline', demoTiles >= 9 && has(tree, 'shop-demo-note') && has(tree, 'shop-product-control') && shopCalls().length === 0);
-  assert('tile shows the patient price', text(tree, 'shop-price-control').includes('$'));
-  await press(tree, 'shop-product-control');
-  assert('tile opens the product page by slug', routerLog.at(-1)?.target === '/product/control');
+  assert('signed-out shop shows the sign-in state, no grid, zero network', has(tree, 'shop-error') && text(tree, 'shop-error').includes('Sign in') && !has(tree, 'shop-grid') && !has(tree, 'shop-product-control') && shopCalls().length === 0);
   await unmount(tree);
 
   section('real storefront');
@@ -36,7 +32,6 @@ async function main() {
   const shopCall = shopCalls().find(call => call.path.endsWith('/shop'));
   assert('real storefront uses the patient bearer', shopCall?.auth === 'Bearer patient-token');
   assert('real storefront is fetched once', shopCalls().filter(call => call.path.endsWith('/shop')).length === 1);
-  assert('real storefront never renders the demo note', !has(tree, 'shop-demo-note'));
   assert('every live product has a tile', script.shop.products.every(product => has(tree, `shop-product-${product.slug}`)));
   assert('header cart badge hidden while empty', !has(tree, 'shop-cart-count'));
   await unmount(tree);
@@ -120,7 +115,7 @@ async function main() {
   section('account isolation');
   await signOut();
   tree = await mount(<CartScreen />);
-  assert('demo account starts with its own empty cart, no network', has(tree, 'cart-empty') && !has(tree, 'cart-line-control-one-time'));
+  assert('signed-out never sees the previous patient’s cart lines', has(tree, 'cart-error') && !has(tree, 'cart-line-control-one-time') && !has(tree, 'cart-empty'));
   await unmount(tree);
   await signIn();
 
@@ -138,7 +133,7 @@ async function main() {
   script.shop = liveShop();
   script.shopFailure = { status: 503, error: 'The shop is briefly unavailable.' };
   tree = await mount(<ShopScreen />);
-  assert('failure shows inline error with Retry, no demo data', text(tree, 'shop-error').includes('briefly unavailable') && has(tree, 'shop-retry') && !has(tree, 'shop-product-control'));
+  assert('failure shows inline error with Retry, no placeholder data', text(tree, 'shop-error').includes('briefly unavailable') && has(tree, 'shop-retry') && !has(tree, 'shop-product-control'));
   script.shopFailure = null;
   await press(tree, 'shop-retry');
   assert('Retry refetches and renders the grid', has(tree, 'shop-grid') && has(tree, 'shop-product-control'));

@@ -21,12 +21,12 @@ import {
   summarizeMeals,
 } from '../src/data/nutrition-data';
 import { classifyMealName, getNudgeAssessment } from '../src/data/stall-nudge';
-// The mobile app's own seed + classifier, imported directly (tsx compiles
-// across the package boundary) so the parity below compares the REAL
-// deciders, not copies of them.
-import { buildSeedEntries as buildMobileSeedEntries } from '../../thinnr-mobile/data/patient-data';
+// The mobile app's classifier plus its test-only seeded diary fixture,
+// imported directly (tsx compiles across the package boundary) so the parity
+// below compares the REAL deciders, not copies of them. The mobile app ships
+// no demo roster anymore, so patient-level visit parity is web-only below.
+import { buildSeedEntries as buildMobileSeedEntries } from '../../thinnr-mobile/scripts/fixtures/seeded-history';
 import { classifyEntry as classifyMobileEntry } from '../../thinnr-mobile/data/stall-nudge';
-import { MOCK_PATIENTS as MOBILE_MOCK_PATIENTS } from '../../thinnr-mobile/data/mock-data';
 import { BODY_AREAS } from '../src/lib/body-measurements';
 import { BODY_AREAS as MOBILE_BODY_AREAS } from '../../thinnr-mobile/data/body-measurements';
 
@@ -169,12 +169,6 @@ check(
 
 // ─── Body measurement visits (staff-logged inches) ───────────────────────────
 check('body areas identical on web and mobile', MOBILE_BODY_AREAS, BODY_AREAS);
-const mobileVisitsById = new Map(MOBILE_MOCK_PATIENTS.map((p) => [p.id, p.bodyMeasurements]));
-const visitMismatches = MOCK_PATIENTS
-  .filter((p) => JSON.stringify(p.bodyMeasurements) !== JSON.stringify(mobileVisitsById.get(p.id)))
-  .map((p) => p.id);
-check('every demo patient carries identical measurement visits on web and mobile', visitMismatches, []);
-check('demo patient count matches mobile', MOCK_PATIENTS.length, MOBILE_MOCK_PATIENTS.length);
 check('Emma: three seeded visits, baseline first', emma.bodyMeasurements.map((v) => v.dateKey), ['2026-05-20', '2026-07-06', '2026-08-22']);
 check('Emma: baseline waist', emma.bodyMeasurements[0].measurements.waist, 36);
 check('Emma: newest visit waist (inches lost)', emma.bodyMeasurements.at(-1)?.measurements.waist, 32.8);

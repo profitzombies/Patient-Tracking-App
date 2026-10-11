@@ -2,8 +2,8 @@
  * "Today's medications" — every dose scheduled for the selected day with a
  * one-tap Taken / Skipped decision, plus a day switcher covering the
  * seven-day correction window so a late entry or a fix lands on the right
- * day. Renders nothing for accounts with no medications (the demo persona
- * never has any), so screens that mount it stay byte-identical there.
+ * day. Renders nothing for accounts with no medications, so screens that
+ * mount it stay byte-identical there.
  */
 import React, { useMemo, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from 'react-native';

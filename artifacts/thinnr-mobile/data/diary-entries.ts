@@ -17,7 +17,7 @@ export interface LoggedFrequency {
  * Rank library items (foods/recipes) by how often they appear in the diary on
  * or after `sinceKey` (a YYYY-MM-DD date key, inclusive). Ties fall back to
  * the most recent logged date, then to log order, so the result is fully
- * deterministic — the seeded demo history always produces the same list.
+ * deterministic — the same history always produces the same list.
  * Entries without a refId are skipped; callers apply their own minimum-count
  * or length caps.
  */

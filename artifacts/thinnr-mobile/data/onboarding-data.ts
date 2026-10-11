@@ -1,10 +1,10 @@
 /**
- * Simulated new-patient onboarding: answer model, step flow, and helpers.
+ * New-patient onboarding: answer model, step flow, and helpers.
  *
- * Field-for-field this mirrors the clinic's real signup flow (20 reference
- * screenshots), restyled to Cobalt Ledger. Everything is mock: verification
- * and provider codes are fixed, nothing persists, and all dates derive from
- * the shared demo anchor date — never the device clock.
+ * Field-for-field this mirrors the clinic's signup flow (20 reference
+ * screenshots), restyled to Cobalt Ledger. Account creation (contact,
+ * verification, provider link, password) happens before onboarding in the
+ * signup / claim flows, so the steps here start at identity confirmation.
  */
 import { normalizePhone } from '../lib/phone';
 import { addDays, formatDateKey, toDateKey, TODAY } from './patient-data';
@@ -16,11 +16,6 @@ import {
   type ScreeningAnswer,
   type ScreeningQuestion,
 } from '../lib/diet-fit';
-
-// ─── Mock codes ──────────────────────────────────────────────────────────────
-
-export const MOCK_VERIFICATION_CODE = '123456';
-export const MOCK_PROVIDER_CODE = '123456';
 
 // ─── Answer model ────────────────────────────────────────────────────────────
 
@@ -35,11 +30,6 @@ export interface OnboardingAnswers {
   name: string;
   email: string;
   phone: string;
-  contactMethod: ContactMethod;
-  contactValue: string;
-  verified: boolean;
-  providerLinked: boolean;
-  faceId: 'enabled' | 'skipped' | null;
   heightUnit: HeightUnit;
   heightFt: number;
   heightIn: number;
@@ -51,7 +41,7 @@ export interface OnboardingAnswers {
   birthYear: string;
   program: ProgramChoice | null;
   started: YesNo | null;
-  startOffsetDays: number; // days after the demo anchor date
+  startOffsetDays: number; // days after the fixed anchor date
   /** Canonical local calendar date used by real accounts. */
   programStartDate: string;
   goalWeight: string;
@@ -105,11 +95,6 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   name: '',
   email: '',
   phone: '',
-  contactMethod: 'phone',
-  contactValue: '',
-  verified: false,
-  providerLinked: false,
-  faceId: null,
   heightUnit: 'imperial',
   heightFt: 5,
   heightIn: 6,
@@ -149,11 +134,6 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
 export type StepKey =
   | 'welcome'
   | 'identity'
-  | 'contact'
-  | 'verify'
-  | 'provider-code'
-  | 'face-id'
-  | 'password'
   | 'height'
   | 'weight'
   | 'gender'
@@ -187,19 +167,13 @@ interface StepDef {
 export const STEP_FLOW: StepDef[] = [
   { key: 'welcome' },
   { key: 'identity' },
-  { key: 'contact' },
-  { key: 'verify' },
-  { key: 'provider-code' },
-  { key: 'face-id' },
-  { key: 'password' },
   { key: 'height' },
   { key: 'weight' },
   { key: 'gender' },
   { key: 'birthday' },
   { key: 'program' },
   { key: 'started', when: onMedication },
-  // Real accounts always confirm the authoritative start date; visibleSteps
-  // preserves the demo's original "not yet" branch.
+  // Accounts always confirm the authoritative start date once on medication.
   { key: 'start-date', when: onMedication },
   { key: 'goal-weight' },
   { key: 'health-app' },
@@ -219,15 +193,8 @@ export const STEP_FLOW: StepDef[] = [
   { key: 'complete' },
 ];
 
-export function visibleSteps(a: OnboardingAnswers, realAccount = false): StepKey[] {
-  const accountSetup = new Set<StepKey>(['contact', 'verify', 'provider-code', 'face-id', 'password']);
-  return STEP_FLOW.filter(
-    s =>
-      (realAccount ? !accountSetup.has(s.key) : s.key !== 'identity') &&
-      (s.key !== 'start-date' ||
-        (realAccount ? onMedication(a) : onMedication(a) && a.started === 'no')) &&
-      (!s.when || s.when(a)),
-  ).map(s => s.key);
+export function visibleSteps(a: OnboardingAnswers): StepKey[] {
+  return STEP_FLOW.filter(s => !s.when || s.when(a)).map(s => s.key);
 }
 
 /** Position of a step in the full (unconditional) flow order. */
@@ -242,50 +209,18 @@ export function stepOrderIndex(key: StepKey): number {
  * later answer change (e.g. switching program to "none" after picking a
  * start date).
  */
-export function isStepAccessible(a: OnboardingAnswers, furthest: StepKey, key: StepKey, realAccount = false): boolean {
-  return visibleSteps(a, realAccount).includes(key) && stepOrderIndex(key) <= stepOrderIndex(furthest);
+export function isStepAccessible(a: OnboardingAnswers, furthest: StepKey, key: StepKey): boolean {
+  return visibleSteps(a).includes(key) && stepOrderIndex(key) <= stepOrderIndex(furthest);
 }
 
 /** Where to send a guarded-off route: the latest visible step not beyond `furthest`. */
-export function guardTarget(a: OnboardingAnswers, furthest: StepKey, realAccount = false): StepKey {
+export function guardTarget(a: OnboardingAnswers, furthest: StepKey): StepKey {
   const limit = stepOrderIndex(furthest);
-  const visible = visibleSteps(a, realAccount);
+  const visible = visibleSteps(a);
   for (let i = visible.length - 1; i >= 0; i--) {
     if (stepOrderIndex(visible[i]) <= limit) return visible[i];
   }
   return 'welcome';
-}
-
-// ─── Password rules ──────────────────────────────────────────────────────────
-
-// Mirrors the claim-account flow's canonical rule set (8+ chars, upper,
-// lower, symbol) so every surface that teaches password rules teaches the
-// same ones.
-export interface PasswordChecks {
-  length: boolean;
-  upper: boolean;
-  lower: boolean;
-  symbol: boolean;
-}
-
-export function passwordChecks(pw: string): PasswordChecks {
-  return {
-    length: pw.length >= 8,
-    upper: /[A-Z]/.test(pw),
-    lower: /[a-z]/.test(pw),
-    symbol: /[^A-Za-z0-9]/.test(pw),
-  };
-}
-
-export function allPasswordChecksPass(pw: string): boolean {
-  const c = passwordChecks(pw);
-  return c.length && c.upper && c.lower && c.symbol;
-}
-
-/** Mirrors the real flow's "this password cannot be used" security rejection. */
-export function isBlockedPassword(pw: string): boolean {
-  const lower = pw.toLowerCase();
-  return ['password', '123456', 'qwerty', 'letmein', 'abc123'].some(c => lower.includes(c));
 }
 
 // ─── Contact helpers ─────────────────────────────────────────────────────────
@@ -345,16 +280,8 @@ export function formatPhoneNumber(value: string): string {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-export function maskContact(method: ContactMethod, value: string): string {
-  if (method === 'phone') {
-    const digits = value.replace(/\D/g, '');
-    return `(•••) •••-${digits.slice(-4) || '••••'}`;
-  }
-  const [user = '', domain = ''] = value.trim().split('@');
-  return `${user.slice(0, 1)}•••@${domain || '•••'}`;
-}
 
-// ─── Birthday validation (against the demo anchor, never device clock) ──────
+// ─── Birthday validation (against the fixed anchor, never device clock) ─────
 
 export const MONTH_LABELS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
@@ -412,7 +339,7 @@ export function parseWeight(raw: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// ─── Program start date (anchored to the fixed demo date) ───────────────────
+// ─── Program start date (anchored to the fixed anchor date) ─────────────────
 
 export const QUICK_START_OFFSETS = [0, 1, 2, 3, 4];
 
@@ -420,7 +347,7 @@ export function startDateKeyFor(offset: number): string {
   return toDateKey(addDays(TODAY, offset));
 }
 
-/** Real accounts use this device's local calendar, never the demo anchor. */
+/** Real accounts use this device's local calendar, never the fixed anchor. */
 export function localStartDateKeyFor(offset: number, now = new Date()): string {
   const localNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, 12);
   return `${localNoon.getFullYear()}-${String(localNoon.getMonth() + 1).padStart(2, '0')}-${String(localNoon.getDate()).padStart(2, '0')}`;

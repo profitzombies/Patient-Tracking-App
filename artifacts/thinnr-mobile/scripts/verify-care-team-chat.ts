@@ -381,18 +381,21 @@ async function main() {
       String(node.props.testID ?? '').startsWith('care-team-product-card-')).length === 2);
   await act(async () => { suggestionRenderer.unmount(); });
 
-  const demoAccount: PatientAccountState = {
+  const signedOutAccount: PatientAccountState = {
     resolving: false,
-    account: { kind: 'demo' },
+    account: { kind: 'signed-out' },
     accountNotice: null,
     retryResolve: () => {},
   };
-  const demoRenderer = await mount(demoAccount, h(CareTeamChatScreen));
+  setStubSession(null);
+  const signedOutRenderer = await mount(signedOutAccount, h(CareTeamChatScreen));
   await flush();
-  assert('demo rows expose both suggestion flows',
-    !!host(demoRenderer.root, 'care-team-product-card-demo-boost') &&
-    !!host(demoRenderer.root, 'care-team-bundle-card'));
-  await act(async () => { demoRenderer.unmount(); });
+  assert('signed-out shows the sign-in notice with no messages or suggestion cards',
+    renderedText(signedOutRenderer.root).includes('Sign in again to message your care team') &&
+    signedOutRenderer.root.findAll(node => typeof node.type === 'string' &&
+      String(node.props.testID ?? '').startsWith('care-team-product-card-')).length === 0 &&
+    !host(signedOutRenderer.root, 'care-team-bundle-card'));
+  await act(async () => { signedOutRenderer.unmount(); });
 
   finished = true;
   if (failures) {

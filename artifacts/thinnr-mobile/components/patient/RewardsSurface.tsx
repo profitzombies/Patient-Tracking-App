@@ -6,9 +6,9 @@ import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { patientContentBottom } from '@/constants/layout';
 import { fonts } from '@/constants/colors';
-import { PATIENT_PROFILE, TODAY_KEY } from '@/data/patient-data';
+import { TODAY_KEY } from '@/data/patient-data';
 import {
-  buildDemoRewardState,
+  buildLocalRewardState,
   type RewardAward,
 } from '@/data/patient-rewards';
 import type { PatientRewardsState } from '@/context/PatientAccountContext';
@@ -161,11 +161,12 @@ export function useRewardsModel() {
   const [retrying, setRetrying] = useState(false);
   const [remoteRewards, setRemoteRewards] = useState<PatientRewardsState | null>(null);
   const [rewardError, setRewardError] = useState(false);
-  const profileStarting = patient.profile?.startingWeight ?? PATIENT_PROFILE.startingWeight;
-  const profileCurrent = patient.weightSeries.at(-1)?.weight ?? patient.profile?.currentWeight ?? PATIENT_PROFILE.currentWeight;
-  const demoState = useMemo(
+  const profileStarting = patient.profile?.startingWeight ?? null;
+  const profileCurrent = patient.weightSeries.at(-1)?.weight ?? patient.profile?.currentWeight ?? null;
+  // Computed from the device's own entries until the server's ledger answers.
+  const localState = useMemo(
     () =>
-      buildDemoRewardState({
+      buildLocalRewardState({
         entries: patient.allEntries,
         checkIns: patient.checkIns,
         waterFor: patient.waterFor,
@@ -192,7 +193,7 @@ export function useRewardsModel() {
   // stable for that account during a screen visit.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account.kind === 'real' ? account.patientId : account.kind, sync.online, patient.entryFacts?.todayKey]);
-  const rewardState = remoteRewards ?? demoState;
+  const rewardState = remoteRewards ?? localState;
   const awards = rewardState.awards as RewardAward[];
   const retry = () => {
     if (account.kind === 'unresolved') retryResolve();

@@ -2,8 +2,8 @@
  * Live office roster + patient invitation UI for the staff Patients screen.
  *
  * Auth state gates everything: this section mounts only for a signed-in
- * session, while the signed-out demo uses a separate component and never calls
- * the live endpoint. Server authorization still decides whether that session
+ * session; a signed-out shell holds a loading frame and never calls the live
+ * endpoint. Server authorization still decides whether that session
  * can view an office. The office itself is always derived server-side from the
  * token — this surface never names one.
  *

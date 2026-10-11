@@ -149,13 +149,13 @@ export function createLeanSmoother(alpha = 0.35): LeanSmoother {
 export const SIM_LEAN_SETTLE_MS = 4000;
 
 /**
- * Scripted lean for the web demo feed: starts tipped forward at the floor
+ * Scripted lean for the web preview feed: starts tipped forward at the floor
  * (bar pinned low, face-down guidance showing), eases back through upright
  * and settles into the ready band with a small live wobble so the level
  * visibly floats like a real sensor. `elapsedMs` is virtual time — the
  * session scales real time by the probe-interval knob, so the suite plays
  * the whole curve in milliseconds while the browser preview takes its
- * demo-paced seconds.
+ * preview-paced seconds.
  */
 export function simulatedLeanAt(elapsedMs: number): number {
   const t = Math.max(0, elapsedMs) / 1000;

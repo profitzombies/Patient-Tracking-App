@@ -20,10 +20,6 @@
  * Totals: an office that collects sales tax gets its tax estimated by the
  * server for the entered address, and Pay stays disabled until the amount
  * actually due is known; the button always names that amount.
- *
- * Demo persona: the form renders with the demo address, no card entry
- * loads (no publishable key), and Pay uses the demo convention (disabled,
- * tapping explains). Real accounts never see demo data here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
@@ -33,7 +29,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { ErrorBox, FieldLabel, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
-import { PriceRow, ShopHeader, ShopUnavailable, demoNudge } from '@/components/shop/ShopChrome';
+import { PriceRow, ShopHeader, ShopUnavailable } from '@/components/shop/ShopChrome';
 import { StripeCardEntry } from '@/components/shop/StripeCardEntry';
 import { CARD_ENTRY_UNAVAILABLE, type CardEntryHandle } from '@/components/shop/card-entry-types';
 import { useColors } from '@/hooks/useColors';
@@ -127,7 +123,7 @@ export default function CheckoutScreen() {
   // Bumped when the server refuses a stale total (422): the same request is priced again.
   const [requote, setRequote] = useState(0);
   useEffect(() => {
-    if (cart.demo || !shop?.available || !lines.length) return;
+    if (!shop?.available || !lines.length) return;
     let cancelled = false;
     setQuote(null);
     // Tax estimates are debounced while the address is typed; live shipping
@@ -154,14 +150,14 @@ export default function CheckoutScreen() {
     }, delay);
     return () => { cancelled = true; clearTimeout(timer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- signature is the request's identity
-  }, [cart.demo, shop?.available, lines.length, signature, requote, taxEnabled]);
-  const shown = cart.demo ? estimate : quote ?? estimate;
+  }, [shop?.available, lines.length, signature, requote, taxEnabled]);
+  const shown = quote ?? estimate;
   const chosenOption = quote?.shipping_options?.find(option => option.method === shippingMethod) ?? null;
   /** The amount the card is charged today; null until a tax office's estimate is in. */
   const dueCents = shown?.total_due_cents ?? null;
 
   /* ---------- cards ---------- */
-  const [cards, setCards] = useState<PatientCard[] | null>(cart.demo ? [] : null);
+  const [cards, setCards] = useState<PatientCard[] | null>(null);
   const [cardsError, setCardsError] = useState<string | null>(null);
   const [choice, setChoice] = useState<CardChoice>({ kind: 'new' });
   const [saveDefault, setSaveDefault] = useState(true);
@@ -169,7 +165,7 @@ export default function CheckoutScreen() {
   const [cardSdkError, setCardSdkError] = useState<string | null>(null);
   const cardEntry = useRef<CardEntryHandle>(null);
   const loadCards = useCallback(() => {
-    if (cart.demo || !shop?.available) return;
+    if (!shop?.available) return;
     setCardsError(null);
     void listCards()
       .then(list => {
@@ -181,15 +177,15 @@ export default function CheckoutScreen() {
         setCards([]);
         setCardsError(caught instanceof Error && caught.message ? caught.message : 'Couldn’t load your saved cards.');
       });
-  }, [cart.demo, shop?.available]);
+  }, [shop?.available]);
   useEffect(() => { loadCards(); }, [loadCards]);
 
   /* ---------- pay ---------- */
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [partialNote, setPartialNote] = useState<string | null>(null);
-  // A real account's unsettled attempt; the demo persona never has one.
-  const pendingAttempt = cart.demo ? null : cart.pending;
+  // The account's unsettled attempt, if any.
+  const pendingAttempt = cart.pending;
   // True while a tap that STARTED from the form is in flight: the form stays
   // on screen (and its card element alive for 3DS) even though the attempt is
   // already committed. The frozen confirm view takes over only once such an
@@ -211,12 +207,11 @@ export default function CheckoutScreen() {
   // A pending attempt replays as-is: no form, card, or quote is needed to settle it.
   // A pending attempt replays even when the storefront is unavailable: the
   // server settles it from its own rows.
-  const canPay = !cart.demo && !paying && (
+  const canPay = !paying && (
     pendingAttempt !== null || (!!shop?.available && lines.length > 0 && quoteFinal && formReady && cardReady)
   );
 
   const explainDisabled = () => {
-    if (cart.demo) return demoNudge();
     setTouched(true);
     if (!formReady) setPayError('Complete the shipping address to continue.');
     else if (!cardReady) setPayError(cardSdkError ?? 'Enter your full card details to continue.');
@@ -395,12 +390,6 @@ export default function CheckoutScreen() {
         ) : null}
         {!pendingMode && shop?.available && lines.length ? (
           <>
-            {cart.demo ? (
-              <Text testID="checkout-demo-note" style={[styles.demoNote, { color: colors.orangeText }]}>
-                Demo checkout — the form is live, payment needs a patient account.
-              </Text>
-            ) : null}
-
             <SectionHeader label="Ship to" style={styles.sectionGap} />
             <LedgerCard testID="checkout-address" style={{ padding: 14, gap: 10 }}>
               {addressQuoteError ? <ErrorBox testID="checkout-address-error" message={addressQuoteError} /> : null}
@@ -516,11 +505,11 @@ export default function CheckoutScreen() {
               ) : choice.kind === 'new' ? (
                 <View testID="checkout-card-placeholder" style={[styles.staticField, { borderColor: colors.border, backgroundColor: colors.paperCardAlt, borderRadius: colors.radiusSm }]}>
                   <Text style={[styles.staticText, { color: colors.subtleText }]}>
-                    {cart.demo ? 'Card entry is available with a patient account.' : 'Card entry isn’t available for this office right now.'}
+                    Card entry isn’t available for this office right now.
                   </Text>
                 </View>
               ) : null}
-              {shop.sandbox && !cart.demo ? (
+              {shop.sandbox ? (
                 <Text testID="checkout-sandbox" style={[styles.note, { color: colors.orangeText }]}>Test mode — no real charge will be made.</Text>
               ) : null}
             </LedgerCard>
@@ -734,7 +723,6 @@ const styles = StyleSheet.create({
   sectionGap: { marginTop: 14, marginBottom: 8 },
   empty: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
-  demoNote: { fontSize: 11.5, lineHeight: 16, fontFamily: 'Inter_600SemiBold' },
   pendingLead: { fontSize: 13, lineHeight: 18, fontFamily: 'Inter_400Regular' },
   twoUp: { flexDirection: 'row', gap: 10 },
   staticField: { borderWidth: 1, minHeight: 46, justifyContent: 'center', paddingHorizontal: 12, marginTop: 4 },

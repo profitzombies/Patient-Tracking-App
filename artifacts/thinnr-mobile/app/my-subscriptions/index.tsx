@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { BillingScreen, SectionLabel } from '@/components/billing/BillingScreen';
 import { SubscriptionCard } from '@/components/billing/BillingPieces';
 import { useBillingResource } from '@/components/billing/useBillingResource';
-import { DEMO_SUBSCRIPTIONS } from '@/data/patient-billing-demo';
 import { useColors } from '@/hooks/useColors';
 import { listSubscriptions } from '@/lib/patient-billing-api';
 import { subscriptionHref } from '@/lib/patient-billing-core';
@@ -13,7 +12,7 @@ import type { PatientSubscriptionDetail } from '@/lib/patient-billing-types';
 export default function SubscriptionsScreen() {
   const colors = useColors();
   const load = useCallback(async (): Promise<PatientSubscriptionDetail[]> => (await listSubscriptions()).items, []);
-  const subscriptions = useBillingResource<PatientSubscriptionDetail[]>(load, () => DEMO_SUBSCRIPTIONS, 'subscriptions');
+  const subscriptions = useBillingResource<PatientSubscriptionDetail[]>(load, 'subscriptions');
   const rows = subscriptions.data ?? [];
   const current = rows.filter(row => row.status !== 'canceled');
   const ended = rows.filter(row => row.status === 'canceled');
@@ -26,7 +25,6 @@ export default function SubscriptionsScreen() {
       error={subscriptions.error}
       onRetry={() => void subscriptions.reload()}
       hasContent={subscriptions.data !== null}
-      demo={subscriptions.demo}
     >
       <SectionLabel text="Your subscriptions" />
       {current.length ? current.map(subscription => (

@@ -28,12 +28,12 @@
 import { buildCopyWithExtras, cloneEntriesForCopy, yesterdaySlotPreview } from '../data/diary-entries';
 import { applyRemoveEntries, applyRemoveEntry, type DiaryEntryState } from '../data/diary-entry-state';
 import {
-  buildSeedEntries,
   findFood,
   shiftDateKey,
   TODAY_KEY,
   type MealLogEntry,
 } from '../data/patient-data';
+import { buildSeedEntries } from './fixtures/seeded-history';
 
 const SEED_ENTRIES = buildSeedEntries();
 const SEED_IDS = new Set(SEED_ENTRIES.map(e => e.id));

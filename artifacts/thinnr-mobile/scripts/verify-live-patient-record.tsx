@@ -3,7 +3,6 @@ import React, { act } from 'react';
 import { create, type ReactTestRenderer, type ReactTestInstance } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { setBaseUrl, type OfficePatientRecord } from '@workspace/api-client-react';
-import { OperationsProvider } from '../context/OperationsContext';
 import { setStubSession, setStubSessionLoadingTicks } from './leaderboard-stubs/supabase';
 import { routerLog, router, setSearchParams } from './provider-training-stubs/expo-router';
 import { liveEntryDecision } from '../lib/live-patient-entry';
@@ -85,6 +84,18 @@ export async function verifyLivePatientRecord(): Promise<number> {
       url: new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url),
       auth: new Headers(init?.headers).get('authorization'),
     };
+    // The AI Coach History panel on the record page has its own suite
+    // (test:coach-review); answer it with empty lists outside the record
+    // request ledger so the counts below stay about the record itself.
+    // Likewise the photo page signer (test:photo-pages owns it): echo each
+    // photo's own URL so the record's thumbnails resolve to the record data.
+    const side = request.url.pathname;
+    if (/\/coach-(conversations|memories)$/.test(side) || side.endsWith('/photos/urls')) {
+      const body = side.endsWith('conversations') ? { conversations: [], nextOffset: null }
+        : side.endsWith('memories') ? { memories: [], nextOffset: null }
+        : { urls: RECORD.progressPhotos.map(photo => ({ id: photo.id, url: photo.url })), expiresAt: '2099-01-01T00:00:00.000Z' };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
     requests.push(request);
     const result = await handler(request);
     return new Response(JSON.stringify(result.body), {
@@ -105,7 +116,7 @@ export async function verifyLivePatientRecord(): Promise<number> {
   const mount = async (screen: React.ReactElement) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 1, gcTime: 0 } } });
     const wrap = (element: React.ReactElement) =>
-      <QueryClientProvider client={client}><OperationsProvider>{element}</OperationsProvider></QueryClientProvider>;
+      <QueryClientProvider client={client}>{element}</QueryClientProvider>;
     let renderer!: ReactTestRenderer;
     await act(async () => { renderer = create(wrap(screen)); });
     await settle();
@@ -230,18 +241,17 @@ export async function verifyLivePatientRecord(): Promise<number> {
     check('live roster opens identical live detail route', routerLog.at(-1)?.target === '/office-patient/pat-a');
     await act(async () => host(roster.root, 'patients-search-input').props.onChangeText('absent'));
     check('live search filters actual server patients', !host(roster.root, 'live-patient-pat-a') && /No .*match/i.test(text(roster.root)));
+    const requestsWhileSignedIn = requests.length;
     await act(async () => setStubSession(null));
     await settle();
-    const demoRows = roster.root.findAll(n => typeof n.type === 'string' && String(n.props.testID).startsWith('patient-row-'));
-    check('signed-out roster returns to demo only without a live call', demoRows.length > 10 && text(roster.root).includes('SYNTHETIC') && requests.length === 1);
-    await tap(roster.root, demoRows[0].props.testID);
-    check('demo roster keeps seeded patient route', routerLog.at(-1)?.target === `/patient/${demoRows[0].props.testID.slice('patient-row-'.length)}`);
+    check('signed-out roster drops the live rows and holds a quiet frame without a live call',
+      !host(roster.root, 'live-patient-pat-a') && !!host(roster.root, 'patients-session-loading') && !/SYNTHETIC|Casey Ortiz/.test(text(roster.root)) && requests.length === requestsWhileSignedIn);
     await roster.close();
     reset();
     setStubSession(null);
-    const demo = await mount(<PatientsScreen />);
-    check('cold demo roster does not call office endpoints', requests.length === 0);
-    await demo.close();
+    const signedOut = await mount(<PatientsScreen />);
+    check('cold signed-out roster does not call office endpoints and shows no patients', requests.length === 0 && !host(signedOut.root, 'patients-live-list') && !!host(signedOut.root, 'patients-session-loading'));
+    await signedOut.close();
     reset();
     handler = () => ({ status: 403, body: { error: 'Office access required' } });
     const deniedRoster = await mount(<PatientsScreen />);
@@ -250,10 +260,10 @@ export async function verifyLivePatientRecord(): Promise<number> {
     reset();
     setStubSessionLoadingTicks(1);
     const resolving = await mount(<PatientsScreen />);
-    check('session resolution ends on live rather than demo roster', !!host(resolving.root, 'live-patient-pat-a') && !text(resolving.root).includes('SYNTHETIC'));
+    check('session resolution ends on the live roster', !!host(resolving.root, 'live-patient-pat-a') && !text(resolving.root).includes('SYNTHETIC'));
     await resolving.close();
     check('global patient admission guard recognizes office record as staff route', liveEntryDecision({
-      modeHydrated: true, mode: 'staff', accountResolving: false, accountKind: 'demo',
+      modeHydrated: true, mode: 'staff', accountResolving: false, accountKind: 'signed-out',
       patientHydrated: true, onboardingComplete: null,
       pathname: '/office-patient/pat-a',
     }).kind === 'allow');

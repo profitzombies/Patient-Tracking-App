@@ -3,7 +3,7 @@
  * and stop. Each record drives its own device reminders (name + dose in the
  * alert, daily times or a weekly day) and the office's adherence view, so
  * this is the one place a patient shapes what they are reminded about.
- * Real accounts only; the demo persona never renders it.
+ * Real accounts only.
  */
 import React, { useMemo, useState } from 'react';
 import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from 'react-native';

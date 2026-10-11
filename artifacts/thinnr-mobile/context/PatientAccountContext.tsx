@@ -1,14 +1,13 @@
 /**
- * Which patient the diary belongs to — the seam between the demo persona and
- * a real signed-in patient account.
+ * Which patient the diary belongs to — the seam between "no patient
+ * session" and a real signed-in patient account.
  *
- * The DEFAULT context value is the ready demo account, so every tree that
- * renders PatientProvider without mounting the resolver (all the existing
- * Node test suites, and any screen preview) behaves exactly as before this
- * seam existed: seeded demo data, one local storage key, no network. The
- * app's root layout mounts PatientAccountProvider (see
- * ./PatientAccountProvider.tsx) above PatientProvider to swap in the
- * resolved account when a live session exists.
+ * The DEFAULT context value is the signed-out account, so every tree that
+ * renders PatientProvider without mounting the resolver (Node test suites,
+ * screen previews) has no network and no hydrated diary. The app's root
+ * layout mounts PatientAccountProvider (see ./PatientAccountProvider.tsx)
+ * above PatientProvider to swap in the resolved account when a live
+ * session exists.
  *
  * This file must stay dependency-light — react plus erased type imports
  * only. PatientContext imports it, and PatientContext is rendered by many
@@ -470,12 +469,15 @@ export interface PatientDietApi {
 }
 
 export type PatientAccount =
-  /** The guided demo persona: seeded history plus this device's local layer. */
-  | { kind: 'demo' }
+  /**
+   * No patient session: signed out, session still loading, the account
+   * lookup still in flight, or a staff session browsing patient routes.
+   * Nothing is hydrated and nothing is written through the API.
+   */
+  | { kind: 'signed-out' }
   /**
    * A live session exists but the account lookup failed (server unreachable).
-   * The diary stays seedless and blocks writes behind a retry — never demo
-   * data (which would read as the patient's own history) and never a silent
+   * The diary stays empty and blocks writes behind a retry — never a silent
    * local-only save a future sign-in could not see.
    */
   | { kind: 'unresolved' }
@@ -492,20 +494,20 @@ export interface PatientAccountState {
   retryResolve: () => void;
   /**
    * Bearer token supplier for streaming calls that authenticate per turn
-   * (coach chat). Present only when a live session exists — the demo
-   * default omits it, so demo requests stay tokenless and byte-identical.
+   * (coach chat). Present only when a live session exists — the signed-out
+   * default omits it.
    */
   getAccessToken?: () => Promise<string | null>;
 }
 
-export const DEMO_ACCOUNT_STATE: PatientAccountState = {
+export const SIGNED_OUT_ACCOUNT_STATE: PatientAccountState = {
   resolving: false,
-  account: { kind: 'demo' },
+  account: { kind: 'signed-out' },
   accountNotice: null,
   retryResolve: () => {},
 };
 
-export const PatientAccountContext = createContext<PatientAccountState>(DEMO_ACCOUNT_STATE);
+export const PatientAccountContext = createContext<PatientAccountState>(SIGNED_OUT_ACCOUNT_STATE);
 
 export function usePatientAccount(): PatientAccountState {
   return useContext(PatientAccountContext);

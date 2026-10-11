@@ -148,7 +148,7 @@ import { OUTLINE_PATHS } from '../components/patient/BodyOutline';
 import { decodeBase64, decodePngToLuma, probeCameraFrame } from '../lib/photo-probe';
 import { progressPhotoDisplayUrl, uploadGuidedShots } from '../lib/progress-photo-upload';
 import { setConnectivityOverride } from '../lib/connectivity';
-import { ENROLLMENT_DAYS, formatDateKey, TODAY_KEY } from '../data/patient-data';
+import { formatDateKey, TODAY_KEY } from '../data/patient-data';
 import { localTodayKey } from '../lib/live-patient-entry';
 import * as SessionModule from '../components/patient/GuidedPhotoSession';
 import { PatientProvider, usePatient } from '../context/PatientContext';
@@ -1464,12 +1464,11 @@ async function main(): Promise<void> {
       'outcome reports 3 saved photos',
       JSON.stringify(outcomes[0]),
     );
-    assertEqual(fetchCalls.length, 0, 'demo save never touches the network');
+    assertEqual(fetchCalls.length, 0, 'session-only save never touches the network');
     assertEqual(countAnnounced('3 progress photos saved.'), 1, 'save success announced');
 
     const photos = patientCtx!.photos;
     assertEqual(photos.length, photosBefore + 3, 'three photos added to the grid');
-    const week = Math.ceil(ENROLLMENT_DAYS / 7);
     const added = photos.slice(-3);
     for (let i = 0; i < GUIDED_ANGLES.length; i++) {
       const angle = GUIDED_ANGLES[i];
@@ -1482,13 +1481,12 @@ async function main(): Promise<void> {
         typeof entry.uri === 'string' && (entry.uri as string).length > 0,
         `${angle} entry keeps its on-device uri`,
       );
-      assertEqual(entry.objectPath, undefined, `${angle} entry mints no object path (demo)`);
+      assertEqual(entry.objectPath, undefined, `${angle} entry mints no object path (no account)`);
       assertEqual(
         entry.label,
-        `Week ${week} ${GUIDED_ANGLE_LABELS[angle]}`,
-        `${angle} entry label`,
+        `${formatDateKey(TODAY_KEY)} ${GUIDED_ANGLE_LABELS[angle]}`,
+        `${angle} entry label (dated, since no program day is known)`,
       );
-      // Demo persona stays byte-identical on the seeded anchor day.
       assertEqual(entry.dateKey, TODAY_KEY, `${angle} entry dated today`);
     }
     await actSettle(() => webSession.renderer.unmount());

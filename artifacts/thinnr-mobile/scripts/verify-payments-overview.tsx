@@ -2,8 +2,7 @@
  * Payments overview suite (run: pnpm run test:payments-overview).
  *
  * Renders the REAL overview screen and proves:
- *   - signed out → demo branch from the pinned dataset (tiles, today's
- *     running totals, charts, activity), sandbox badge, no fetch at all;
+ *   - signed out → the sign-in holding frame, no fetch at all;
  *   - signed in → status is fetched with the staff bearer, then the
  *     dashboard for the last-30-days device-local range and today's totals
  *     for the device tz; loading and error states; 403 → permission state;
@@ -13,7 +12,7 @@
  */
 import React, { act } from 'react';
 import { all, check, finish, ids, isBlocked, mount, one, paths, press, requests, resetRequests, routerLog, section, setScript, settle, STAFF, text, textOf } from './payments-stubs/harness';
-import { DEMO_DASHBOARD, DEMO_TODAY, DEMO_ACTIVITY } from '../data/office-payments-demo';
+import { SAMPLE_DASHBOARD, SAMPLE_TODAY, SAMPLE_ACTIVITY } from './fixtures/sample-office-payments';
 import { AreaChart, chartSummary, hourlySeriesFrom, niceMax, runningHourLabel, seriesFrom } from '../components/payments/RevenueCharts';
 import { formatCents, mrrHint } from '../lib/office-billing-format';
 import { localDayKey, rangeForPreset } from '../components/payments/range';
@@ -30,8 +29,8 @@ const STATUS: OfficeBillingStatus = {
   office: { provider_id: 'prov-1', office_name: 'Maple Med Spa' },
 };
 
-const LIVE_DASHBOARD = { ...DEMO_DASHBOARD, collected_cents: 123456, net_cents: 70000, orders: 9, mrr_cents: 98765, active_subscriptions: 7, account_connected: true };
-const LIVE_TODAY = { ...DEMO_TODAY, collected_cents: 5000 };
+const LIVE_DASHBOARD = { ...SAMPLE_DASHBOARD, collected_cents: 123456, net_cents: 70000, orders: 9, mrr_cents: 98765, active_subscriptions: 7, account_connected: true };
+const LIVE_TODAY = { ...SAMPLE_TODAY, collected_cents: 5000 };
 
 function liveScript(over: Partial<Record<string, { status: number; body: unknown }>> = {}) {
   setScript((req) => {
@@ -39,7 +38,7 @@ function liveScript(over: Partial<Record<string, { status: number; body: unknown
     if (req.path === '/api/billing/office/status') return { status: 200, body: STATUS };
     if (req.path === '/api/billing/office/dashboard') return { status: 200, body: LIVE_DASHBOARD };
     if (req.path === '/api/billing/office/overview/today') return { status: 200, body: LIVE_TODAY };
-    if (req.path === '/api/billing/office/activity') return { status: 200, body: { items: DEMO_ACTIVITY.slice(0, 2), next_cursor: null } };
+    if (req.path === '/api/billing/office/activity') return { status: 200, body: { items: SAMPLE_ACTIVITY.slice(0, 2), next_cursor: null } };
     return undefined;
   });
 }
@@ -47,14 +46,14 @@ function liveScript(over: Partial<Record<string, { status: number; body: unknown
 async function main() {
   section('Pure chart helpers');
   check('niceMax rounds up to nice steps', niceMax(1234) === 2000 && niceMax(2600) === 5000 && niceMax(0) === 1);
-  const hourly = hourlySeriesFrom(DEMO_TODAY.hours, DEMO_TODAY.current_hour);
-  check('hourly series is a running total through the current hour', hourly.hours.length === DEMO_TODAY.current_hour + 1 && hourly.gross.every((v, i, arr) => i === 0 || v >= arr[i - 1]));
-  check('hourly gross ends at today total', hourly.gross[hourly.gross.length - 1] === DEMO_TODAY.hours.filter((h) => h.hour <= DEMO_TODAY.current_hour).reduce((s, h) => s + h.collected_cents, 0));
+  const hourly = hourlySeriesFrom(SAMPLE_TODAY.hours, SAMPLE_TODAY.current_hour);
+  check('hourly series is a running total through the current hour', hourly.hours.length === SAMPLE_TODAY.current_hour + 1 && hourly.gross.every((v, i, arr) => i === 0 || v >= arr[i - 1]));
+  check('hourly gross ends at today total', hourly.gross[hourly.gross.length - 1] === SAMPLE_TODAY.hours.filter((h) => h.hour <= SAMPLE_TODAY.current_hour).reduce((s, h) => s + h.collected_cents, 0));
   check('running hour labels', runningHourLabel('14', '14') === 'So far today' && runningHourLabel('13', '14') === 'Through 2 PM');
   const summary = chartSummary('Test', ['0', '1'], [{ key: 'a', label: 'Gross', color: '#000', values: [100, 250] }], 'money', (k) => `h${k}`, true);
   check('running summary reads the last point as the total', summary === 'Test, h0 to h1: Gross $2.50 so far.', summary);
-  const s = seriesFrom(DEMO_DASHBOARD.series);
-  check('seriesFrom net = collected - refunded', s.net.every((v, i) => v === DEMO_DASHBOARD.series[i].collected_cents - DEMO_DASHBOARD.series[i].refunded_cents));
+  const s = seriesFrom(SAMPLE_DASHBOARD.series);
+  check('seriesFrom net = collected - refunded', s.net.every((v, i) => v === SAMPLE_DASHBOARD.series[i].collected_cents - SAMPLE_DASHBOARD.series[i].refunded_cents));
   const today = new Date(2026, 8, 17);
   const range = rangeForPreset(30, today);
   check('30-day range is inclusive of today in device-local keys', range.from === '2026-08-19' && range.to === '2026-09-17', JSON.stringify(range));
@@ -88,31 +87,14 @@ async function main() {
     await empty.unmount();
   }
 
-  section('Demo persona (signed out)');
+  section('Signed out');
   {
     resetRequests();
     liveScript();
-    const demo = await mount(<OverviewScreen />, null);
-    check('no request leaves the app in demo', requests.length === 0, paths().join(' | '));
-    check('demo notice + sandbox badge', !!one(demo.root, 'billing-demo-notice') && !!one(demo.root, 'billing-sandbox-badge'));
-    check('title', text(demo.root, 'payments-title') === 'Payments overview');
-    check('available balance tile from the pinned dataset', text(demo.root, 'tile-available').includes(formatCents(DEMO_DASHBOARD.balance.available_cents)));
-    check('office net tile', text(demo.root, 'tile-office-net').includes(formatCents(DEMO_DASHBOARD.net_cents)));
-    check('demo keeps the pinned active-subscriptions tile, no MRR', text(demo.root, 'tile-subscriptions').includes(String(DEMO_DASHBOARD.active_subscriptions)) && !one(demo.root, 'tile-mrr'));
-    check('today gross from the pinned dataset', text(demo.root, 'today-gross') === formatCents(DEMO_TODAY.collected_cents));
-    check('today chart is a running total', !!one(demo.root, 'chart-today-revenue-plot') && String(one(demo.root, 'chart-today-revenue-plot')!.props.accessibilityLabel).includes('so far'));
-    check('daily revenue chart renders', !!one(demo.root, 'chart-daily-revenue-plot'));
-    check('compact cards render', ['chart-payments', 'chart-refunds', 'chart-gross', 'chart-office-net'].every((id) => !!one(demo.root, id)));
-    check('recent activity shows six rows', ids(demo.root, 'row-activity-').length === 6);
-    check('section strip lists every section', ids(demo.root, 'tab-payments-').length === 10);
-    const tab = one(demo.root, 'tab-payments-overview')!;
-    check('overview tab selected', tab.props.accessibilityState?.selected === true && tab.props.accessibilityRole === 'tab');
-    await press(demo.root, 'tab-payments-activity');
-    check('section tab navigates', routerLog.some((c) => c.target === '/payments/activity'), JSON.stringify(routerLog));
-    await press(demo.root, 'link-needs-attention');
-    check('needs-attention links to past-due subscriptions', routerLog.some((c) => c.target === '/payments/subscriptions?status=past_due'), JSON.stringify(routerLog));
-    check('no range picker in demo', !one(demo.root, 'overview-range-30'));
-    await demo.unmount();
+    const signedOut = await mount(<OverviewScreen />, null);
+    check('no request leaves the app while signed out', requests.length === 0, paths().join(' | '));
+    check('signed-out mount holds the sign-in frame, no tiles', !!one(signedOut.root, 'billing-session-loading') && !one(signedOut.root, 'tile-gross') && !one(signedOut.root, 'tile-available'));
+    await signedOut.unmount();
   }
 
   section('Live (signed in)');
@@ -128,9 +110,21 @@ async function main() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     check('today asks for the device time zone', !!todayReq && decodeURIComponent(todayReq.url).includes(`tz=${tz}`), todayReq?.url);
     check('no ?office= on any request', requests.every((r) => !r.url.includes('office=')));
-    check('live figures, not demo', text(live.root, 'tile-gross').includes('$1,234.56') && text(live.root, 'tile-office-net').includes('$700.00'));
-    check('no demo notice when signed in', !one(live.root, 'billing-demo-notice'));
-    check('live MRR tile from the dashboard payload, not the phone', text(live.root, 'tile-mrr').includes('$987.65') && !text(live.root, 'tile-mrr').includes(formatCents(DEMO_DASHBOARD.mrr_cents)), text(live.root, 'tile-mrr'));
+    check('title', text(live.root, 'payments-title') === 'Payments overview');
+    check('live figures', text(live.root, 'tile-gross').includes('$1,234.56') && text(live.root, 'tile-office-net').includes('$700.00'));
+    check('available balance tile from the dashboard', text(live.root, 'tile-available').includes(formatCents(LIVE_DASHBOARD.balance.available_cents)));
+    check('today gross from the today payload', text(live.root, 'today-gross') === formatCents(LIVE_TODAY.collected_cents), text(live.root, 'today-gross'));
+    check('today chart is a running total', !!one(live.root, 'chart-today-revenue-plot') && String(one(live.root, 'chart-today-revenue-plot')!.props.accessibilityLabel).includes('so far'));
+    check('daily revenue chart renders', !!one(live.root, 'chart-daily-revenue-plot'));
+    check('compact cards render', ['chart-payments', 'chart-refunds', 'chart-gross', 'chart-office-net'].every((id) => !!one(live.root, id)));
+    check('section strip lists every section', ids(live.root, 'tab-payments-').length === 10);
+    const tab = one(live.root, 'tab-payments-overview')!;
+    check('overview tab selected', tab.props.accessibilityState?.selected === true && tab.props.accessibilityRole === 'tab');
+    await press(live.root, 'tab-payments-activity');
+    check('section tab navigates', routerLog.some((c) => c.target === '/payments/activity'), JSON.stringify(routerLog));
+    await press(live.root, 'link-needs-attention');
+    check('needs-attention links to past-due subscriptions', routerLog.some((c) => c.target === '/payments/subscriptions?status=past_due'), JSON.stringify(routerLog));
+    check('live MRR tile from the dashboard payload, not the phone', text(live.root, 'tile-mrr').includes('$987.65') && !text(live.root, 'tile-mrr').includes(formatCents(SAMPLE_DASHBOARD.mrr_cents)), text(live.root, 'tile-mrr'));
     check('MRR detail is the active-subscription count', text(live.root, 'tile-mrr').includes('7 active subscriptions') && !one(live.root, 'tile-subscriptions'));
     check('sandbox badge follows the status flag', !!one(live.root, 'billing-sandbox-badge'));
     check('range picker present with 30 days selected', one(live.root, 'overview-range-30')?.props.accessibilityState?.selected === true);

@@ -7,13 +7,12 @@
  * The server payload is the card's source of truth: name, line, price, and
  * image all come from the office's HQ-edited storefront row for real
  * accounts (ids there are storefront uuids the bundled catalog has never
- * heard of), or from the bundled catalog copy the demo persona ships with.
+ * heard of), or from the bundled catalog copy for legacy bare-id payloads.
  * The bundled catalog only lends its artwork when the payload carries no
  * image and its slug is a bundled one, and fills name/line/price for legacy
  * bare-id payloads. Tapping opens the shop product page (`/product/<slug>`),
- * which prices from the live storefront for real accounts and from the demo
- * storefront for the demo persona; when the office cannot sell right now the
- * same page opens informationally.
+ * which prices from the live storefront; when the office cannot sell right
+ * now the same page opens informationally.
  *
  * Heritage styling: soft-radius inset card on the paper bubble, serif
  * product title, cobalt VIEW action, Inter uppercase micro-labels.
@@ -34,7 +33,7 @@ interface CardPayload {
   slug: string | null;
   name: string | null;
   line: string | null;
-  /** Dollars; the office price for real accounts, absent for the demo persona (bundled price applies). */
+  /** Dollars; the office price when the payload carries one, else the bundled price applies. */
   price: number | null;
   /** Storefront product id (live accounts only). */
   productId: string | null;
@@ -56,7 +55,7 @@ export function readProductCardPayload(payload: unknown): CardPayload | null {
     slug: str(raw.slug),
     name: str(raw.name),
     line: str(raw.line),
-    // Only a live payload carries priceCents; a bare demo payload keeps the bundled price.
+    // Only a live payload carries priceCents; a bare legacy payload keeps the bundled price.
     price: typeof raw.priceCents === 'number' && Number.isFinite(raw.priceCents) ? raw.priceCents / 100 : null,
     productId: str(raw.productId),
     imageUrl: str(raw.imageUrl),

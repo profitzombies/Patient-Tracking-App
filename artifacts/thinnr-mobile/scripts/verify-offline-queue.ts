@@ -21,7 +21,7 @@
  *   6. Conflict: a queued edit of a row the server has since deleted is
  *      dropped on hydration; queued creates survive a relaunch and land.
  *   7. Account boundaries: switching accounts never shows or sends the
- *      other account's queue; sign-out returns the untouched demo persona;
+ *      other account's queue; sign-out returns the untouched signed-out state;
  *      each account resumes its own queue on its next sign-in.
  *   8. The chip and detail sheet reflect offline / syncing / attention /
  *      up-to-date, list items in order, and expose retry / discard.
@@ -703,7 +703,7 @@ async function main() {
     && textOf(byTestID(tree, 'patient-sync-chip-label')) === 'Offline · 6 changes waiting');
   const disk = queueOnDisk('p-1');
   assert('the queue is persisted under the account key', disk.length === 6 && disk.map(i => i.id).join() === sync.items.map(i => i.id).join());
-  assert('the demo storage key is untouched', !(localStorageBacking.get(STORAGE_KEY) ?? '').includes('Offline Oats'));
+  assert('the signed-out storage key is untouched', !(localStorageBacking.get(STORAGE_KEY) ?? '').includes('Offline Oats'));
 
   // ── 3 · Reconnect replays in order ─────────────────────────────────────────
   section('reconnect: ordered replay, server mirrors the phone, chip flashes Up to date');
@@ -1060,7 +1060,7 @@ async function main() {
       && store.minted.slice(-1)[0] === mintedPath('p-1', 'progress', 'gp_session1.side'));
   }
 
-  section('accounts: switching never shows or sends the other queue; demo untouched; each resumes its own');
+  section('accounts: switching never shows or sends the other queue; signed-out untouched; each resumes its own');
   await goOffline();
   await act(async () => {
     await ctx.addEntry(entryInput('P1 Pending Pear'));
@@ -1080,15 +1080,15 @@ async function main() {
   assert('each account’s queue lives under its own key', queueOnDisk('p-1').length === 1 && queueOnDisk('p-2').length === 1);
 
   await signIn(null);
-  assert('sign-out returns the demo persona with the queue disabled', account.account.kind === 'demo' && !sync.enabled && sync.items.length === 0);
+  assert('sign-out returns the signed-out account with the queue disabled', account.account.kind === 'signed-out' && !sync.enabled && sync.items.length === 0);
   assert('sign-out forgets the remembered role', !localStorageBacking.has('thinnr_account_role_v1'));
-  assert('demo diary has no account rows', entryNamed('P1 Pending Pear') === undefined && entryNamed('Offline Oats') === undefined && ctx.allEntries.length > 0);
-  assert('no chip for the demo persona', byTestID(tree, 'patient-sync-chip') === null);
+  assert('signed-out diary has no account rows', entryNamed('P1 Pending Pear') === undefined && entryNamed('Offline Oats') === undefined);
+  assert('no chip while signed out', byTestID(tree, 'patient-sync-chip') === null);
   await act(async () => {
     await ctx.addEntry(entryInput('Demo Marker'));
   });
   await settle();
-  assert('demo writes stay local and never queue', entryNamed('Demo Marker') !== undefined && sync.items.length === 0
+  assert('signed-out writes stay local and never queue', entryNamed('Demo Marker') !== undefined && sync.items.length === 0
     && (localStorageBacking.get(STORAGE_KEY) ?? '').includes('Demo Marker'));
   const p1WritesBeforeReturn = writeCalls().filter(c => c.token === 'tok-p1').length;
   const p2WritesBeforeReturn = writeCalls().filter(c => c.token === 'tok-p2').length;

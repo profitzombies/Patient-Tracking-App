@@ -1,16 +1,16 @@
 /**
- * Orders list + detail contract check: demo dataset (offline, writes
- * nudged), live list and detail on the patient order endpoints, shipment
+ * Orders list + detail contract check: signed-out holding frame (offline,
+ * nothing rendered), live list and detail on the patient order endpoints, shipment
  * panel states (processing / shipped with tracking link / delivered /
  * canceled), receipts, and load-failure recovery.
  */
 import {
-  alerts, assert, billingCalls, calls, finish, has, mount, opened, press, section, setRoute, text, unmount,
+  assert, billingCalls, calls, finish, has, mount, opened, press, section, setRoute, text, unmount,
 } from './patient-billing-stubs/harness';
 import React, { act } from 'react';
 import OrdersScreen from '../app/orders/index';
 import OrderDetailScreen from '../app/orders/[id]';
-import { DEMO_ORDERS } from '../data/patient-billing-demo';
+import { SAMPLE_ORDERS } from './fixtures/sample-patient-billing';
 import { shipmentPanel, subscriptionActions, moveWindow, moveDateAllowed, orderKindLabel } from '../lib/patient-billing-core';
 import { routerCalls, clearRouterCalls, setSearchParams } from './patient-billing-stubs/expo-router';
 import { setStubSession, type StubSession } from './live-diary-stubs/supabase';
@@ -74,7 +74,7 @@ async function main() {
     return moveDateAllowed(min, now) && moveDateAllowed(max, now) && !moveDateAllowed(dayBefore(min), now) && !moveDateAllowed(dayAfter(max), now);
   }));
   assert('failed order never promises a shipment', shipmentPanel({ status: 'failed' }, shipment() as never).state === 'not_applicable');
-  assert('demo dataset covers every panel state', ['processing', 'shipped', 'delivered', 'canceled', 'not_applicable'].every(state => DEMO_ORDERS.some(order => shipmentPanel(order, order.shipment).state === state)));
+  assert('sample dataset covers every panel state', ['processing', 'shipped', 'delivered', 'canceled', 'not_applicable'].every(state => SAMPLE_ORDERS.some(order => shipmentPanel(order, order.shipment).state === state)));
   const window = moveWindow(new Date(Date.UTC(2026, 8, 17, 9)));
   assert('move window is tomorrow through one year out (morning UTC)', window.min === '2026-09-18' && window.max === '2027-09-16');
   const late = moveWindow(new Date(Date.UTC(2026, 8, 17, 15)));
@@ -86,44 +86,22 @@ async function main() {
   assert('ending subscription cannot be canceled twice or rescheduled', (() => { const a = subscriptionActions({ ...base, cancel_at_period_end: true }); return !a.cancel && !a.moveNext && a.address; })());
   assert('canceled subscription offers nothing', Object.values(subscriptionActions({ ...base, status: 'canceled' })).every(value => value === false));
 
-  section('demo orders are fixed and offline');
+  section('signed out renders nothing and fetches nothing');
   setStubSession(null);
   let tree = await mount(<OrdersScreen />);
   const before = calls.length;
-  assert('demo list renders the demo note and every demo order', has(tree, 'screen-orders-demo-note') && DEMO_ORDERS.every(order => has(tree, `card-order-${order.id}`)));
-  assert('demo list shows shipment state per order', text(tree, 'card-order-demo-order-shipped-shipment') === 'Shipped' && text(tree, 'card-order-demo-order-processing-shipment') === 'Processing' && text(tree, 'card-order-demo-order-delivered-shipment') === 'Delivered' && text(tree, 'card-order-demo-order-canceled-shipment') === 'Canceled');
-  clearRouterCalls();
-  await press(tree, 'card-order-demo-order-shipped');
-  assert('tapping a demo order opens its detail route without network', routerCalls.some(call => call.target === '/orders/demo-order-shipped') && calls.length === before);
+  assert('signed-out list makes no request and shows no orders, empty note or demo note', calls.length === before && has(tree, 'screen-orders') && !has(tree, 'text-orders-empty') && !has(tree, 'screen-orders-demo-note') && SAMPLE_ORDERS.every(order => !has(tree, `card-order-${order.id}`)));
   await unmount(tree);
-
-  setSearchParams({ id: 'demo-order-shipped' });
+  setSearchParams({ id: ORDER_ID });
   tree = await mount(<OrderDetailScreen />);
-  assert('demo detail renders shipped panel with USPS tracking', text(tree, 'panel-shipment-status') === 'Shipped' && text(tree, 'panel-shipment-tracking-number') === '9400111899223197428490' && has(tree, 'panel-shipment-track'));
-  await press(tree, 'panel-shipment-track');
-  await press(tree, 'button-order-receipt');
-  assert('demo tracking and receipt taps nudge instead of opening or fetching', opened.length === 0 && alerts.length === 2 && calls.length === before);
-  assert('demo detail lists both items and the total', text(tree, 'card-order-items').includes('Protein') && text(tree, 'card-order-items').includes('Hydrate') && text(tree, 'text-order-total') === '$89.98');
-  await unmount(tree);
-
-  setSearchParams({ id: 'demo-order-delivered' });
-  tree = await mount(<OrderDetailScreen />);
-  assert('demo delivered order shows Delivered, refund line and refunds card', text(tree, 'panel-shipment-status') === 'Delivered' && text(tree, 'text-order-refunded') === '-$10.00' && has(tree, 'card-order-refunds') && has(tree, 'button-order-subscription'));
-  await unmount(tree);
-  setSearchParams({ id: 'demo-order-failed' });
-  tree = await mount(<OrderDetailScreen />);
-  assert('demo failed order shows failure and no shipment promise', text(tree, 'text-order-failure').includes('declined') && text(tree, 'panel-shipment-status') === 'Not shipping' && !has(tree, 'button-order-receipt'));
-  await unmount(tree);
-  setSearchParams({ id: 'nope' });
-  tree = await mount(<OrderDetailScreen />);
-  assert('unknown demo id explains instead of rendering blank', text(tree, 'screen-order-error').includes('not part of the demo'));
+  assert('signed-out detail makes no request and renders no shipment panel', calls.length === before && !has(tree, 'panel-shipment-status') && !has(tree, 'screen-order-error'));
   await unmount(tree);
 
   section('live list');
   await act(async () => setStubSession(session));
   tree = await mount(<OrdersScreen />);
   const listCall = billingCalls().find(call => call.path === 'patient-data/billing/orders');
-  assert('live list GETs orders with bearer and renders both rows', listCall?.auth === 'Bearer patient-token' && has(tree, `card-order-${ORDER_ID}`) && text(tree, 'screen-orders').includes('TH-1002') && !has(tree, 'screen-orders-demo-note'));
+  assert('live list GETs orders with bearer and renders both rows', listCall?.auth === 'Bearer patient-token' && has(tree, `card-order-${ORDER_ID}`) && text(tree, 'screen-orders').includes('TH-1002'));
   assert('live rows show payment and shipment status', text(tree, `card-order-${ORDER_ID}-shipment`) === 'Processing' && text(tree, 'card-order-33333333-3333-4333-8333-333333333333-shipment') === 'Canceled' && text(tree, 'card-order-33333333-3333-4333-8333-333333333333').includes('Refunded'));
   clearRouterCalls();
   await press(tree, `card-order-${ORDER_ID}`);

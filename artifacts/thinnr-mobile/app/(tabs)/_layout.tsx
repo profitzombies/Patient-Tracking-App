@@ -28,7 +28,6 @@ export default function TabLayout() {
       <Tabs tabBar={() => null} screenOptions={{ headerShown: false }}>
         <Tabs.Screen name="index" options={{ title: 'Overview' }} />
         <Tabs.Screen name="patients" options={{ title: 'Patients' }} />
-        <Tabs.Screen name="outcomes" options={{ title: 'Outcomes' }} />
         <Tabs.Screen name="leaderboard" options={{ title: 'Leaderboard' }} />
         <Tabs.Screen name="payments" options={{ title: 'Payments' }} />
         <Tabs.Screen name="training" options={{ title: 'Training' }} />

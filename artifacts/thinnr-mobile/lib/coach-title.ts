@@ -2,7 +2,7 @@
  * Coach conversation names on the device.
  *
  * Real accounts get their names from the server (a small model reads the
- * first message once the coach has replied). The demo account has no
+ * first message once the coach has replied). A local session has no
  * server, so it names a fresh conversation from the first message with a
  * plain word-picking rule. Both sides share one length contract, and the
  * rename box applies the same cleanup before sending.
@@ -41,11 +41,11 @@ export function cleanCoachTitle(input: string): string {
 }
 
 /**
- * Demo-only naming from the first message: drop greeting and question
+ * Local fallback naming from the first message: drop greeting and question
  * filler, keep the first five words, capitalize the first letter. Falls back
  * to "Quick check in" when nothing meaningful is left.
  */
-export function demoCoachTitleFromMessage(message: string): string {
+export function localCoachTitleFromMessage(message: string): string {
   let text = message.replace(/https?:\/\/\S+/gi, '').replace(/\s+/g, ' ').trim();
   for (let pass = 0; pass < 3; pass += 1) {
     for (const filler of LEADING_FILLER) text = text.replace(filler, '');

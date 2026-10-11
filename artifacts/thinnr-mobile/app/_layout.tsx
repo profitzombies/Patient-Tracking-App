@@ -39,7 +39,6 @@ import { staffRouteBlocked } from '@/lib/office-restriction';
 import { CoachChatProvider } from '@/context/CoachChatContext';
 import { CareTeamChatProvider } from '@/context/CareTeamChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
-import { OperationsProvider } from '@/context/OperationsContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
 import { PatientProvider } from '@/context/PatientContext';
 import { CartProvider } from '@/context/CartContext';
@@ -720,7 +719,6 @@ export default function RootLayout() {
               <KeyboardProvider>
                 <AppModeProvider>
                   <OfficeRestrictionProvider>
-                  <OperationsProvider>
                     <PatientAccountProvider>
                       <PatientProvider>
                        <CartProvider>
@@ -755,7 +753,6 @@ export default function RootLayout() {
                        </CartProvider>
                       </PatientProvider>
                     </PatientAccountProvider>
-                  </OperationsProvider>
                   </OfficeRestrictionProvider>
                 </AppModeProvider>
               </KeyboardProvider>

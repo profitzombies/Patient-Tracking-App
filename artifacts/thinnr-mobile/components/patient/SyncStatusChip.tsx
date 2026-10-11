@@ -7,8 +7,8 @@
  * period, or an item needs attention. A normal online save acks well
  * inside the grace period and shows nothing at all. Once a drain the
  * patient could see finishes, the chip flashes "Up to date" briefly and
- * then leaves, so it takes no permanent room from the content shelf. Demo
- * and unresolved accounts never render it (the queue is disabled for them).
+ * then leaves, so it takes no permanent room from the content shelf.
+ * Signed-out and unresolved accounts never render it (the queue is disabled for them).
  *
  * Tapping the chip opens the detail sheet: every queued write in order,
  * oldest first, with its plain-words summary, a pending/failed state, and

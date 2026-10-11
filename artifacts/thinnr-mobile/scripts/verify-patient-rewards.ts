@@ -1,5 +1,4 @@
 import {
-  buildDemoRewardState,
   buildRewardAwards,
   LEVEL_THRESHOLDS,
   levelForXp,
@@ -31,6 +30,4 @@ expect(!awards.some(award => award.id === 'streak:hydration:3' && award.earned),
 expect(awards.some(award => award.id === 'goal:five-pounds' && !award.earned), 'five-pound goal remains locked');
 const noTarget = buildRewardAwards({ ...input, waterTarget: null });
 expect(noTarget.find(award => award.id === 'streak:hydration:3')?.requirement.includes('Set a personal hydration target') === true, 'no-target explanation');
-const demo = buildDemoRewardState(input);
-expect(demo.totalXp > 0 && demo.level >= 1 && demo.nextLevelXp === LEVEL_THRESHOLDS[demo.level]!, 'demo state uses the same catalog');
-console.log('✓ patient reward rules: checkpoints, streaks, target gating, goals, and demo state verified');
+console.log('✓ patient reward rules: checkpoints, streaks, target gating, and goals verified');

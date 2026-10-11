@@ -1,7 +1,7 @@
 /**
  * The diet notices (provider changed your diet / pregnancy conflict) for the
- * signed-in account, with device-local dismissal. Demo accounts never show
- * them — the demo persona's diet is patient-chosen by construction.
+ * signed-in account, with device-local dismissal. Signed-out shells never
+ * show them.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { usePatient } from '@/context/PatientContext';

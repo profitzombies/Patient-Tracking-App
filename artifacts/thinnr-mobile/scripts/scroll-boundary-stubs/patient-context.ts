@@ -1,15 +1,11 @@
-import {
-  DEFAULT_TARGETS,
-  PATIENT_PROFILE,
-  TODAY_KEY,
-} from '@/data/patient-data';
+import { DEFAULT_TARGETS, TODAY_KEY } from '@/data/patient-data';
 
 export const PROGRESS_UNDO_WINDOW_MS = 30_000;
 
 const patient = {
   hydrated: true,
   todayKey: TODAY_KEY,
-  profile: PATIENT_PROFILE,
+  profile: null,
   entryFacts: undefined,
   targets: DEFAULT_TARGETS,
   favorites: [] as string[],

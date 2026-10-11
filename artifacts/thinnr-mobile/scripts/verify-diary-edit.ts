@@ -18,7 +18,8 @@ import {
   applyUpdateEntry,
   type DiaryEntryState,
 } from '../data/diary-entry-state';
-import { buildSeedEntries, shiftDateKey, type MealLogEntry } from '../data/patient-data';
+import { shiftDateKey, type MealLogEntry } from '../data/patient-data';
+import { buildSeedEntries } from './fixtures/seeded-history';
 import { parseNutritionSnapshot } from '../data/food-nutrition';
 
 const SEED_ENTRIES = buildSeedEntries();

@@ -1,6 +1,5 @@
 /**
- * Stripe balance and payout history for the signed-in office. The web demo
- * intentionally derives its short read-only summary from the demo dashboard.
+ * Stripe balance and payout history for the signed-in office.
  */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -16,7 +15,6 @@ import {
   StatusPill,
 } from '@/components/payments/primitives';
 import { useOfficePayouts } from '@/hooks/useOfficeBilling';
-import { DEMO_DASHBOARD } from '@/data/office-payments-demo';
 import { formatCents, formatDate, type PillTone } from '@/lib/office-billing-format';
 import type { OfficePayoutsResponse, PayoutRow } from '@/lib/office-billing-types';
 import { useColors } from '@/hooks/useColors';
@@ -27,13 +25,6 @@ export default function PayoutsScreen() {
       section="payouts"
       title="Payouts"
       sub="Money Stripe has sent or is preparing for your bank."
-      demo={
-        <Panel>
-          <Body testID="payouts-demo">
-            Available balance {formatCents(DEMO_DASHBOARD.balance.available_cents)}. No demo payouts are pending.
-          </Body>
-        </Panel>
-      }
       live={(ctx) => <LivePayouts ctx={ctx} />}
     />
   );

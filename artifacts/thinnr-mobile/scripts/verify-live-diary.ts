@@ -7,10 +7,10 @@
  * emitter) and drives them against a scripted patient-data API with a
  * per-patient in-memory server store:
  *
- *   1. The demo persona is untouched: without the account provider the diary
+ *   1. The signed-out session stays local: without the account provider the diary
  *      hydrates the seeded history from the original storage key and never
  *      makes a network call. A signed-in STAFF session browses that same
- *      demo persona (whoami kind != patient) with zero patient-data calls.
+ *      signed-out state (whoami kind != patient) with zero patient-data calls.
  *   2. A fresh real patient hydrates seedless and empty over the app's full
  *      diary window, and every logging path writes through the API server:
  *      add (with the recents bump riding the same request), quick add, edit,
@@ -23,7 +23,7 @@
  *      failed hydration stays seedless behind RETRY; an unresolved account
  *      blocks writes rather than saving somewhere a future sign-in can't
  *      see; copy returns no clones (no Undo) when the server declined.
- *   4. Accounts never bleed: sign-out returns the seeded demo layer, a
+ *   4. Accounts never bleed: sign-out returns the device-local layer, a
  *      second account starts empty, each account's local layer lives under
  *      its own storage key, and server-backed slices are never persisted
  *      locally for real accounts.
@@ -346,7 +346,7 @@ async function mountLive(): Promise<ReactTestRenderer> {
 }
 
 /** How every existing suite mounts the store — no account provider at all. */
-async function mountDemo(): Promise<ReactTestRenderer> {
+async function mountSignedOut(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(React.createElement(PatientProvider, null, React.createElement(Probe)));
@@ -398,34 +398,34 @@ function idsOf(entries: MealLogEntry[]): string[] {
 // ─── The walk ────────────────────────────────────────────────────────────────
 
 async function main() {
-  // ── 1 · Demo persona untouched ─────────────────────────────────────────────
-  section('demo persona: seeded, local, zero network');
-  let tree = await mountDemo();
-  assert('demo hydrates', ctx.hydrated);
+  // ── 1 · Signed-out session stays local ─────────────────────────────────────────────
+  section('signed-out session: unseeded, local, zero network');
+  let tree = await mountSignedOut();
+  assert('signed-out hydrates', ctx.hydrated);
   const seedCount = ctx.allEntries.length;
-  const demoTargets = { ...ctx.targets };
-  assert('demo diary is seeded', seedCount > 0);
-  assert('demo account is the context default', account.account.kind === 'demo' && !account.resolving);
+  const defaultTargets = { ...ctx.targets };
+  assert('signed-out diary has no seeded rows', seedCount === 0);
+  assert('signed-out account is the context default', account.account.kind === 'signed-out' && !account.resolving);
   await act(async () => {
     await ctx.addEntry(entryInput('Demo Marker', { meal: 'snacks', kind: 'quick' }));
   });
-  assert('demo add lands locally', entryNames().includes('Demo Marker'));
+  assert('signed-out add lands locally', entryNames().includes('Demo Marker'));
   assert(
-    'demo layer persists under the original key',
+    'signed-out layer persists under the original key',
     (localStorageBacking.get(STORAGE_KEY) ?? '').includes('Demo Marker'),
   );
-  assert('demo mode makes zero API calls', apiCalls.length === 0);
+  assert('signed-out mode makes zero API calls', apiCalls.length === 0);
   await unmount(tree);
 
-  // ── 2 · Staff session browses the demo persona ─────────────────────────────
-  section('staff session: whoami says not-a-patient → demo persona');
+  // ── 2 · Staff session is not a patient account ─────────────────────────────
+  section('staff session: whoami says not-a-patient → signed-out patient state');
   await act(async () => {
     setStubSession(STAFF);
   });
   tree = await mountLive();
-  assert('staff resolves to the demo account', account.account.kind === 'demo' && !account.resolving);
-  assert('staff sees the seeded demo diary', ctx.allEntries.length === seedCount + 1);
-  assert('staff sees the device demo layer', entryNames().includes('Demo Marker'));
+  assert('staff resolves to the signed-out patient state', account.account.kind === 'signed-out' && !account.resolving);
+  assert('staff sees only the local layer', ctx.allEntries.length === seedCount + 1);
+  assert('staff sees the device-local layer', entryNames().includes('Demo Marker'));
   assert('whoami consulted once', callsTo('claim/whoami').length === 1);
   assert('no patient-data calls for staff', patientDataCalls().length === 0);
   await unmount(tree);
@@ -433,23 +433,23 @@ async function main() {
   apiCalls.length = 0;
 
   // ── 3 · Fresh real patient: seedless, empty, full-window hydration ─────────
-  section('fresh real patient: empty diary, not the demo history');
+  section('fresh real patient: empty diary, not the local layer');
   setStubSession(P1);
   tree = await mountLive();
   assert('account resolves to real p-1', account.account.kind === 'real');
   assert('real hydration completes', ctx.hydrated);
   assert('fresh account starts empty', ctx.allEntries.length === 0);
-  assert('no demo layer bleed', !entryNames().includes('Demo Marker'));
+  assert('no local layer bleed', !entryNames().includes('Demo Marker'));
   assert('no seeded check-ins', ctx.checkIns.length === 0);
   assert('no seeded photos', ctx.photos.length === 0);
   assert('no seeded weight series', ctx.weightSeries.length === 0);
   assert('water starts at zero', ctx.waterFor(TODAY_KEY) === 0);
   assert('favorites start empty', ctx.favorites.length === 0);
   assert('recents start empty', ctx.recents.length === 0);
-  assert('targets are the app defaults', JSON.stringify(ctx.targets) === JSON.stringify(demoTargets));
+  assert('targets are the app defaults', JSON.stringify(ctx.targets) === JSON.stringify(defaultTargets));
   const stateCall = lastCallTo('patient-data/state');
   const localDay = localTodayKey();
-  assert('hydration fetches the full live diary history without demo date bounds',
+  assert('hydration fetches the full live diary history without fixed date bounds',
     stateCall !== undefined
     && stateCall.query.get('from') === null
     && stateCall.query.get('to') === null
@@ -701,7 +701,7 @@ async function main() {
   });
   tree = await mountLive();
   assert('failed hydration still settles', ctx.hydrated);
-  assert('failed hydration shows an empty diary, not the demo seed', ctx.allEntries.length === 0);
+  assert('failed hydration shows an empty diary, not a seed', ctx.allEntries.length === 0);
   assert('hydration notice carries the server’s words with RETRY',
     notice?.message === 'Couldn’t load your diary right now. Please try again.' && notice?.actionLabel === 'RETRY');
 
@@ -774,16 +774,16 @@ async function main() {
   const p1IdsFinal = idsOf(storeFor('p-1').entries);
 
   // ── 8 · Sign-out and account switching never bleed ─────────────────────────
-  section('sign-out / switch: demo returns, accounts stay walled off');
+  section('sign-out / switch: signed-out returns, accounts stay walled off');
   await signIn(null);
-  assert('sign-out returns to the demo account', account.account.kind === 'demo');
-  assert('sign-out restores the seeded demo diary', ctx.allEntries.length === seedCount + 1
+  assert('sign-out returns to the signed-out account', account.account.kind === 'signed-out');
+  assert('sign-out restores the device-local diary', ctx.allEntries.length === seedCount + 1
     && entryNames().includes('Demo Marker'));
-  assert('no real-account rows leak into the demo diary', !entryNames().some(name => name.startsWith('P1 ')));
+  assert('no real-account rows leak into the local diary', !entryNames().some(name => name.startsWith('P1 ')));
 
   await signIn(P2);
   assert('second account resolves', account.account.kind === 'real');
-  assert('second account starts empty — nothing from p-1 or the demo', ctx.allEntries.length === 0);
+  assert('second account starts empty — nothing from p-1 or the local layer', ctx.allEntries.length === 0);
   await act(async () => {
     await ctx.addEntry(entryInput('P2 Oats', { refId: 'fd_oats' }));
   });
@@ -803,7 +803,7 @@ async function main() {
       return (parsed.addedEntries ?? []).length === 0
         && Object.keys(parsed.waterOverrides ?? {}).length === 0;
     }));
-  assert('the demo layer never absorbed account rows',
+  assert('the local layer never absorbed account rows',
     !(localStorageBacking.get(STORAGE_KEY) ?? '').includes('P1 ')
     && !(localStorageBacking.get(STORAGE_KEY) ?? '').includes('P2 '));
 
@@ -855,7 +855,7 @@ async function main() {
     });
     assert('an evening check-in lands on Sept 1 on the server',
       storeFor('p-3').checkIns.some(c => c.dateKey === '2026-09-01'));
-    assert('nothing was written to the UTC day or the demo anchor',
+    assert('nothing was written to the UTC day or the fixed anchor',
       !storeFor('p-3').entries.some(e => e.dateKey !== '2026-09-01')
       && storeFor('p-3').water['2026-09-02'] === undefined
       && storeFor('p-3').water[TODAY_KEY] === undefined);

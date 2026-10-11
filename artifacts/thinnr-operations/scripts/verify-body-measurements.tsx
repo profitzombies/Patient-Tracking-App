@@ -36,7 +36,6 @@ import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { MOCK_PATIENTS } from '../src/data/mock-data';
-import { MOCK_PATIENTS as MOBILE_PATIENTS } from '../../thinnr-mobile/data/mock-data';
 import { BODY_AREAS as MOBILE_BODY_AREAS } from '../../thinnr-mobile/data/body-measurements';
 import {
   BODY_AREAS,
@@ -141,12 +140,11 @@ console.log('lib/body-measurements');
   check('empty table has no columns but keeps rows', buildMeasurementTable([]).visits.length === 0 && buildMeasurementTable([]).rows.length === BODY_AREAS.length);
 }
 
-console.log('seed parity with the mobile app');
+// The mobile app no longer ships a sample roster, so only the shared body-area
+// constant is compared across apps; the visit shape checks run on the web seed.
+console.log('shared constants with the mobile app + web seed shape');
 {
   check('BODY_AREAS identical on web and mobile', JSON.stringify(BODY_AREAS) === JSON.stringify(MOBILE_BODY_AREAS));
-  const mobileById = new Map(MOBILE_PATIENTS.map((patient) => [patient.id, patient]));
-  const mismatched = MOCK_PATIENTS.filter((patient) => JSON.stringify(patient.bodyMeasurements) !== JSON.stringify(mobileById.get(patient.id)?.bodyMeasurements));
-  check('every demo patient carries the same visits on both apps', mismatched.length === 0, mismatched.map((patient) => patient.id).join(','));
   check('every demo patient has 2–3 visits, each with ≥1 measurement', MOCK_PATIENTS.every((patient) => patient.bodyMeasurements.length >= 2 && patient.bodyMeasurements.length <= 3 && patient.bodyMeasurements.every((visit) => Object.keys(visit.measurements).length >= 1)));
   check('some follow-up visits skip areas (dashes appear in demos)', MOCK_PATIENTS.some((patient) => patient.bodyMeasurements.slice(1).some((visit) => Object.keys(visit.measurements).length < BODY_AREAS.length)));
   check('follow-ups shrink the waist', MOCK_PATIENTS.every((patient) => {

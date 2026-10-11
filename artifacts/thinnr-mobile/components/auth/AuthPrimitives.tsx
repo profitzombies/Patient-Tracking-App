@@ -8,7 +8,7 @@
  *   FeedbackSlot    dev code / notice / error, md below the action
  *   OptionCard      roomy tappable choice (signup "how are you joining?")
  *   FooterLink      centered text CTA in the page footer
- *   QuietLinkRow    "Explore demo · Provider login" style pair
+ *   QuietLinkRow    quiet "A · B" text-link pair
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle, type TextStyle } from 'react-native';

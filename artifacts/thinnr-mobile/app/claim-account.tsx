@@ -169,7 +169,7 @@ export default function ClaimAccountScreen() {
   const [birthday, setBirthday] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
-  const [signedInKind, setSignedInKind] = useState<AccountKind | 'demo' | null>(null);
+  const [signedInKind, setSignedInKind] = useState<AccountKind | 'unlinked' | null>(null);
   const [signedInName, setSignedInName] = useState<string | null>(null);
   const [offerPhone, setOfferPhone] = useState(false);
   const [newPhone, setNewPhone] = useState('');
@@ -360,7 +360,7 @@ export default function ClaimAccountScreen() {
           const rawKind = who?.json?.kind;
           const recoveredKind =
             rawKind === 'demo_staff' || rawKind === 'demo_patient'
-              ? 'demo'
+              ? 'unlinked'
               : typeof rawKind === 'string' && rawKind !== 'none'
                 ? (rawKind as AccountKind)
                 : 'patient';
@@ -408,14 +408,16 @@ export default function ClaimAccountScreen() {
       }
       // Who did we just become? Route patients into the companion; point
       // staff at the web tools; offer phone-less patients a phone add.
-      let kind: AccountKind | 'demo' = 'patient';
+      // A login with only a legacy profile row (no patient or staff record)
+      // is 'unlinked': neither routed into the companion nor offered a phone.
+      let kind: AccountKind | 'unlinked' = 'patient';
       let name: string | null = null;
       let hasPhone = signIn.method === 'phone';
       try {
         const who = await claimApi('/claim/whoami', undefined, data.session.access_token);
         if (who.status === 200 && who.json) {
           const rawKind = who.json.kind;
-          if (rawKind === 'demo_staff' || rawKind === 'demo_patient') kind = 'demo';
+          if (rawKind === 'demo_staff' || rawKind === 'demo_patient') kind = 'unlinked';
           else if (typeof rawKind === 'string' && rawKind !== 'none') kind = rawKind as AccountKind;
           if (typeof who.json.name === 'string') name = who.json.name as string;
           if (typeof who.json.hasPhone === 'boolean') hasPhone = who.json.hasPhone as boolean;

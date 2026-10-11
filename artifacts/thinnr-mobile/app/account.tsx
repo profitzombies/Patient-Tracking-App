@@ -110,26 +110,6 @@ export default function AccountScreen() {
   );
 
   if (account.kind !== 'real' || !profile) {
-    if (account.kind === 'demo') {
-      return (
-        <View style={[styles.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Pressable testID="account-back" onPress={() => router.back()} hitSlop={10}><Feather name="chevron-left" size={22} color={colors.navy} /></Pressable>
-            <Text style={[styles.title, { color: colors.navy }]}>Account & Settings</Text><View style={styles.spacer} />
-          </View>
-          <KeyboardAwareScrollViewCompat contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}>
-            <AccountSecurity demo />
-            {billingRow}
-            <Text style={[styles.body, { color: colors.bodyText }]}>
-              Account settings are available for signed-in patient accounts.
-            </Text>
-            <Text testID="account-privacy-unavailable" style={[styles.body, { color: colors.subtleText }]}>
-              Consent records, data export, and account deletion apply to real patient accounts. The guided demo holds no personal data to export or delete.
-            </Text>
-          </KeyboardAwareScrollViewCompat>
-        </View>
-      );
-    }
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <Text style={[styles.body, { color: colors.bodyText }]}>

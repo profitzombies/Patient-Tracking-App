@@ -1,7 +1,7 @@
 /**
  * Native rendition of the web portal's typographic "workbook slide" frame.
  *
- * No video files exist anywhere in the demo, so a lesson's chapters step
+ * Lessons without a hosted video step their chapters
  * through these 16:9 slides instead of footage. The palette rotates through
  * cream / navy / cobalt deterministically from the video id + chapter index
  * (same djb2 selection as the web), so the same chapter shows the same slide

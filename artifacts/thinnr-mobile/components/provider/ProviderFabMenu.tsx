@@ -33,7 +33,6 @@ const DESTINATIONS: {
 }[] = [
   { key: 'overview', label: 'Overview', icon: 'home', href: '/' },
   { key: 'patients', label: 'Patients', icon: 'users', href: '/patients' },
-  { key: 'outcomes', label: 'Outcomes', icon: 'bar-chart-2', href: '/outcomes' },
   { key: 'leaderboard', label: 'Leaderboard', icon: 'award', href: '/leaderboard' },
   { key: 'payments', label: 'Payments', icon: 'credit-card', href: '/payments' },
   { key: 'training', label: 'Training', icon: 'book-open', href: '/training' },

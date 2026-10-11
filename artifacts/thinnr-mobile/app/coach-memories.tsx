@@ -219,44 +219,10 @@ function CoachMemoriesContent({
 
   const topPad = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
-  if (resolving || account.kind === 'unresolved') {
+  if (resolving || account.kind !== 'real') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }]}>
         <ActivityIndicator color={colors.cobalt} />
-      </View>
-    );
-  }
-
-  if (account.kind === 'demo') {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.headerBand, { backgroundColor: colors.paperCardAlt, borderBottomColor: colors.border, paddingTop: topPad }]}>
-          <View style={styles.headerRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-              onPress={() => router.back()}
-              style={({ pressed }) => [
-                styles.iconBtn,
-                { borderColor: colors.border, backgroundColor: colors.card, borderRadius: colors.radiusSm },
-                pressed && { backgroundColor: colors.accent }
-              ]}
-            >
-              <Feather name="chevron-left" size={18} color={colors.navy} />
-            </Pressable>
-            <View style={styles.headerCenter}>
-              <Text style={[styles.headerTitle, { color: colors.navy }]}>What the coach remembers</Text>
-            </View>
-            <View style={styles.iconBtnPlaceholder} />
-          </View>
-        </View>
-        <View style={styles.emptyState}>
-          <Feather name="database" size={32} color={colors.mutedForeground} style={styles.emptyIcon} />
-          <Text style={[styles.emptyTitle, { color: colors.navy }]}>No Memories Yet</Text>
-          <Text style={[styles.emptyBody, { color: colors.bodyText }]}>
-            In the full program, the AI Coach learns preferences and details from your conversations to provide better guidance.
-          </Text>
-        </View>
       </View>
     );
   }

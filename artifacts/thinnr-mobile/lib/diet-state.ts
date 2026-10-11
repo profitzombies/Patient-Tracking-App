@@ -4,8 +4,6 @@
  * targets answer, with pure helpers every diet surface shares —
  *
  *  - wire parsing (never trust the shape blindly),
- *  - the demo persona's fixed snapshot (chosen by auth state, never by
- *    missing data),
  *  - queue projection, so a queued list edit shows up immediately and reads
  *    back identically once it lands,
  *  - the eating-window clock and the Whole30 day counter,
@@ -329,65 +327,6 @@ export function parseDietTargets(raw: unknown): DietTargetsState {
       : (Object.keys(overrides) as Array<keyof TargetNumbers>).filter(k => overrides[k] !== null),
     missing: Array.isArray(t.missing) ? t.missing.filter((m): m is string => typeof m === 'string') : [],
     activityLevel: typeof t.activityLevel === 'string' && ACTIVITY_LEVELS.has(t.activityLevel) ? (t.activityLevel as ActivityLevel) : null,
-  };
-}
-
-// ─── Demo persona ───────────────────────────────────────────────────────────
-
-/**
- * The demo persona's fixed diet snapshot. Derived from the seeded anchor day
- * and a fixed protocol start so every demo surface is byte-identical run to
- * run. Only ever handed out when the account is the demo persona.
- */
-export function demoDietState(todayKey: string, episodeStartedOn: string): DietState {
-  const phase = derivePhase({ episodeStartedOn, todayKey, programId: 'thinnr' });
-  const locked = phase.dietPickerLocked;
-  const selection: DietSelection | null = locked
-    ? null
-    : {
-        id: 'demo-selection',
-        dietSlug: 'mediterranean',
-        status: 'active',
-        selectedByRole: 'patient',
-        settings: {},
-        startedAt: `${todayKey}T12:00:00.000Z`,
-        endedAt: null,
-      };
-  return {
-    dateKey: todayKey,
-    programId: 'thinnr',
-    phase: { ...phase, episodeId: 'demo-episode', episodeNumber: 1, episodeStartedOn },
-    currentDiet: selection,
-    effectiveDietSlug: locked ? null : selection?.dietSlug ?? null,
-    pendingSelection: null,
-    pendingBlock: null,
-    suggestedDefaultSlug: JUST_TRACKING_SLUG,
-    screening: { answers: {}, pregnancyConflict: false },
-    preferences: [
-      {
-        id: 'demo-pref-peanut',
-        list: 'allergy',
-        key: 'peanut',
-        label: 'Peanuts',
-        isCustom: false,
-        severity: 'severe',
-        enteredByRole: 'patient',
-        enteredByName: null,
-        createdAt: `${episodeStartedOn}T12:00:00.000Z`,
-      },
-      {
-        id: 'demo-pref-cilantro',
-        list: 'dislike',
-        key: 'custom:cilantro',
-        label: 'Cilantro',
-        isCustom: true,
-        severity: null,
-        enteredByRole: 'patient',
-        enteredByName: null,
-        createdAt: `${episodeStartedOn}T12:00:00.000Z`,
-      },
-    ],
-    activityLevel: { level: 'light', source: 'diet_selection', recordedOn: episodeStartedOn },
   };
 }
 

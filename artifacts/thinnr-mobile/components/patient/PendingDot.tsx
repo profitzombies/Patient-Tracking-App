@@ -1,7 +1,7 @@
 /**
  * PendingDot — the subtle "not synced yet" marker for a diary row, water
  * tracker, check-in card, or photo tile whose latest write is still in the
- * offline queue. Renders nothing for demo accounts (the queue is disabled)
+ * offline queue. Renders nothing while signed out (the queue is disabled)
  * and for entities with no unsent write, so existing layouts are untouched
  * unless something is actually pending.
  *

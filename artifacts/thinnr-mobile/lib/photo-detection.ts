@@ -228,10 +228,10 @@ export function createSubjectDetector(): SubjectDetector {
 }
 
 /**
- * Synthetic probe frames for the web demo: the same detector runs on the
+ * Synthetic probe frames for the web preview: the same detector runs on the
  * same code path, fed generated frames that walk a person from "not there"
  * through "too far" into the ready window. Deterministic, so the preview
- * demos identically every time.
+ * plays identically every time.
  */
 export function makeSimulatedFrame(
   step: number,

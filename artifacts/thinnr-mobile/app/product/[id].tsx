@@ -7,9 +7,7 @@
  *
  * The route accepts a storefront product_id, a catalog slug, or the bundled
  * catalog id the coach's product card still uses (prod1..prod9), and reads
- * everything from the storefront shared through CartContext. Demo accounts
- * see the demo storefront; the purchase panel works the same way and the
- * cart carries the demo lines to the cart screen.
+ * everything from the storefront shared through CartContext.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {

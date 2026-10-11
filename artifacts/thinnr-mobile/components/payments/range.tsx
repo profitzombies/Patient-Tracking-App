@@ -1,10 +1,8 @@
 /**
  * Date range shared by every list/overview page of the Payments area (the
  * web area keeps one range in its header; here a preset strip does the same
- * job on a phone). Live pages anchor to the DEVICE-LOCAL calendar day and
- * default to the last 30 days, matching the web's live default. Demo pages
- * never consult the clock: the demo dataset is pinned (see
- * data/office-payments-demo.ts) and renders as-is.
+ * job on a phone). Pages anchor to the DEVICE-LOCAL calendar day and default
+ * to the last 30 days, matching the web's default.
  */
 import React, { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { ChipRow } from './primitives';

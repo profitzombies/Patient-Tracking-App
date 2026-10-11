@@ -1,8 +1,9 @@
 /**
  * Chat state for the THINNR coach.
  *
- * DEMO persona history lives in React state on purpose: no database, no
- * AsyncStorage. A fresh app launch always starts a fresh conversation.
+ * While no account is resolved (signed out, or a session still resolving)
+ * history lives in React state on purpose: no database, no AsyncStorage,
+ * and a fresh app launch always starts a fresh conversation.
  * REAL patient accounts persist the conversation to the account instead:
  * on open the stored transcript is loaded back, and every message is
  * appended once it is FINAL — user turns at send, assistant replies only
@@ -12,7 +13,7 @@
  * rich cards (recipes, products) to assistant replies without changing this
  * contract.
  *
- * The thread never opens cold: each demo session (and the first-ever open
+ * The thread never opens cold: each local session (and the first-ever open
  * of a real account) seeds one short, fixed coach greeting as the first
  * assistant message (see buildGreetingMessage), so the chat reads like a
  * conversation already in progress rather than a blank prompt box. A real
@@ -40,7 +41,7 @@ import React, {
 import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
 import { coachDietContextFor, type CoachDietContext } from '@/lib/diet-state';
-import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle, demoCoachTitleFromMessage } from '@/lib/coach-title';
+import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle, localCoachTitleFromMessage } from '@/lib/coach-title';
 import {
   usePatientAccount,
   type CoachConversation,
@@ -48,9 +49,9 @@ import {
   type ChatWireMessage,
   type PatientDataApi,
 } from '@/context/PatientAccountContext';
-import { ENROLLMENT_DAYS, PATIENT_PROFILE, type MealSlot } from '@/data/patient-data';
+import type { MealSlot } from '@/data/patient-data';
 import { localTodayKey } from '@/lib/live-patient-entry';
-import { BACK_ON_TRACK_OFFER, isOutreachMessageId, type NudgeAssessment } from '@/data/stall-nudge';
+import { isOutreachMessageId } from '@/data/stall-nudge';
 import {
   fetchCoachAvailability,
   streamCoachChat,
@@ -302,7 +303,7 @@ export interface CoachChatContextValue {
    * Set while the care team has the coach switched off for every patient
    * (an HQ policy read from the server — never inferred locally). Carries
    * the server's own patient-facing explanation. Only real accounts can be
-   * paused; the demo persona always chats. While set, send/sendPhoto are
+   * paused. While set, send/sendPhoto are
    * no-ops and the screen closes the composer with the paused notice.
    */
   coachPaused: { message: string } | null;
@@ -316,9 +317,8 @@ const COACH_PAUSED_FALLBACK =
 
 /**
  * Client keeps its request in step with the server-side history cap. Patient
- * program context (name, day, phase) is derived server-side — from the demo
- * seed, or from the signed-in account's own data — the request carries only
- * the messages.
+ * program context (name, day, phase) is derived server-side from the
+ * signed-in account's own data — the request carries only the messages.
  */
 const MAX_REQUEST_MESSAGES = 12;
 
@@ -533,30 +533,14 @@ export function findMealCorrectionOrigin(messages: CoachMessage[]): CoachMessage
 export const GREETING_MESSAGE_ID = 'coach-greeting';
 
 /**
- * The warm opener every session starts with. A fixed client-side string in
- * the coach's texting voice — never model output — so it costs nothing and
- * appears instantly. It is a normal `done` assistant message: it rides the
- * request history like anything else (so the model knows the patient was
- * already greeted and won't greet twice), and it deliberately has no
- * `replyToId`, which keeps quick-reply chips off it — the chat screen shows
- * its starter prompts under the greeting instead.
- */
-function buildGreetingMessage(): CoachMessage {
-  const firstName = PATIENT_PROFILE.name.split(' ')[0] || 'there';
-  return {
-    id: GREETING_MESSAGE_ID,
-    role: 'assistant',
-    status: 'done',
-    text: `Hey ${firstName}, good to see you. ${ENROLLMENT_DAYS} days in. That's real commitment, and it shows.\n\nWhat's on your mind today? A meal idea, a craving, the exact wording of a rule. I've got you.`,
-  };
-}
-
-/**
- * The greeting for a real account's FIRST-ever conversation, personalized
- * from the account's own name and program day (loaded with the transcript —
- * never the demo seed). Under two days in, the commitment line is dropped
- * rather than praising a start that just happened. Same fixed id as the demo
- * greeting; the stored row upserts idempotently, and later opens hydrate
+ * The opener every session starts with. A fixed client-side string — never
+ * model output — so it costs nothing and appears instantly. It is a normal
+ * `done` assistant message: it rides the request history like anything else
+ * (so the model knows the patient was already greeted and won't greet
+ * twice), and it deliberately has no `replyToId`, which keeps quick-reply
+ * chips off it — the chat screen shows its starter prompts under the
+ * greeting instead. A real account's first-ever conversation uses the same
+ * fixed id; the stored row upserts idempotently, and later opens hydrate
  * this message back instead of rebuilding it.
  */
 /** A new conversation never summarizes or replays a prior conversation. */
@@ -570,9 +554,8 @@ function buildFreshGreetingMessage(): CoachMessage {
 }
 
 /**
- * Fixed id for the coach-initiated stall outreach, seeded by the provider
- * effect below when the patient context says the trigger is live. Outside
- * the `coach-${n}` space like the greeting id.
+ * Fixed id for the coach-initiated stall outreach bubble (server-authored
+ * for real accounts). Outside the `coach-${n}` space like the greeting id.
  */
 export const OUTREACH_MESSAGE_ID = 'coach-outreach';
 
@@ -599,32 +582,6 @@ export const NUDGE_KEEP_ACK =
 /** Reply to the Pause chip. Never ends "?". */
 export const NUDGE_PAUSE_ACK =
   "Done, these check-ins are paused. You can turn them back on any time from your Daily Check-In screen. Everything else about the program stays exactly the same.";
-
-/**
- * The coach-initiated outreach: the patient's own numbers, invitation
- * framing, then the fixed offer the server's back-on-track branch keys on.
- * A fixed client-side string like the greeting — the model never writes it —
- * so the trend wording is always accurate to the seeded records. The one
- * proactive bubble that ends "?": it carries its own quick replies, and the
- * chat screen lets it offer them despite having no replyToId.
- */
-function buildOutreachMessage(assessment: NudgeAssessment): CoachMessage {
-  const firstName = PATIENT_PROFILE.name.split(' ')[0] || 'there';
-  const lost =
-    Math.round((PATIENT_PROFILE.startingWeight - PATIENT_PROFILE.currentWeight) * 10) / 10;
-  const level = Math.round(PATIENT_PROFILE.currentWeight);
-  const offPlan = assessment.adherence.offPlan;
-  return {
-    id: OUTREACH_MESSAGE_ID,
-    role: 'assistant',
-    status: 'done',
-    text:
-      `${firstName}, I was looking at your numbers today and wanted to reach out myself.\n\n` +
-      `You've put in real work. ${lost} pounds down since you started, and that stands. The last three weeks the scale has been holding right around ${level}, and the diary shows off-plan items sneaking in, ${offPlan} of them in the last two weeks. That's not failure, that's a pattern, and patterns can be changed.\n\n` +
-      BACK_ON_TRACK_OFFER,
-    quickReplies: [OUTREACH_ACCEPT, OUTREACH_DECLINE],
-  };
-}
 
 /**
  * Serializes a thread message for the chat request. Stopped replies stay in
@@ -725,11 +682,8 @@ export function CoachChatProvider({
   const clock = now ?? systemNow;
   // Stall-nudge wiring: the patient context owns the trigger math and the
   // persisted guardrails (opt-out, engagement, cooldown); this provider only
-  // seeds the outreach bubble and reports engagement back.
+  // answers the outreach chips and reports engagement back.
   const {
-    nudgeAssessment,
-    shouldSeedNudgeOutreach,
-    recordNudgeSent,
     markNudgeEngaged,
     setNudgeOptOut,
     diet,
@@ -740,8 +694,8 @@ export function CoachChatProvider({
   // must not re-create the send callbacks.
   const dietContextRef = useRef<CoachDietContext | null>(null);
   dietContextRef.current = dietStatus === 'live' ? coachDietContextFor(diet) : null;
-  // Account seam. The demo persona stays session-only; a real account
-  // persists the conversation and grounds the coach on its own data.
+  // Account seam. Without a resolved account the chat stays session-only; a
+  // real account persists the conversation and grounds the coach on its own data.
   // `accountKey` names the thread's owner — any change (sign-in, sign-out, a
   // different patient) resets local chat state wholesale.
   const { account, resolving, getAccessToken } = usePatientAccount();
@@ -778,9 +732,9 @@ export function CoachChatProvider({
   // Pagination may outlive a focus refresh. The ref is set synchronously so
   // refreshThread never replaces the transcript/epoch underneath its request.
   const isLoadingOlderRef = useRef(false);
-  const demoConversationsRef = useRef<CoachConversation[]>([]);
-  /** Demo conversations the patient named by hand; auto-naming leaves these alone. */
-  const demoRenamedRef = useRef(new Set<string>());
+  const localConversationsRef = useRef<CoachConversation[]>([]);
+  /** Local conversations the patient named by hand; auto-naming leaves these alone. */
+  const localRenamedRef = useRef(new Set<string>());
   /**
    * Conversation rows the server has confirmed for a rename/archive, keyed by
    * id. A list or detail read that started BEFORE the write can land after
@@ -793,7 +747,7 @@ export function CoachChatProvider({
     const committed = committedConversationsRef.current.get(row.id);
     return committed && committed.version > row.version ? committed : row;
   }, []);
-  const demoConversationCounterRef = useRef(0);
+  const localConversationCounterRef = useRef(0);
   const scopeEpochRef = useRef(0);
   // Account epochs deliberately do not reuse a cache after sign-out/revoke,
   // even if the same patient signs back in during this provider's lifetime.
@@ -824,12 +778,12 @@ export function CoachChatProvider({
   // A render after account replacement must not briefly disclose the prior
   // patient's transcript while effects are still being scheduled.
   const [renderedScopeKey, setRenderedScopeKey] = useState(conversationScopeKey);
-  // Lazy initializer: the demo greeting is built once per provider mount —
+  // Lazy initializer: the local greeting is built once per provider mount —
   // one session, one conversation. Real (and still-resolving) accounts start
   // empty instead: their opener comes from the stored transcript, or is
   // seeded only when the account has none (see the hydration effect).
   const [messages, setMessages] = useState<CoachMessage[]>(() =>
-    !resolving && account.kind === 'demo' ? [buildGreetingMessage()] : [],
+    !resolving && account.kind === 'signed-out' ? [buildFreshGreetingMessage()] : [],
   );
   const [isStreaming, setIsStreaming] = useState(false);
   // HQ coach-availability policy for this account. Two sources, both the
@@ -890,8 +844,8 @@ export function CoachChatProvider({
     scopeKeyRef.current =
       deniedId
         ? `${accountKeyRef.current}:epoch-${accountEpochRef.current}:${deniedId}`
-        : accountKeyRef.current === 'demo'
-          ? `demo:epoch-${accountEpochRef.current}:fresh`
+        : accountKeyRef.current === 'signed-out'
+          ? `signed-out:epoch-${accountEpochRef.current}:fresh`
           : `${accountKeyRef.current}:epoch-${accountEpochRef.current}:fresh`;
     messagesRef.current = [];
     setSelectedConversation(null);
@@ -926,7 +880,7 @@ export function CoachChatProvider({
   const revealRef = useRef<RevealState | null>(null);
   // Message ids are the persistence upsert key, so a real account's ids get
   // a per-session nonce: `coach-<nonce>-<n>` can never collide with rows
-  // stored by an earlier app session. Demo ids keep the bare `coach-<n>`
+  // stored by an earlier app session. Local ids keep the bare `coach-<n>`
   // shape the regression suites assert on.
   const sessionNonceRef = useRef(
     `${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
@@ -948,7 +902,7 @@ export function CoachChatProvider({
   const photoPathsRef = useRef(new Map<string, string>());
   // Which accountKey's transcript is on screen. Persistence only runs once
   // hydration for the CURRENT key landed — nothing writes into a transcript
-  // that was never read (and demo accounts never hydrate, so nothing ever
+  // that was never read (and local sessions never hydrate, so nothing ever
   // enqueues for them).
   const hydratedKeyRef = useRef<string | null>(null);
   const flushingRef = useRef(false);
@@ -960,35 +914,11 @@ export function CoachChatProvider({
     messagesRef.current = messages;
   }, [messages]);
 
-  // Coach-initiated outreach. When the patient context says the stall
-  // trigger is live (active signals, no opt-out, no engagement for this
-  // episode, cooldown respected), the coach opens the conversation — but
-  // only while the session's thread is still just the greeting, so it never
-  // interrupts an exchange already underway. Seeded as a normal done
-  // message: it rides the request history like the greeting, so the model
-  // knows exactly what the coach already said. recordNudgeSent anchors the
-  // cooldown window on first seed.
-  const outreachSeededRef = useRef(false);
-  useEffect(() => {
-    // Demo persona only: the outreach copy is built from the demo seed's
-    // numbers. A real account's proactive outreach is future work.
-    if (accountRef.current.resolving || accountRef.current.kind !== 'demo') return;
-    if (outreachSeededRef.current || !shouldSeedNudgeOutreach) return;
-    if (inFlightRef.current) return;
-    if (!messagesRef.current.every(m => m.id === GREETING_MESSAGE_ID)) return;
-    outreachSeededRef.current = true;
-    const outreach = buildOutreachMessage(nudgeAssessment);
-    setMessages(prev =>
-      prev.every(m => m.id === GREETING_MESSAGE_ID) ? [...prev, outreach] : prev,
-    );
-    void recordNudgeSent();
-  }, [shouldSeedNudgeOutreach, nudgeAssessment, recordNudgeSent]);
-
   // Account transitions (sign-in, sign-out, a different patient) drop ALL
   // local chat state: abort any stream, forget suggestions and flows, clear
   // persistence bookkeeping, and reseed the thread for the new owner. The
-  // ref-vs-key comparison makes this a no-op on mount, so demo sessions
-  // still render their greeting synchronously exactly as before.
+  // ref-vs-key comparison makes this a no-op on mount, so local sessions
+  // still render their greeting synchronously.
   const accountKeyRef = useRef(accountKey);
   useEffect(() => {
     if (accountKeyRef.current === accountKey) return;
@@ -1015,7 +945,6 @@ export function CoachChatProvider({
     updateLabelFlow(null);
     setPendingStage(null);
     setIsStreaming(false);
-    outreachSeededRef.current = false;
     hydratedKeyRef.current = null;
     persistedRef.current.clear();
     outboxRef.current = [];
@@ -1041,7 +970,7 @@ export function CoachChatProvider({
     setIsConversationRefreshing(false);
     setLoadedConversationScopeKey(null);
     setIsLoadingOlder(false);
-    const seed = accountKey === 'demo' ? [buildGreetingMessage()] : [];
+    const seed = accountKey === 'signed-out' ? [buildFreshGreetingMessage()] : [];
     messagesRef.current = seed;
     setMessages(seed);
     setRenderedScopeKey(scopeKeyRef.current);
@@ -1284,7 +1213,7 @@ export function CoachChatProvider({
   }, [accountKey, flushOutbox]);
 
   // Coach availability: ask the server on open and whenever the account
-  // changes. The demo persona is never paused; a probe that cannot answer
+  // changes. Local sessions are never paused; a probe that cannot answer
   // leaves the state alone (the chat request reports a pause on send).
   useEffect(() => {
     if (!realAccount) {
@@ -1320,7 +1249,7 @@ export function CoachChatProvider({
     scopeKeyRef.current =
       accountRef.current.kind === 'real'
         ? `real:${(account as Extract<typeof account, { kind: 'real' }>).patientId}:epoch-${accountEpochRef.current}:fresh`
-        : `demo:epoch-${accountEpochRef.current}:fresh`;
+        : `signed-out:epoch-${accountEpochRef.current}:fresh`;
     setSelectedConversation(null);
     setPendingConversationId(null);
     setConversationError(null);
@@ -1332,7 +1261,7 @@ export function CoachChatProvider({
     setLoadedConversationScopeKey(null);
     setPendingStage(null);
     setIsStreaming(false);
-    const seed = accountRef.current.kind === 'demo' ? [buildFreshGreetingMessage()] : [buildFreshGreetingMessage()];
+    const seed = [buildFreshGreetingMessage()];
     messagesRef.current = seed;
     setMessages(seed);
     setRenderedScopeKey(scopeKeyRef.current);
@@ -1351,8 +1280,8 @@ export function CoachChatProvider({
     async (archived: boolean, offset = 0, force = false): Promise<CoachConversationPage> => {
       const scope = historyScopeKeyRef.current;
       const api = chatApiRef.current;
-      if (accountRef.current.kind === 'demo') {
-        const conversations = demoConversationsRef.current
+      if (accountRef.current.kind === 'signed-out') {
+        const conversations = localConversationsRef.current
           .filter(conversation => Boolean(conversation.archivedAt) === archived)
           .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
         const slice = conversations.slice(offset, offset + 20);
@@ -1526,8 +1455,8 @@ export function CoachChatProvider({
       setIsConversationLoading(!cached);
       setIsConversationRefreshing(Boolean(cached && (!cacheIsFresh || force)));
 
-      if (accountRef.current.kind === 'demo') {
-        const conversation = demoConversationsRef.current.find(row => row.id === id);
+      if (accountRef.current.kind === 'signed-out') {
+        const conversation = localConversationsRef.current.find(row => row.id === id);
         if (!conversation) {
           if (selectionRequestRef.current === selection && accountKeyRef.current === identity) {
             setConversationError('That conversation is no longer available.');
@@ -1542,7 +1471,7 @@ export function CoachChatProvider({
         ];
         selectedConversationRef.current = conversation;
         pendingConversationIdRef.current = null;
-        hydratedKeyRef.current = `demo:epoch-${accountEpochRef.current}:${conversation.id}`;
+        hydratedKeyRef.current = `signed-out:epoch-${accountEpochRef.current}:${conversation.id}`;
         setSelectedConversation(conversation);
         setPendingConversationId(null);
         setOlderBefore(null);
@@ -1872,9 +1801,9 @@ export function CoachChatProvider({
           throw new Error(message);
         }
       }
-      if (accountRef.current.kind === 'demo') {
+      if (accountRef.current.kind === 'signed-out') {
         const updated = { ...conversation, archivedAt: archived ? new Date().toISOString() : null, version: conversation.version + 1 };
-        demoConversationsRef.current = demoConversationsRef.current.map(row =>
+        localConversationsRef.current = localConversationsRef.current.map(row =>
           row.id === conversation.id ? updated : row,
         );
         if (selectedConversationRef.current?.id === conversation.id) {
@@ -1934,10 +1863,10 @@ export function CoachChatProvider({
           setSelectedConversation(selectedConversationRef.current);
         }
       };
-      if (accountRef.current.kind === 'demo') {
+      if (accountRef.current.kind === 'signed-out') {
         const updated = { ...conversation, title, titleState: 'ready' as const, version: conversation.version + 1 };
-        demoRenamedRef.current.add(conversation.id);
-        demoConversationsRef.current = demoConversationsRef.current.map(row =>
+        localRenamedRef.current.add(conversation.id);
+        localConversationsRef.current = localConversationsRef.current.map(row =>
           row.id === conversation.id ? { ...row, ...updated } : row,
         );
         applyRenamed(updated);
@@ -2024,25 +1953,25 @@ export function CoachChatProvider({
     if (queued) void flushOutbox();
   }, [messages, realAccount, conversationScopeKey, selectedConversation, flushOutbox]);
 
-  // Demo is deliberately local, but still offers coherent multiple
-  // conversations for history previews without fabricating server history.
+  // A local session still offers coherent multiple conversations for
+  // history previews without fabricating server history.
   useEffect(() => {
     const conversation = selectedConversationRef.current;
-    if (accountRef.current.kind !== 'demo' || !conversation) return;
+    if (accountRef.current.kind !== 'signed-out' || !conversation) return;
     const stored = { ...conversation, updatedAt: new Date().toISOString(), messages } as CoachConversation & {
       messages: CoachMessage[];
     };
-    // Name the demo conversation from its first message, the way the server
+    // Name the local conversation from its first message, the way the server
     // job does for real accounts; a patient rename is never replaced.
-    if (stored.title === DEFAULT_COACH_TITLE && !demoRenamedRef.current.has(conversation.id)) {
+    if (stored.title === DEFAULT_COACH_TITLE && !localRenamedRef.current.has(conversation.id)) {
       const first = messages.find(message => message.role === 'user' && message.text.trim());
       if (first) {
-        stored.title = demoCoachTitleFromMessage(first.text);
+        stored.title = localCoachTitleFromMessage(first.text);
         selectedConversationRef.current = { ...conversation, title: stored.title };
         setSelectedConversation(selectedConversationRef.current);
       }
     }
-    demoConversationsRef.current = demoConversationsRef.current.map(row =>
+    localConversationsRef.current = localConversationsRef.current.map(row =>
       row.id === conversation.id ? stored : row,
     );
   }, [messages]);
@@ -2195,14 +2124,14 @@ export function CoachChatProvider({
       };
       revealRef.current = reveal;
 
-      // Demo requests stay byte-identical to the session-only design.
-      // Signed-in requests authenticate and stamp the device's local
+      // Local requests carry only the messages. Signed-in requests
+      // authenticate and stamp the device's local
       // calendar day so the server grounds "today" on the same day the
       // app is showing.
       const auth = accountRef.current;
       const dietContext = dietContextRef.current;
       void streamCoachChat(
-        auth.kind === 'demo'
+        auth.kind === 'signed-out'
           ? body
           : { ...body, localDate: localTodayKey(), ...(dietContext ? { dietContext } : {}) },
         {
@@ -2302,14 +2231,14 @@ export function CoachChatProvider({
             setIsStreaming(false);
           },
         },
-        auth.kind === 'demo'
+        auth.kind === 'signed-out'
           ? { signal: controller.signal }
           : {
               signal: controller.signal,
               // Real (and still-unresolved) accounts authenticate: the
               // server grounds the coach on the account's own data. A
               // missing token surfaces as an honest error bubble — never a
-              // silent demo fallback.
+              // silent unauthenticated fallback.
               getAuthToken: auth.getAccessToken ?? (async () => null),
             },
       );
@@ -2331,10 +2260,10 @@ export function CoachChatProvider({
     if (current) return current;
     const epoch = scopeEpochRef.current;
     const identity = accountKeyRef.current;
-    if (accountRef.current.kind === 'demo') {
+    if (accountRef.current.kind === 'signed-out') {
       const now = new Date().toISOString();
       const conversation: CoachConversation & { messages?: CoachMessage[] } = {
-        id: `demo-coach-${++demoConversationCounterRef.current}`,
+        id: `local-coach-${++localConversationCounterRef.current}`,
         title: DEFAULT_COACH_TITLE,
         titleState: 'ready',
         archivedAt: null,
@@ -2345,7 +2274,7 @@ export function CoachChatProvider({
         messages: messagesRef.current,
       };
       if (scopeEpochRef.current !== epoch || accountKeyRef.current !== identity) return null;
-      demoConversationsRef.current = [conversation, ...demoConversationsRef.current];
+      localConversationsRef.current = [conversation, ...localConversationsRef.current];
       const historyScope = historyScopeKeyRef.current;
       if (historyScope) {
         for (const key of historyCacheRef.current.keys()) {
@@ -2354,10 +2283,10 @@ export function CoachChatProvider({
       }
       selectedConversationRef.current = conversation;
       pendingConversationIdRef.current = null;
-      scopeKeyRef.current = `demo:epoch-${accountEpochRef.current}:${conversation.id}`;
+      scopeKeyRef.current = `signed-out:epoch-${accountEpochRef.current}:${conversation.id}`;
       setSelectedConversation(conversation);
       setPendingConversationId(null);
-      setRenderedScopeKey(`demo:epoch-${accountEpochRef.current}:${conversation.id}`);
+      setRenderedScopeKey(`signed-out:epoch-${accountEpochRef.current}:${conversation.id}`);
       return conversation;
     }
     const api = chatApiRef.current;
@@ -3039,7 +2968,7 @@ export function CoachChatProvider({
         ? null
         : accountRef.current.kind === 'real'
           ? `${accountKeyRef.current}:epoch-${accountEpochRef.current}:fresh`
-          : `demo:epoch-${accountEpochRef.current}:fresh`;
+          : `signed-out:epoch-${accountEpochRef.current}:fresh`;
     setSelectedConversation(null);
     setPendingConversationId(null);
     setConversationError(null);
@@ -3051,8 +2980,8 @@ export function CoachChatProvider({
     setIsConversationRefreshing(false);
     setLoadedConversationScopeKey(null);
     const seed =
-      !accountRef.current.resolving && accountRef.current.kind === 'demo'
-        ? [buildGreetingMessage()]
+      !accountRef.current.resolving && accountRef.current.kind === 'signed-out'
+        ? [buildFreshGreetingMessage()]
         : [];
     messagesRef.current = seed;
     setMessages(seed);

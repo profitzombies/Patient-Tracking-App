@@ -18,8 +18,8 @@
  * is always an image that exists.
  *
  * Pages only cover the account rail (paths under /objects/patient-media/)
- * and only while a media token is held; the demo persona holds none and
- * keeps its bundled seed images, so nothing here fires for it.
+ * and only while a media token is held; a signed-out shell holds none, so
+ * nothing here fires for it.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { apiBase } from '@/lib/coach-api';

@@ -1,12 +1,10 @@
 /**
  * State for the new-patient onboarding flow.
  *
- * The DEMO persona's run is a repeatable in-memory simulation: nothing
- * persists, nothing touches Emma's seeded patient state or any storage key,
- * and resetting happens when the user starts a new run from the patient
- * entry screen — exactly as before accounts existed.
+ * Until an account resolves the run is an in-memory simulation: nothing
+ * persists and nothing touches any storage key.
  *
- * A REAL signed-in patient gets the same screens, but every legitimate
+ * A REAL signed-in patient gets the same screens, and every legitimate
  * advance saves the answers gathered so far to the account (a partial flag
  * merge), and finishing the run marks onboarding complete and derives the
  * notification preferences — so the answers survive reload and reinstall.
@@ -172,15 +170,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
   // A signed-in patient's saved answers come back with account hydration
   // (reload, reinstall, new device). Reconcile once per account key: a key
   // change first resets to fresh answers so one account's answers never
-  // show under another (or under the demo persona), then the account's
-  // stored answers apply. Never touches a live run, and the demo persona —
-  // which has no hydration — behaves exactly as before accounts existed.
+  // show under another (or while signed out), then the account's stored
+  // answers apply. Never touches a live run; a signed-out device, which has
+  // no hydration, keeps its local answers.
   const hydratedFlags = patient?.hydratedFlags ?? null;
   const accountId = account.kind === 'real' ? account.patientId : null;
   const reconcileKeyRef = useRef<string | null>(null);
   const appliedServerRef = useRef(false);
   useEffect(() => {
-    const key = accountId ?? 'demo';
+    const key = accountId ?? 'signed-out';
     if (reconcileKeyRef.current !== key) {
       const firstMount = reconcileKeyRef.current === null;
       reconcileKeyRef.current = key;
@@ -335,7 +333,7 @@ export function useOnboarding() {
 export function useOnboardingFlow(current: StepKey) {
   const { answers, advance, saving, saveError } = useOnboarding();
   const { account } = usePatientAccount();
-  const steps = visibleSteps(answers, account.kind === 'real');
+  const steps = visibleSteps(answers);
   const index = steps.indexOf(current);
 
   const goNext = useCallback(() => {
@@ -362,10 +360,7 @@ export function useOnboardingFlow(current: StepKey) {
   // total never changes mid-flow: answers that hide steps make the counter
   // jump forward past them ("Step 12 of 21" → "Step 14 of 21") instead of
   // renumbering everything behind you ("of 16" suddenly becoming "of 20").
-  const maxPath = visibleSteps(
-    { ...answers, program: 'glp1', started: 'no' },
-    account.kind === 'real',
-  );
+  const maxPath = visibleSteps({ ...answers, program: 'glp1', started: 'no' });
   const displayIndex = maxPath.indexOf(current);
   const stepNumber = (displayIndex === -1 ? index : displayIndex) + 1;
   const stepCount = maxPath.length;

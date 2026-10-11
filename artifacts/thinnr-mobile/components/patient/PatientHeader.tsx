@@ -1,9 +1,8 @@
 /**
  * Safe-area-aware header for patient-mode screens. Mirrors the staff
- * ScreenHeader visually. The avatar shows Emma's "ES" and opens the persona
- * switcher only in the signed-out guided demo; a signed-in patient sees their
- * own initials and it opens their account, and any other live session sees a
- * plain person icon that opens the signed-in account view.
+ * ScreenHeader visually. A signed-in patient sees their own initials and the
+ * avatar opens their account; any other live session sees a plain person
+ * icon that opens the signed-in account view.
  * Heritage language: paper surface, hairline bottom rule, serif page title.
  */
 import React from 'react';
@@ -31,9 +30,8 @@ export function PatientHeader({ title, subtitle, right }: PatientHeaderProps) {
   const patient = usePatient();
   const topPad = Platform.OS === 'web' ? Math.max(insets.top, 67) : insets.top;
   const real = account.kind === 'real';
-  // Only the signed-out demo borrows Emma's initials.
   const signedIn = useSignedIn();
-  const initials = !signedIn ? 'ES' : real ? patientInitials(true, patient.profile) : '';
+  const initials = real ? patientInitials(patient.profile) : '';
   const avatarHref = real ? '/account' : '/persona';
 
   return (
@@ -66,7 +64,7 @@ export function PatientHeader({ title, subtitle, right }: PatientHeaderProps) {
           <Pressable
             testID="patient-avatar-btn"
             accessibilityRole="button"
-            accessibilityLabel={real ? 'Your account' : signedIn ? 'Account' : 'Switch experience'}
+            accessibilityLabel={real ? 'Your account' : signedIn ? 'Account' : 'Sign in'}
             onPress={() => {
               Haptics.selectionAsync();
               router.push(avatarHref);

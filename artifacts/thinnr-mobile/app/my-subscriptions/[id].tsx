@@ -14,10 +14,9 @@ import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { LocalDatePicker } from '@/components/ui/LocalDatePicker';
 import { BillingScreen, SectionLabel } from '@/components/billing/BillingScreen';
 import { KeyValue, ToneBadge } from '@/components/billing/BillingPieces';
-import { confirmDestructive, demoNudge, openExternal } from '@/components/billing/actions';
+import { confirmDestructive, openExternal } from '@/components/billing/actions';
 import { useBillingNotice } from '@/components/billing/useBillingNotice';
 import { useBillingResource } from '@/components/billing/useBillingResource';
-import { DEMO_CARDS, demoSubscription } from '@/data/patient-billing-demo';
 import { useColors } from '@/hooks/useColors';
 import {
   cancelSubscription,
@@ -64,30 +63,25 @@ export default function SubscriptionDetailScreen() {
   const id = Array.isArray(params.id) ? params.id[0] ?? '' : params.id ?? '';
   const linkedAction = Array.isArray(params.action) ? params.action[0] : params.action;
   const load = useCallback(() => getSubscription(id), [id]);
-  const subscription = useBillingResource<PatientSubscriptionDetail>(load, () => demoSubscription(id));
+  const subscription = useBillingResource<PatientSubscriptionDetail>(load);
   const notice = useBillingNotice();
   const [busy, setBusy] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [cards, setCards] = useState<PatientCard[] | null>(null);
   const [cardsError, setCardsError] = useState<string | null>(null);
   const row = subscription.data;
-  const demo = subscription.demo;
   const actions = row ? subscriptionActions(row) : null;
   const status = row ? subscriptionStatus(row) : null;
 
   useEffect(() => {
     if (panel !== 'card' && panel !== 'retry-card') return;
-    if (demo) {
-      setCards(DEMO_CARDS);
-      return;
-    }
     let active = true;
     setCardsError(null);
     listCards()
       .then(result => { if (active) setCards(result.cards); })
       .catch(caught => { if (active) setCardsError(errorMessage(caught)); });
     return () => { active = false; };
-  }, [panel, demo]);
+  }, [panel]);
 
   /**
    * Every write: post, merge the returned row so the screen updates at
@@ -112,8 +106,6 @@ export default function SubscriptionDetailScreen() {
     })();
   };
 
-  const guard = (what: string, run: () => void) => () => (demo ? demoNudge(what) : run());
-  const nudge = () => demoNudge();
 
   const confirmSkip = (target: PatientBillingSubscription) => confirmDestructive({
     title: 'Skip this shipment?',
@@ -121,25 +113,24 @@ export default function SubscriptionDetailScreen() {
     confirmLabel: 'Skip shipment',
     keepLabel: 'Keep it',
   }, () => mutate('skip', () => skipNextShipment(target.id), updated => `Next shipment skipped. The following one ships ${shortDate(updated.next_shipment_at)}.`));
-  const skip = guard('skip a shipment', () => row && confirmSkip(row));
+  const skip = () => { if (row) confirmSkip(row); };
 
   // Email deep links (/my-subscriptions/<id>?action=skip) open the skip
   // confirmation once the live record is in; a link that no longer applies
-  // explains itself instead of failing silently. Demo accounts get the nudge.
+  // explains itself instead of failing silently.
   const handledLink = useRef<string | null>(null);
   useEffect(() => {
     if (linkedAction !== 'skip' || !row || subscription.loading) return;
     const key = `${row.id}:${linkedAction}`;
     if (handledLink.current === key) return;
     handledLink.current = key;
-    if (demo) return demoNudge('skip a shipment');
     if (subscriptionActions(row).skipNext && row.next_shipment_at) confirmSkip(row);
     else subscription.setError('That shipment can no longer be skipped from this link. Manage the plan below.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedAction, row?.id, subscription.loading, demo]);
-  const pause = guard('pause a subscription', () => row && mutate('pause', () => pauseSubscription(row.id), () => 'Subscription paused. Nothing ships or charges until you resume.'));
-  const resume = guard('resume a subscription', () => row && mutate('resume', () => resumeSubscription(row.id), updated => `Subscription resumed. Next shipment ${shortDate(updated.next_shipment_at)}.`));
-  const cancel = guard('cancel a subscription', () => {
+  }, [linkedAction, row?.id, subscription.loading]);
+  const pause = () => { if (row) mutate('pause', () => pauseSubscription(row.id), () => 'Subscription paused. Nothing ships or charges until you resume.'); };
+  const resume = () => { if (row) mutate('resume', () => resumeSubscription(row.id), updated => `Subscription resumed. Next shipment ${shortDate(updated.next_shipment_at)}.`); };
+  const cancel = () => {
     if (!row) return;
     confirmDestructive({
       title: 'Cancel at the end of this period?',
@@ -147,22 +138,20 @@ export default function SubscriptionDetailScreen() {
       confirmLabel: 'Cancel subscription',
       keepLabel: 'Keep subscription',
     }, () => mutate('cancel', () => cancelSubscription(row.id), updated => `Subscription ends ${shortDate(updated.current_period_end)}.`));
-  });
+  };
   const retry = (paymentMethodId?: string) => {
     if (!row) return;
     mutate('retry', () => retrySubscriptionPayment(row.id, paymentMethodId ? { payment_method_id: paymentMethodId } : {}), () => 'Payment submitted. Your subscription updates as soon as the charge clears.');
   };
 
-  const demoMissing = demo && !row;
   return (
     <BillingScreen
       title={row ? row.product_name : 'Subscription'}
       testID="screen-subscription"
       loading={subscription.loading}
-      error={demoMissing ? 'This subscription is not part of the demo.' : subscription.error}
+      error={subscription.error}
       onRetry={() => void subscription.reload()}
       hasContent={row !== null}
-      demo={demo}
       notice={notice.notice}
       onDismissNotice={notice.dismiss}
     >
@@ -220,8 +209,7 @@ export default function SubscriptionDetailScreen() {
                   testID="button-retry-payment"
                   label={busy === 'retry' ? 'Retrying…' : 'Retry payment'}
                   accessibilityLabel="Retry the failed renewal payment with the card on file"
-                  disabled={busy !== null || demo}
-                  onDisabledPress={demo ? nudge : undefined}
+                  disabled={busy !== null}
                   onPress={() => retry()}
                   style={styles.buttonGrow}
                 />
@@ -229,8 +217,7 @@ export default function SubscriptionDetailScreen() {
                   testID="button-retry-with-card"
                   label="Use another card"
                   accessibilityLabel="Retry the failed payment with a different saved card"
-                  disabled={busy !== null || demo}
-                  onDisabledPress={demo ? nudge : undefined}
+                  disabled={busy !== null}
                   onPress={() => setPanel(panel === 'retry-card' ? null : 'retry-card')}
                   style={styles.buttonGrow}
                 />
@@ -240,7 +227,7 @@ export default function SubscriptionDetailScreen() {
                   testID="button-pay-invoice"
                   accessibilityRole="link"
                   accessibilityLabel="Pay this invoice on Stripe"
-                  onPress={() => (demo ? nudge() : void openExternal(row.last_hosted_invoice_url!).catch(caught => subscription.setError(errorMessage(caught))))}
+                  onPress={() => void openExternal(row.last_hosted_invoice_url!).catch(caught => subscription.setError(errorMessage(caught)))}
                   style={styles.linkRow}
                 >
                   <Text style={[styles.link, { color: colors.cobalt }]}>Pay on Stripe instead</Text>
@@ -269,16 +256,14 @@ export default function SubscriptionDetailScreen() {
                   <GhostButton
                     testID="button-move-next"
                     label="Move next shipment"
-                    disabled={!actions.moveNext || busy !== null || demo}
-                    onDisabledPress={demo && actions.moveNext ? nudge : undefined}
+                    disabled={!actions.moveNext || busy !== null}
                     onPress={() => setPanel(panel === 'move' ? null : 'move')}
                     style={styles.buttonGrow}
                   />
                   <GhostButton
                     testID="button-skip-next"
                     label={busy === 'skip' ? 'Skipping…' : 'Skip next shipment'}
-                    disabled={!actions.skipNext || busy !== null || demo}
-                    onDisabledPress={demo && actions.skipNext ? nudge : undefined}
+                    disabled={!actions.skipNext || busy !== null}
                     onPress={skip}
                     style={styles.buttonGrow}
                   />
@@ -304,8 +289,7 @@ export default function SubscriptionDetailScreen() {
                 <GhostButton
                   testID="button-change-plan"
                   label="Change cadence or quantity"
-                  disabled={!actions.plan || busy !== null || demo}
-                  onDisabledPress={demo && actions.plan ? nudge : undefined}
+                  disabled={!actions.plan || busy !== null}
                   onPress={() => setPanel(panel === 'plan' ? null : 'plan')}
                   style={styles.gapSm}
                 />
@@ -328,8 +312,7 @@ export default function SubscriptionDetailScreen() {
                 <GhostButton
                   testID="button-change-address"
                   label="Change address"
-                  disabled={!actions.address || busy !== null || demo}
-                  onDisabledPress={demo && actions.address ? nudge : undefined}
+                  disabled={!actions.address || busy !== null}
                   onPress={() => setPanel(panel === 'address' ? null : 'address')}
                   style={styles.gapSm}
                 />
@@ -348,8 +331,7 @@ export default function SubscriptionDetailScreen() {
                 <GhostButton
                   testID="button-change-card"
                   label="Update card"
-                  disabled={!actions.card || busy !== null || demo}
-                  onDisabledPress={demo && actions.card ? nudge : undefined}
+                  disabled={!actions.card || busy !== null}
                   onPress={() => setPanel(panel === 'card' ? null : 'card')}
                   style={styles.gapSm}
                 />
@@ -369,12 +351,12 @@ export default function SubscriptionDetailScreen() {
               <SectionLabel text="Pause or cancel" />
               <View style={styles.buttonRow}>
                 {actions.resume ? (
-                  <PrimaryButton testID="button-resume" label={busy === 'resume' ? 'Resuming…' : 'Resume subscription'} disabled={busy !== null || demo} onDisabledPress={demo ? nudge : undefined} onPress={resume} style={styles.buttonGrow} />
+                  <PrimaryButton testID="button-resume" label={busy === 'resume' ? 'Resuming…' : 'Resume subscription'} disabled={busy !== null} onPress={resume} style={styles.buttonGrow} />
                 ) : (
-                  <GhostButton testID="button-pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} disabled={!actions.pause || busy !== null || demo} onDisabledPress={demo && actions.pause ? nudge : undefined} onPress={pause} style={styles.buttonGrow} />
+                  <GhostButton testID="button-pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} disabled={!actions.pause || busy !== null} onPress={pause} style={styles.buttonGrow} />
                 )}
                 {actions.cancel ? (
-                  <GhostButton testID="button-cancel" label={busy === 'cancel' ? 'Canceling…' : 'Cancel at period end'} disabled={busy !== null || demo} onDisabledPress={demo ? nudge : undefined} onPress={cancel} style={styles.buttonGrow} />
+                  <GhostButton testID="button-cancel" label={busy === 'cancel' ? 'Canceling…' : 'Cancel at period end'} disabled={busy !== null} onPress={cancel} style={styles.buttonGrow} />
                 ) : null}
               </View>
               {row.cancel_at_period_end ? (

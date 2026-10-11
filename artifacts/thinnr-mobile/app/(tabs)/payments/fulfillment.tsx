@@ -18,7 +18,6 @@ import {
   formatAddress,
 } from '@/components/payments/primitives';
 import { useOfficeFulfillmentInfinite } from '@/hooks/useOfficeBilling';
-import { DEMO_FULFILLMENT } from '@/data/office-payments-demo';
 import {
   FULFILLMENT_LABEL,
   WAREHOUSE_STATE_LABEL,
@@ -39,7 +38,6 @@ const OPTIONS = (['to_ship', 'shipped', 'canceled'] as const).map((value) => ({
 export default function FulfillmentScreen() {
   const params = useLocalSearchParams<{ status?: FulfillmentStatus }>();
   const [stage, setStage] = React.useState<FulfillmentStatus>(params.status ?? 'to_ship');
-  const demoRows = DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === stage);
 
   return (
     <PaymentsScreen
@@ -47,7 +45,6 @@ export default function FulfillmentScreen() {
       title="Fulfillment"
       sub="Where each paid order is on its way to the patient. THINNR packs and ships every order and emails the patient tracking."
       refresh="fulfillment"
-      demo={<FulfillmentView stage={stage} setStage={setStage} rows={demoRows} />}
       live={(ctx) => <LiveFulfillment ctx={ctx} stage={stage} setStage={setStage} />}
     />
   );

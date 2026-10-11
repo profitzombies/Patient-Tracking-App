@@ -3,7 +3,7 @@
  * (running totals, refreshed every minute), the daily revenue chart, the
  * per-day cards and the latest activity, all scoped to the signed-in
  * staff member's office. Same figures and chart semantics as the office web
- * overview; the demo persona renders the pinned demo dashboard.
+ * overview.
  */
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -29,7 +29,6 @@ import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { formatCents, formatDate, mrrHint } from '@/lib/office-billing-format';
 import type { HqTodayOverview, OfficeDashboard } from '@/lib/office-billing-types';
-import { DEMO_ACTIVITY, DEMO_DASHBOARD, DEMO_TODAY } from '@/data/office-payments-demo';
 
 const TITLE = 'Payments overview';
 const SUB = 'Balances, sales, fees and payouts for your office.';
@@ -40,7 +39,6 @@ export default function PaymentsOverviewScreen() {
       section="overview"
       title={TITLE}
       sub={SUB}
-      demo={<OverviewView data={DEMO_DASHBOARD} demo />}
       live={(ctx) => <LiveOverview ctx={ctx} />}
     />
   );
@@ -64,15 +62,13 @@ function LiveOverview({ ctx }: { ctx: PaymentsLive }) {
 }
 
 /**
- * Tile grid + charts for one dashboard payload. The demo persona keeps the
- * pinned "Active subscriptions" tile (the same grid as the office web
- * payments overview); a signed-in office sees live monthly recurring
- * revenue with the active count as its detail instead. MRR is server
+ * Tile grid + charts for one dashboard payload. The office sees live monthly
+ * recurring revenue with the active count as its detail. MRR is server
  * computed (price × quantity normalized from cadence weeks, shipping
  * excluded) and is never derived on the phone, so it rides the dashboard
  * query's loading and error states like every other live tile.
  */
-function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; demo?: boolean; userId?: string }) {
+function OverviewView({ data, userId }: { data: OfficeDashboard; userId: string }) {
   const colors = useColors();
   const series = seriesFrom(data.series);
   const netCollected = data.collected_cents - data.refunded_cents;
@@ -97,11 +93,7 @@ function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; d
         <MetricTile label="Refunds" value={formatCents(data.refunded_cents)} hint="Returned to patients" testID="tile-refunds" />
         <MetricTile label="THINNR fees" value={formatCents(data.thinnr_fee_cents)} hint="Program share of every sale" testID="tile-fees" />
         <MetricTile label="Office net" value={formatCents(data.net_cents)} hint={`After THINNR fees and ${formatCents(data.stripe_fee_cents)} in card fees`} testID="tile-office-net" />
-        {demo ? (
-          <MetricTile label="Active subscriptions" value={String(data.active_subscriptions)} hint="Renewing every 4 weeks" testID="tile-subscriptions" />
-        ) : (
-          <MetricTile label="Monthly recurring revenue" value={formatCents(data.mrr_cents)} hint={mrrHint(data)} testID="tile-mrr" />
-        )}
+        <MetricTile label="Monthly recurring revenue" value={formatCents(data.mrr_cents)} hint={mrrHint(data)} testID="tile-mrr" />
         <MetricTile label="Waiting to ship" value={String(data.to_ship)} hint="Packed and shipped by THINNR" testID="tile-to-ship" />
       </View>
 
@@ -116,7 +108,7 @@ function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; d
         </Panel>
       </Pressable>
 
-      <TodayRevenue demo={demo} userId={userId} />
+      <LiveToday userId={userId} />
 
       <Panel title="Daily revenue" sub="Gross collected, net after refunds, THINNR fees and your office net by day">
         <AreaChart
@@ -145,15 +137,10 @@ function OverviewView({ data, demo = false, userId }: { data: OfficeDashboard; d
         sub="Latest payments, refunds, disputes and payouts for your office"
         action={<Button small label="View all" accessibilityLabel="View all activity" testID="link-view-activity" onPress={() => router.navigate('/payments/activity')} />}
       >
-        <RecentActivity demo={demo} userId={userId} />
+        <LiveRecentActivity userId={userId} />
       </Panel>
     </>
   );
-}
-
-function RecentActivity({ demo, userId }: { demo: boolean; userId?: string }) {
-  if (demo || !userId) return <ActivityList rows={DEMO_ACTIVITY.slice(0, 6)} empty="No payment activity yet." testID="recent-activity" />;
-  return <LiveRecentActivity userId={userId} />;
 }
 
 function LiveRecentActivity({ userId }: { userId: string }) {
@@ -166,11 +153,6 @@ function LiveRecentActivity({ userId }: { userId: string }) {
 }
 
 /** Today's revenue by clock hour in the device time zone, refreshed every minute. */
-function TodayRevenue({ demo, userId }: { demo: boolean; userId?: string }) {
-  if (demo || !userId) return <TodayPanel data={DEMO_TODAY} />;
-  return <LiveToday userId={userId} />;
-}
-
 function LiveToday({ userId }: { userId: string }) {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const query = useOfficeToday(userId, tz);

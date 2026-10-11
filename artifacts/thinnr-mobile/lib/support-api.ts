@@ -36,7 +36,7 @@ export interface SupportStreamCallbacks {
   onDone: () => void;
   /**
    * `retryable` is false only when the server declared the failure final —
-   * retrying now cannot help (e.g. the daily demo budget is spent until
+   * retrying now cannot help (e.g. the daily budget is spent until
    * tomorrow). Callers should hide their retry affordances then.
    */
   onError: (message: string, retryable: boolean) => void;

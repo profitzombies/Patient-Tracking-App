@@ -306,8 +306,8 @@ export default function LibraryScreen() {
       await patient.toggleFavorite(food.catalogId);
       return;
     }
-    if (account.kind !== 'real' && account.kind !== 'demo') return;
-    const selected = account.kind === 'real' ? await selectCatalogFood(food) : food;
+    if (account.kind !== 'real') return;
+    const selected = await selectCatalogFood(food);
     if (await patient.saveCatalogFood(catalogFoodSnapshot(selected))) {
       await patient.toggleFavorite(selected.catalogId);
     }

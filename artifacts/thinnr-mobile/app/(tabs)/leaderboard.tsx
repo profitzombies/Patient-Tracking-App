@@ -1,16 +1,12 @@
 /**
  * Staff leaderboard tab.
  *
- * Two branches chosen from AUTH STATE, never from missing data:
- *   - signed in  → LiveLeaderboard: the office's real patients ranked by the
- *     API server (loss, goal completion, and a documented adherence score are
- *     all computed server-side; the client only picks which server rank to
- *     sort by). Loading / error / unauthorized / empty states are explicit and
- *     a live failure never falls back to seeded rows.
- *   - signed out → DemoLeaderboard: the guided demo's seeded board with the
- *     synthetic-data disclaimer.
- * While the session is still resolving the tab shows a spinner rather than
- * guessing.
+ * The office's real patients ranked by the API server (loss, goal completion,
+ * and a documented adherence score are all computed server-side; the client
+ * only picks which server rank to sort by). Loading / error / unauthorized /
+ * empty states are explicit and a live failure never falls back to seeded
+ * rows. While the session is still resolving the tab shows a spinner rather
+ * than guessing; a signed-out visitor is redirected by the root layout.
  */
 import React, { useMemo, useState } from 'react';
 import {
@@ -29,10 +25,8 @@ import * as Haptics from 'expo-haptics';
 import { useQuery } from '@tanstack/react-query';
 import { useColors } from '@/hooks/useColors';
 import theme, { fonts } from '@/constants/colors';
-import { ScreenHeader, SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
+import { ScreenHeader } from '@/components/ui/ScreenHeader';
 import { Divider, EmptyState, PillSelector } from '@/components/ui/LedgerPrimitives';
-import { MOCK_PROVIDERS, type Patient } from '@/data/mock-data';
-import { useOperations } from '@/context/OperationsContext';
 import { useSupabaseSession } from '@/lib/supabase';
 import {
   fetchOfficeLeaderboard,
@@ -356,188 +350,15 @@ function LiveLeaderboard({ userId }: { userId: string }) {
   );
 }
 
-// ─── Demo branch (guided demo, seeded data) ──────────────────────────────────
-
-function getMilestone(patient: Patient): string {
-  const weightLoss = patient.startingWeight - patient.currentWeight;
-  const goalProgress = Math.max(0, Math.min(100, ((weightLoss / (patient.startingWeight - patient.goalWeight)) * 100)));
-  if (patient.stage === 'maintenance') return 'Protocol graduate';
-  if (goalProgress >= 75) return '75% goal reached';
-  if (weightLoss >= 25) return '25 lb milestone';
-  if (patient.adherence >= 95) return 'High adherence';
-  return `Week ${patient.protocolWeek}`;
-}
-
-function DemoLeaderboard() {
-  const colors = useColors();
-  const bottomPad = useBottomPad();
-  const { hydrated, mergedPatients } = useOperations();
-  const [metric, setMetric] = useState<Metric>('percent');
-  const [providerFilter, setProviderFilter] = useState('all');
-  const [stageFilter, setStageFilter] = useState<Stage>('all');
-
-  const ranked = useMemo(() => {
-    return [...mergedPatients]
-      .filter(
-        p =>
-          (providerFilter === 'all' || p.providerId === providerFilter) &&
-          (stageFilter === 'all' || p.stage === stageFilter),
-      )
-      .sort((a, b) => {
-        const aLoss = a.startingWeight - a.currentWeight;
-        const bLoss = b.startingWeight - b.currentWeight;
-        if (metric === 'pounds') return bLoss - aLoss;
-        if (metric === 'goal') {
-          const aG = aLoss / (a.startingWeight - a.goalWeight);
-          const bG = bLoss / (b.startingWeight - b.goalWeight);
-          return bG - aG;
-        }
-        if (metric === 'adherence') return b.adherence - a.adherence;
-        return (bLoss / b.startingWeight) - (aLoss / a.startingWeight);
-      });
-  }, [mergedPatients, metric, providerFilter, stageFilter]);
-
-  const providerOptions = [
-    { label: 'All Providers', value: 'all' },
-    ...MOCK_PROVIDERS.map(p => ({ label: p.name.split(',')[0], value: p.id })),
-  ];
-
-  const renderItem = ({ item: patient, index: idx }: { item: Patient; index: number }) => {
-    const provider = MOCK_PROVIDERS.find(p => p.id === patient.providerId);
-    const loss = patient.startingWeight - patient.currentWeight;
-    const pct = ((loss / patient.startingWeight) * 100).toFixed(1);
-    const goalProgress = Math.max(0, Math.min(100, (loss / (patient.startingWeight - patient.goalWeight)) * 100));
-    const milestone = getMilestone(patient);
-    const isTop3 = idx < 3;
-
-    const metricDisplay =
-      metric === 'pounds' ? `${loss.toFixed(1)} lbs` :
-      metric === 'goal' ? `${goalProgress.toFixed(0)}%` :
-      metric === 'adherence' ? `${patient.adherence}/100` :
-      `${pct}%`;
-
-    const metricSub =
-      metric === 'pounds' ? `${pct}% total` :
-      metric === 'goal' ? 'goal complete' :
-      metric === 'adherence' ? 'adherence' :
-      `${loss.toFixed(1)} lbs lost`;
-
-    return (
-      <Pressable
-        testID={`leaderboard-row-${patient.id}`}
-        onPress={() => { Haptics.selectionAsync(); router.push(`/patient/${patient.id}`); }}
-        style={({ pressed }) => [
-          styles.row,
-          { borderBottomColor: colors.divider },
-          pressed && { backgroundColor: colors.accent },
-        ]}
-      >
-        <RankCell rank={idx + 1} />
-
-        <View style={[styles.initials, { backgroundColor: isTop3 ? colors.navy : colors.activeBg }]}>
-          <Text style={[styles.initialsText, { color: isTop3 ? colors.primaryForeground : colors.cobalt }]}>{patient.initials}</Text>
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.name, { color: colors.navy }]}>{patient.name}</Text>
-          <Text style={[styles.sub, { color: colors.subtleText }]}>
-            {provider?.name.split(',')[0]} · Wk {patient.protocolWeek}
-          </Text>
-          <View style={[styles.milestoneBadge, { backgroundColor: colors.activeBg, borderColor: colors.activeBorder, marginTop: 4 }]}>
-            <Text style={[styles.milestoneText, { color: colors.cobalt }]}>{milestone.toUpperCase()}</Text>
-          </View>
-        </View>
-
-        <View style={styles.metricCell}>
-          <Text style={[styles.metricValue, { color: colors.cobalt }]}>{metricDisplay}</Text>
-          <Text style={[styles.metricSub, { color: colors.subtleText }]}>{metricSub}</Text>
-        </View>
-
-        <Feather name="chevron-right" size={15} color={colors.subtleText} />
-      </Pressable>
-    );
-  };
-
-  if (!hydrated) return <LoadingFrame testID="leaderboard-demo-loading" />;
-
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScreenHeader title="Leaderboard" />
-
-      {/* Filters */}
-      <View style={[styles.toolbar, { borderBottomColor: colors.border, backgroundColor: colors.paperCardAlt }]}>
-        <PillSelector options={METRIC_OPTIONS} selected={metric} onSelect={setMetric} />
-
-        <View style={styles.filterRow}>
-          <View style={styles.filterGroup}>
-            <Text style={[styles.filterLabel, { color: colors.labelText }]}>PROVIDER</Text>
-            <View style={styles.filterChips}>
-              {providerOptions.map(opt => {
-                const shortLabel = opt.value === 'all' ? 'All' : opt.label.split(' ').pop() ?? opt.label;
-                return (
-                  <FilterChip
-                    key={opt.value}
-                    testID={`provider-filter-${opt.value}`}
-                    label={shortLabel}
-                    active={providerFilter === opt.value}
-                    onPress={() => setProviderFilter(opt.value)}
-                  />
-                );
-              })}
-            </View>
-          </View>
-
-          <View style={styles.filterGroup}>
-            <Text style={[styles.filterLabel, { color: colors.labelText }]}>STAGE</Text>
-            <View style={styles.filterChips}>
-              {STAGE_OPTIONS.map(opt => (
-                <FilterChip
-                  key={opt.value}
-                  testID={`stage-filter-${opt.value}`}
-                  label={opt.label}
-                  active={stageFilter === opt.value}
-                  onPress={() => setStageFilter(opt.value)}
-                />
-              ))}
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <View style={[styles.tableHeader, { backgroundColor: colors.sidebarBg, borderBottomColor: colors.border }]}>
-        <Text style={[styles.tableHeaderText, { color: colors.labelText }]}>
-          TOP PERFORMERS — {ranked.length} PATIENTS
-        </Text>
-      </View>
-
-      <FlatList
-        data={ranked}
-        keyExtractor={item => item.id}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <Divider />}
-        contentContainerStyle={{ paddingBottom: bottomPad }}
-        scrollEnabled={ranked.length > 0}
-        ListEmptyComponent={
-          <EmptyState
-            icon={<Feather name="award" size={28} color={colors.subtleText} />}
-            title="No patients match filters"
-            body="Try adjusting the provider or stage filter."
-          />
-        }
-        ListFooterComponent={ranked.length > 0 ? <SyntheticDisclaimer /> : null}
-        testID="leaderboard-list"
-      />
-    </View>
-  );
-}
-
 // ─── Branch chooser ──────────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
   const { session, sessionLoading } = useSupabaseSession();
   if (sessionLoading) return <LoadingFrame testID="leaderboard-session-loading" />;
   if (session?.user) return <LiveLeaderboard key={session.user.id} userId={session.user.id} />;
-  return <DemoLeaderboard />;
+  // Signed out: the provider gate in the root layout is already redirecting
+  // to sign-in; hold the loading frame underneath it.
+  return <LoadingFrame testID="leaderboard-signed-out" />;
 }
 
 const styles = StyleSheet.create({

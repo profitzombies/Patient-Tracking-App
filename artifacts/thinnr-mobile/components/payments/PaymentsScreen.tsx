@@ -3,9 +3,9 @@
  * mobile counterpart of the web area's Header + SectionTabs + Boundary.
  *
  * Which branch renders is decided from AUTH STATE, never from missing data:
- *   - session resolving  → "Checking your sign-in…" (no demo flash, no call)
- *   - signed out         → the caller's demo body under the demo notice,
- *                          fed by the same pinned dataset as the web area
+ *   - session resolving  → "Checking your sign-in…" (no call)
+ *   - signed out         → the same holding frame; the root layout's provider
+ *                          gate is already redirecting to sign-in
  *   - signed in          → the office billing status is loaded first;
  *                          403 / can_manage=false → permission state,
  *                          errors → announced ErrorBox with retry,
@@ -29,7 +29,7 @@ import { OfficeBillingError } from '@/lib/office-billing-api';
 import type { OfficeBillingStatus } from '@/lib/office-billing-types';
 import { useOfficeBillingStatus, useRefreshOfficeBilling } from '@/hooks/useOfficeBilling';
 import { Snackbar } from '@/components/ui/Snackbar';
-import { Body, Button, DemoNotice, ErrorBox, LoadingBox, Panel, SandboxBadge } from './primitives';
+import { Body, Button, ErrorBox, LoadingBox, Panel, SandboxBadge } from './primitives';
 
 export const PAYMENTS_BASE = '/payments';
 
@@ -49,7 +49,6 @@ export const PAYMENTS_SECTIONS = [
 export type PaymentsSectionKey = (typeof PAYMENTS_SECTIONS)[number]['key'] | 'get-paid';
 
 const PERMISSION_TEXT = 'Only office owners and admins can manage payments.';
-export const DEMO_SUB = 'A guided example of your office payment workspace.';
 
 export type PaymentsLive = { userId: string; status: OfficeBillingStatus };
 
@@ -57,13 +56,11 @@ export interface PaymentsScreenProps {
   section: PaymentsSectionKey;
   title: string;
   sub: string;
-  /** Demo persona body (signed out). Rendered with the demo notice above it. */
-  demo: ReactNode;
   /** Live body for a signed-in staff member whose office status resolved. */
   live: (ctx: PaymentsLive) => ReactNode;
   /** A live body backed only by office-access, which every staff role may use. */
   accessLive?: (userId: string) => ReactNode;
-  /** Header action slot; receives the live context (undefined in demo). */
+  /** Header action slot; receives the live context once the office status resolved. */
   action?: (ctx: PaymentsLive | undefined) => ReactNode;
   /** Get paid shows even before an account exists. */
   allowNoAccount?: boolean;
@@ -71,20 +68,16 @@ export interface PaymentsScreenProps {
   allowAnyStaff?: boolean;
   /** Detail pages hide the section strip and show a back link. */
   back?: { href: Href; label: string };
-  /** Demo title suffix override (defaults to the shared demo subtitle). */
-  demoSub?: string;
   /**
-   * Pull-to-refresh plus a header Refresh button. Live pages re-read every
-   * active office-billing query through our API and keep the last good data
-   * on screen (a failed read is a snackbar, not an error state); the demo
-   * persona animates the same controls without loading anything. The value
+   * Pull-to-refresh plus a header Refresh button. Pages re-read every active
+   * office-billing query through our API and keep the last good data on
+   * screen (a failed read is a snackbar, not an error state). The value
    * names what is refreshed for screen readers ("Refresh transactions").
    */
   refresh?: string;
   testID?: string;
 }
 
-const DEMO_REFRESH_MS = 500;
 const NOTICE_MS = 5000;
 
 interface RefreshState {
@@ -98,7 +91,7 @@ interface RefreshState {
  * One refresh at a time; completion is announced for screen readers and a
  * failed live read becomes a dismissable notice.
  */
-function useScreenRefresh(subject: string | undefined, read: (() => Promise<Error | null>) | null): RefreshState {
+function useScreenRefresh(subject: string | undefined, read: () => Promise<Error | null>): RefreshState {
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -119,7 +112,7 @@ function useScreenRefresh(subject: string | undefined, read: (() => Promise<Erro
     if (!subject || refreshing) return;
     setRefreshing(true);
     void (async () => {
-      const failure = read ? await read() : await new Promise<null>((resolve) => setTimeout(() => resolve(null), DEMO_REFRESH_MS));
+      const failure = await read();
       if (!mounted.current) return;
       setRefreshing(false);
       if (failure) {
@@ -129,7 +122,7 @@ function useScreenRefresh(subject: string | undefined, read: (() => Promise<Erro
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => { timer.current = null; setNotice(null); }, NOTICE_MS);
       } else {
-        AccessibilityInfo.announceForAccessibility(read ? `${subject[0].toUpperCase()}${subject.slice(1)} updated` : 'Demo data is up to date');
+        AccessibilityInfo.announceForAccessibility(`${subject[0].toUpperCase()}${subject.slice(1)} updated`);
       }
     })();
   }, [read, refreshing, subject]);
@@ -166,44 +159,11 @@ export function PaymentsScreen(props: PaymentsScreenProps) {
       </View>
     );
   }
-  const demo = !sessionLoading;
-  return <DemoOrResolving {...props} showDemo={demo} bottomPad={bottomPad} />;
-}
-
-function DemoOrResolving({ showDemo: demo, bottomPad, ...props }: PaymentsScreenProps & { showDemo: boolean; bottomPad: number }) {
-  const colors = useColors();
-  const refresh = useScreenRefresh(demo ? props.refresh : undefined, null);
-  const subject = demo ? props.refresh : undefined;
-  const action = demo ? props.action?.(undefined) : undefined;
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]} testID={props.testID ?? `payments-${props.section}`}>
-      <PageScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]}
-        keyboardShouldPersistTaps="handled"
-        scrollBoundary={subject ? 'refresh' : undefined}
-        refreshControl={subject ? refreshControl(refresh, colors.cobalt) : undefined}
-      >
-        <PaymentsHeader
-          section={props.section}
-          title={props.title}
-          sub={demo ? props.demoSub ?? DEMO_SUB : props.sub}
-          sandbox={demo || undefined}
-          back={props.back}
-          action={subject || action ? (
-            <>
-              {subject ? <RefreshAction subject={subject} state={refresh} /> : null}
-              {action}
-            </>
-          ) : undefined}
-        />
-        {demo ? (
-          <>
-            <DemoNotice />
-            {props.demo}
-          </>
-        ) : (
-          <LoadingBox label="Checking your sign-in…" testID="billing-session-loading" />
-        )}
+      <PageScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPad }]} keyboardShouldPersistTaps="handled">
+        <PaymentsHeader section={props.section} title={props.title} sub={props.sub} back={props.back} />
+        <LoadingBox label="Checking your sign-in…" testID="billing-session-loading" />
       </PageScrollView>
     </View>
   );

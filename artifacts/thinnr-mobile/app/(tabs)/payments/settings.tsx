@@ -17,7 +17,6 @@ export default function PaymentSettingsScreen() {
       section="settings"
       title="Payment settings"
       sub="Manage sensitive payment details securely through Stripe."
-      demo={<InlineNotice testID="settings-demo">Secure Stripe settings are available after sign in.</InlineNotice>}
       live={(ctx) => <SettingsView ctx={ctx} />}
     />
   );

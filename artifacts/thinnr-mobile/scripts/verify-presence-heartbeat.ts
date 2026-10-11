@@ -134,14 +134,14 @@ async function foreground() {
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
 async function main() {
-  section('demo, staff and unresolved accounts never ping');
+  section('signed-out, staff and unresolved accounts never ping');
   setStubSession(null);
   let tree = await mount();
-  assert('signed out → demo', account.account.kind === 'demo');
+  assert('signed out → signed-out', account.account.kind === 'signed-out');
   await foreground();
-  assert('demo: zero presence calls', presenceCalls().length === 0);
+  assert('signed-out: zero presence calls', presenceCalls().length === 0);
   await signIn(STAFF);
-  assert('staff browses the demo persona', account.account.kind === 'demo');
+  assert('staff resolves to the signed-out patient state', account.account.kind === 'signed-out');
   await foreground();
   assert('staff: zero presence calls', presenceCalls().length === 0);
   whoamiFails = true;
@@ -187,7 +187,7 @@ async function main() {
   assert('one fresh ping for the new account', afterSwitch.length === 3);
   assert('new ping rides the new bearer', afterSwitch[2]?.token === 'tok-p2');
   await signIn(null);
-  assert('signed out → demo', account.account.kind === 'demo');
+  assert('signed out → signed-out', account.account.kind === 'signed-out');
   Date.now = () => realNow() + 10 * HEARTBEAT_DEBOUNCE_MS;
   try {
     await foreground();

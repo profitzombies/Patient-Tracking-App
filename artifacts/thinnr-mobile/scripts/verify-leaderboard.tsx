@@ -1,6 +1,6 @@
 /**
- * Staff leaderboard tab (mobile) — live branch for signed-in staff, seeded
- * board for the demo persona.
+ * Staff leaderboard tab (mobile) — live branch for signed-in staff, a quiet
+ * holding frame while signed out (the root layout redirects).
  *
  *   pnpm --filter @workspace/thinnr-mobile run test:leaderboard
  *
@@ -17,15 +17,13 @@
  *     retries), unauthorized without retry, no rankable patients, empty
  *     stage; a live failure never shows seeded rows;
  *   - resolving session → spinner, no seeded rows, no live call;
- *   - signed out → the seeded board with provider chips, positional ranks,
- *     the synthetic disclaimer, row navigation, and no live call;
- *   - signing out mid-session flips live → demo.
+ *   - signed out → the holding frame: no rows, no chips, no live call;
+ *   - signing out mid-session drops the live board.
  */
 import React, { act } from 'react';
 import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { OperationsProvider } from '../context/OperationsContext';
 import type { LeaderboardRow, OfficeLeaderboardData } from '../lib/office-roster-api';
 import { setStubSession, setStubSessionLoadingTicks, setStubRefreshResult } from './leaderboard-stubs/supabase';
 import { fetchOfficeLeaderboard } from '../lib/office-roster-api';
@@ -35,7 +33,7 @@ import { verifyLivePatientRecord } from './verify-live-patient-record';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-// Platform.OS is 'web' under the stub, so OperationsContext persists to localStorage.
+// Platform.OS is 'web' under the stub, so screen state persists to localStorage.
 const memory = new Map<string, string>();
 (globalThis as any).localStorage = {
   getItem: (key: string) => memory.get(key) ?? null,
@@ -132,9 +130,7 @@ async function mount(): Promise<{ renderer: ReactTestRenderer; root: ReactTestIn
   await act(async () => {
     renderer = create(
       <QueryClientProvider client={client}>
-        <OperationsProvider>
-          <LeaderboardScreen />
-        </OperationsProvider>
+        <LeaderboardScreen />
       </QueryClientProvider>,
     );
   });
@@ -195,10 +191,10 @@ async function main() {
     await press(root, 'stage-filter-maintenance');
     check('stage chip refetches server-side', requests[requests.length - 1].url.endsWith('?period=30d&stage=maintenance'), requests.map((r) => r.url).join(' | '));
 
-    // Signing out mid-session flips to the demo board.
+    // Signing out mid-session drops the live board; nothing seeded replaces it.
     await act(async () => { setStubSession(null); });
     await settle();
-    check('signing out flips live → demo (seeded rows, disclaimer, provider chips)', rowIds(root).length > 10 && textOf(root).includes('SYNTHETIC DEMO DATA') && Boolean(one(root, 'provider-filter-all')));
+    check('signing out drops the live board (no rows, no chips, holding frame)', rowIds(root).length === 0 && Boolean(one(root, 'leaderboard-signed-out')) && !one(root, 'provider-filter-all') && !one(root, 'period-filter-30d'));
     renderer.unmount();
   }
 
@@ -317,9 +313,7 @@ async function main() {
     await act(async () => {
       renderer = create(
         <QueryClientProvider client={new QueryClient()}>
-          <OperationsProvider>
-            <LeaderboardScreen />
-          </OperationsProvider>
+          <LeaderboardScreen />
         </QueryClientProvider>,
       );
     });
@@ -330,18 +324,14 @@ async function main() {
     renderer!.unmount();
   }
 
-  console.log('\nguided demo (signed out)');
+  console.log('\nsigned out');
   {
     reset();
     setStubSession(null);
     const { renderer, root } = await mount();
-    const ids = rowIds(root);
-    check('seeded board renders many patients and never calls the live endpoint', ids.length > 10 && requests.length === 0, `rows=${ids.length} req=${requests.length}`);
-    check('demo keeps provider chips and has no period chips', Boolean(one(root, 'provider-filter-all')) && !one(root, 'period-filter-30d'));
-    check('demo ranks are positional', rankOf(root, ids[0]) === '#1' && rankOf(root, ids[1]) === '#2' && rankOf(root, ids[2]) === '#3');
-    check('synthetic disclaimer shows in demo only', textOf(root).includes('SYNTHETIC DEMO DATA'));
-    await press(root, `leaderboard-row-${ids[0]}`);
-    check('demo rows still open the seeded patient record', routerLog.length === 1 && routerLog[0].target === `/patient/${ids[0]}`, JSON.stringify(routerLog));
+    const requestsBefore = requests.length;
+    check('signed out renders the holding frame: no rows, no chips, no live call', rowIds(root).length === 0 && Boolean(one(root, 'leaderboard-signed-out')) && !one(root, 'provider-filter-all') && !one(root, 'period-filter-30d') && requestsBefore === 0, `rows=${rowIds(root).length} req=${requests.length}`);
+    check('signed out never navigates', routerLog.length === 0, JSON.stringify(routerLog));
     renderer.unmount();
   }
 

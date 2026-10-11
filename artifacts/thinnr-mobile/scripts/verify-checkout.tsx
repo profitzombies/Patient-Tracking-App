@@ -43,18 +43,14 @@ async function main() {
   const subUnit = fiber.subscription_unit_price_cents as number;
   const expectedTotal = control.unit_price_cents * 2 + subUnit + script.shop.shipping_charge_cents * 2;
 
-  section('demo persona');
+  section('signed out');
   await signOut();
-  storageMap.set('thinnr_cart_v1:demo', JSON.stringify({ lines }));
+  storageMap.set('thinnr_cart_v1:patient-1', JSON.stringify({ lines }));
   let tree = await mount(<CheckoutScreen />);
-  assert('demo form renders with the demo address and totals, no card entry, no network', has(tree, 'checkout-demo-note') && hosts(tree, 'checkout-name')[0]?.props.value === 'Demo Patient' && has(tree, 'checkout-card-placeholder') && cardScript.mounts === 0 && shopCalls().length === 0 && has(tree, 'checkout-total'));
-  const demoPay = pressable(tree, 'checkout-pay');
-  assert('demo Pay is disabled and explains on tap', demoPay?.props['aria-disabled'] === true || demoPay?.props.accessibilityState?.disabled === true);
-  await press(tree, 'checkout-pay');
-  assert('demo tap fires the demo nudge, no checkout request', alerts.length === 1 && checkoutCalls().length === 0 && routerLog.length === 0);
+  assert('signed-out checkout shows the sign-in state: no form, no card entry, no pay button, no network', has(tree, 'checkout-error') && text(tree, 'checkout-error').includes('Sign in') && !has(tree, 'checkout-name') && !has(tree, 'checkout-pay') && cardScript.mounts === 0 && shopCalls().length === 0 && checkoutCalls().length === 0 && alerts.length === 0 && routerLog.length === 0);
   await unmount(tree);
 
-  section('real-account cold start: no demo storefront leaks while the session resolves');
+  section('real-account cold start: no placeholder storefront leaks while the session resolves');
   setStubSessionLoadingTicks(1);
   await signIn();
   storageMap.set('thinnr_cart_v1:patient-1', JSON.stringify({ lines }));
@@ -63,8 +59,8 @@ async function main() {
   tree = await mount(<CheckoutScreen />);
   await wait(50);
   const name = hosts(tree, 'checkout-name')[0]?.props.value;
-  assert('cold start waits for the real storefront: live address and profile render, never the demo address', name === 'Pat Example' && hosts(tree, 'checkout-line1')[0]?.props.value === '9 Harbor Rd' && hosts(tree, 'checkout-postal')[0]?.props.value === '02110' && text(tree, 'checkout-email') === 'pat@example.com' && hosts(tree, 'checkout-email')[0]?.props.value === undefined && hosts(tree, 'checkout-phone')[0]?.props.value === '+15550001010' && !allText(tree).includes('100 Wellness Way'));
-  assert('live quote fetched and shown with sandbox note', shopCalls().some(call => call.path.endsWith('/cart/quote')) && text(tree, 'checkout-total').includes(money(expectedTotal)) && has(tree, 'checkout-sandbox') && !has(tree, 'checkout-demo-note'));
+  assert('cold start waits for the real storefront: live address and profile render, never a placeholder address', name === 'Pat Example' && hosts(tree, 'checkout-line1')[0]?.props.value === '9 Harbor Rd' && hosts(tree, 'checkout-postal')[0]?.props.value === '02110' && text(tree, 'checkout-email') === 'pat@example.com' && hosts(tree, 'checkout-email')[0]?.props.value === undefined && hosts(tree, 'checkout-phone')[0]?.props.value === '+15550001010' && !allText(tree).includes('100 Wellness Way'));
+  assert('live quote fetched and shown with sandbox note', shopCalls().some(call => call.path.endsWith('/cart/quote')) && text(tree, 'checkout-total').includes(money(expectedTotal)) && has(tree, 'checkout-sandbox'));
   assert('saved default card preselected; new-card option offered; card entry mounted but hidden for 3DS', hosts(tree, 'checkout-card-pm_saved')[0]?.props.accessibilityState?.checked === true && has(tree, 'checkout-card-new') && cardScript.mounts === 1 && hosts(tree, 'checkout-card-entry')[0]?.props.hidden === true && !has(tree, 'checkout-save-card'));
 
   section('shipping methods, windows, free standard, fallback, and quote gating');

@@ -1,5 +1,5 @@
 /**
- * Payment activity verification: demo isolation, exact live filters and
+ * Payment activity verification: signed-out isolation, exact live filters and
  * cursor paging, loading/error recovery, and accessible controls.
  */
 import React from 'react';
@@ -23,7 +23,7 @@ import {
 } from './payments-stubs/harness';
 import { setPathname } from './provider-training-stubs/expo-router';
 import ActivityScreen from '../app/(tabs)/payments/activity';
-import { DEMO_ACTIVITY } from '../data/office-payments-demo';
+import { SAMPLE_ACTIVITY } from './fixtures/sample-office-payments';
 import { rangeForPreset } from '../components/payments/range';
 
 const STATUS: any = {
@@ -43,7 +43,7 @@ function liveScript(options?: { delayed?: boolean; error?: boolean }) {
     return {
       status: 200,
       body: {
-        items: cursor ? DEMO_ACTIVITY.slice(2, 3) : DEMO_ACTIVITY.slice(0, 2),
+        items: cursor ? SAMPLE_ACTIVITY.slice(2, 3) : SAMPLE_ACTIVITY.slice(0, 2),
         next_cursor: cursor ? null : 'next',
       },
     };
@@ -62,17 +62,14 @@ function accessible(root: any): boolean {
 }
 
 async function main() {
-  section('Demo');
+  section('Signed out');
   resetRequests();
   liveScript();
   let mounted = await mount(<ActivityScreen />, null);
   check(
-    'pinned demo rows and no fetch',
-    requests.length === 0 && ids(mounted.root, 'row-activity-').length === DEMO_ACTIVITY.length,
+    'signed-out mount holds the sign-in frame: no rows, no fetch',
+    requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'row-activity-').length === 0,
   );
-  await press(mounted.root, 'filter-activity-refund');
-  check('demo filter is client-side', ids(mounted.root, 'row-activity-').length === 1);
-  check('demo has no write control', !one(mounted.root, 'button-activity-more'));
   await mounted.unmount();
 
   section('Live filters and cursor page');

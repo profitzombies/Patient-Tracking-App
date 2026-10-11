@@ -4,8 +4,8 @@
  * product-catalog.json is the single source of truth shared with the API
  * server, which reads the same file from the repo at runtime for coach
  * grounding and product-card enforcement. Content is quoted verbatim from
- * getthinnr.com product pages; prices are demo values consistent with the
- * staff operations dataset.
+ * getthinnr.com product pages; prices are reference values — a real office
+ * storefront prices from the live catalog.
  */
 import catalogJson from './product-catalog.json';
 
@@ -24,7 +24,7 @@ export interface CatalogProduct {
   cardLine: string;
   description: string;
   format: string;
-  /** Demo pricing — getthinnr.com sells through licensed providers. */
+  /** Reference pricing — getthinnr.com sells through licensed providers. */
   price: number;
   factsTitle: string;
   facts: ProductFactRow[];

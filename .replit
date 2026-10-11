@@ -357,6 +357,22 @@ args = "leaderboard-web"
 task = "workflow.run"
 args = "leaderboard-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "payments-mobile-core"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "shipping-rates-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "warehouse-submit-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "launch-sweep-mobile"
+
 [[workflows.workflow]]
 name = "demo-parity"
 author = "agent"
@@ -1488,12 +1504,12 @@ isValidation = true
 name = "payments-mobile-core"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run test:payments-overview && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run typecheck"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm --filter @workspace/thinnr-mobile run test:payments-overview && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [[workflows.workflow]]
 name = "payments-mobile-reporting"
@@ -1980,12 +1996,12 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vi
 name = "shipping-rates-mobile"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [[workflows.workflow]]
 name = "shipping-rates-web"
@@ -2024,12 +2040,12 @@ isValidation = true
 name = "warehouse-submit-mobile"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run test:payments-demo-parity && pnpm --filter @workspace/thinnr-mobile run typecheck"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-fulfillment && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [[workflows.workflow]]
 name = "warehouse-status-api"
@@ -3142,3 +3158,14 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:roster-diet && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[[workflows.workflow]]
+name = "launch-sweep-mobile"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:no-demo-copy && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity && pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints && pnpm --filter @workspace/thinnr-mobile run test:leaderboard && pnpm --filter @workspace/thinnr-mobile run test:payments-status && pnpm --filter @workspace/thinnr-mobile run test:order-refresh && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run typecheck && pnpm --filter @workspace/thinnr-mobile run test:provider-training && pnpm --filter @workspace/thinnr-operations run test:parity && pnpm --filter @workspace/thinnr-operations run test:body-measurements"

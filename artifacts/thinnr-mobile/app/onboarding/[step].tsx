@@ -1,22 +1,13 @@
 /**
- * Dynamic route for every simulated-onboarding step. The step order and
+ * Dynamic route for every onboarding step. The step order and
  * conditional visibility live in data/onboarding-data.ts; this file only
  * maps step keys to their screens and guards stale deep links.
  */
 import React from 'react';
 import { Redirect, useLocalSearchParams, usePathname, type Href } from 'expo-router';
 import { useOnboarding } from '@/context/OnboardingContext';
-import { usePatientAccount } from '@/context/PatientAccountContext';
 import { guardTarget, isStepAccessible, type StepKey } from '@/data/onboarding-data';
-import {
-  ContactStep,
-  FaceIdStep,
-  IdentityStep,
-  PasswordStep,
-  ProviderCodeStep,
-  VerifyStep,
-  WelcomeStep,
-} from '@/components/onboarding/StepsAccount';
+import { IdentityStep, WelcomeStep } from '@/components/onboarding/StepsAccount';
 import {
   BirthdayStep,
   GenderStep,
@@ -41,11 +32,6 @@ import { AllergiesStep, DietStep, DislikesStep, RestrictionsStep } from '@/compo
 const REGISTRY: Record<StepKey, React.ComponentType> = {
   welcome: WelcomeStep,
   identity: IdentityStep,
-  contact: ContactStep,
-  verify: VerifyStep,
-  'provider-code': ProviderCodeStep,
-  'face-id': FaceIdStep,
-  password: PasswordStep,
   height: HeightStep,
   weight: WeightStep,
   gender: GenderStep,
@@ -70,7 +56,6 @@ const REGISTRY: Record<StepKey, React.ComponentType> = {
 export default function OnboardingStepScreen() {
   const { step } = useLocalSearchParams<{ step: string }>();
   const { begun, answers, furthest } = useOnboarding();
-  const { account } = usePatientAccount();
   const pathname = usePathname();
 
   const key = (Array.isArray(step) ? step[0] : step) as StepKey | undefined;
@@ -89,9 +74,9 @@ export default function OnboardingStepScreen() {
     return isActive ? <Redirect href="/onboarding/welcome" /> : null;
   }
   // Block deep links that skip ahead and stale routes hidden by answer changes.
-  if (begun && !isStepAccessible(answers, furthest, key!, account.kind === 'real')) {
+  if (begun && !isStepAccessible(answers, furthest, key!)) {
     if (!isActive) return null;
-    return <Redirect href={`/onboarding/${guardTarget(answers, furthest, account.kind === 'real')}` as Href} />;
+    return <Redirect href={`/onboarding/${guardTarget(answers, furthest)}` as Href} />;
   }
 
   return <StepComponent />;

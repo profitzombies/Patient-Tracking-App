@@ -1,11 +1,11 @@
 /**
  * Shared chrome for the in-app shop screens (shop grid, product page, cart,
  * checkout, confirmation): the back/title/cart header, the states shown when
- * the storefront is missing, the demo nudge, and the small purchase
+ * the storefront is missing, and the small purchase
  * controls (quantity stepper, one-time/subscribe toggle, cadence picker).
  */
 import React from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { router, type Href } from 'expo-router';
@@ -14,14 +14,6 @@ import { useColors } from '@/hooks/useColors';
 import { useCartCount } from '@/context/CartContext';
 import { cadenceLabel, CART_MAX_QUANTITY, formatCents } from '@/lib/cart-math';
 import type { CartPurchase, PatientShop } from '@/lib/patient-billing-types';
-
-/** The demo persona's convention for payment controls (see app/billing.tsx). */
-export function demoNudge(): void {
-  const title = 'Demo mode';
-  const message = 'Sign in with a patient account to manage payments.';
-  if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert?.(`${title}\n\n${message}`);
-  else Alert.alert(title, message);
-}
 
 export function goBackOr(fallback: Href): void {
   if (router.canGoBack()) router.back();

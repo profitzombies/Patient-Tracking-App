@@ -1,16 +1,12 @@
 /**
- * Demo dataset for the provider app's Payments area.
- *
- * A byte-for-byte copy (imports aside) of the office web area's demo data
- * (artifacts/thinnr-operations/src/pages/office/payments/demo-data.ts) so the
- * phone and the browser tell one story: same pinned week (Oct 5-10, 2026),
- * same orders, same figures. Never derive "today" from the clock here.
- * scripts/verify-payments-demo-parity.tsx imports both copies and fails on
- * any drift; edit the web file first, then re-copy.
+ * Sample dataset for the provider app's Payments suites (never imported by
+ * app code). Mirrors the shape the office billing API returns, pinned to one
+ * fixed week (Oct 5-10, 2026) so assertions never derive "today" from the
+ * clock.
  */
 import type { HqActivityRow, HqTodayOverview, OfficeDashboard, OfficePrice, OfficeRefundRow, OrderDetail, OrderSummary, PaymentLink, SubscriptionRow } from '@/lib/office-billing-types';
 
-export const DEMO_DASHBOARD: OfficeDashboard = {
+export const SAMPLE_DASHBOARD: OfficeDashboard = {
   balance: { available_cents: 184250, pending_cents: 42600 },
   next_payout: { amount_cents: 184250, arrival_date: '2026-10-16' },
   collected_cents: 642850,
@@ -35,7 +31,7 @@ export const DEMO_DASHBOARD: OfficeDashboard = {
   ],
 };
 
-export const DEMO_PRICES: OfficePrice[] = [
+export const SAMPLE_PRICES: OfficePrice[] = [
   {
     product_id: 'control',
     slug: 'control',
@@ -78,7 +74,7 @@ export const DEMO_PRICES: OfficePrice[] = [
   },
 ];
 
-export const DEMO_ORDERS: OrderSummary[] = [
+export const SAMPLE_ORDERS: OrderSummary[] = [
   {
     id: 'demo-order-1',
     order_number: 'TH-D3MO01',
@@ -98,9 +94,9 @@ export const DEMO_ORDERS: OrderSummary[] = [
   },
 ];
 
-export const DEMO_ORDER_DETAILS: Record<string, OrderDetail> = {
+export const SAMPLE_ORDER_DETAILS: Record<string, OrderDetail> = {
   'demo-order-1': {
-    ...DEMO_ORDERS[0],
+    ...SAMPLE_ORDERS[0],
     items: [
       {
         id: 'demo-item-1',
@@ -195,7 +191,7 @@ export const DEMO_ORDER_DETAILS: Record<string, OrderDetail> = {
   },
 };
 
-export const DEMO_LINKS: PaymentLink[] = [
+export const SAMPLE_LINKS: PaymentLink[] = [
   {
     id: 'demo-link-1',
     token: 'demo',
@@ -228,7 +224,7 @@ export const DEMO_LINKS: PaymentLink[] = [
   },
 ];
 
-export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = [
+export const SAMPLE_SUBSCRIPTIONS: SubscriptionRow[] = [
   {
     id: 'demo-sub-1',
     provider_id: 'demo',
@@ -281,7 +277,7 @@ export const DEMO_SUBSCRIPTIONS: SubscriptionRow[] = [
 
 const demoPayer = (id: string, name: string, email: string) => ({ id, patient_id: id.replace('payer', 'patient'), name, email, phone: null });
 
-const DEMO_ORDER_2: OrderSummary = {
+const SAMPLE_ORDER_2: OrderSummary = {
   id: 'demo-order-2',
   order_number: 'TH-D3MO02',
   provider_id: 'demo',
@@ -298,7 +294,7 @@ const DEMO_ORDER_2: OrderSummary = {
   created_at: '2026-10-08T15:20:00Z',
   paid_at: '2026-10-08T15:21:00Z',
 };
-const DEMO_ORDER_3: OrderSummary = {
+const SAMPLE_ORDER_3: OrderSummary = {
   id: 'demo-order-3',
   order_number: 'TH-D3MO03',
   provider_id: 'demo',
@@ -315,12 +311,12 @@ const DEMO_ORDER_3: OrderSummary = {
   created_at: '2026-10-06T18:40:00Z',
   paid_at: '2026-10-06T18:41:00Z',
 };
-DEMO_ORDERS.push(DEMO_ORDER_2, DEMO_ORDER_3);
+SAMPLE_ORDERS.push(SAMPLE_ORDER_2, SAMPLE_ORDER_3);
 
-const base = DEMO_ORDER_DETAILS['demo-order-1'];
-DEMO_ORDER_DETAILS['demo-order-2'] = {
+const base = SAMPLE_ORDER_DETAILS['demo-order-1'];
+SAMPLE_ORDER_DETAILS['demo-order-2'] = {
   ...base,
-  ...DEMO_ORDER_2,
+  ...SAMPLE_ORDER_2,
   items: [{ ...base.items[0], id: 'demo-item-2', quantity: 2 }],
   shipping_address: { ...base.shipping_address, name: 'Daniel Ortiz', line1: '42 Harbor Way', line2: null, city: 'Cambridge', postal_code: '02139', phone: null },
   fees: { ...base.fees, subtotal_cents: 15998, total_cents: 16998, thinnr_share_cents: 7198, application_fee_cents: 8198, application_fee_collected_cents: 8198, stripe_fee_cents: 523, stripe_fee_estimate_cents: 523, office_net_cents: 8277, office_net_estimate_cents: 8277 },
@@ -333,9 +329,9 @@ DEMO_ORDER_DETAILS['demo-order-2'] = {
   disputes: [],
   ledger: [{ id: 'demo-ledger-3', kind: 'sale', amount_cents: 8277, application_fee_cents: 8198, stripe_ref: 'ch_demo2', detail: { description: 'Subscription renewal received' }, occurred_at: '2026-10-08T15:21:00Z' }],
 };
-DEMO_ORDER_DETAILS['demo-order-3'] = {
+SAMPLE_ORDER_DETAILS['demo-order-3'] = {
   ...base,
-  ...DEMO_ORDER_3,
+  ...SAMPLE_ORDER_3,
   items: [{ ...base.items[0], id: 'demo-item-3' }],
   shipping_address: { ...base.shipping_address, name: 'Priya Natarajan', line1: '7 Commonwealth Ave', line2: null, city: 'Boston', postal_code: '02116', phone: null },
   refunds: [],
@@ -349,7 +345,7 @@ DEMO_ORDER_DETAILS['demo-order-3'] = {
 };
 
 /** Every ledger line across the demo orders plus the week's payout, newest first. */
-export const DEMO_ACTIVITY: HqActivityRow[] = ([
+export const SAMPLE_ACTIVITY: HqActivityRow[] = ([
   { id: 'demo-ledger-5', kind: 'dispute_opened', label: 'Dispute opened', provider_id: 'demo', office_name: 'Jenkins Wellness', amount_cents: -8999, occurred_at: '2026-10-11T08:15:00Z', order_id: 'demo-order-3', order_number: 'TH-D3MO03' },
   { id: 'demo-ledger-2', kind: 'refund', label: 'Refund issued', provider_id: 'demo', office_name: 'Jenkins Wellness', amount_cents: -1000, occurred_at: '2026-10-11T09:30:00Z', order_id: 'demo-order-1', order_number: 'TH-D3MO01' },
   { id: 'demo-ledger-1', kind: 'sale', label: 'Payment received', provider_id: 'demo', office_name: 'Jenkins Wellness', amount_cents: 8999, occurred_at: '2026-10-10T14:02:00Z', order_id: 'demo-order-1', order_number: 'TH-D3MO01' },
@@ -358,13 +354,13 @@ export const DEMO_ACTIVITY: HqActivityRow[] = ([
   { id: 'demo-ledger-4', kind: 'sale', label: 'Payment received', provider_id: 'demo', office_name: 'Jenkins Wellness', amount_cents: 8999, occurred_at: '2026-10-06T18:41:00Z', order_id: 'demo-order-3', order_number: 'TH-D3MO03' },
 ] satisfies HqActivityRow[]).sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1));
 
-export const DEMO_REFUNDS: OfficeRefundRow[] = [
+export const SAMPLE_REFUNDS: OfficeRefundRow[] = [
   { id: 'demo-refund-1', kind: 'refund', order_id: 'demo-order-1', order_number: 'TH-D3MO01', payer_name: 'Maya Thompson', amount_cents: 1000, status: 'succeeded', reason: 'Patient changed quantity', evidence_due_by: null, closed_at: null, created_at: '2026-10-11T09:30:00Z' },
   { id: 'demo-dispute-1', kind: 'dispute', order_id: 'demo-order-3', order_number: 'TH-D3MO03', payer_name: 'Priya Natarajan', amount_cents: 8999, status: 'needs_response', reason: 'product_not_received', evidence_due_by: '2026-10-20T23:59:00Z', closed_at: null, created_at: '2026-10-11T08:15:00Z' },
 ];
 
 /** The office's shipping status view is the paid detail rows grouped by fulfillment state. */
-export const DEMO_FULFILLMENT: OrderDetail[] = Object.values(DEMO_ORDER_DETAILS).filter(
+export const SAMPLE_FULFILLMENT: OrderDetail[] = Object.values(SAMPLE_ORDER_DETAILS).filter(
   (order) => order.status === 'paid' || order.status === 'partially_refunded',
 );
 
@@ -373,7 +369,7 @@ export const DEMO_FULFILLMENT: OrderDetail[] = Object.values(DEMO_ORDER_DETAILS)
  * 4 PM so the chart reads as "today so far". The profit line is the office's
  * net after THINNR and card fees. Never derived from the clock.
  */
-function demoToday(): HqTodayOverview {
+function sampleToday(): HqTodayOverview {
   const grossByHour: Record<number, number> = { 9: 8999, 10: 8999, 11: 16998, 13: 8999, 14: 8999, 16: 16998 };
   const refundByHour: Record<number, number> = { 12: 1000 };
   const hours = Array.from({ length: 24 }, (_, hour) => {
@@ -393,4 +389,4 @@ function demoToday(): HqTodayOverview {
     profit_cents: sum('profit_cents'), refunded_cents: sum('refunded_cents'), orders: sum('orders'),
   };
 }
-export const DEMO_TODAY: HqTodayOverview = demoToday();
+export const SAMPLE_TODAY: HqTodayOverview = sampleToday();

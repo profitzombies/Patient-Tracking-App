@@ -7,7 +7,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AccessibilityInfo,
-  Image as RNImage,
   Platform,
   Pressable,
   StyleSheet,
@@ -32,32 +31,22 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { PROGRESS_UNDO_WINDOW_MS, usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
-import { useLivePatient } from '@/hooks/useLivePatient';
 import { formatWeight, patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { usePhotoPageUrls } from '@/lib/photo-page-urls';
 import { preparePhotoForUpload } from '@/lib/photo-prep';
 import { photoDisplayLabels, type RemovedProgressPhoto } from '@/data/progress-photo-state';
-import {
-  ENROLLMENT_DAYS,
-  formatDateKey,
-  MOOD_LABELS,
-  weightAtDateKey,
-} from '@/data/patient-data';
-import { PROGRESS_IMAGES } from '@/data/recipe-images';
+import { formatDateKey, MOOD_LABELS } from '@/data/patient-data';
 
 export default function ProgressScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { account } = usePatientAccount();
-  // A signed-in patient sees only their own figures (or a dash), never the
-  // demo persona's.
-  const live = useLivePatient();
+  // A signed-in patient sees only their own figures (or a dash).
   const { commitPhotoRemoval } = patient; // stable callback, safe as an effect dep
-  // Live program day for real accounts; the demo persona has no entry facts
-  // and keeps the seeded enrollment figure, byte-identical.
-  const programDay = patient.entryFacts?.programDay ?? (live ? null : ENROLLMENT_DAYS);
+  // Live program day; null until the account's program calendar has loaded.
+  const programDay = patient.entryFacts?.programDay ?? null;
   const [photoError, setPhotoError] = useState('');
   // Stored account photos are signed as ONE page per size: thumbnails for
   // the grid up front, medium only once the viewer opens (so a patient who
@@ -104,7 +93,6 @@ export default function ProgressScreen() {
   const bottomPad = patientContentBottom(insets.bottom);
 
   const weights = patientWeightFacts({
-    real: live,
     profile: patient.profile,
     latestLogged: patient.weightSeries.at(-1)?.weight,
   });
@@ -224,18 +212,12 @@ export default function ProgressScreen() {
     () =>
       patient.photos.map(photo => {
         const label = displayLabels.get(photo.id) ?? photo.label;
-        const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
-        const uri =
-          photo.source === 'seed'
-            ? RNImage.resolveAssetSource(PROGRESS_IMAGES[photo.id]).uri
-            : photo.objectPath
-              ? mediumUrl(photo.objectPath)
-              : photo.uri ?? '';
+        const uri = photo.objectPath ? mediumUrl(photo.objectPath) : photo.uri ?? '';
         return {
           key: photo.id,
           uri,
           label,
-          caption: `${formatDateKey(photo.dateKey)}${seedWeight !== null ? ` · ${seedWeight.toFixed(1)} lbs` : ''}`,
+          caption: formatDateKey(photo.dateKey),
         };
       }),
     [patient.photos, displayLabels, mediumUrl],
@@ -316,13 +298,7 @@ export default function ProgressScreen() {
         ) : null}
         <View style={styles.photoGrid}>
           {patient.photos.map((photo, index) => {
-            const source =
-              photo.source === 'seed'
-                ? PROGRESS_IMAGES[photo.id]
-                : photo.objectPath
-                  ? { uri: thumbUrl(photo.objectPath) }
-                  : { uri: photo.uri };
-            const seedWeight = photo.source === 'seed' ? weightAtDateKey(photo.dateKey) : null;
+            const source = photo.objectPath ? { uri: thumbUrl(photo.objectPath) } : { uri: photo.uri };
             const label = displayLabels.get(photo.id) ?? photo.label;
             return (
               <LedgerCard key={photo.id} style={styles.photoCard}>
@@ -334,7 +310,6 @@ export default function ProgressScreen() {
                 >
                   <Image source={source} style={styles.photoImage} contentFit="cover" transition={120} />
                 </Pressable>
-                {/* Only photos the patient added can be removed — seed milestones stay. */}
                 {photo.source === 'user' && (
                   <Pressable
                     testID={`photo-remove-${photo.id}`}
@@ -362,7 +337,6 @@ export default function ProgressScreen() {
                   </View>
                   <Text style={[styles.photoMeta, { color: colors.subtleText }]}>
                     {formatDateKey(photo.dateKey)}
-                    {seedWeight !== null ? ` · ${seedWeight.toFixed(1)} lbs` : ''}
                   </Text>
                 </View>
               </LedgerCard>

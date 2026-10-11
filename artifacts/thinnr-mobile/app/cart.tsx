@@ -3,9 +3,8 @@
  * one-time order (one shipping charge) and each subscription on its own
  * (each ships on its own schedule, so each carries shipping). Quantities,
  * cadences, and removal edit the persisted cart; totals come from the
- * server's quote (POST /cart/quote) for real accounts so the cart never
- * promises a price checkout will not honor. The demo persona totals from
- * the same arithmetic locally.
+ * server's quote (POST /cart/quote) so the cart never promises a price
+ * checkout will not honor.
  *
  * While a pay attempt is unsettled the cart is locked: the lines shown are
  * exactly the ones that attempt sent, every control is frozen, and the only
@@ -56,7 +55,7 @@ export default function CartScreen() {
 
   // Live quote for real accounts, debounced behind quantity taps.
   useEffect(() => {
-    if (cart.demo || !shop?.available || lines.length === 0) {
+    if (!shop?.available || lines.length === 0) {
       setQuoting(false);
       setQuoteError(null);
       return;
@@ -79,14 +78,14 @@ export default function CartScreen() {
         });
     }, QUOTE_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [cart.demo, shop?.available, lines, signature]);
+  }, [shop?.available, lines, signature]);
 
-  const quote = cart.demo ? estimate : serverQuote?.signature === signature ? serverQuote.quote : null;
+  const quote = serverQuote?.signature === signature ? serverQuote.quote : null;
   const shown = quote ?? estimate;
   const oneTime = lines.filter(line => line.purchase === 'one_time');
   const subscriptions = lines.filter(line => line.purchase === 'subscription');
   const shipping = shop?.shipping_charge_cents ?? 0;
-  const canCheckout = lines.length > 0 && !!shop?.available && (cart.demo || (!!quote && !quoteError));
+  const canCheckout = lines.length > 0 && !!shop?.available && !!quote && !quoteError;
   const locked = cart.locked;
 
   return (

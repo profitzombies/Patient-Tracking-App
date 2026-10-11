@@ -6,7 +6,7 @@
  * with an upright dome gauge + macro bars, a combined meals & hydration
  * list, the daily check-in card, and a weight snapshot.
  *
- * All numbers stay live-bound to PatientContext — the reference's demo
+ * All numbers stay live-bound to PatientContext — the reference's sample
  * values are never hardcoded.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -40,25 +40,18 @@ import { usePatient } from '@/context/PatientContext';
 import { HOME_HERO_IMAGE } from '@/data/recipe-images';
 import {
   addDays,
-  ENROLLMENT_DAYS,
+  DIARY_MIN_KEY,
   MEAL_LABELS,
   MEAL_SLOTS,
   MOOD_LABELS,
-  SEED_DAYS,
-  subDays,
   toDateKey,
-  TODAY,
   type MealLogEntry,
   type MealSlot,
 } from '@/data/patient-data';
 import { phaseForDay } from '@/data/program-instructions';
 import { takePendingLogNotice } from '@/lib/pending-log-notice';
 import { patientFirstName, patientInitials, patientWeightFacts } from '@/lib/patient-display';
-import { useLivePatient } from '@/hooks/useLivePatient';
 import { TodayDietCards } from '@/components/diet/TodayDietCards';
-
-// Earliest day the demo history covers — date paging stops here.
-const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
 
 // How long the "Logged … to [meal]" Undo snackbar stays up (matches the
 // diary's notice window).
@@ -120,7 +113,7 @@ function weekdayLetter(dateKey: string): string {
 }
 
 // One short prompt per day, picked deterministically from the anchored date
-// (never the device clock) so the demo stays reproducible. Phrasings are kept
+// (never the device clock) so a given day always shows the same prompt. Phrasings are kept
 // tight enough for the 17px serif line to share the focus bar with its caps
 // label on a 390px screen — the earlier "…today?" variants ran ~190px and
 // chopped mid-word ("How are you feeling to…") beside the ~93px label.
@@ -134,17 +127,14 @@ export default function TodayScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
-  // A signed-in patient never borrows the demo persona's name, program day
-  // or weights: until the account has a value the line reads generically.
-  const real = useLivePatient();
+  // Until the account has a value, each line reads generically.
   const liveTodayKey = patient.todayKey;
-  const programDay = patient.entryFacts?.programDay ?? (real ? null : ENROLLMENT_DAYS);
+  const programDay = patient.entryFacts?.programDay ?? null;
   const currentPhase = programDay === null ? null : phaseForDay(programDay);
-  const firstName = patientFirstName(real, patient.entryFacts?.firstName, patient.profile);
-  const avatarInitials = patientInitials(real, patient.profile);
+  const firstName = patientFirstName(patient.entryFacts?.firstName, patient.profile);
+  const avatarInitials = patientInitials(patient.profile);
   const [dateKey, setDateKey] = useState(liveTodayKey);
-  // Demo picks the same prompt as before (todayKey is the anchor there); a
-  // real account rotates on the device's local day.
+  // The check-in prompt rotates on the device's local day.
   const checkinPrompt =
     CHECKIN_PROMPTS[Number(liveTodayKey.slice(8, 10)) % CHECKIN_PROMPTS.length];
   // "Today" is a moving target: the account resolving to its local day after
@@ -200,7 +190,7 @@ export default function TodayScreen() {
   const chipsStacked = windowWidth > 0 && windowWidth < 350;
 
   const isToday = dateKey === liveTodayKey;
-  const atMin = dateKey <= (patient.entryFacts?.programStartDate ?? MIN_KEY);
+  const atMin = dateKey <= (patient.entryFacts?.programStartDate ?? DIARY_MIN_KEY);
 
   const entries = patient.entriesForDate(dateKey);
   const totals = useMemo(
@@ -268,7 +258,6 @@ export default function TodayScreen() {
     ? `Today's focus. Checked in, feeling ${MOOD_LABELS[todayCheckIn.mood].toLowerCase()}.`
     : `Today's focus. ${checkinPrompt}`;
   const weights = patientWeightFacts({
-    real,
     profile: patient.profile,
     latestLogged: patient.weightSeries.at(-1)?.weight,
   });

@@ -1,9 +1,9 @@
 /**
  * Frame shared by the patient Orders and Subscriptions screens: a back
  * header, a keyboard-aware scroll body, loading / error / retry states, and a
- * single snackbar slot. Screens choose demo vs live from the account seam
- * (never from missing data) and pass the outcome in; the frame never
- * invents a healthy-looking empty state while a load is failing.
+ * single snackbar slot. Screens pass loading and failure state in from the
+ * account seam; the frame never invents a healthy-looking empty state while
+ * a load is failing.
  */
 import React from 'react';
 import { ActivityIndicator, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
@@ -28,7 +28,6 @@ interface BillingScreenProps {
   hasContent: boolean;
   notice?: BillingNotice | null;
   onDismissNotice?: () => void;
-  demo?: boolean;
   /**
    * Non-blocking re-read: enables pull-to-refresh on the body and, with
    * `refreshLabel`, a Refresh button in the header. The caller keeps the
@@ -42,7 +41,7 @@ interface BillingScreenProps {
 }
 
 export function BillingScreen({
-  title, testID, loading, error, onRetry, hasContent, notice, onDismissNotice, demo = false,
+  title, testID, loading, error, onRetry, hasContent, notice, onDismissNotice,
   onRefresh, refreshing = false, refreshLabel, children,
 }: BillingScreenProps) {
   const colors = useColors();
@@ -84,11 +83,6 @@ export function BillingScreen({
           <RefreshControl testID={`${testID}-pull`} refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.cobalt} />
         ) : undefined}
       >
-        {demo ? (
-          <Text testID={`${testID}-demo-note`} style={[styles.demoNote, { color: colors.subtleText, borderColor: colors.border }]}>
-            Demo data. Sign in with a patient account to manage real orders.
-          </Text>
-        ) : null}
         {error ? (
           <View style={styles.errorBlock}>
             <ErrorBox testID={`${testID}-error`} message={error} />
@@ -126,7 +120,6 @@ const styles = StyleSheet.create({
   refresh: { width: 22, minHeight: 22, alignItems: 'center', justifyContent: 'center' },
   content: { padding: 18, maxWidth: 520, width: '100%', alignSelf: 'center' },
   section: { fontSize: 10, letterSpacing: 1.4, fontFamily: 'Inter_700Bold', marginTop: 20, marginBottom: 8 },
-  demoNote: { fontSize: 12, lineHeight: 17, fontFamily: 'Inter_500Medium', borderWidth: 1, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6 },
   errorBlock: { marginBottom: 8 },
   retry: { marginTop: 9 },
   loading: { fontSize: 13, fontFamily: 'Inter_500Medium', paddingVertical: 14 },

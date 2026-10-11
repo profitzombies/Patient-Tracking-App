@@ -2,7 +2,7 @@
  * Supabase client for the mobile app — the real front door for patients.
  *
  * Sessions persist in AsyncStorage so the app reopens signed in. When the
- * EXPO_PUBLIC_ vars are absent the client is null and the app runs demo-only;
+ * EXPO_PUBLIC_ vars are absent the client is null and nobody can sign in;
  * screens check `supabaseConfigured` and say so instead of failing quietly.
  *
  * Phone + password is fully wired but lights up only once Twilio Verify is

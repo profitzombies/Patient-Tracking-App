@@ -28,8 +28,8 @@ export const submittedEntries: any[] = [];
 export const selectedCatalogFoods: any[] = [];
 export const savedConfigurations: any[] = [];
 export let submitOutcome: { outcome: string; message?: string } = { outcome: 'saved' };
-export let detailAccountKind: 'demo' | 'real' = 'demo';
-export function setDetailAccountKind(kind: 'demo' | 'real') {
+export let detailAccountKind: 'signed-out' | 'real' = 'real';
+export function setDetailAccountKind(kind: 'signed-out' | 'real') {
   detailAccountKind = kind;
 }
 export function setSubmitOutcome(outcome: { outcome: string; message?: string }) {
@@ -81,7 +81,7 @@ export function resetDetailState(item: any, selection?: any, familyVariants: any
   savedConfigurations.length = 0;
   detailFavoriteIds.length = 0;
   submitOutcome = { outcome: 'saved' };
-  detailAccountKind = 'demo';
+  detailAccountKind = 'real';
 }
 
 export function useAppMode() {
@@ -93,7 +93,7 @@ export function usePatientAccount() {
     resolving: false,
     account: detailAccountKind === 'real'
       ? { kind: 'real', patientId: 'patient-test' }
-      : { kind: 'demo' },
+      : { kind: 'signed-out' },
     accountNotice: null,
     retryResolve() {},
   };

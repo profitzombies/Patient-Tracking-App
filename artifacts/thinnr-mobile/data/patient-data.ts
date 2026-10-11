@@ -1,20 +1,14 @@
 /**
- * Patient-mode data for the THINNR companion experience.
+ * Patient-mode data for the THINNR companion experience: date helpers, the
+ * diary/catalog types, the built-in food catalog and recipe book.
  *
- * The demo patient is Emma Smith (pat_100) — a graduated, maintenance-stage
- * patient from the shared staff dataset. All history is deterministic and
- * derived from the same fixed anchor date as data/mock-data.ts, so the staff
- * and patient views tell one consistent story.
+ * A real account's history comes from its own records; nothing here seeds a
+ * patient's diary. TODAY is a fixed anchor used by the hermetic suites and by
+ * date helpers whose callers pass their own canonical day.
  */
-import {
-  MOCK_PATIENTS,
-  MOCK_PRODUCTS,
-  MOCK_PROVIDERS,
-  MOCK_SUBSCRIPTIONS,
-} from './mock-data';
 import type { FoodNutritionSnapshot } from './food-nutrition';
 
-// ─── Anchor date (same fictional "today" as mock-data.ts) ────────────────────
+// ─── Anchor date ─────────────────────────────────────────────────────────────
 
 export const TODAY = new Date('2026-08-22T12:00:00.000Z');
 
@@ -48,35 +42,13 @@ export function shiftDateKey(dateKey: string, days: number): string {
 /**
  * Diary-relative label for a day key: "Today", "Yesterday", or the short
  * date. Callers on a live account pass their canonical today (the device's
- * local day); the default keeps demo/seeded output on the anchor.
+ * local day); the default keeps anchored output on the fixed date.
  */
 export function dayLabel(dateKey: string, todayKey: string = TODAY_KEY): string {
   if (dateKey === todayKey) return 'Today';
   if (dateKey === shiftDateKey(todayKey, -1)) return 'Yesterday';
   return formatDateKey(dateKey);
 }
-
-const seededFraction = (seed: number): number => {
-  const value = Math.sin(seed * 12.9898) * 43758.5453;
-  return value - Math.floor(value);
-};
-
-// ─── Demo patient identity ───────────────────────────────────────────────────
-
-export const PATIENT_ID = 'pat_100';
-
-const profile = MOCK_PATIENTS.find(p => p.id === PATIENT_ID);
-if (!profile) throw new Error('Demo patient pat_100 missing from mock data');
-
-export const PATIENT_PROFILE = profile;
-export const PATIENT_SUBSCRIPTION = MOCK_SUBSCRIPTIONS.find(s => s.patientId === PATIENT_ID) ?? null;
-export const PATIENT_PROVIDER = MOCK_PROVIDERS.find(p => p.id === profile.providerId) ?? null;
-export const PATIENT_PRODUCTS = profile.products
-  .map(pid => MOCK_PRODUCTS.find(pr => pr.id === pid))
-  .filter((p): p is (typeof MOCK_PRODUCTS)[number] => Boolean(p));
-
-const ENROLLMENT_DATE = new Date(PATIENT_PROFILE.startDate);
-export const ENROLLMENT_DAYS = Math.round((TODAY.getTime() - ENROLLMENT_DATE.getTime()) / 86_400_000);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -104,9 +76,9 @@ export interface FoodItem {
   /** Optional photo (data URI) — set on foods saved from AI suggestions. */
   photoUri?: string;
   /**
-   * Account photo reference (/objects/patient-media/…) — real accounts only.
-   * There, photoUri holds the display URL that serves these stored bytes;
-   * demo items keep local data URIs and never set this.
+   * Account photo reference (/objects/patient-media/…). photoUri holds the
+   * display URL that serves these stored bytes; a not-yet-uploaded item
+   * keeps a local data URI and never sets this.
    */
   photoPath?: string;
   /** Device/account-private snapshot of a shared catalog selection. */
@@ -228,7 +200,8 @@ export interface ProgressPhoto {
   id: string;
   dateKey: string;
   label: string;
-  source: 'seed' | 'user';
+  /** Every photo in the list is the patient's own (added from the device). */
+  source: 'user';
   uri?: string;
   /** Posing angle, when the photo came from a guided session. */
   angle?: 'front' | 'side' | 'back';
@@ -872,165 +845,10 @@ export function findRecipe(id: string): Recipe | undefined {
   return RECIPES.find(r => r.id === id);
 }
 
-const BREAKFASTS = RECIPES.filter(r => r.meal === 'breakfast');
-const LUNCHES = RECIPES.filter(r => r.meal === 'lunch');
-const DINNERS = RECIPES.filter(r => r.meal === 'dinner');
-const SNACK_RECIPES = RECIPES.filter(r => r.meal === 'snacks');
+// ─── Diary horizon ───────────────────────────────────────────────────────────
 
-// ─── Seeded history ──────────────────────────────────────────────────────────
+/** How far back the diary pages before an account's program start is known. */
+export const DIARY_WINDOW_DAYS = 60;
 
-export const SEED_DAYS = 60;
-
-/** Oldest day reachable in the diary — the horizon of the seeded history. */
-export const DIARY_MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
-
-function entryFromRecipe(dateKey: string, meal: MealSlot, recipe: Recipe, n: number): MealLogEntry {
-  return {
-    id: `seed_${dateKey}_${meal}_${n}`,
-    dateKey,
-    meal,
-    kind: 'recipe',
-    refId: recipe.id,
-    name: recipe.name,
-    detail: '1 serving',
-    quantity: 1,
-    calories: recipe.calories,
-    protein: recipe.protein,
-    carbs: recipe.carbs,
-    fat: recipe.fat,
-  };
-}
-
-function entryFromFood(dateKey: string, meal: MealSlot, food: FoodItem, quantity: number, n: number): MealLogEntry {
-  return {
-    id: `seed_${dateKey}_${meal}_${n}`,
-    dateKey,
-    meal,
-    kind: 'food',
-    refId: food.id,
-    name: food.name,
-    detail: quantity === 1 ? food.serving : `${quantity} × ${food.serving}`,
-    quantity,
-    calories: Math.round(food.calories * quantity),
-    protein: Math.round(food.protein * quantity),
-    carbs: Math.round(food.carbs * quantity),
-    fat: Math.round(food.fat * quantity),
-  };
-}
-
-const pickFrom = <T,>(arr: T[], seed: number): T => arr[Math.floor(seededFraction(seed) * arr.length) % arr.length];
-
-/** Diary entries for the past SEED_DAYS days plus a partial log for today. */
-export function buildSeedEntries(): MealLogEntry[] {
-  const entries: MealLogEntry[] = [];
-
-  for (let offset = SEED_DAYS; offset >= 1; offset--) {
-    const dateKey = toDateKey(subDays(TODAY, offset));
-
-    entries.push(entryFromRecipe(dateKey, 'breakfast', pickFrom(BREAKFASTS, offset * 7 + 1), 0));
-    if (seededFraction(offset * 11 + 4) < 0.72) {
-      entries.push(entryFromFood(dateKey, 'breakfast', findFood('fd_coffee')!, 1, 1));
-    }
-
-    entries.push(entryFromRecipe(dateKey, 'lunch', pickFrom(LUNCHES, offset * 7 + 2), 0));
-    if (seededFraction(offset * 11 + 5) < 0.38) {
-      const extra = seededFraction(offset * 13 + 6) < 0.5 ? 'fd_apple' : 'fd_sparkling';
-      entries.push(entryFromFood(dateKey, 'lunch', findFood(extra)!, 1, 1));
-    }
-
-    entries.push(entryFromRecipe(dateKey, 'dinner', pickFrom(DINNERS, offset * 7 + 3), 0));
-
-    if (seededFraction(offset * 11 + 6) < 0.55) {
-      entries.push(entryFromRecipe(dateKey, 'snacks', pickFrom(SNACK_RECIPES, offset * 7 + 4), 0));
-    }
-  }
-
-  // Today: breakfast, lunch, and a snack are logged; dinner is still open so
-  // "calories remaining" reads meaningfully in the demo.
-  entries.push(entryFromRecipe(TODAY_KEY, 'breakfast', findRecipe('rec_yogurt_bowl')!, 0));
-  entries.push(entryFromFood(TODAY_KEY, 'breakfast', findFood('fd_coffee')!, 1, 1));
-  entries.push(entryFromRecipe(TODAY_KEY, 'lunch', findRecipe('rec_cobb_salad')!, 0));
-  entries.push(entryFromRecipe(TODAY_KEY, 'snacks', findRecipe('rec_apple_almond')!, 0));
-
-  return entries;
-}
-
-/** Water totals (fl oz) keyed by date, including a partial total for today. */
-export function buildSeedWater(): Record<string, number> {
-  const water: Record<string, number> = {};
-  for (let offset = SEED_DAYS; offset >= 1; offset--) {
-    const dateKey = toDateKey(subDays(TODAY, offset));
-    water[dateKey] = 40 + Math.floor(seededFraction(offset * 13 + 5) * 5) * 8; // 40–72 oz
-  }
-  water[TODAY_KEY] = 32;
-  return water;
-}
-
-/** Emma's weight on a given program day, matching the staff-side taper curve. */
-function weightOnProgramDay(elapsed: number): number {
-  const start = PATIENT_PROFILE.startingWeight;
-  const stall = PATIENT_PROFILE.stall;
-  const variation = elapsed === 0 || elapsed >= ENROLLMENT_DAYS
-    ? 0
-    : (seededFraction(elapsed * 41 + 7) - 0.5) * 1.1;
-  // Inside the seeded plateau (see Patient.stall in mock-data) the reading
-  // bounces tightly around the frozen current weight instead of tapering.
-  if (stall && elapsed >= stall.plateauStartElapsed) {
-    return parseFloat((PATIENT_PROFILE.currentWeight + variation).toFixed(1));
-  }
-  // Pre-plateau days (and every day for non-stalled patients) follow the
-  // original taper toward the weight the protocol was projecting.
-  const current = stall ? stall.preStallTargetWeight : PATIENT_PROFILE.currentWeight;
-  const progress = Math.min(1, Math.max(0, elapsed / ENROLLMENT_DAYS));
-  const taper = Math.pow(progress, 0.78);
-  const weight = start - (start - current) * taper + variation;
-  return parseFloat(Math.max(current - 0.4, weight).toFixed(1));
-}
-
-const CHECKIN_NOTES = [
-  'Felt steady today. Meals were easy to stick to.',
-  'Busy day but kept up with water and walks.',
-  'Slept well and energy is holding.',
-  'Prepped meals for the next two days.',
-  'Craving hit in the afternoon — tea helped.',
-  'Weekend routine held up better than expected.',
-];
-
-/** Daily check-ins over the seeded window (a few days are skipped). */
-export function buildSeedCheckIns(): CheckIn[] {
-  const checkIns: CheckIn[] = [];
-  for (let offset = SEED_DAYS; offset >= 1; offset--) {
-    if (seededFraction(offset * 3 + 2) < 0.16) continue; // occasional missed day
-    const dateKey = toDateKey(subDays(TODAY, offset));
-    const elapsed = ENROLLMENT_DAYS - offset;
-    const moodRoll = seededFraction(offset * 5 + 9);
-    const mood: 1 | 2 | 3 | 4 | 5 = moodRoll < 0.1 ? 3 : moodRoll > 0.72 ? 5 : 4;
-    const sideEffects = seededFraction(offset * 9 + 3) < 0.08 ? ['Headache'] : [];
-    const checkIn: CheckIn = {
-      id: `seed_ci_${dateKey}`,
-      dateKey,
-      mood,
-      sideEffects,
-    };
-    if (offset % 2 === 0) checkIn.weight = weightOnProgramDay(elapsed);
-    if (seededFraction(offset * 17 + 11) < 0.3) {
-      checkIn.notes = CHECKIN_NOTES[Math.floor(seededFraction(offset * 19 + 13) * CHECKIN_NOTES.length) % CHECKIN_NOTES.length];
-    }
-    checkIns.push(checkIn);
-  }
-  return checkIns;
-}
-
-/** Seeded progress photos at program milestones (generated illustrations). */
-export const SEED_PHOTOS: ProgressPhoto[] = [
-  { id: 'photo_baseline', dateKey: toDateKey(ENROLLMENT_DATE), label: 'Baseline', source: 'seed' },
-  { id: 'photo_week2', dateKey: toDateKey(addDays(ENROLLMENT_DATE, 14)), label: 'Week 2', source: 'seed' },
-  { id: 'photo_week4', dateKey: toDateKey(addDays(ENROLLMENT_DATE, 28)), label: 'Week 4', source: 'seed' },
-  { id: 'photo_week6', dateKey: toDateKey(addDays(ENROLLMENT_DATE, 42)), label: 'Week 6', source: 'seed' },
-];
-
-/** Weight for the milestone photo captions. */
-export function weightAtDateKey(dateKey: string): number {
-  const elapsed = Math.round((new Date(`${dateKey}T12:00:00.000Z`).getTime() - ENROLLMENT_DATE.getTime()) / 86_400_000);
-  return weightOnProgramDay(elapsed);
-}
+/** Oldest day reachable in the diary when the program start date is unknown. */
+export const DIARY_MIN_KEY = toDateKey(subDays(TODAY, DIARY_WINDOW_DAYS));

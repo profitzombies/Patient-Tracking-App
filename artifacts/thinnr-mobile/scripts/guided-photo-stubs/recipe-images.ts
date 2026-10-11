@@ -14,5 +14,4 @@ function sentinelMap(prefix: string): Record<string, unknown> {
 }
 
 export const RECIPE_IMAGES = sentinelMap('recipe') as Record<string, never>;
-export const PROGRESS_IMAGES = sentinelMap('progress') as Record<string, never>;
 export const HOME_HERO_IMAGE = { testUri: 'home-hero' } as never;

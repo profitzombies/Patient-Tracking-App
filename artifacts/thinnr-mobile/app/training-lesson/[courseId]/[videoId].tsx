@@ -7,7 +7,7 @@
  * outline, so a deep link to a locked lesson renders the locked explanation
  * (with the blocking lesson named) instead of the content. Everything is
  * Signed-in provider staff can mark their own available lesson complete;
- * signed-out demo browsing remains read-only.
+ * signed-out browsing remains read-only.
  */
 import React, { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -478,7 +478,7 @@ function LessonBody({
           <LedgerCard style={styles.sectionCard}>
             <Text style={[styles.sectionTitle, { color: colors.navy }]}>Resources</Text>
             <Text style={[styles.resourceIntro, { color: colors.subtleText }]}>
-              File hosting isn't connected in this demo — these are listed for reference only.
+              Downloads aren't available yet — these are listed for reference only.
             </Text>
             <View style={styles.resourceList}>
               {video.attachments.map(attachment => (
@@ -508,8 +508,8 @@ function LessonBody({
 
       <View style={styles.noteWrap}>
         <Text style={[styles.noteText, { color: colors.subtleText }]}>
-           Signed-in office staff can save their own progress. Signed-out Care Team demo browsing
-           remains read-only and uses the seeded roster.
+           Signed-in office staff can save their own progress. Browsing while signed out is
+           read-only.
         </Text>
       </View>
 

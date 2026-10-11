@@ -10,8 +10,8 @@
  * modules per suite, so the shared seam must not drag any dependency into
  * a suite's module graph.
  *
- * Cleared on account switch; never set for the demo persona (which never
- * hydrates from the server), so demo URLs stay token-free.
+ * Cleared on account switch; never set while signed out (nothing hydrates
+ * from the server then), so no token leaks into a signed-out URL.
  */
 let mediaReadToken: string | null = null;
 

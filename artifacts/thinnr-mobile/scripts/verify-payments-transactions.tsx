@@ -27,7 +27,7 @@ import {
 import { setPathname, setSearchParams } from './provider-training-stubs/expo-router';
 import TransactionsScreen from '../app/(tabs)/payments/transactions/index';
 import DetailScreen from '../app/(tabs)/payments/transactions/[orderId]';
-import { DEMO_ORDER_DETAILS, DEMO_ORDERS } from '../data/office-payments-demo';
+import { SAMPLE_ORDER_DETAILS, SAMPLE_ORDERS } from './fixtures/sample-office-payments';
 import { rangeForPreset } from '../components/payments/range';
 
 const STATUS: any = {
@@ -52,13 +52,13 @@ function liveScript(options: ScriptOptions = {}) {
       if (options.listDelay) return { delay: true, body: { items: [], next_cursor: null } };
       if (options.listError) return { status: 400, body: { error: 'Orders unavailable' } };
       if (url.searchParams.get('cursor')) {
-        return { status: 200, body: { items: DEMO_ORDERS.slice(2), next_cursor: null } };
+        return { status: 200, body: { items: SAMPLE_ORDERS.slice(2), next_cursor: null } };
       }
-      return { status: 200, body: { items: DEMO_ORDERS.slice(0, 2), next_cursor: 'orders-next' } };
+      return { status: 200, body: { items: SAMPLE_ORDERS.slice(0, 2), next_cursor: 'orders-next' } };
     }
     if (request.path === '/api/billing/office/orders/demo-order-1' && request.method === 'GET') {
-      if (options.detailDelay) return { delay: true, body: DEMO_ORDER_DETAILS['demo-order-1'] };
-      return { status: 200, body: DEMO_ORDER_DETAILS['demo-order-1'] };
+      if (options.detailDelay) return { delay: true, body: SAMPLE_ORDER_DETAILS['demo-order-1'] };
+      return { status: 200, body: SAMPLE_ORDER_DETAILS['demo-order-1'] };
     }
     if (request.path === '/api/billing/office/orders/demo-order-1/refund') {
       if (options.writeDelay) return { delay: true, body: {} };
@@ -87,28 +87,30 @@ async function openPreparedRefund(root: any) {
 }
 
 async function main() {
-  section('Demo list and detail');
+  section('Signed out');
   setPathname('/payments/transactions');
   setSearchParams({});
   resetRequests();
   liveScript();
   let mounted = await mount(<TransactionsScreen />, null);
   check(
-    'pinned demo rows and no fetch',
-    requests.length === 0 && ids(mounted.root, 'row-order-').length === DEMO_ORDERS.length,
+    'signed-out list holds the sign-in frame: no rows, no fetch',
+    requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'row-order-').length === 0,
   );
-  await press(mounted.root, 'filter-transactions-status-paid');
-  check('demo status filter is local', ids(mounted.root, 'row-order-').length === 1);
   await mounted.unmount();
 
   setSearchParams({ orderId: 'demo-order-1' });
   resetRequests();
   mounted = await mount(<DetailScreen />, null);
-  check('demo detail uses pinned data with no fetch', requests.length === 0 && !!one(mounted.root, 'billing-fee-breakdown'));
-  check('demo Refund is blocked', isBlocked(mounted.root, 'button-refund-open'));
-  await press(mounted.root, 'button-refund-open');
-  check('pressing blocked demo Refund does not open sheet', !one(mounted.root, 'refund-sheet'));
-  check('demo detail controls are accessible', accessible(mounted.root));
+  check('signed-out detail holds the sign-in frame: no fee breakdown, no fetch', requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && !one(mounted.root, 'billing-fee-breakdown') && !one(mounted.root, 'button-refund-open'));
+  await mounted.unmount();
+
+  section('Live detail');
+  resetRequests();
+  liveScript();
+  mounted = await mount(<DetailScreen />, STAFF);
+  check('live detail fetches the order and renders the fee breakdown', requests.some((request) => request.path === '/api/billing/office/orders/demo-order-1') && !!one(mounted.root, 'billing-fee-breakdown'));
+  check('live detail controls are accessible', accessible(mounted.root));
   await mounted.unmount();
 
   section('Live list filters and cursor paging');

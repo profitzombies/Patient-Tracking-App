@@ -36,7 +36,7 @@ import {
   withItemNutritionSnapshot,
   type FoodLoggingContextValue,
 } from '../context/FoodLoggingContext';
-import { PatientAccountContext, DEMO_ACCOUNT_STATE } from '../context/PatientAccountContext';
+import { PatientAccountContext, SIGNED_OUT_ACCOUNT_STATE } from '../context/PatientAccountContext';
 import { snapshotConfigurationId } from '../data/food-nutrition';
 
 const commonWire = {
@@ -460,7 +460,7 @@ act(() => summaryRenderer?.unmount());
 
 // The provider renders no previous owner's basket on the very first account
 // switch render; no effect/timer is required to clear private selections.
-let accountState = DEMO_ACCOUNT_STATE;
+let accountState = SIGNED_OUT_ACCOUNT_STATE;
 act(() => {
   renderer = create(React.createElement(
     PatientAccountContext.Provider,
@@ -483,7 +483,7 @@ act(() => renderer!.update(React.createElement(
 )));
 assert.equal(basket!.selected.length, 0, 'account switch hides the old basket synchronously');
 assert.equal(basket!.recalled(riceItem.refId), undefined, 'account switch clears detail recall synchronously');
-accountState = DEMO_ACCOUNT_STATE;
+accountState = SIGNED_OUT_ACCOUNT_STATE;
 act(() => renderer!.update(React.createElement(
   PatientAccountContext.Provider,
   { value: accountState },
@@ -701,7 +701,7 @@ heldPromotion.resolve({ catalogId: 'old-promoted-food' });
 assert.equal((await promotionRun).status, 'stale');
 assert.equal(promotionSaveCalls, 0, 'held old-account promotion cannot save a private configuration');
 
-let searchAccount = DEMO_ACCOUNT_STATE;
+let searchAccount = SIGNED_OUT_ACCOUNT_STATE;
 act(() => {
   renderer = create(React.createElement(
     PatientAccountContext.Provider,
@@ -744,7 +744,7 @@ await act(async () => {
 });
 assert.equal(searchState?.remoteAttempted, true);
 
-searchAccount = DEMO_ACCOUNT_STATE;
+searchAccount = SIGNED_OUT_ACCOUNT_STATE;
 act(() => {
   renderer!.update(React.createElement(
     PatientAccountContext.Provider,

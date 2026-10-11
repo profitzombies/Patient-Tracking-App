@@ -2,14 +2,13 @@
  * Pure state transitions behind Progress-photo removal and its Undo, plus
  * the derived display labels that keep same-label photos apart.
  *
- * Kept free of React so the remove/restore invariants (seed photos are
- * untouchable, exact same-id restores at the captured position, no
- * duplicates on repeated calls) can be exercised directly by
+ * Kept free of React so the remove/restore invariants (only the patient's
+ * own photos are removable, exact same-id restores at the captured
+ * position, no duplicates on repeated calls) can be exercised directly by
  * scripts/verify-photo-remove.ts as a regression check — the same pattern
  * as data/custom-food-state.ts.
  *
- * Model: only user-added photos live in the persisted `photos` array (seed
- * photos are rebuilt from SEED_PHOTOS each launch and never persisted), so
+ * Model: only user-added photos live in the persisted `photos` array, so
  * a removal simply filters the persisted array. On web each user photo's
  * uri is a base64 data URI stored inside the persisted blob, so dropping
  * the row is what actually frees browser storage — the Undo snapshot lives
@@ -27,7 +26,7 @@ export interface RemovedProgressPhoto {
 
 /**
  * Snapshots a user-added photo ahead of a removal. Returns null when the id
- * isn't a removable photo — a seed photo, an unknown id, or the second tap
+ * isn't a removable photo — an unknown id, or the second tap
  * of a double-tapped remove — since there is nothing to undo then.
  */
 export function captureRemovedPhoto(photos: ProgressPhoto[], id: string): RemovedProgressPhoto | null {
@@ -39,9 +38,7 @@ export function captureRemovedPhoto(photos: ProgressPhoto[], id: string): Remove
 /**
  * Removes a user-added photo. Returns the input list unchanged (same
  * reference) when the id isn't a removable user photo, so callers can skip
- * a redundant persist. Seed photos never match: they aren't in the
- * persisted list, and the source guard keeps even a hypothetical seed row
- * safe.
+ * a redundant persist. The source guard keeps any non-user row safe.
  */
 export function applyRemovePhoto(photos: ProgressPhoto[], id: string): ProgressPhoto[] {
   if (!photos.some(p => p.id === id && p.source === 'user')) return photos;

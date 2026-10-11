@@ -1,7 +1,7 @@
 /**
  * Last-known account resolution, per signed-in user.
  *
- * The patient shell decides demo-vs-real from /api/claim/whoami. On an
+ * The patient shell decides the account kind from /api/claim/whoami. On an
  * offline cold start that lookup cannot run, and without a memory the app
  * would fall into the write-blocked "couldn't load your account" state,
  * stranding the offline queue and the cached diary the patient came back

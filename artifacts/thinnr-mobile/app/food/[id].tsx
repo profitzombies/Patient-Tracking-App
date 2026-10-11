@@ -486,14 +486,13 @@ export default function FoodDetailScreen() {
     const requestIsCurrent = () =>
       guardRef.current.accountKey === requestAccount && guardRef.current.pathname === requestPath;
     try {
-      if (patientAccount.account.kind !== 'real' && patientAccount.account.kind !== 'demo') {
+      if (patientAccount.account.kind !== 'real') {
         throw new Error('Your patient account is unavailable. Please sign in again.');
       }
       const finalItem = actionSnapshot ? withItemNutritionSnapshot(actionItem, actionSnapshot) : actionItem;
       let logItem = finalItem;
       const catalog = catalogFromItem(finalItem);
-      const shouldPromote = patientAccount.account.kind === 'real';
-      const promoted = shouldPromote && catalog && catalog.group !== 'personal' && !catalog.catalogId.startsWith('cfg_')
+      const promoted = catalog && catalog.group !== 'personal' && !catalog.catalogId.startsWith('cfg_')
         ? await selectCatalogFood(catalog)
         : null;
       if (!requestIsCurrent()) return;
@@ -512,8 +511,8 @@ export default function FoodDetailScreen() {
       } else if (catalog && catalog.group !== 'personal') {
         // Snapshotless reviewed singletons still need a private lookup copy so
         // recents/favorites can resolve them offline. Real accounts first use
-        // the protected promotion endpoint; guided demo accounts explicitly
-        // retain the local source identity and never attempt that endpoint.
+        // the protected promotion endpoint; a signed-out session retains the
+        // local source identity and never attempts that endpoint.
         const selectedCatalog = promoted ?? catalog;
         const lookupCopy = {
           ...catalogFoodSnapshot(selectedCatalog),

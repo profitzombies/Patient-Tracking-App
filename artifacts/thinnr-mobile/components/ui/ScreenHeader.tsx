@@ -1,8 +1,6 @@
 /**
  * Safe-area-aware screen header for all THINNR tab screens.
- * Shows page title, search icon, notification icon, and the avatar: the
- * seeded director's "SJ" in the signed-out demo, a person icon for a signed-in
- * staff member.
+ * Shows page title, search icon, notification icon, and the account avatar.
  * Heritage language: paper surface, hairline bottom rule, serif page title.
  */
 import React, { useState } from 'react';

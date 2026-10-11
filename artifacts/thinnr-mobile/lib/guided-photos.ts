@@ -26,7 +26,7 @@ export const GUIDED_ANGLE_LABELS: Record<GuidedAngle, string> = {
 /** One captured (not yet uploaded) shot, held on-device until Save. */
 export interface GuidedShot {
   angle: GuidedAngle;
-  /** Local file URI (native) or data/bundled URI (web demo). */
+  /** Local file URI (native) or data/bundled URI (web preview). */
   uri: string;
   width: number;
   height: number;

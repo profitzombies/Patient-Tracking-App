@@ -308,12 +308,10 @@ export default function LogFoodScreen() {
       ...(item.catalog.choiceRequired !== undefined ? { choiceRequired: item.catalog.choiceRequired } : {}),
       ...(item.catalog.nutritionSnapshot ? { nutritionSnapshot: item.catalog.nutritionSnapshot } : {}),
     };
-    if (account.kind !== 'real' && account.kind !== 'demo') {
+    if (account.kind !== 'real') {
       throw new Error('Your patient account is unavailable. Please sign in again.');
     }
-    const selectedCatalog = account.kind === 'real'
-      ? await selectCatalogFood(favoriteDraft)
-      : favoriteDraft;
+    const selectedCatalog = await selectCatalogFood(favoriteDraft);
     if (!operationIsCurrent(operation)) return;
     const itemSnapshot = getItemNutritionSnapshot(item);
     const snapshot = {
@@ -407,7 +405,6 @@ export default function LogFoodScreen() {
         const guarded = await runAccountGuardedSteps(
           () => {
             if (account.kind === 'real') return selectCatalogFood(selectionDraft);
-            if (account.kind === 'demo') return Promise.resolve(selectionDraft);
             return Promise.reject(new Error('Your patient account is unavailable. Please sign in again.'));
           },
           persisted => patient.saveFoodConfiguration({

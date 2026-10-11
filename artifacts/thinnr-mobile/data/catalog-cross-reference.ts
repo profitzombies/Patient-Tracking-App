@@ -184,7 +184,7 @@ export function approvedItemIdsForCatalogFood(catalogId: string | undefined): re
 
 /**
  * Existing fd_* references remain resolvable. A null value is intentional:
- * composite, branded, or restaurant demo rows keep their historical snapshot
+ * composite, branded, or restaurant library rows keep their historical snapshot
  * rather than being falsely represented as a USDA generic.
  */
 export const LEGACY_FOOD_CATALOG_ALIAS: Readonly<Record<string, string | null>> = {

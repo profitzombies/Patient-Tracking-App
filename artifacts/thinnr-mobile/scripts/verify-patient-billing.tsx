@@ -123,13 +123,10 @@ const billingCalls = () => calls.filter(call => call.path.startsWith('patient-da
 const session: StubSession = { access_token: 'patient-token', user: { id: 'user-1' } };
 
 async function main() {
-  section('demo is fixed and offline');
+  section('signed out is offline and renders nothing');
   setStubSession(null);
   let tree = await mount();
-  assert('demo dataset renders office, three products, and the purchase links', text(tree, 'card-office').includes('Jenkins Wellness') && hosts(tree, 'button-order-demo-control').length > 0 && has(tree, 'button-open-orders') && has(tree, 'button-open-subscriptions'));
-  const beforeDemo = calls.length;
-  await press(tree, 'button-order-demo-control');
-  assert('demo Order performs no navigation or network', calls.length === beforeDemo && opened.length === 0);
+  assert('signed-out mount makes no billing request and shows no office, products or purchase links', billingCalls().length === 0 && !has(tree, 'card-office') && !has(tree, 'button-open-orders') && !has(tree, 'button-open-subscriptions') && !has(tree, 'text-billing-error') && opened.length === 0);
   await unmount(tree);
 
   section('real overview and actions');

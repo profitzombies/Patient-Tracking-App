@@ -1,11 +1,11 @@
 /**
  * Patient-mode state, in two modes decided by PatientAccountContext:
  *
- *  - Demo persona (the default): deterministic seeded history merged with the
- *    user's own logged entries, water, check-ins, photos, favorites, and
- *    target overrides — persisted locally under one storage key. This is the
- *    pre-live behavior, byte for byte: trees that render PatientProvider
- *    without the account resolver (every Node test suite) land here.
+ *  - Signed out (no resolved account): the device's own logged entries,
+ *    water, check-ins, photos, favorites, and target overrides — persisted
+ *    locally under one storage key, with no seeded history. Trees that
+ *    render PatientProvider without the account resolver (hermetic Node
+ *    test suites) land here; the route gate keeps real users out of it.
  *
  *  - Real account: a signed-in patient's diary lives on the server. No seed
  *    data at all; entries, water, targets, favorites, recents, custom foods,
@@ -16,8 +16,7 @@
  *    the grid row drops locally at once, and the server row + stored bytes
  *    go away only after the undo window closes (commitPhotoRemoval).
  *
- * Follows the same persistence pattern as OperationsContext (ref-backed
- * commits awaited through storage).
+ * Persistence pattern: ref-backed commits awaited through storage.
  */
 import React, {
   createContext,
@@ -71,7 +70,6 @@ import {
 } from '@/lib/patient-write-queue';
 import {
   LOCAL_PREFERENCE_PREFIX,
-  demoDietState,
   isLocalPreferenceId,
   parseDietState,
   parseDietTargets,
@@ -103,13 +101,8 @@ import {
   type RemovedProgressPhoto,
 } from '@/data/progress-photo-state';
 import {
-  buildSeedCheckIns,
-  buildSeedEntries,
-  buildSeedWater,
   DEFAULT_TARGETS,
   FOOD_DB,
-  PATIENT_PROFILE,
-  SEED_PHOTOS,
   toDateKey,
   TODAY_KEY,
   type CheckIn,
@@ -153,18 +146,9 @@ const snapshotKeyFor = (patientId: string) => `${STORAGE_KEY}:snapshot_${patient
 // A photo captured offline keeps its bytes out of the queue file.
 const blobKeyFor = (itemId: string) => `${STORAGE_KEY}:blob_${itemId}`;
 
-// Seeds are deterministic — compute once per JS runtime.
-const SEED_ENTRIES = buildSeedEntries();
-const SEED_ENTRY_IDS = new Set(SEED_ENTRIES.map(e => e.id));
-const isSeedEntryId = (id: string) => SEED_ENTRY_IDS.has(id);
-
-const findSeedEntry = (id: string) => SEED_ENTRIES.find(e => e.id === id);
-const SEED_WATER = buildSeedWater();
-const SEED_CHECKINS = buildSeedCheckIns();
-
-// Real accounts have no seed data: stable empty stand-ins keep the
-// projection memos' identities steady, and the never-seed predicates make
-// every diary transition treat all entries as the patient's own.
+// No account has seed data: stable empty stand-ins keep the projection
+// memos' identities steady, and the never-seed predicates make every diary
+// transition treat all entries as the patient's own.
 const NO_SEED_ENTRIES: MealLogEntry[] = [];
 const NO_SEED_CHECKINS: CheckIn[] = [];
 const NO_SEED_PHOTOS: ProgressPhoto[] = [];
@@ -172,8 +156,8 @@ const neverSeedEntryId = (_id: string) => false;
 const neverFindSeedEntry = (_id: string) => undefined;
 
 /**
- * Where an account's local layer lives. The demo persona keeps the original
- * key (unchanged data for existing installs); each real account gets its own
+ * Where an account's local layer lives. A signed-out device keeps the original
+ * key; each real account gets its own
  * key so one device can host different sign-ins without mixing their data.
  */
 function storageKeyFor(account: PatientAccount): string {
@@ -216,7 +200,7 @@ interface PersistedState {
   removedEntryIds: string[];
   waterOverrides: Record<string, number>;
   addedCheckIns: CheckIn[];
-  /** The account's medication list and trailing dose decisions (server-backed; empty for the demo persona). */
+  /** The account's medication list and trailing dose decisions (server-backed; empty while signed out). */
   medications: MedicationRecord[];
   doseLogs: DoseLogRecord[];
   photos: ProgressPhoto[];
@@ -328,9 +312,9 @@ function nextId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${idSeq}`;
 }
 
-// Real-account ids carry a random suffix on top of the demo scheme: the same
+// Real-account ids carry a random suffix on top of the local scheme: the same
 // account can log from two devices at once, and timestamp+sequence alone
-// could collide across them. (Demo ids stay exactly as before.)
+// could collide across them. (Local ids stay exactly as before.)
 function nextRealId(prefix: string): string {
   idSeq += 1;
   return `${prefix}_${Date.now().toString(36)}_${idSeq}_${Math.random().toString(36).slice(2, 8)}`;
@@ -361,7 +345,7 @@ interface PatientContextValue {
   /**
    * Food-search batch submission with an honest acceptance receipt. Real
    * accounts resolve as queued (not confirmed) and retain the immutable rows
-   * under queueId for retry; demo resolves as locally saved.
+   * under queueId for retry; a signed-out device resolves as locally saved.
    */
   submitFoodEntries: (
     entries: Array<Omit<MealLogEntry, 'id'>>,
@@ -378,7 +362,7 @@ interface PatientContextValue {
   setWater: (dateKey: string, oz: number) => Promise<void>;
   /**
    * The add-mutations below resolve `true` when the entry is safely
-   * recorded (on the account, or locally for the demo persona) and `false`
+   * recorded (on the account, or locally while signed out) and `false`
    * when the account write failed — the optimistic state was rolled back
    * and a sync notice posted. Callers must gate their success UI
    * (announce / close / clear) on the result rather than assuming an
@@ -423,7 +407,7 @@ interface PatientContextValue {
   /**
    * Second half of a photo removal, called once the undo window closes. For
    * a real account this deletes the server record and the stored bytes; the
-   * demo persona's local removal was already the whole job (no-op here).
+   * signed-out local removal was already the whole job (no-op here).
    */
   commitPhotoRemoval: (removed: RemovedProgressPhoto) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -466,7 +450,7 @@ interface PatientContextValue {
    * Queue an onboarding/notification flag save for the signed-in account.
    * Honors the hydration gate: writes wait for server truth (a failed
    * hydration keeps them queued behind its retry notice, never dropped),
-   * and a failed push surfaces a retryable sync notice. Demo persona and
+   * and a failed push surfaces a retryable sync notice. Signed-out and
    * standalone mounts: no-op. Routine answer saves are fire-and-forget.
    */
   saveOnboardingFlags: (flags: Partial<PatientFlagsWrite>) => void;
@@ -479,14 +463,14 @@ interface PatientContextValue {
   /**
    * Onboarding answers + notification prefs exactly as the account's
    * hydration delivered them — null before a real hydration and always
-   * null for the demo persona. OnboardingProvider initializes a signed-in
+   * null while signed out. OnboardingProvider initializes a signed-in
    * patient's onboarding state from these so answers survive reload,
    * reinstall, and new devices.
    */
   hydratedFlags: HydratedOnboardingFlags | null;
   /**
    * Consent, export, and deletion state exactly as the account's hydration
-   * delivered it — null before a real hydration and always null for the demo
+   * delivered it — null before a real hydration and always null while signed
    * persona. The route gate reads consent from here; the account and consent
    * screens replace it after each privacy write via applyPrivacy.
    */
@@ -500,16 +484,16 @@ interface PatientContextValue {
    */
   rehydrate: () => void;
   /**
-   * Canonical "today" for every patient surface. The demo persona pins the
-   * seeded anchor (TODAY_KEY) so seeded suites stay byte-identical; a real
+   * Canonical "today" for every patient surface. Without a resolved account it
+   * pins the fixed anchor (TODAY_KEY) so hermetic suites stay deterministic; a real
    * account rides the device's local calendar day, recomputed on foreground
    * and at local midnight. Screens and mutations must read this instead of
    * importing TODAY_KEY directly.
    */
   todayKey: string;
-  /** Live identity/calendar/program facts; null for demo and before hydration. */
+  /** Live identity/calendar/program facts; null while signed out and before hydration. */
   entryFacts: PatientEntryFacts | null;
-  /** Canonical account profile; null for demo and before live hydration. */
+  /** Canonical account profile; null while signed out and before live hydration. */
   profile: PatientProfile | null;
   /** Saves permitted canonical fields and immediately refreshes downstream facts. */
   saveProfile: (partial: PatientProfileWrite) => Promise<boolean>;
@@ -526,20 +510,20 @@ interface PatientContextValue {
   }) => Promise<boolean>;
   // ─── Diet & food preferences ──────────────────────────────────────────────
   /**
-   * The diet slice with queued edits projected over it: the demo persona's
+   * The diet slice with queued edits projected over it: a signed-out device's
    * fixed snapshot, or the signed-in account's server answer. Null before the
    * first live answer arrives or when it failed — read `dietStatus` to tell
    * those apart; never treat null as "no diet".
    */
   diet: DietState | null;
   dietStatus: DietStatus;
-  /** Calculated + overridden daily targets for the signed-in account (null for demo / before load). */
+  /** Calculated + overridden daily targets for the signed-in account (null while signed out / before load). */
   dietTargets: DietTargetsState | null;
   refreshDiet: () => Promise<void>;
   /**
    * Picks a diet. Real accounts call the server directly — the picker needs
    * the outcome (active / pending review / locked / needs answers) before it
-   * can close — and refresh the slice afterwards. Demo applies locally.
+   * can close — and refresh the slice afterwards. Signed out applies locally.
    */
   selectDiet: (input: {
     dietSlug: string;
@@ -577,7 +561,7 @@ interface PatientContextValue {
 export type DietStatus = 'idle' | 'loading' | 'live' | 'error';
 
 export type FoodSubmissionReceipt =
-  | { outcome: 'locally_saved_demo'; entries: MealLogEntry[] }
+  | { outcome: 'locally_saved'; entries: MealLogEntry[] }
   | { outcome: 'queued'; queueId: string; entries: MealLogEntry[] }
   | { outcome: 'server_confirmed'; entries: MealLogEntry[] }
   | { outcome: 'rejected'; entries: MealLogEntry[]; message: string };
@@ -608,7 +592,7 @@ const PatientSyncNoticeContext = createContext<PatientSyncNoticeValue | null>(nu
 
 /**
  * Offline write queue status for the patient tab shell (SyncStatusChip and
- * its detail sheet). Demo and unresolved accounts report `enabled: false`
+ * its detail sheet). Signed-out and unresolved accounts report `enabled: false`
  * and an empty queue — nothing renders for them.
  */
 export interface PatientSyncValue {
@@ -825,11 +809,11 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // started under and goes quiet if the account changed underneath it, so
   // one account's in-flight work can never land in another account's data.
   const epochRef = useRef(0);
-  const runAccountRef = useRef<PatientAccount>({ kind: 'demo' });
+  const runAccountRef = useRef<PatientAccount>({ kind: 'signed-out' });
   const startedKeyRef = useRef<string | null>(null);
   /**
    * True once the CURRENT account's state is authoritative: always for the
-   * demo persona (local truth), and for a real account only after a
+   * signed-out device (local truth), and for a real account only after a
    * hydration actually delivered server state. While false, real-account
    * writes are blocked — a mutation computed from the empty fallback state
    * would overwrite the account's real server data (e.g. a favorites toggle
@@ -866,22 +850,22 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   // The account key the pending queues currently belong to (hygiene gate).
   const hygieneKeyRef = useRef<string | null>(null);
   // Onboarding answers/prefs as hydrated from the account, for
-  // OnboardingProvider to reconcile from (demo persona: always null).
+  // OnboardingProvider to reconcile from (signed out: always null).
   const [hydratedFlags, setHydratedFlags] = useState<HydratedOnboardingFlags | null>(null);
   const [hydratedPrivacy, setHydratedPrivacy] = useState<PrivacyState | null>(null);
   const [entryFacts, setEntryFacts] = useState<PatientEntryFacts | null>(null);
   const [profile, setProfile] = useState<PatientProfile | null>(null);
 
-  // Device-local calendar day, live for real accounts only. Demo (and the
-  // unresolved in-between) stays pinned to the seeded anchor so every seeded
-  // suite and the persona walkthrough remain byte-identical.
+  // Device-local calendar day, live for real accounts only. Signed out (and
+  // the unresolved in-between) stays pinned to the fixed anchor so every
+  // hermetic suite remains deterministic.
   const [liveDayKey, setLiveDayKey] = useState(() => localTodayKey());
   const todayKey = account.kind === 'real' ? liveDayKey : TODAY_KEY;
 
   // Local-midnight rollover for real accounts: recompute the device-local day
   // when the app returns to the foreground and at the next local midnight
-  // (self-re-arming: the effect re-runs when liveDayKey advances). Demo stays
-  // pinned to the anchor, so this never runs for seeded suites.
+  // (self-re-arming: the effect re-runs when liveDayKey advances). Signed out
+  // stays pinned to the anchor, so this never runs for hermetic suites.
   useEffect(() => {
     if (account.kind !== 'real') return;
     const refresh = () => {
@@ -1029,7 +1013,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
   // ─── Diet slice (selection, lists, screening, activity, targets) ──────────
   // Held beside the persisted diary state rather than inside it: the server
-  // answer is the truth, the write queue projects over it, and the demo
+  // answer is the truth, the write queue projects over it, and a signed-out
   // persona reads a fixed snapshot chosen by auth state (never by missing
   // data). `dietStatus` tells screens apart "loading", "live" and "error" so
   // an outage can never read as "no diet, no allergies".
@@ -1039,7 +1023,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const [dietTick, setDietTick] = useState(0);
   const dietEpochRef = useRef(0);
 
-  /** Re-reads the diet + targets answers for the signed-in account (no-op for demo). */
+  /** Re-reads the diet + targets answers for the signed-in account (no-op while signed out). */
   /** Re-reads the diet slice; resolves the fresh state (null when it could not be read). */
   const refreshDietTruth = useCallback(async (): Promise<DietState | null> => {
     const run = runAccountRef.current;
@@ -1437,7 +1421,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   };
 
   // Replay triggers: connectivity returning and the app foregrounding.
-  // Real accounts only — the demo persona has no queue to drain.
+  // Real accounts only — a signed-out device has no queue to drain.
   useEffect(() => {
     if (account.kind !== 'real') return;
     const unsubscribe = subscribeConnectivity(next => {
@@ -1474,7 +1458,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       onQueued?: (queueId: string) => void,
     ): Promise<boolean> => {
       if (run.account.kind !== 'real') {
-        // Only 'unresolved' reaches here (demo branches commit locally):
+        // Only 'unresolved' reaches here (signed-out branches commit locally):
         // block loudly — a local-only save would strand data somewhere no
         // future sign-in could see.
         setSyncNotice({ message: ACCOUNT_BLOCKED_MESSAGE, action: 'retry-account' });
@@ -1609,7 +1593,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           return; // account switching underneath — switch clears the queue
         }
         if (run.account.kind !== 'real') {
-          // Demo/unresolved: nothing to persist server-side.
+          // Signed-out/unresolved: nothing to persist server-side.
           pendingFlagsRef.current = null;
           completionWaitersRef.current.splice(0).forEach(resolve => resolve(false));
           return;
@@ -1722,7 +1706,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       cachedFactsRef.current = { flags: null, privacy: null, entry: null, profile: null };
       setJustSynced(false);
       // The media read token belongs to the previous account; the new
-      // account's own token arrives with its hydration (demo never has one).
+      // account's own token arrives with its hydration (signed out never has one).
       setPatientMediaToken(null);
       setHydratedFlags(null);
       setHydratedPrivacy(null);
@@ -1768,7 +1752,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       (async () => {
         const currentLocalDay = localTodayKey();
         const [serverResult, profileResult, localResult, queueResult, snapshotResult] = await Promise.allSettled([
-          // Real accounts are not bounded by the demo seed calendar. The API
+          // Real accounts are not bounded by the fixed anchor calendar. The API
           // caps returned rows, while this unbounded range ensures every
           // program date Today exposes has its corresponding diary data.
           acct.api.fetchState(undefined, undefined, currentLocalDay),
@@ -1958,8 +1942,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       });
       finish(null);
     } else {
-      // Demo persona — the pre-live behavior, unchanged: seed constants plus
-      // this device's locally persisted layer.
+      // Signed out — this device's locally persisted layer only.
       readPersistedState(STORAGE_KEY)
         .then(raw => {
           if (epochRef.current !== epoch) return;
@@ -2058,7 +2041,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       const next = { ...prev, addedEntries: [...prev.addedEntries, ...full], recents };
       if (run.account.kind !== 'real') {
         await commit(next, run);
-        return { outcome: 'locally_saved_demo', entries: full };
+        return { outcome: 'locally_saved', entries: full };
       }
       let queueId = '';
       const accepted = await commitQueued(
@@ -2168,7 +2151,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       if (!run || !requireWritableAccount(run)) return;
       const isReal = run.account.kind === 'real';
       const prev = stateRef.current;
-      const next = applyRemoveEntry(prev, id, isReal ? neverSeedEntryId : isSeedEntryId);
+      const next = applyRemoveEntry(prev, id, neverSeedEntryId);
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
         return; // nothing to delete (e.g. the second tap of a double-tapped remove)
       }
@@ -2200,7 +2183,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       if (!run || !requireWritableAccount(run)) return;
       const isReal = run.account.kind === 'real';
       const prev = stateRef.current;
-      const next = applyRemoveEntries(prev, ids, isReal ? neverSeedEntryId : isSeedEntryId);
+      const next = applyRemoveEntries(prev, ids, neverSeedEntryId);
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
         return; // nothing left to remove (e.g. a double-tapped copy Undo)
       }
@@ -2235,7 +2218,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       if (!run || !requireWritableAccount(run)) return;
       const isReal = run.account.kind === 'real';
       const prev = stateRef.current;
-      const next = applyRestoreEntries(prev, entries, isReal ? neverSeedEntryId : isSeedEntryId);
+      const next = applyRestoreEntries(prev, entries, neverSeedEntryId);
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
         return; // nothing to undo
       }
@@ -2278,7 +2261,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
         prev,
         id,
         changes,
-        isReal ? neverFindSeedEntry : findSeedEntry,
+        neverFindSeedEntry,
         () => makeId(run, 'log'),
       );
       if (next.addedEntries === prev.addedEntries && next.removedEntryIds === prev.removedEntryIds) {
@@ -2576,7 +2559,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
   // Second half of the deferred delete: the Progress screen calls this once
   // its undo window closes (or when a newer removal replaces the pending
-  // one). Demo and unresolved accounts no-op — the local removal was the
+  // one). Signed-out and unresolved accounts no-op — the local removal was the
   // whole job. For a real account this is the moment the server record and
   // the stored bytes actually go away; on failure the photo is rolled back
   // into the grid with a sync notice — better a resurfaced photo than a
@@ -2585,7 +2568,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     // Single-flight claim: whichever caller gets here first — the screen's
     // undo-window timer, the screen replacing a pending notice, or the
     // provider backstop after an unmount — takes the entry; everyone else
-    // returns. Demo and unresolved accounts never register an entry, so
+    // returns. Signed-out and unresolved accounts never register an entry, so
     // their local removal stays the whole job, exactly as before.
     const pending = pendingPhotoRemovalsRef.current.get(removed.photo.id);
     if (!pending) return;
@@ -2877,7 +2860,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
   // Keeps an AI suggestion permanently (Library > Recipes). Stored whole —
-  // demo keeps the generated photo data URI inline; real accounts move the
+  // signed out keeps the captured photo data URI inline; real accounts move the
   // photo onto the account's media rail first so it follows the patient.
   const addSavedRecipe = useCallback(async (recipe: Omit<SavedRecipe, 'id'>): Promise<SavedRecipe> => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -3119,8 +3102,9 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       setDietStatus('loading');
       return;
     }
-    if (account.kind === 'demo') {
-      setDietTruth(demoDietState(TODAY_KEY, toDateKey(new Date(PATIENT_PROFILE.startDate))));
+    if (account.kind === 'signed-out') {
+      // No account: nothing on record, which is an honest empty diet state.
+      setDietTruth(null);
       setDietTargetsTruth(null);
       setDietStatus('live');
       return;
@@ -3160,7 +3144,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     await refreshDietTruth();
   }, [refreshDietTruth]);
 
-  /** Applies a diet write locally for the demo persona, or queues it for the account. */
+  /** Applies a diet write locally while signed out, or queues it for the account. */
   const commitDietWrite = useCallback(
     async (payload: DietQueuedWrite, summary: string): Promise<boolean> => {
       await hydrationGate.current!.promise;
@@ -3377,17 +3361,15 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
   // ─── Merged projections ────────────────────────────────────────────────────
 
-  // Seeds belong to the demo persona only. While a live session is still
-  // resolving they are withheld too, so a real patient never sees a flash of
-  // the demo diary before their own loads.
-  const seedsOn = !resolving && account.kind === 'demo';
-  const seedEntries = seedsOn ? SEED_ENTRIES : NO_SEED_ENTRIES;
-  const seedCheckIns = seedsOn ? SEED_CHECKINS : NO_SEED_CHECKINS;
-  const seedPhotos = seedsOn ? SEED_PHOTOS : NO_SEED_PHOTOS;
+  // No account carries seeded history; the stand-ins keep the projection
+  // memos' identities steady.
+  const seedEntries = NO_SEED_ENTRIES;
+  const seedCheckIns = NO_SEED_CHECKINS;
+  const seedPhotos = NO_SEED_PHOTOS;
 
   // Real accounts read the shared calculator's numbers (goal + BMR +
-  // activity, with the patient's overrides applied); the demo persona and a
-  // not-yet-loaded account keep the legacy fixed defaults.
+  // activity, with the patient's overrides applied); a signed-out device and
+  // a not-yet-loaded account keep the fixed defaults.
   const targets = useMemo<DailyTargets>(
     () =>
       dietTargets
@@ -3408,8 +3390,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
 
   const waterFor = useCallback(
     (dateKey: string) =>
-      state.waterOverrides[dateKey] ?? (seedsOn ? SEED_WATER[dateKey] : undefined) ?? 0,
-    [state.waterOverrides, seedsOn],
+      state.waterOverrides[dateKey] ?? 0,
+    [state.waterOverrides],
   );
 
   const checkIns = useMemo(() => {
@@ -3424,12 +3406,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   );
 
   const weightSeries = useMemo<WeightPoint[]>(() => {
+    // The series is built purely from the patient's own check-ins.
     const byDate = new Map<string, number>();
-    if (seedsOn) {
-      // The demo profile's starting weight anchors the seeded series; a real
-      // account's series is built purely from its own check-ins.
-      byDate.set(toDateKey(new Date(PATIENT_PROFILE.startDate)), PATIENT_PROFILE.startingWeight);
-    }
     [...checkIns]
       .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1))
       .forEach(c => {
@@ -3438,10 +3416,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     return [...byDate.entries()]
       .map(([dateKey, weight]) => ({ dateKey, weight }))
       .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
-  }, [checkIns, seedsOn]);
+  }, [checkIns]);
 
   // Stall-nudge trigger: classified diary entries plus the weigh-in series,
-  // assessed as of the canonical today (demo: the anchor; real: the device's
+  // assessed as of the canonical today (signed out: the anchor; real: the device's
   // local day). Recomputes as the patient logs, so every surface (chat
   // seeding, check-in note) reads one decision.
   const nudgeAssessment = useMemo<NudgeAssessment>(

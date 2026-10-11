@@ -15,9 +15,7 @@
  *   4. the name is a read-only summary; Edit opens it, a one-word name blocks
  *      Confirm with a name message, and an edited name is what gets saved;
  *   5. a contact on file but never proven with a code still needs one, and a
- *      missing name opens the field on arrival;
- *   6. the demo persona's run is unchanged (fresh, empty answers; no
- *      identity step in its flow).
+ *      missing name opens the field on arrival.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity
  */
@@ -25,7 +23,6 @@ import React, { act, useState } from 'react';
 
 import { OnboardingProvider, useOnboarding } from '../context/OnboardingContext';
 import {
-  DEMO_ACCOUNT_STATE,
   PatientAccountContext,
   type PatientAccountState,
   type PatientDataApi,
@@ -261,7 +258,7 @@ async function main() {
     assertEqual('reset keeps the on-file name', onboarding.answers.name, 'Maya Reyes');
     assertEqual('reset keeps the on-file email', onboarding.answers.email, 'maya.reyes@gmail.com');
     assertEqual('reset keeps the on-file phone (display mask)', onboarding.answers.phone, '(555) 123-4567');
-    assertEqual('identity follows welcome for real accounts', visibleSteps(onboarding.answers, true)[1], 'identity');
+    assertEqual('identity follows welcome', visibleSteps(onboarding.answers)[1], 'identity');
 
     await show('identity');
     const root = r.root;
@@ -405,19 +402,6 @@ async function main() {
     assert('a missing name opens the field on arrival', has(r2.root, 'ob-name-input'));
     assert('no empty summary is shown', !has(r2.root, 'ob-name-summary'));
     await act(async () => r2.unmount());
-  }
-
-  // ── 6. Demo persona: unchanged fresh run ──────────────────────────────────
-  {
-    const r = await mount(DEMO_ACCOUNT_STATE, VERIFIED);
-    await show('welcome');
-    assert('demo welcome starts a run', onboarding.begun);
-    assertEqual('demo run starts with an empty name', onboarding.answers.name, DEFAULT_ANSWERS.name);
-    assertEqual('demo run starts with an empty email', onboarding.answers.email, DEFAULT_ANSWERS.email);
-    assertEqual('demo run starts with an empty phone', onboarding.answers.phone, DEFAULT_ANSWERS.phone);
-    assert('demo flow has no identity step', !visibleSteps(onboarding.answers).includes('identity'));
-    assertEqual('demo flow still goes welcome → contact', visibleSteps(onboarding.answers)[1], 'contact');
-    await act(async () => r.unmount());
   }
 
   if (failures > 0) {

@@ -12,7 +12,7 @@
  * replace the reply with a retryable notice, and a dropped stream never
  * finalizes as a complete answer.
  *
- * Persistence follows the account seam: demo-persona visits start fresh by
+ * Persistence follows the account seam: signed-out visits start fresh by
  * design, exactly like the web page, but a signed-in REAL account keeps its
  * support thread — finalized messages (user turns, done replies, stopped
  * ones included; never streaming or error bubbles) append to the account,

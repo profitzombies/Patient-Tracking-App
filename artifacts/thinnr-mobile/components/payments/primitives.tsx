@@ -1,7 +1,7 @@
 /**
  * Shared building blocks for the provider app's Payments area — the mobile
  * counterparts of the web area's primitives (StatusPill, SandboxBadge,
- * MoneyText, FeeBreakdown, DetailList, ErrorBox, DemoNotice, buttons, panels)
+ * MoneyText, FeeBreakdown, DetailList, ErrorBox, buttons, panels)
  * in the Heritage recipe: cream cards radius 9, hairline borders, Inter
  * labels, serif titles.
  *
@@ -287,15 +287,6 @@ export function LoadingBox({ label = 'Loading payments…', testID = 'billing-lo
     <View testID={testID} style={styles.loading} accessibilityRole="progressbar" accessibilityLabel={label}>
       <ActivityIndicator color={colors.cobalt} />
       <Text style={[styles.body, { color: colors.subtleText }]}>{label}</Text>
-    </View>
-  );
-}
-
-export function DemoNotice() {
-  const colors = useColors();
-  return (
-    <View testID="billing-demo-notice" accessibilityRole="text" style={[styles.notice, { backgroundColor: colors.accent, borderColor: colors.activeBorder }]}>
-      <Text style={[styles.body, { color: colors.text }]}>Live payments appear here once your office is signed in.</Text>
     </View>
   );
 }

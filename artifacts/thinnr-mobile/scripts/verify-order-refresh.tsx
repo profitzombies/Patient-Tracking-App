@@ -1,7 +1,7 @@
 /**
  * Refreshable patient order screens: pull-to-refresh and header Refresh on
  * the orders list and order detail (last good data stays on a failed
- * re-read; the demo persona animates without a network call), plus the
+ * re-read; a signed-out mount never fetches), plus the
  * post-checkout invalidation that re-reads a mounted orders list the
  * moment the confirmation screen appears.
  */
@@ -125,26 +125,15 @@ async function main() {
   detailFailure = false;
   await unmount(tree);
 
-  section('demo persona');
+  section('signed out');
   await act(async () => setStubSession(null));
-  const demoBefore = calls.length;
+  const signedOutBefore = calls.length;
   tree = await mount(<OrdersScreen />);
-  assert('demo list offers the same refresh controls', has(tree, 'screen-orders-demo-note') && Boolean(refreshButton(tree, 'screen-orders-refresh')) && Boolean(pull(tree, 'screen-orders-pull')));
-  announcements.length = 0;
-  await act(async () => refreshButton(tree, 'screen-orders-refresh')!.props.onPress());
-  await settle(2);
-  assert('demo refresh animates', has(tree, 'screen-orders-refreshing') && pull(tree, 'screen-orders-pull').props.refreshing === true);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 600)); });
-  await settle();
-  assert('demo refresh is a no-op: no network, spinner stops, demo rows remain, announced', calls.length === demoBefore && !has(tree, 'screen-orders-refreshing') && has(tree, 'card-order-demo-order-shipped') && announcements.includes('Demo orders are up to date') && !has(tree, 'screen-orders-notice'));
+  assert('signed-out list makes no request and renders neither rows nor a refresh control', calls.length === signedOutBefore && has(tree, 'screen-orders-loading') && tree.root.findAll(node => typeof node.props.testID === 'string' && node.props.testID.startsWith('card-order-')).length === 0 && !pull(tree, 'screen-orders-pull'));
   await unmount(tree);
-  setSearchParams({ id: 'demo-order-shipped' });
+  setSearchParams({ id: ORDER_ID });
   tree = await mount(<OrderDetailScreen />);
-  assert('demo detail offers refresh', Boolean(refreshButton(tree, 'screen-order-refresh')));
-  await unmount(tree);
-  setSearchParams({ id: 'not-a-demo-order' });
-  tree = await mount(<OrderDetailScreen />);
-  assert('a missing demo order has nothing to refresh', !refreshButton(tree, 'screen-order-refresh') && !pull(tree, 'screen-order-pull') && calls.length === demoBefore);
+  assert('signed-out detail holds the loading frame with a disabled refresh button, no pull control and no fetch', has(tree, 'screen-order-loading') && refreshButton(tree, 'screen-order-refresh')?.props.accessibilityState?.disabled === true && !pull(tree, 'screen-order-pull') && calls.length === signedOutBefore);
   await unmount(tree);
 
   finish();

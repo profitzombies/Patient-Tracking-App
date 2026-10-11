@@ -31,15 +31,13 @@ function script(status: OfficeBillingStatus = STATUS, fail?: string) {
 
 async function main() {
   setPathname('/payments/get-paid'); setSearchParams({});
-  section('Demo setup cards');
+  section('Signed out');
   resetRequests(); script();
-  const demo = await mount(<GetPaidScreen />, null);
-  check('demo is request-free', requests.length === 0, paths().join(' | '));
-  check('demo setup cards render', textOf(demo.root).includes('Connect an existing Stripe account') && textOf(demo.root).includes('Set up a new account'));
-  check('demo web handoff is truthful', text(demo.root, 'get-paid-web-handoff').includes('THINNR web dashboard (Payments → Get paid)'));
-  check('demo OAuth write is blocked', isBlocked(demo.root, 'button-oauth-start'));
-  check('demo never requests account creation', !requests.some((r) => r.path.endsWith('/connect/create')));
-  await demo.unmount();
+  const signedOut = await mount(<GetPaidScreen />, null);
+  check('signed out is request-free', requests.length === 0, paths().join(' | '));
+  check('signed out holds the sign-in frame with no setup cards or OAuth button', !!one(signedOut.root, 'billing-session-loading') && !textOf(signedOut.root).includes('Connect an existing Stripe account') && !one(signedOut.root, 'button-oauth-start'));
+  check('signed out never requests account creation', !requests.some((r) => r.path.endsWith('/connect/create')));
+  await signedOut.unmount();
 
   section('No account setup writes');
   const noAccount = { ...STATUS, account: null };
@@ -90,9 +88,9 @@ async function main() {
 
   section('Settings');
   resetRequests(); script();
-  const settingsDemo = await mount(<SettingsScreen />, null);
-  check('settings demo is request-free and uses web copy', requests.length === 0 && text(settingsDemo.root, 'settings-demo').includes('Secure Stripe settings are available after sign in.'));
-  await settingsDemo.unmount();
+  const settingsSignedOut = await mount(<SettingsScreen />, null);
+  check('settings signed out is request-free and holds the sign-in frame', requests.length === 0 && !!one(settingsSignedOut.root, 'billing-session-loading') && !one(settingsSignedOut.root, 'settings-bank-summary'));
+  await settingsSignedOut.unmount();
   const settings = await mount(<SettingsScreen />, STAFF);
   check('settings summary is read-only', !!one(settings.root, 'settings-bank-summary') && textOf(settings.root).includes('Maple Med Spa') === false);
   await press(settings.root, 'settings-tab-identity');

@@ -9,12 +9,6 @@ import {
   type PushRegistrationDriver,
 } from '../lib/push-notification-core';
 import { createPushNotificationsApi } from '../lib/push-notifications-api';
-import { MOCK_PATIENTS } from '../data/mock-data';
-import {
-  DEMO_ATTENTION_ANCHOR_DATE,
-  demoAttentionCount,
-  demoPatientNeedsAttention,
-} from '../lib/staff-attention';
 
 async function main() {
   const requests: Array<{ method: string; url: string; body: unknown }> = [];
@@ -106,21 +100,6 @@ async function main() {
     '/(tabs)/patients',
   );
 
-  const demoCount = demoAttentionCount(MOCK_PATIENTS);
-  assert(demoCount > 0);
-  assert.equal(demoCount, demoAttentionCount(MOCK_PATIENTS), 'seeded count is stable');
-  assert.equal(DEMO_ATTENTION_ANCHOR_DATE, '2026-08-22');
-  assert.equal(
-    demoPatientNeedsAttention({
-      ...MOCK_PATIENTS[1],
-      status: 'paused',
-      adherence: 0,
-      carePlan: { ...MOCK_PATIENTS[1].carePlan, protocolStatus: 'Needs outreach' },
-    }),
-    false,
-    'paused seeded patients never flag',
-  );
-
   for (const path of ['app/persona.tsx', 'app/account.tsx']) {
     const source = await readFile(path, 'utf8');
     const unregisterAt = source.indexOf("unregisterBeforeSignOut(");
@@ -128,7 +107,7 @@ async function main() {
     assert(unregisterAt >= 0 && signOutAt > unregisterAt, `${path} unregisters before sign-out`);
   }
 
-  console.log(`staff push, routing, sign-out, namespaces, and demo attention passed (${demoCount} seeded alerts)`);
+  console.log('staff push, routing, sign-out, and namespaces passed');
 }
 
 void main().catch(error => {

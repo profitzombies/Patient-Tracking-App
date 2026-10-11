@@ -5,10 +5,9 @@ import { GhostButton } from '@/components/onboarding/OnboardingFields';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { BillingScreen, SectionLabel } from '@/components/billing/BillingScreen';
 import { KeyValue, ShipmentPanel, ToneBadge } from '@/components/billing/BillingPieces';
-import { demoNudge, openExternal } from '@/components/billing/actions';
+import { openExternal } from '@/components/billing/actions';
 import { useBillingNotice } from '@/components/billing/useBillingNotice';
 import { useBillingResource } from '@/components/billing/useBillingResource';
-import { demoOrder } from '@/data/patient-billing-demo';
 import { useColors } from '@/hooks/useColors';
 import { getOrder, getOrderReceipt } from '@/lib/patient-billing-api';
 import {
@@ -31,7 +30,7 @@ export default function OrderDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] ?? '' : params.id ?? '';
   const load = useCallback(() => getOrder(id), [id]);
-  const order = useBillingResource<PatientOrderDetail>(load, () => demoOrder(id), 'order');
+  const order = useBillingResource<PatientOrderDetail>(load, 'order');
   const notice = useBillingNotice();
   const [busy, setBusy] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<PatientReceipt | null>(null);
@@ -50,7 +49,6 @@ export default function OrderDetailScreen() {
   };
 
   const openReceipt = (pdf = false) => {
-    if (order.demo) return demoNudge('open receipts');
     if (!row) return;
     void run(pdf ? 'receipt-pdf' : 'receipt', async () => {
       const result = receipt ?? await getOrderReceipt(row.id);
@@ -62,29 +60,26 @@ export default function OrderDetailScreen() {
   };
 
   const track = (url: string) => {
-    if (order.demo) return demoNudge('open carrier tracking');
     void run('track', () => openExternal(url));
   };
 
   const refresh = async () => {
     const failure = await order.refresh();
     if (failure) notice.announce(`Couldn't refresh this order. ${failure}`);
-    else AccessibilityInfo.announceForAccessibility(order.demo ? 'Demo order is up to date' : 'Order updated');
+    else AccessibilityInfo.announceForAccessibility('Order updated');
   };
 
-  const demoMissing = order.demo && !row;
   return (
     <BillingScreen
       title={row ? `Order ${row.order_number}` : 'Order'}
       testID="screen-order"
       loading={order.loading}
-      error={demoMissing ? 'This order is not part of the demo.' : order.error}
+      error={order.error}
       onRetry={() => void order.reload()}
       hasContent={row !== null}
-      demo={order.demo}
       notice={notice.notice}
       onDismissNotice={notice.dismiss}
-      onRefresh={demoMissing ? undefined : () => void refresh()}
+      onRefresh={() => void refresh()}
       refreshing={order.refreshing}
       refreshLabel="Refresh order"
     >

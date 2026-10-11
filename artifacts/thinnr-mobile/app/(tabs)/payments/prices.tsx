@@ -14,7 +14,6 @@ import {
   PRODUCT_CATEGORY_LABEL,
 } from '@/lib/office-billing-format';
 import type { OfficePrice } from '@/lib/office-billing-types';
-import { DEMO_PRICES } from '@/data/office-payments-demo';
 import { fonts } from '@/constants/colors';
 
 const TITLE = 'Products and prices';
@@ -26,7 +25,6 @@ export default function PricesScreen() {
       section="prices"
       title={TITLE}
       sub={SUB}
-      demo={<PricesView products={DEMO_PRICES} demo />}
       live={(ctx) => <LivePrices ctx={ctx} />}
     />
   );
@@ -39,19 +37,19 @@ function LivePrices({ ctx }: { ctx: PaymentsLive }) {
   return <PricesView products={query.data.products} userId={ctx.userId} />;
 }
 
-function PricesView({ products, demo = false, userId }: { products: OfficePrice[]; demo?: boolean; userId?: string }) {
+function PricesView({ products, userId }: { products: OfficePrice[]; userId: string }) {
   return (
     <Panel
       title="Catalog"
       sub="Set your own price for each product; anything you have not priced is sold to your patients at its Retail MSRP, one-time only. Subscriptions need your own price at or above the minimum."
       testID="prices-catalog"
     >
-      {products.map((product) => <PriceRow key={product.product_id} product={product} demo={demo} userId={userId} />)}
+      {products.map((product) => <PriceRow key={product.product_id} product={product} userId={userId} />)}
     </Panel>
   );
 }
 
-function PriceRow({ product, demo, userId }: { product: OfficePrice; demo: boolean; userId?: string }) {
+function PriceRow({ product, userId }: { product: OfficePrice; userId: string }) {
   const colors = useColors();
   const [editing, setEditing] = useState(false);
   const [offered, setOffered] = useState(product.offered);
@@ -60,7 +58,7 @@ function PriceRow({ product, demo, userId }: { product: OfficePrice; demo: boole
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const mutation = useOfficeBillingMutation(
-    userId ?? 'demo',
+    userId,
     (body: { sell_price_cents: number | null; subscription_enabled: boolean }, scope) =>
       officeBilling.updatePrice(product.product_id, body, scope),
   );
@@ -161,7 +159,6 @@ function PriceRow({ product, demo, userId }: { product: OfficePrice; demo: boole
         <Button
           small
           label="Edit"
-          disabled={demo}
           onPress={() => setEditing(true)}
           accessibilityLabel={`Edit ${product.name} price`}
           testID={`button-edit-price-${product.product_id}`}

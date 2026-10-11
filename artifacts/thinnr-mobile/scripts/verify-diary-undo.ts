@@ -18,7 +18,8 @@ import {
   applyRestoreEntry,
   type DiaryEntryState,
 } from '../data/diary-entry-state';
-import { buildSeedEntries, type MealLogEntry } from '../data/patient-data';
+import { type MealLogEntry } from '../data/patient-data';
+import { buildSeedEntries } from './fixtures/seeded-history';
 
 const SEED_ENTRIES = buildSeedEntries();
 const SEED_IDS = new Set(SEED_ENTRIES.map(e => e.id));

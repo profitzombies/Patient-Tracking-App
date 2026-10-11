@@ -6,8 +6,8 @@
  * the full content sections, the one-time / subscribe toggle with cadence
  * picker and subscribe-and-save price, quantity, and Add to cart, which
  * lands the right line in the shared cart (merging repeats). Bundles have no
- * subscription choice. Unknown products get an explicit state, and the demo
- * persona renders the same page from the bundled storefront.
+ * subscription choice. Unknown products get an explicit state, and a
+ * signed-out visitor gets the sign-in state with no purchase controls.
  */
 import {
   act, alerts, assert, finish, has, hosts, mount, press, productBySlug, script, section, shopCalls,
@@ -17,10 +17,16 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import ProductScreen from '../app/product/[id]';
 import CareTeamBundleScreen from '../app/care-team-bundle';
-import { CareTeamChatProvider } from '../context/CareTeamChatContext';
+import { CareTeamChatProvider, useCareTeamChat } from '../context/CareTeamChatContext';
 import { routerLog, setSearchParams } from './provider-training-stubs/expo-router';
 import { announcements } from './onboarding-gate-stubs/react-native';
 import { findCatalogProduct } from '../data/product-catalog';
+
+function ChatScreenFocus() {
+  const { setScreenFocused } = useCareTeamChat();
+  React.useEffect(() => { setScreenFocused(true); return () => setScreenFocused(false); }, [setScreenFocused]);
+  return null;
+}
 
 const money = (cents: number) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cartLines = () => (JSON.parse(storageMap.get('thinnr_cart_v1:patient-1') ?? '{"lines":[]}') as { lines: { product_id: string; quantity: number; purchase: string; cadence_weeks: number | null }[] }).lines;
@@ -151,31 +157,49 @@ async function main() {
   await unmount(tree);
   script.shop = availableShop;
 
-  section('demo persona');
+  section('signed out');
   await signOut();
-  shopCalls().length;
   const before = shopCalls().length;
   setSearchParams({ id: 'prod3' });
   tree = await mount(<ProductScreen />);
-  assert('demo renders Control from the bundled storefront, offline', text(tree, 'pdp-name') === 'Control' && shopCalls().length === before && has(tree, 'pdp-subscribe-price'));
-  await press(tree, 'pdp-add-cart');
-  assert('demo cart is separate from the real cart', has(tree, 'pdp-added') && (JSON.parse(storageMap.get('thinnr_cart_v1:demo') ?? '{"lines":[]}') as { lines: unknown[] }).lines.length === 1 && cartLines().length === 2);
+  assert('signed-out product page shows the sign-in state, no purchase controls, zero network',
+    has(tree, 'pdp-error') && text(tree, 'pdp-error').includes('Sign in') && !has(tree, 'pdp-add-cart') && shopCalls().length === before);
   await unmount(tree);
+  await signIn();
 
-  section('demo care-team bundle checkout');
-  setSearchParams({ clientId: 'demo-care-team-bundle' });
-  tree = await mount(<CareTeamChatProvider><CareTeamBundleScreen /></CareTeamChatProvider>);
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); });
+  section('care-team bundle checkout');
+  const boost = productBySlug('boost');
+  script.careTeam.messages = [{
+    seq: 1,
+    clientId: 'live-care-team-bundle',
+    sender: 'care_team',
+    text: 'Here is the care bundle we discussed.',
+    createdAt: '2026-09-07T12:00:00.000Z',
+    suggestion: {
+      mode: 'bundle',
+      items: [
+        { productId: boost.product_id, slug: boost.slug, name: boost.name, imageUrl: null, purchase: 'one_time', cadenceWeeks: null, quantity: 1, unitPriceCents: boost.unit_price_cents },
+        { productId: control.product_id, slug: control.slug, name: control.name, imageUrl: null, purchase: 'subscription', cadenceWeeks: 4, quantity: 1, unitPriceCents: control.unit_price_cents },
+      ],
+      totalCents: boost.unit_price_cents + control.unit_price_cents,
+    },
+  }];
+  script.careTeam.conversation.lastMessageSeq = 1;
+  setSearchParams({ clientId: 'live-care-team-bundle' });
+  // The bundle screen reads the thread the chat screen already loaded into
+  // the shared provider; stand in for that screen's focus here.
+  tree = await mount(<CareTeamChatProvider><ChatScreenFocus /><CareTeamBundleScreen /></CareTeamChatProvider>);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 120)); });
   assert('bundle summary is restored from the message and has a checkout action',
     has(tree, 'care-team-bundle-summary') &&
     has(tree, 'care-team-bundle-checkout') &&
     text(tree, 'care-team-bundle-total').includes('$'));
   await press(tree, 'care-team-bundle-checkout');
-  const demoBundleLines = (JSON.parse(storageMap.get('thinnr_cart_v1:demo') ?? '{"lines":[]}') as { lines: { product_id: string }[] }).lines;
+  const bundleLines = cartLines();
   assert('bundle checkout replaces cart with available lines and navigates to checkout',
-    demoBundleLines.length === 2 &&
-    demoBundleLines.some(line => line.product_id === 'demo-boost') &&
-    demoBundleLines.some(line => line.product_id === 'demo-control') &&
+    bundleLines.length === 2 &&
+    bundleLines.some(line => line.product_id === boost.product_id) &&
+    bundleLines.some(line => line.product_id === control.product_id) &&
     routerLog.at(-1)?.target === '/checkout');
   await unmount(tree);
   assert('no alerts fired', alerts.length === 0);

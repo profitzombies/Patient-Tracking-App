@@ -8,7 +8,7 @@
  * and the API wire keys — add or rename an area here and everything follows.
  *
  * The web app carries a mirror of this module (lib/body-measurements.ts);
- * the demo-parity suite checks the two stay in lockstep.
+ * the two must stay in lockstep.
  */
 export const BODY_AREAS = [
   { key: 'neck', label: 'Neck' },

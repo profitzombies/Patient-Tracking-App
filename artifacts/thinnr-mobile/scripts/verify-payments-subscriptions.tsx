@@ -2,7 +2,7 @@ import React from 'react';
 import { mount, STAFF, setScript, requests, writes, paths, resetRequests, press, type, isBlocked, one, all, ids, text, textOf, check, section, finish, settle, routerLog } from './payments-stubs/harness';
 import { setSearchParams, setPathname } from './provider-training-stubs/expo-router';
 import SubscriptionsScreen from '../app/(tabs)/payments/subscriptions';
-import { DEMO_PRICES, DEMO_SUBSCRIPTIONS } from '../data/office-payments-demo';
+import { SAMPLE_PRICES, SAMPLE_SUBSCRIPTIONS } from './fixtures/sample-office-payments';
 import type { OfficeBillingStatus } from '../lib/office-billing-types';
 
 const STATUS = {
@@ -10,14 +10,14 @@ const STATUS = {
   viewer: { office_role: 'owner', can_manage: true },
   office: { provider_id: 'prov-1', office_name: 'Maple Med Spa' },
 } as unknown as OfficeBillingStatus;
-const PRODUCTS = DEMO_PRICES.map((p) => p.product_id === 'fiber' ? { ...p, subscription_enabled: true } : p);
+const PRODUCTS = SAMPLE_PRICES.map((p) => p.product_id === 'fiber' ? { ...p, subscription_enabled: true } : p);
 const UNPAUSED_ACTIVE = {
-  ...DEMO_SUBSCRIPTIONS[1],
+  ...SAMPLE_SUBSCRIPTIONS[1],
   id: 'live-sub-active',
-  payer: { ...DEMO_SUBSCRIPTIONS[1].payer, name: 'Avery Active' },
+  payer: { ...SAMPLE_SUBSCRIPTIONS[1].payer, name: 'Avery Active' },
   paused_at: null,
 };
-const LIVE_SUBSCRIPTIONS = [...DEMO_SUBSCRIPTIONS, UNPAUSED_ACTIVE];
+const LIVE_SUBSCRIPTIONS = [...SAMPLE_SUBSCRIPTIONS, UNPAUSED_ACTIVE];
 const QUOTE = {
   current: { product_id: 'control', product_name: 'Control', unit_price_cents: 7999 },
   next: { product_id: 'fiber', product_name: 'Fiber', unit_price_cents: 4499, shipping_charge_cents: 1000, application_fee_cents: 2800 },
@@ -38,7 +38,7 @@ function script(over: Partial<Record<string, { status: number; body: unknown }>>
     }
     if (req.path === '/api/billing/office/prices' && req.method === 'GET') return { status: 200, body: { products: PRODUCTS, settings: {} } };
     if (req.path.endsWith('/change-quote')) return { status: 200, body: QUOTE };
-    if (req.path.startsWith('/api/billing/office/subscriptions/') && req.method === 'POST') return { status: 200, body: { subscription: DEMO_SUBSCRIPTIONS[0] } };
+    if (req.path.startsWith('/api/billing/office/subscriptions/') && req.method === 'POST') return { status: 200, body: { subscription: SAMPLE_SUBSCRIPTIONS[0] } };
     return undefined;
   });
 }
@@ -51,19 +51,13 @@ function exactWrite(method: string, path: string, body: unknown) {
 async function main() {
   setPathname('/payments/subscriptions');
 
-  section('Demo persona');
+  section('Signed out');
   resetRequests();
   setSearchParams({});
   script();
-  const demo = await mount(<SubscriptionsScreen />, null);
-  check('demo uses pinned subscriptions with zero fetches', requests.length === 0 && ids(demo.root, 'subscription-row-').length === DEMO_SUBSCRIPTIONS.length, paths().join(' | '));
-  const demoControls = [
-    'button-retry-payment-demo-sub-1', 'button-resend-payment-email-demo-sub-1', 'button-pause-demo-sub-1',
-    'button-change-product-demo-sub-1', 'button-cancel-subscription-demo-sub-1', 'button-resume-demo-sub-2',
-  ];
-  check('every demo write control is blocked', demoControls.every((id) => isBlocked(demo.root, id)));
-  check('failure and pending-change detail render', text(demo.root, 'subscription-failure-demo-sub-1').includes('Card declined 2 times') && text(demo.root, 'subscription-row-demo-sub-1').includes('Changes to Fiber'));
-  await demo.unmount();
+  const signedOut = await mount(<SubscriptionsScreen />, null);
+  check('signed-out mount holds the sign-in frame: no rows, no fetch', requests.length === 0 && !!one(signedOut.root, 'billing-session-loading') && ids(signedOut.root, 'subscription-row-').length === 0, paths().join(' | '));
+  await signedOut.unmount();
 
   section('Live filtering and reads');
   resetRequests();

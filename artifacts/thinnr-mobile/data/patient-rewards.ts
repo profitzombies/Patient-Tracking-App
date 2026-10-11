@@ -37,7 +37,7 @@ export interface RewardSnapshotInput {
   todayKey?: string;
 }
 
-export interface DemoRewardState {
+export interface LocalRewardState {
   catalogVersion: number;
   enrolledAt: string;
   enrollmentDate: string;
@@ -106,7 +106,7 @@ function makeAward(
   earned: boolean,
   xpAward: number,
 ): RewardAward {
-  return { id, category, title, description, requirement, icon, threshold, progress: Math.min(threshold, progress), unit, earned, earnedAt: earned ? 'demo' : null, xpAward };
+  return { id, category, title, description, requirement, icon, threshold, progress: Math.min(threshold, progress), unit, earned, earnedAt: earned ? 'local' : null, xpAward };
 }
 
 export function buildRewardAwards(input: RewardSnapshotInput): RewardAward[] {
@@ -154,7 +154,7 @@ export function levelForXp(totalXp: number): number {
   return level;
 }
 
-export function buildDemoRewardState(input: RewardSnapshotInput): DemoRewardState {
+export function buildLocalRewardState(input: RewardSnapshotInput): LocalRewardState {
   const awards = buildRewardAwards(input);
   const foodDays = daysOf(input.entries.map(entry => entry.dateKey));
   const checkinDays = daysOf(input.checkIns.map(checkIn => checkIn.dateKey));
@@ -166,8 +166,8 @@ export function buildDemoRewardState(input: RewardSnapshotInput): DemoRewardStat
   const nextLevelXp = LEVEL_THRESHOLDS[level] ?? null;
   return {
     catalogVersion: REWARDS_CATALOG_VERSION,
-    enrolledAt: 'demo',
-    enrollmentDate: input.todayKey ?? 'demo',
+    enrolledAt: 'local',
+    enrollmentDate: input.todayKey ?? 'local',
     totalXp,
     level,
     levelXp,

@@ -243,7 +243,7 @@ assert(context.includes('importHealthMeasurements(approved, accessToken)'),
   'only allowlisted health measurements reach the account API');
 assert(context.includes('importHealthMeasurements(approved, accessToken)') && context.includes('operationEpochRef.current.isCurrent(operation)'),
   'health imports bind the captured bearer and discard stale account operations');
-assert(context.includes("device.biometric === 'expo-go'") || readFileSync(new URL('../components/onboarding/StepsAccount.tsx', import.meta.url), 'utf8').includes("device.biometric === 'expo-go'"),
+assert(context.includes("device.biometric === 'expo-go'") || readFileSync(new URL('../app/account.tsx', import.meta.url), 'utf8').includes("device.biometric === 'expo-go'"),
   'native biometric unavailable states are explicit');
 const accountScreen = readFileSync(new URL('../app/account.tsx', import.meta.url), 'utf8');
 assert(accountScreen.includes('unavailable in Expo Go') && accountScreen.includes('unavailable on web') && accountScreen.includes('No supported enrolled biometric'),

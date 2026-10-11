@@ -70,17 +70,17 @@ const ids = (photos: ProgressPhoto[]) => photos.map(p => p.id).join(',');
   assert('capture of an unknown id returns null', captureRemovedPhoto(base, 'photo_ghost') === null);
 }
 
-// ── 2. Seed photos are never removable ───────────────────────────────────────
+// ── 2. Only the patient's own photos are removable ───────────────────────────
 {
-  // A seed id isn't in the persisted list at all…
-  assert('capture of a seed id returns null', captureRemovedPhoto(base, 'photo_week2') === null);
-  assert('removing a seed id is a no-op (same reference)', applyRemovePhoto(base, 'photo_week2') === base);
+  // An id outside the persisted list is never removable…
+  assert('capture of a foreign id returns null', captureRemovedPhoto(base, 'photo_week2') === null);
+  assert('removing a foreign id is a no-op (same reference)', applyRemovePhoto(base, 'photo_week2') === base);
 
-  // …and even a hypothetical seed row inside the list is guarded by source.
-  const seedRow: ProgressPhoto = { id: 'photo_seeded', dateKey: '2026-07-01', label: 'Week 4', source: 'seed' };
-  const withSeed = [seedRow, ...base];
-  assert('capture skips a seed-source row', captureRemovedPhoto(withSeed, 'photo_seeded') === null);
-  assert('removal skips a seed-source row (same reference)', applyRemovePhoto(withSeed, 'photo_seeded') === withSeed);
+  // …and a row whose source isn't the patient is guarded by source.
+  const foreignRow = { id: 'photo_foreign', dateKey: '2026-07-01', label: 'Week 4', source: 'office' } as unknown as ProgressPhoto;
+  const withForeign = [foreignRow, ...base];
+  assert('capture skips a non-user-source row', captureRemovedPhoto(withForeign, 'photo_foreign') === null);
+  assert('removal skips a non-user-source row (same reference)', applyRemovePhoto(withForeign, 'photo_foreign') === withForeign);
 }
 
 // ── 3. Remove drops exactly the target ───────────────────────────────────────
@@ -139,11 +139,11 @@ const ids = (photos: ProgressPhoto[]) => photos.map(p => p.id).join(',');
 
 // ── 7. Display labels de-duplicate in list order and heal on removal ────────
 {
-  const seedRows: ProgressPhoto[] = [
-    { id: 'photo_baseline', dateKey: '2026-06-01', label: 'Baseline', source: 'seed' },
-    { id: 'photo_week2', dateKey: '2026-06-15', label: 'Week 2', source: 'seed' },
+  const earlierRows: ProgressPhoto[] = [
+    { id: 'photo_baseline', dateKey: '2026-06-01', label: 'Baseline', source: 'user' },
+    { id: 'photo_week2', dateKey: '2026-06-15', label: 'Week 2', source: 'user' },
   ];
-  const merged = [...seedRows, ...base];
+  const merged = [...earlierRows, ...base];
 
   const labels = photoDisplayLabels(merged);
   assert('unique labels stay untouched', labels.get('photo_baseline') === 'Baseline' && labels.get('photo_week2') === 'Week 2' && labels.get('photo_a') === 'Week 11');

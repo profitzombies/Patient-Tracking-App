@@ -1,6 +1,6 @@
 /**
  * Office payment activity, with device-local date range and ledger kind
- * filters. Live activity is cursor-paged; the pinned demo filters locally.
+ * filters. Activity is cursor-paged by the office billing API.
  */
 import React from 'react';
 import { PaymentsScreen, type PaymentsLive } from '@/components/payments/PaymentsScreen';
@@ -8,7 +8,6 @@ import { ActivityList } from '@/components/payments/ActivityList';
 import { Button, ChipRow, ErrorBox, LoadingBox, Panel } from '@/components/payments/primitives';
 import { RangePicker, usePaymentsRange } from '@/components/payments/range';
 import { useOfficeActivity } from '@/hooks/useOfficeBilling';
-import { DEMO_ACTIVITY } from '@/data/office-payments-demo';
 import type { HqActivityRow } from '@/lib/office-billing-types';
 
 const OPTIONS = [
@@ -23,14 +22,12 @@ const OPTIONS = [
 
 export default function ActivityScreen() {
   const [kind, setKind] = React.useState('');
-  const rows = DEMO_ACTIVITY.filter((row) => !kind || row.kind === kind);
 
   return (
     <PaymentsScreen
       section="activity"
       title="Payment activity"
       sub="Every payment, refund, dispute and payout for your office."
-      demo={<ActivityView kind={kind} setKind={setKind} rows={rows} demo />}
       live={(ctx) => <LiveActivity ctx={ctx} kind={kind} setKind={setKind} />}
     />
   );
@@ -78,7 +75,6 @@ function ActivityView({
   kind,
   setKind,
   rows,
-  demo = false,
   more,
   busy,
   onMore,
@@ -86,7 +82,6 @@ function ActivityView({
   kind: string;
   setKind: (value: string) => void;
   rows: HqActivityRow[];
-  demo?: boolean;
   more?: boolean;
   busy?: boolean;
   onMore?: () => void;
@@ -102,7 +97,7 @@ function ActivityView({
       />
       <Panel
         title="Activity"
-        sub={demo ? `${rows.length} demo entries` : `${rows.length} loaded${more ? ' · more available' : ''}`}
+        sub={`${rows.length} loaded${more ? ' · more available' : ''}`}
       >
         <ActivityList rows={rows} empty="No activity matches these filters." testID="activity-list" />
         {more && onMore ? (

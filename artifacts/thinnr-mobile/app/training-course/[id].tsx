@@ -2,10 +2,9 @@
  * Course outline — every published lesson of one live course, in program
  * order, with the same sequential-unlock presentation as the web portal.
  *
- * The demo Care Team persona browses with an empty personal completion map
- * (no staff sign-in exists on mobile), so the unlock frontier sits at the
- * first lesson: exactly what the web's demo persona shows. Team-finished
- * counts come from the live demo roster. Locked rows open the lesson page's
+ * A viewer with an empty personal completion map starts with the unlock
+ * frontier at the first lesson, exactly like the web portal. Team-finished
+ * counts come from the office's live viewer rows. Locked rows open the lesson page's
  * locked explanation rather than the lesson itself — a deep link cannot
  * bypass the same rules.
  */

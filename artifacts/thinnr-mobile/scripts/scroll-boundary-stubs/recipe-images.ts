@@ -5,4 +5,3 @@
  */
 export const RECIPE_IMAGES: Record<string, { uri: string }> = {};
 export const HOME_HERO_IMAGE = { uri: 'scroll-boundary-test:home-hero' };
-export const PROGRESS_IMAGES: Record<string, { uri: string }> = {};

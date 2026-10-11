@@ -604,7 +604,7 @@ async function main() {
   assert.equal(configureCalls.length, 0, 'queued Library singleton never enters the Add Food basket');
   await act(async () => detail.unmount());
 
-  const demoBroccoli: LoggableItem = {
+  const signedOutBroccoli: LoggableItem = {
     ...sharedSingleton,
     refId: '30786967-2ada-4c26-b37c-7dd65b9115b7',
     name: 'Broccoli',
@@ -618,22 +618,19 @@ async function main() {
       catalogId: '30786967-2ada-4c26-b37c-7dd65b9115b7',
     },
   };
-  resetDetailState(demoBroccoli);
-  // resetDetailState deliberately restores the explicit guided-demo scope.
+  resetDetailState(signedOutBroccoli);
+  // A session that has ended underneath an open detail screen must refuse the
+  // add honestly: no transport, no local copy, no diary row, one visible notice.
+  setDetailAccountKind('signed-out');
   route.origin = 'library';
   route.date = '2026-08-22';
   route.meal = 'lunch';
   await act(async () => { detail = create(<FoodDetailScreen />); });
   await press(detail, 'food-detail-select');
-  assert.equal(selectedCatalogFoods.length, 0, 'guided demo never calls the protected catalog-selection transport');
-  assert.equal(savedConfigurations.length, 1, 'guided demo saves a local shared-food lookup copy');
-  const demoConfigurationId = snapshotConfigurationId(savedConfigurations[0].nutritionSnapshot);
-  assert.equal(savedConfigurations[0].id, demoConfigurationId, 'guided demo saves under its stable snapshot configuration id');
-  assert.equal(submittedEntries.length, 1);
-  assert.equal(submittedEntries[0].refId, demoConfigurationId);
-  assert.equal(submittedEntries[0].calories, 34, 'guided demo logs the visible 34 calorie, 100 g singleton');
-  assert.equal(submittedEntries[0].detail, '100 g', 'direct logging uses the real snapshot entry formatter');
-  assert.match(textOf(detail.root), /Added to Lunch/, 'guided demo receives the normal visible success confirmation');
+  assert.equal(selectedCatalogFoods.length, 0, 'signed-out never calls the protected catalog-selection transport');
+  assert.equal(savedConfigurations.length, 0, 'signed-out saves no lookup copy');
+  assert.equal(submittedEntries.length, 0, 'signed-out submits no diary entry');
+  assert.match(textOf(detail.root), /sign in again/i, 'signed-out add shows the sign-in notice instead of a success line');
   await act(async () => detail.unmount());
 
   const legacyItem = { ...item, refId: 'legacy-food' };

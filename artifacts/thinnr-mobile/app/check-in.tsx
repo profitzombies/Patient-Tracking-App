@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Redirect, router, type Href } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
-import { useLivePatient } from '@/hooks/useLivePatient';
 import { patientWeightFacts } from '@/lib/patient-display';
 import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -36,10 +35,8 @@ export default function CheckInScreen() {
   const insets = useSafeAreaInsets();
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
-  const live = useLivePatient();
 
-  // Canonical today: the demo anchor for the demo persona, the device's
-  // local day for a signed-in patient (rolls over at local midnight).
+  // Canonical today: the device's local day (rolls over at local midnight).
   const todayKey = patient.todayKey;
   const todayLabel = new Date(`${todayKey}T12:00:00.000Z`).toLocaleDateString('en-US', {
     weekday: 'long',
@@ -65,10 +62,8 @@ export default function CheckInScreen() {
       }
     });
   };
-  // Newest weigh-in; the demo persona falls back to her seeded weight, a
-  // signed-in patient to their profile weight or nothing at all.
+  // Newest weigh-in; falls back to the profile weight or nothing at all.
   const lastWeight = patientWeightFacts({
-    real: live,
     profile: patient.profile,
     latestLogged: patient.weightSeries.at(-1)?.weight,
   }).current;

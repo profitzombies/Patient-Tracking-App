@@ -11,7 +11,6 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
-import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import {
@@ -240,7 +239,6 @@ export function CompleteStep() {
   const colors = useColors();
   const { answers, endRun } = useOnboarding();
   const { setMode } = useAppMode();
-  const { account } = usePatientAccount();
 
   const unit = weightUnitFor(answers.heightUnit);
   const onMeds = answers.program === 'thinnr' || answers.program === 'glp1';
@@ -254,12 +252,8 @@ export function CompleteStep() {
     : '—';
 
   const rows: { label: string; value: string }[] = [
-    { label: 'CONTACT', value: `${answers.contactValue || '—'} · Verified` },
-    { label: 'PROVIDER', value: 'Linked to your care team' },
-    {
-      label: 'SECURITY',
-      value: `Password set${answers.faceId === 'enabled' ? ' · Device biometrics on' : ''}`,
-    },
+    { label: 'NAME', value: answers.name.trim() || '—' },
+    { label: 'CONTACT', value: [answers.email.trim(), answers.phone.trim()].filter(Boolean).join(' · ') || '—' },
     { label: 'PROFILE', value: `${height} · ${answers.currentWeight} ${unit} · ${gender}` },
     { label: 'BIRTHDAY', value: birthday },
     { label: 'PROGRAM', value: programTitle(answers.program) },
@@ -345,13 +339,7 @@ export function CompleteStep() {
           </View>
         ))}
       </LedgerCard>
-      <NoteText
-        text={
-          account.kind === 'real'
-            ? 'Your setup is saved to your patient account and will be here when you return.'
-            : "Simulation complete — nothing was saved. You'll enter the demo patient account (Emma Smith) to explore the app."
-        }
-      />
+      <NoteText text="Your setup is saved to your patient account and will be here when you return." />
     </OnboardingFrame>
   );
 }

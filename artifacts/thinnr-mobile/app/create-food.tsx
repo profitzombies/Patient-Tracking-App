@@ -68,12 +68,12 @@ export default function CreateFoodScreen() {
   const patient = usePatient();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const patientAccount = usePatientAccount();
-  // Signed-in accounts authenticate the scan so the server can honor the
-  // account's consent and photo-analysis choice; the demo stays tokenless.
-  const scanAuth =
-    patientAccount.account.kind === 'demo'
-      ? {}
-      : { getAuthToken: patientAccount.getAccessToken ?? (async () => null) };
+  // A live session authenticates the scan so the server can honor the
+  // account's consent and photo-analysis choice; without a session the
+  // request stays tokenless (the route gate keeps signed-out users out).
+  const scanAuth = patientAccount.getAccessToken
+    ? { getAuthToken: patientAccount.getAccessToken }
+    : {};
   const pathname = usePathname();
   const params = useLocalSearchParams<{ id?: string }>();
   const editId = typeof params.id === 'string' && params.id ? params.id : undefined;

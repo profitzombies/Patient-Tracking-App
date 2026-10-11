@@ -3,12 +3,12 @@
  *
  * A real account's card carries the office's own storefront identity (uuid
  * product id, HQ-edited name/line/image) plus the office's own price and
- * whether ordering is open; the demo persona's card keeps the bundled copy
- * and price. Tapping the card routes to /product/<slug>, where the product
+ * whether ordering is open; a payload without a live price falls back to the
+ * bundled copy. Tapping the card routes to /product/<slug>, where the product
  * page prices from the live storefront (one-time and subscribe options) or,
  * when the office cannot take orders, opens informationally with no buy
  * button. Payload parsing is strict: a bare bundled id still renders (legacy
- * demo shape), a bare unknown id or garbage renders nothing.
+ * shape), a bare unknown id or garbage renders nothing.
  */
 import {
   act, assert, finish, has, liveShop, mount, press, pressable, productBySlug, script, section, signIn, signOut, text, unavailableShop, unmount,
@@ -33,7 +33,7 @@ const livePayload = {
   price: 45.5, priceCents: 4550, productId: LIVE_ID, imageUrl: 'https://cdn.example/creatine.png',
   available: true, subscriptionAvailable: true, reason: 'low_protein', cta: 'Tap to open',
 };
-const demoPayload = { id: creatine.id, slug: creatine.slug, name: creatine.name, line: creatine.cardLine, price: creatine.price, priceCents: null, productId: null, imageUrl: null, available: true, subscriptionAvailable: true, reason: 'conversation', cta: 'Tap to open' };
+const legacyPayload = { id: creatine.id, slug: creatine.slug, name: creatine.name, line: creatine.cardLine, price: creatine.price, priceCents: null, productId: null, imageUrl: null, available: true, subscriptionAvailable: true, reason: 'conversation', cta: 'Tap to open' };
 
 function card(payload: unknown, readOnly = false) {
   return <CoachCardSlot card={{ kind: 'product', payload }} messageId="m1" readOnly={readOnly} />;
@@ -42,7 +42,7 @@ function card(payload: unknown, readOnly = false) {
 async function main() {
   section('payload parsing');
   assert('live payload keeps the office price in dollars', readProductCardPayload(livePayload)?.price === 45.5 && readProductCardPayload(livePayload)?.available === true);
-  assert('demo payload (no priceCents) falls back to the bundled price', readProductCardPayload(demoPayload)?.price === null);
+  assert('legacy payload (no priceCents) falls back to the bundled price', readProductCardPayload(legacyPayload)?.price === null);
   assert('legacy bare-id payload still parses with defaults', JSON.stringify(readProductCardPayload({ id: 'prod7' })) === JSON.stringify({ id: 'prod7', slug: null, name: null, line: null, price: null, productId: null, imageUrl: null, available: true, cta: 'Tap to open' }));
   assert('garbage payloads parse to null', readProductCardPayload(null) === null && readProductCardPayload({ slug: 'x' }) === null && readProductCardPayload('prod7') === null);
   assert('prices format as whole dollars or cents', formatCardPrice(55) === '$55' && formatCardPrice(45.5) === '$45.50');
@@ -104,16 +104,16 @@ async function main() {
   assert('informational page: no buy button, no price row, notice names the office', has(tree, 'pdp-informational') && !has(tree, 'pdp-add-cart') && !has(tree, 'pdp-price') && text(tree, 'pdp-informational').includes('Harbor Health') && text(tree, 'pdp-name') === creatine.name);
   await unmount(tree);
 
-  section('demo persona: bundled price, demo storefront');
+  section('signed out: card still routes, product page asks to sign in');
   await signOut();
-  tree = await mount(card(demoPayload));
-  assert('demo card shows the bundled catalog price', text(tree, 'coach-product-price') === formatCardPrice(creatine.price));
+  tree = await mount(card(legacyPayload));
+  assert('signed-out card falls back to the bundled catalog price', text(tree, 'coach-product-price') === formatCardPrice(creatine.price));
   await press(tree, 'coach-product-card');
-  assert('demo tap routes to the same product page', routerLog.at(-1)?.target === `/product/${creatine.slug}`);
+  assert('signed-out tap routes to the same product page', routerLog.at(-1)?.target === `/product/${creatine.slug}`);
   await unmount(tree);
   setSearchParams({ id: creatine.slug });
   tree = await mount(<ProductScreen />);
-  assert('demo product page prices from the bundled storefront with a buy panel', text(tree, 'pdp-name') === creatine.name && text(tree, 'pdp-price') === money(creatine.price * 100) && has(tree, 'pdp-add-cart'));
+  assert('signed-out product page shows the sign-in state with no buy panel', has(tree, 'pdp-error') && text(tree, 'pdp-error').includes('Sign in') && !has(tree, 'pdp-add-cart') && !has(tree, 'pdp-price'));
   await unmount(tree);
 
   section('HQ-created product: renders from the payload with a placeholder thumbnail');

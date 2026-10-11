@@ -5,8 +5,7 @@
  *
  * This is a verbatim subset of the web app's lib/billing-types.ts
  * (artifacts/thinnr-operations) — the API server is authoritative and both
- * clients must stay in lockstep with it. scripts/verify-payments-demo-parity
- * proves the shared demo dataset still satisfies these shapes.
+ * clients must stay in lockstep with it.
  */
 export type OrderStatus =
   | 'pending'
@@ -443,7 +442,7 @@ export interface OrderDetail extends OrderSummary {
   shipped_at: string | null;
   shipped_by_name: string | null;
   canceled_reason: string | null;
-  /** Optional: older demo fixtures omit it; live rows carry it once paid. */
+  /** Optional: older fixtures omit it; live rows carry it once paid. */
   warehouse?: WarehouseSubmission | null;
   refunds: Refund[];
   disputes: Dispute[];

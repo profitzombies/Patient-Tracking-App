@@ -424,7 +424,6 @@ function checkSourceAdoption(): void {
   const rawScrollAllowlist = new Set([
     'app/care-team-chat.tsx',
     'app/coach-chat.tsx',
-    'app/patient/[id].tsx',
     'app/support-chat.tsx',
     'components/KeyboardAwareScrollViewCompat.tsx',
     'components/bloodwork/ZoomableImage.tsx',
@@ -455,7 +454,6 @@ function checkSourceAdoption(): void {
     { file: 'components/bloodwork/ZoomableImage.tsx', marker: 'horizontal' },
     { file: 'components/patient/PatientWeightChart.tsx', marker: 'horizontal' },
     { file: 'components/staff/BodyMeasurementsCard.tsx', marker: 'horizontal' },
-    { file: 'app/patient/[id].tsx', marker: 'horizontal' },
     { file: 'app/care-team-chat.tsx', marker: 'onScroll' },
     { file: 'app/coach-chat.tsx', marker: 'onScroll' },
     { file: 'app/support-chat.tsx', marker: 'onScroll' },

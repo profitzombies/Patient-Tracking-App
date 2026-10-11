@@ -67,7 +67,7 @@ export interface CoachChatRequestBody {
   messages: CoachRequestMessage[];
   /**
    * Exact patient-owned conversation being generated. Omitted only for the
-   * isolated demo/legacy compatibility path; real mobile sends always create
+   * isolated legacy compatibility path; real mobile sends always create
    * and bind a conversation before opening the stream.
    */
   conversationId?: string;
@@ -89,14 +89,13 @@ export interface CoachChatRequestBody {
   /**
    * The app's own calendar date, "YYYY-MM-DD". Sent only on authenticated
    * turns so the server grounds the coach's live today context on the same
-   * diary day the app is showing. Demo requests omit it — their bodies stay
-   * byte-identical to before accounts existed.
+   * diary day the app is showing. Unauthenticated requests omit it.
    */
   localDate?: string;
   /**
    * The patient's chosen diet and food preference lists, sent only on
-   * authenticated turns so recipe and meal-idea answers honor them. Demo
-   * requests omit it.
+   * authenticated turns so recipe and meal-idea answers honor them.
+   * Unauthenticated requests omit it.
    */
   dietContext?: {
     dietSlug: string;
@@ -178,7 +177,7 @@ export interface CoachStreamCallbacks {
   onDone: () => void;
   /**
    * `retryable` is false only when the server declared the failure final —
-   * retrying now cannot help (e.g. the daily demo budget is spent until
+   * retrying now cannot help (e.g. the daily budget is spent until
    * tomorrow). Callers should hide their retry affordances then. Transient
    * failures (busy, rapid-fire, outages) always pass true.
    */
@@ -222,8 +221,8 @@ export interface CoachStreamOptions {
    * the request authenticates and the server grounds the coach on the REAL
    * account (name, program day, live diary totals). A missing or failed
    * token surfaces the signed-out error instead of sending — a real
-   * patient must never be silently answered with demo grounding. Demo
-   * requests never set this, keeping their wire bytes identical.
+   * patient must never be silently answered with generic grounding.
+   * Unauthenticated requests never set this.
    */
   getAuthToken?: () => Promise<string | null>;
 }
@@ -556,10 +555,9 @@ function parseAvoidItems(value: unknown): MenuScanAvoidItem[] {
 /**
  * Options shared by the photo scan calls. `getAuthToken` mirrors the coach
  * stream: a signed-in patient authenticates so the server can enforce the
- * account's consent and photo-analysis choice; the demo persona never sets
- * it and stays tokenless. A supplier that yields no token throws the given
- * error class with the signed-out message — a real patient is never
- * silently served as the demo.
+ * account's consent and photo-analysis choice. A supplier that yields no
+ * token throws the given error class with the signed-out message — a real
+ * patient is never silently served generic grounding.
  */
 export interface PhotoScanOptions {
   signal?: AbortSignal;

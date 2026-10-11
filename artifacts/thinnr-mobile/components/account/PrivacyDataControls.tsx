@@ -3,9 +3,9 @@
  * self-service data export (request → status → download), and account
  * closure with a typed confirmation, a grace countdown, and cancel.
  *
- * Everything here is real-account only. The demo persona and the
- * account-less states render one honest "unavailable" card instead of
- * buttons that would silently do nothing.
+ * Everything here is real-account only. The account-less states render
+ * one honest "unavailable" card instead of buttons that would silently
+ * do nothing.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
@@ -73,7 +73,7 @@ export function PrivacyDataControls() {
     return (
       <LedgerCard style={styles.card} testID="privacy-unavailable">
         <Text style={[styles.body, { color: colors.bodyText }]}>
-          {account.kind === 'demo'
+          {account.kind === 'signed-out'
             ? 'Consent records, data export, and account deletion apply to signed-in patient accounts. Sign in to manage your data.'
             : 'Consent, data export, and account deletion become available once your account has finished loading.'}
         </Text>

@@ -16,22 +16,19 @@ assert.equal(localStartDateKeyFor(2, leapEve), '2028-03-01');
 assert.equal(isValidDateKey('2028-02-29'), true);
 assert.equal(isValidDateKey('2027-02-29'), false);
 
-const demo = visibleSteps(DEFAULT_ANSWERS, false);
-const real = visibleSteps(DEFAULT_ANSWERS, true);
-assert.equal(demo.includes('identity'), false, 'demo must retain its simulated account flow');
-assert.equal(demo.includes('contact'), true);
-assert.equal(real.includes('identity'), true, 'real setup must collect canonical identity');
-assert.equal(real.includes('contact'), false, 'real setup must not use mock verification');
-const startedReal = visibleSteps(
-  { ...DEFAULT_ANSWERS, program: 'thinnr', started: 'yes' },
-  true,
-);
-const startedDemo = visibleSteps(
-  { ...DEFAULT_ANSWERS, program: 'thinnr', started: 'yes' },
-  false,
-);
-assert.equal(startedReal.includes('start-date'), true, 'real setup must confirm an actual historical start date');
-assert.equal(startedDemo.includes('start-date'), false, 'demo must retain its original seeded start behavior');
+const real = visibleSteps(DEFAULT_ANSWERS);
+assert.equal(real.includes('identity'), true, 'setup must collect canonical identity');
+for (const retired of ['contact', 'verify', 'provider-code', 'face-id', 'password']) {
+  assert.equal(
+    (real as string[]).includes(retired),
+    false,
+    `setup must not carry the retired account step "${retired}" — credentials come from signup / claim`,
+  );
+}
+const startedReal = visibleSteps({ ...DEFAULT_ANSWERS, program: 'thinnr', started: 'yes' });
+assert.equal(startedReal.includes('start-date'), true, 'setup must confirm an actual historical start date');
+const noMeds = visibleSteps({ ...DEFAULT_ANSWERS, program: 'none' });
+assert.equal(noMeds.includes('start-date'), false, 'no medication means no start date step');
 
 const apiSource = fs.readFileSync(
   path.resolve(__dirname, '../lib/patient-data-api.ts'),

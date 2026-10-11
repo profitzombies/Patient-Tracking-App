@@ -14,8 +14,9 @@
  *      expectations pin values so both copies can't be wrong together.
  *   2. SNAPSHOT FETCH — fetchTrainingSnapshot against a fake PostgREST
  *      client: assembly of table payloads and error propagation.
- *   3. SCREENS — the real Training screens under react-test-renderer:
- *      unconfigured / loading / error+retry / ready states, outline lock
+ *   3. SCREENS — the real Training screens under react-test-renderer with a
+ *      signed-in provider_staff fixture: unconfigured / signed-out (zero
+ *      Supabase calls) / error+retry / ready states, outline lock
  *      presentation, deep-link lock explanation, chapter stepping,
  *      metadata-only attachments, and prev/next navigation.
  */
@@ -692,7 +693,7 @@ check('office scope, self course, and teammate detail helpers match web exactly'
   assert.equal(mobile.teammateStats(mViewers, 'acct-1', 'viewC', mCourses, mIndex, 'viewA'), null);
 });
 
-check('videoAvailability parity: demo (empty) map and partial viewer', () => {
+check('videoAvailability parity: empty map (unlinked viewer) and partial viewer', () => {
   const mOrder = mobile.getOrderedVideos(mC1, true);
   const wOrder = webT.getOrderedVideos(wC1, true);
   const cases: [mobile.ViewerCompletionMap, ReturnType<typeof webT.completionsFor>][] = [
@@ -706,7 +707,7 @@ check('videoAvailability parity: demo (empty) map and partial viewer', () => {
     const wAvail = wOrder.map((item, i) => webO.videoAvailability(wC1, item, i, wMap, wFrontier));
     assert.deepEqual(mAvail, wAvail);
   }
-  // Demo persona: first sequential lesson open, free ones open, rest locked.
+  // Unlinked viewer (empty map): first sequential lesson open, free ones open, rest locked.
   const demoFrontier = mobile.frontierIndex(mobile.EMPTY_COMPLETION_MAP, mOrder);
   assert.equal(demoFrontier, 0);
   assert.deepEqual(
@@ -813,9 +814,10 @@ const tableRows: TableRows = {
   training_completions: completionRows,
 };
 
-function fakeClient(rows: TableRows, failTable?: string): SupabaseClient {
+function fakeClient(rows: TableRows, failTable?: string, fromLog?: string[]): SupabaseClient {
   const client = {
     from(table: string) {
+      fromLog?.push(table);
       return {
         select(_columns: string) {
           return {
@@ -910,6 +912,18 @@ await checkAsync('fetchTrainingSnapshot surfaces a failed table as an error', as
 
 console.log('\nSection 3 — screens');
 
+// Every screen check runs as a signed-in, unlocked provider_staff member of
+// acct-1 whose sign-in is not yet linked to a training learner (myViewer
+// null → empty completion map for lock presentation). Office scope makes the
+// roster viewA + viewB: pct 100 and 29 → team avg 65%, v1 finished by 2/2.
+const SCREEN_STAFF = 'staff-x';
+const screenRows: TableRows = {
+  ...tableRows,
+  profiles: [{ id: SCREEN_STAFF, role: 'provider_staff', provider_account_code: 'acct-1' }],
+  provider_account_locks: [],
+};
+setStubSession(SCREEN_STAFF);
+
 function renderWithQuery(element: React.ReactElement): { renderer: ReactTestRenderer; client: QueryClientT } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
@@ -957,7 +971,7 @@ function press(instance: ReactTestInstance): void {
 function cleanup(renderer: ReactTestRenderer, client: QueryClientT): void {
   act(() => renderer.unmount());
   client.clear();
-  setStubSession(null);
+  setStubSession(SCREEN_STAFF);
 }
 
 await checkAsync('Training home: unconfigured state explains missing setup', async () => {
@@ -971,13 +985,13 @@ await checkAsync('Training home: unconfigured state explains missing setup', asy
 });
 
 await checkAsync('Training home: error state offers retry; retry recovers to live cards', async () => {
-  setSupabase(fakeClient(tableRows, 'training_courses'));
+  setSupabase(fakeClient(screenRows, 'training_courses'));
   const { renderer, client } = renderWithQuery(React.createElement(TrainingScreen));
   await flush();
   assert.equal(hostsByTestID(renderer, 'training-error').length, 1);
   assert.match(textOf(renderer.root as unknown as ReactTestInstance), /boom training_courses/);
 
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   press(hostsByTestID(renderer, 'training-retry')[0]!);
   await flush();
   assert.equal(hostsByTestID(renderer, 'training-home-scroll').length, 1);
@@ -988,14 +1002,15 @@ await checkAsync('Training home: error state offers retry; retry recovers to liv
 });
 
 await checkAsync('Training home: stats + course meta agree with web math', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   const { renderer, client } = renderWithQuery(React.createElement(TrainingScreen));
   await flush();
   assert.match(textOf(hostsByTestID(renderer, 'training-stat-live')[0]!), /LIVE COURSES\s*2/);
-  assert.match(textOf(hostsByTestID(renderer, 'training-stat-team')[0]!), /TEAM LEARNERS\s*3/);
-  assert.match(textOf(hostsByTestID(renderer, 'training-stat-avg')[0]!), /TEAM AVG\s*43%/);
+  assert.match(textOf(hostsByTestID(renderer, 'training-stat-team')[0]!), /TEAM LEARNERS\s*2/);
+  assert.match(textOf(hostsByTestID(renderer, 'training-stat-avg')[0]!), /TEAM AVG\s*65%/);
   const card = hostsByTestID(renderer, 'training-course-card-c1')[0]!;
-  assert.match(textOf(card), /7 videos · 56m · Team avg 43%/);
+  assert.match(textOf(card), /7 videos · 56m · Team avg 65%/);
+  assert.equal(hostsByTestID(renderer, 'training-teammate-viewC').length, 0, 'other offices stay out of the roster');
 
   routerLog.length = 0;
   press(card);
@@ -1007,7 +1022,7 @@ await checkAsync('Training home: stats + course meta agree with web math', async
 });
 
 await checkAsync('Teammate deep link shows catalog progress and recent activity', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   setSearchParams({ viewerId: 'viewB' });
   setPathname('/training-teammate/viewB');
   const { renderer, client } = renderWithQuery(React.createElement(TrainingTeammateScreen));
@@ -1020,7 +1035,7 @@ await checkAsync('Teammate deep link shows catalog progress and recent activity'
   cleanup(renderer, client);
 });
 
-await checkAsync('Provider session uses profile/lock scope, RPCs, and a separate signed-out cache', async () => {
+await checkAsync('Provider session uses profile/lock scope and self-service RPCs', async () => {
   const rows = structuredClone(tableRows) as TableRows;
   rows.training_viewers = rows.training_viewers!.filter(row => ['viewA', 'viewB'].includes((row as { id: string }).id));
   (rows.training_viewers!.find(row => (row as { id: string }).id === 'viewA') as { auth_user_id: string }).auth_user_id = 'staff-a';
@@ -1069,12 +1084,34 @@ await checkAsync('Provider session uses profile/lock scope, RPCs, and a separate
 
   const staffKeys = client.getQueryCache().getAll().map(query => JSON.stringify(query.queryKey));
   assert.ok(staffKeys.some(key => key.includes('staff-a:provider_staff:acct-1:locked=false')));
-  setStubSession(null);
-  act(() => renderer.update(React.createElement(QueryClientProvider, { client }, React.createElement(TrainingScreen))));
-  await flush();
-  const keys = client.getQueryCache().getAll().map(query => JSON.stringify(query.queryKey));
-  assert.ok(keys.some(key => key.includes('anon:none::locked=false')));
   cleanup(renderer, client);
+});
+
+await checkAsync('Signed-out mounts issue zero Supabase calls and show the sign-in card', async () => {
+  for (const [label, element] of [
+    ['home', React.createElement(TrainingScreen)],
+    ['course', React.createElement(TrainingCourseScreen)],
+    ['lesson', React.createElement(TrainingLessonScreen)],
+    ['teammate', React.createElement(TrainingTeammateScreen)],
+  ] as const) {
+    setSearchParams({ id: 'c1', courseId: 'c1', videoId: 'v1', viewerId: 'viewB' });
+    setPathname('/training');
+    const fromLog: string[] = [];
+    setStubSession(null);
+    setSupabase(fakeClient(screenRows, undefined, fromLog));
+    const { renderer, client } = renderWithQuery(element);
+    await flush();
+    assert.equal(hostsByTestID(renderer, 'training-signed-out').length, 1, `${label} shows the sign-in card`);
+    assert.equal(hostsByTestID(renderer, 'training-error').length, 0, `${label} is not an error`);
+    assert.equal(hostsByTestID(renderer, 'training-retry').length, 0, `${label} offers no retry`);
+    assert.deepEqual(fromLog, [], `${label} made no Supabase table reads`);
+    assert.equal(
+      client.getQueryCache().getAll().filter(query => query.state.fetchStatus !== 'idle' || query.state.dataUpdatedAt > 0).length,
+      0,
+      `${label} fetched nothing`,
+    );
+    cleanup(renderer, client);
+  }
 });
 
 await checkAsync('Patient and locked provider sessions are denied before private snapshots', async () => {
@@ -1101,7 +1138,7 @@ await checkAsync('Patient and locked provider sessions are denied before private
 });
 
 await checkAsync('Course outline: rows, module headers, lock presentation, team counts', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   setSearchParams({ id: 'c1' });
   setPathname('/training-course/c1');
   const { renderer, client } = renderWithQuery(React.createElement(TrainingCourseScreen));
@@ -1118,10 +1155,10 @@ await checkAsync('Course outline: rows, module headers, lock presentation, team 
   assert.match(outlineText, /2\.3\.1/);
   assert.match(outlineText, /3\.1\.1/);
   assert.match(outlineText, /Consult Room ·/); // subgroup tag on its lessons
-  assert.match(outlineText, /2\/3 on your team finished/); // v1 team count
+  assert.match(outlineText, /2\/2 on your team finished/); // v1 team count, office scoped
   assert.match(outlineText, /7 videos/);
   assert.match(outlineText, /56m/);
-  assert.match(outlineText, /Team avg 43%/);
+  assert.match(outlineText, /Team avg 65%/);
 
   const lockedRow = hostsByTestID(renderer, 'course-row-vTie')[0]!;
   assert.match(String(lockedRow.props.accessibilityLabel), /locked/);
@@ -1137,7 +1174,7 @@ await checkAsync('Course outline: rows, module headers, lock presentation, team 
 });
 
 await checkAsync('Course outline: draft/unknown course shows the unavailable card', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   for (const id of ['cDraft', 'missing-course']) {
     setSearchParams({ id });
     setPathname(`/training-course/${id}`);
@@ -1150,7 +1187,7 @@ await checkAsync('Course outline: draft/unknown course shows the unavailable car
 });
 
 await checkAsync('Lesson page: slide frame, chapter stepping, attachments, locked next', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   setSearchParams({ courseId: 'c1', videoId: 'v1' });
   setPathname('/training-lesson/c1/v1');
   const { renderer, client } = renderWithQuery(React.createElement(TrainingLessonScreen));
@@ -1185,7 +1222,7 @@ await checkAsync('Lesson page: slide frame, chapter stepping, attachments, locke
 });
 
 await checkAsync('Lesson page: free lesson navigates prev/next among unlocked lessons', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   setSearchParams({ courseId: 'c1', videoId: 'v5' });
   setPathname('/training-lesson/c1/v5');
   const { renderer, client } = renderWithQuery(React.createElement(TrainingLessonScreen));
@@ -1202,7 +1239,7 @@ await checkAsync('Lesson page: free lesson navigates prev/next among unlocked le
 });
 
 await checkAsync('Lesson page: locked deep link explains the blocker instead of opening', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   setSearchParams({ courseId: 'c1', videoId: 'v4' });
   setPathname('/training-lesson/c1/v4');
   const { renderer, client } = renderWithQuery(React.createElement(TrainingLessonScreen));
@@ -1220,7 +1257,7 @@ await checkAsync('Lesson page: locked deep link explains the blocker instead of 
 });
 
 await checkAsync('Lesson page: unknown/unpublished lesson shows unavailable card', async () => {
-  setSupabase(fakeClient(tableRows));
+  setSupabase(fakeClient(screenRows));
   for (const videoId of ['nope', 'v3']) {
     setSearchParams({ courseId: 'c1', videoId });
     setPathname(`/training-lesson/c1/${videoId}`);

@@ -1,43 +1,21 @@
 /**
- * Staff body measurements (mobile) — context persistence, card rendering,
- * and the Log a Visit sheet.
+ * Staff body measurements (mobile) — card rendering and the Log a Visit
+ * sheet.
  *
  *   pnpm --filter @workspace/thinnr-mobile run test:body-measurements
  *
- * Context half (REAL OperationsProvider under react-test-renderer, storage
- * in-memory): seeded visits project newest first; a logged visit lands on
- * top and is written to storage; a removed visit (seeded or logged) stays
- * hidden; a fresh provider re-hydrates both; a legacy payload without the
- * new fields still hydrates cleanly.
- *
- * UI half (REAL BodyMeasurementsCard / LogVisitSheet): one column per visit
- * newest first, dashes for unmeasured areas, change since the first visit,
- * two-step inline remove; the sheet blocks an empty visit, keys inch errors
- * to their area, and hands a valid parsed draft to onSave.
- *
- * Wiring: pins the staff patient screen's mount (card after the weight
- * history, sheet wired to the context's append/remove).
+ * REAL BodyMeasurementsCard / LogVisitSheet under react-test-renderer: one
+ * column per visit newest first, dashes for unmeasured areas, change since
+ * the first visit, two-step inline remove; the sheet blocks an empty visit,
+ * keys inch errors to their area, and hands a valid parsed draft to onSave.
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import React, { act } from 'react';
 import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
-import { OperationsProvider, useOperations } from '../context/OperationsContext';
-import { MOCK_PATIENTS } from '../data/mock-data';
 import { BODY_AREAS, formatInchesChange, type MeasurementVisit } from '../data/body-measurements';
 import { BodyMeasurementsCard, LogVisitSheet, summarizeVisits } from '../components/staff/BodyMeasurementsCard';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-// Platform.OS is 'web' under the stub, so the context persists to localStorage.
-const memory = new Map<string, string>();
-(globalThis as any).localStorage = {
-  getItem: (key: string) => memory.get(key) ?? null,
-  setItem: (key: string, value: string) => { memory.set(key, value); },
-  removeItem: (key: string) => { memory.delete(key); },
-};
-const STORAGE_KEY = 'thinnr_ops_state_v1';
 
 let failures = 0;
 function check(name: string, condition: boolean, detail = '') {
@@ -63,71 +41,8 @@ const one = (root: ReactTestInstance, id: string) => {
 const press = async (root: ReactTestInstance, id: string) => { await act(async () => { await one(root, id).props.onPress(); }); await settle(2); };
 const typeInto = async (root: ReactTestInstance, id: string, text: string) => { await act(async () => { one(root, id).props.onChangeText(text); }); };
 
-// ─── Context half ────────────────────────────────────────────────────────────
-
-type Ops = ReturnType<typeof useOperations>;
-async function mountOps(): Promise<{ ops: () => Ops; renderer: ReactTestRenderer }> {
-  let latest: Ops | null = null;
-  function Probe() { latest = useOperations(); return null; }
-  let renderer: ReactTestRenderer | undefined;
-  await act(async () => { renderer = create(React.createElement(OperationsProvider, null, React.createElement(Probe))); });
-  await settle();
-  return { ops: () => latest!, renderer: renderer! };
-}
-
-const seededPatient = MOCK_PATIENTS[0];
-const seeded = seededPatient.bodyMeasurements;
-
 async function main() {
-  console.log('OperationsContext: body measurement visits');
-  {
-    memory.clear();
-    const first = await mountOps();
-    const ops = first.ops();
-    const projected = ops.getPatientBodyMeasurements(seededPatient.id, seeded);
-    check('seeded visits project newest first', projected.map((visit) => visit.id).join(',') === [...seeded].reverse().map((visit) => visit.id).join(','));
-    check('merged patient carries the same projection', JSON.stringify(ops.mergedPatients.find((patient) => patient.id === seededPatient.id)?.bodyMeasurements) === JSON.stringify(projected));
-
-    const logged: MeasurementVisit & { patientId: string } = {
-      patientId: seededPatient.id,
-      id: 'visit_test_1',
-      dateKey: '2026-09-06',
-      note: 'Logged in the suite',
-      measurements: { waist: 30.5, neck: 13 },
-      recordedByName: 'Dr. Sarah Jenkins',
-    };
-    await act(async () => { await ops.appendBodyMeasurementVisit(logged); });
-    await settle();
-    const afterLog = first.ops().getPatientBodyMeasurements(seededPatient.id, seeded);
-    check('logged visit lands on top', afterLog[0]?.id === 'visit_test_1' && afterLog.length === seeded.length + 1);
-    check('logged visit persisted to storage', (memory.get(STORAGE_KEY) ?? '').includes('visit_test_1'));
-    check('other patients do not see the visit', first.ops().getPatientBodyMeasurements(MOCK_PATIENTS[1].id, MOCK_PATIENTS[1].bodyMeasurements).every((visit) => visit.id !== 'visit_test_1'));
-
-    const seededNewest = [...seeded].reverse()[0];
-    await act(async () => { await first.ops().removeBodyMeasurementVisit(seededNewest.id); });
-    await settle();
-    const afterRemove = first.ops().getPatientBodyMeasurements(seededPatient.id, seeded);
-    check('removing a seeded visit hides it', afterRemove.every((visit) => visit.id !== seededNewest.id) && afterRemove.length === seeded.length);
-    check('removal persisted', JSON.parse(memory.get(STORAGE_KEY) ?? '{}').removedVisitIds?.includes(seededNewest.id) === true);
-    first.renderer.unmount();
-
-    const second = await mountOps();
-    const rehydrated = second.ops().getPatientBodyMeasurements(seededPatient.id, seeded);
-    check('fresh provider re-hydrates the logged visit and the removal', rehydrated[0]?.id === 'visit_test_1' && rehydrated.every((visit) => visit.id !== seededNewest.id));
-    await act(async () => { await second.ops().removeBodyMeasurementVisit('visit_test_1'); });
-    await settle();
-    check('a logged visit can be removed too', second.ops().getPatientBodyMeasurements(seededPatient.id, seeded).every((visit) => visit.id !== 'visit_test_1'));
-    second.renderer.unmount();
-
-    // Legacy payload from before body measurements existed.
-    memory.set(STORAGE_KEY, JSON.stringify({ contactOverrides: [], weightEntries: [{ patientId: seededPatient.id, date: '2026-09-01T12:00:00.000Z', weight: 180 }], notes: [], subStatusOverrides: [] }));
-    const legacy = await mountOps();
-    check('legacy payload hydrates; seeded visits still show', legacy.ops().getPatientBodyMeasurements(seededPatient.id, seeded).length === seeded.length);
-    check('legacy weigh-in survived normalisation', legacy.ops().weightEntries.some((entry) => entry.weight === 180));
-    legacy.renderer.unmount();
-  }
-
-  // ─── UI half: card ───────────────────────────────────────────────────────────
+  // ─── Card ───────────────────────────────────────────────────────────
 
   console.log('BodyMeasurementsCard');
   {
@@ -163,7 +78,7 @@ async function main() {
     check('empty state with the button', byTestId(empty!.root, 'measurements-empty').length === 1 && byTestId(empty!.root, 'log-visit-btn').length === 1 && byTestId(empty!.root, 'measurements-table').length === 0);
   }
 
-  // ─── UI half: sheet ──────────────────────────────────────────────────────────
+  // ─── Sheet ──────────────────────────────────────────────────────────
 
   console.log('LogVisitSheet');
   {
@@ -201,18 +116,6 @@ async function main() {
     let hidden: ReactTestRenderer | undefined;
     await act(async () => { hidden = create(<LogVisitSheet visible={false} todayKey={TODAY} topInset={0} patientName="Maria" onClose={() => {}} onSave={async () => {}} />); });
     check('hidden sheet renders nothing', byTestId(hidden!.root, 'visit-save-btn').length === 0);
-  }
-
-  // ─── Wiring ──────────────────────────────────────────────────────────────────
-
-  console.log('staff patient screen wiring');
-  {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'app', 'patient', '[id].tsx'), 'utf8');
-    check('card mounted with the merged patient visits', /<BodyMeasurementsCard\s+visits=\{patient\.bodyMeasurements\}/.test(source));
-    check('remove wired to the context', /onRemove=\{visit => ops\.removeBodyMeasurementVisit\(visit\.id\)\}/.test(source));
-    check('save wired to the context append', /ops\.appendBodyMeasurementVisit\(\{\s*patientId: patient\.id/.test(source));
-    check('sheet takes device-local today', /todayKey=\{localTodayKey\(\)\}/.test(source));
-    check('card sits after the weight history, before the care plan', source.indexOf('Weight history') < source.indexOf('<BodyMeasurementsCard') && source.indexOf('<BodyMeasurementsCard') < source.indexOf('{/* Care plan */}'));
   }
 
   if (failures) { console.error(`\n${failures} check(s) failed`); process.exit(1); }

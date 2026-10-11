@@ -15,19 +15,8 @@ import {
   startPasswordChange,
   startSecondFactorPhone,
   type SecurityOverview,
-  type SessionDto,
-  type SignInDto,
 } from '@/lib/security-api';
 import { supabase } from '@/lib/supabase';
-
-const DEMO_SIGN_INS: SignInDto[] = [
-  { id: 'preview-current', at: '2026-09-07T14:30:00.000Z', method: 'password_sms_code', methodLabel: 'Password + texted code', platform: 'ios', device: 'iPhone · THINNR app', region: 'Austin, Texas, US', newDevice: false, current: true, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
-  { id: 'preview-new', at: '2026-09-05T09:15:00.000Z', method: 'password_email_code', methodLabel: 'Password + emailed code', platform: 'web', device: 'Chrome on Mac', region: 'Austin, Texas, US', newDevice: true, current: false, active: true, revokedAt: null, revokedReason: null, reportedAt: null },
-];
-const DEMO_SESSIONS: SessionDto[] = [
-  { ref: 'preview-session-1', createdAt: '2026-09-07T14:30:00.000Z', lastSeenAt: '2026-09-07T15:00:00.000Z', platform: 'ios', device: 'iPhone · THINNR app', region: 'Austin, Texas, US', current: true, signInId: 'preview-current' },
-  { ref: 'preview-session-2', createdAt: '2026-09-05T09:15:00.000Z', lastSeenAt: '2026-09-06T18:45:00.000Z', platform: 'web', device: 'Chrome on Mac', region: 'Austin, Texas, US', current: false, signInId: 'preview-new' },
-];
 
 function relativeTime(iso: string): string {
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
@@ -37,15 +26,10 @@ function relativeTime(iso: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-export function AccountSecurity({ demo = false }: { demo?: boolean }) {
+export function AccountSecurity() {
   const colors = useColors();
-  const [overview, setOverview] = useState<SecurityOverview | null>(demo ? {
-    realm: 'patient', canChangePassword: true, contact: { phone: '•••-1212', email: 'p•••@example.com' },
-    passwordChangedAt: '2026-08-20T12:00:00.000Z', currentSessionKnown: true,
-    signIns: DEMO_SIGN_INS, sessions: DEMO_SESSIONS,
-    secondFactor: null,
-  } : null);
-  const [loading, setLoading] = useState(!demo);
+  const [overview, setOverview] = useState<SecurityOverview | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -66,12 +50,11 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
   const [factorSuccess, setFactorSuccess] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (demo) return;
     setLoading(true); setError(null);
     try { setOverview(await fetchSecurityOverview()); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Couldn’t load account security.'); }
     finally { setLoading(false); }
-  }, [demo]);
+  }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
   const beginPassword = async () => {
@@ -179,7 +162,6 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
     <View testID="account-security">
       <Text style={[styles.section, { color: colors.labelText }]}>SECURITY</Text>
       <LedgerCard style={styles.card}>
-        {demo ? <Text testID="security-preview-note" style={[styles.note, { color: colors.subtleText }]}>Preview — sign in to manage your real account</Text> : null}
         {loading ? <Text testID="security-loading" style={[styles.body, { color: colors.subtleText }]}>Loading security activity…</Text> : null}
         {error ? <ErrorBox testID="security-error" message={error} /> : null}
         {!loading && overview ? (
@@ -188,9 +170,9 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
             {!request ? (
               <>
                 <FieldLabel text="Current password" />
-                <LedgerInput testID="security-current-password" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry editable={!demo && !busy} autoComplete="current-password" />
+                <LedgerInput testID="security-current-password" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry editable={!busy} autoComplete="current-password" />
                 {fieldErrors.currentPassword ? <ErrorBox testID="security-current-password-error" message={fieldErrors.currentPassword} /> : null}
-                <PrimaryButton testID="security-password-start" label={busy ? 'Sending…' : 'Send security code'} disabled={demo || busy || !overview.canChangePassword} onPress={() => void beginPassword()} style={styles.smallGap} />
+                <PrimaryButton testID="security-password-start" label={busy ? 'Sending…' : 'Send security code'} disabled={busy || !overview.canChangePassword} onPress={() => void beginPassword()} style={styles.smallGap} />
               </>
             ) : (
               <View testID="security-password-code-step">
@@ -298,8 +280,8 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
             {signIns.length === 0 ? <Text testID="security-signins-empty" style={[styles.note, { color: colors.subtleText }]}>No recent sign-ins are available.</Text> : signIns.map((item, index) => (
               <View key={item.id} testID={`security-signin-${index}`} style={[styles.item, { borderTopColor: colors.border }]}>
                 <View style={styles.itemTop}><Text style={[styles.itemTitle, { color: colors.bodyText }]}>{item.device}</Text><View style={styles.badges}>{item.newDevice ? <Text style={[styles.badge, { color: colors.cobalt }]}>New device</Text> : null}{item.current ? <Text style={[styles.badge, { color: colors.activeGreen }]}>Current</Text> : null}</View></View>
-                <Text style={[styles.note, { color: colors.subtleText }]}>{item.methodLabel} · {item.region ?? 'Region unavailable'} · {demo ? (index === 0 ? 'Sep 7, 2026' : 'Sep 5, 2026') : relativeTime(item.at)}</Text>
-                {!item.current ? confirmReport === item.id ? <View style={styles.confirm}><Text style={[styles.note, { color: colors.bodyText }]}>Sign out every session and require a password reset?</Text><PrimaryButton testID={`security-report-confirm-${item.id}`} label="Yes, this wasn’t me" disabled={demo || busy} onPress={() => void report(item.id)} /><Pressable onPress={() => setConfirmReport(null)}><Text style={[styles.link, { color: colors.subtleText }]}>Cancel</Text></Pressable></View> : <Pressable testID={`security-report-${item.id}`} disabled={demo} onPress={() => setConfirmReport(item.id)}><Text style={[styles.link, { color: demo ? colors.subtleText : colors.cobalt }]}>This wasn’t me</Text></Pressable> : null}
+                <Text style={[styles.note, { color: colors.subtleText }]}>{item.methodLabel} · {item.region ?? 'Region unavailable'} · {relativeTime(item.at)}</Text>
+                {!item.current ? confirmReport === item.id ? <View style={styles.confirm}><Text style={[styles.note, { color: colors.bodyText }]}>Sign out every session and require a password reset?</Text><PrimaryButton testID={`security-report-confirm-${item.id}`} label="Yes, this wasn’t me" disabled={busy} onPress={() => void report(item.id)} /><Pressable onPress={() => setConfirmReport(null)}><Text style={[styles.link, { color: colors.subtleText }]}>Cancel</Text></Pressable></View> : <Pressable testID={`security-report-${item.id}`} onPress={() => setConfirmReport(item.id)}><Text style={[styles.link, { color: colors.cobalt }]}>This wasn’t me</Text></Pressable> : null}
               </View>
             ))}
 
@@ -307,10 +289,10 @@ export function AccountSecurity({ demo = false }: { demo?: boolean }) {
             {sessions.length === 0 ? <Text testID="security-sessions-empty" style={[styles.note, { color: colors.subtleText }]}>No active sessions are available.</Text> : sessions.map((item, index) => (
               <View key={item.ref} testID={`security-session-${index}`} style={[styles.item, { borderTopColor: colors.border }]}>
                 <View style={styles.itemTop}><Text style={[styles.itemTitle, { color: colors.bodyText }]}>{item.device}</Text>{item.current ? <Text style={[styles.badge, { color: colors.activeGreen }]}>Current</Text> : null}</View>
-                <Text style={[styles.note, { color: colors.subtleText }]}>{item.region ?? 'Region unavailable'} · Last seen {demo ? (index === 0 ? 'Sep 7, 2026' : 'Sep 6, 2026') : relativeTime(item.lastSeenAt)}</Text>
+                <Text style={[styles.note, { color: colors.subtleText }]}>{item.region ?? 'Region unavailable'} · Last seen {relativeTime(item.lastSeenAt)}</Text>
               </View>
             ))}
-            {confirmSignOut ? <View testID="security-signout-confirm" style={styles.confirm}><Text style={[styles.note, { color: colors.bodyText }]}>Keep this device signed in and sign out everywhere else?</Text><PrimaryButton testID="security-signout-others-confirm" label="Confirm sign out" disabled={demo || busy} onPress={() => void signOutOthers()} /><Pressable onPress={() => setConfirmSignOut(false)}><Text style={[styles.link, { color: colors.subtleText }]}>Cancel</Text></Pressable></View> : <PrimaryButton testID="security-signout-others" label="Sign out everywhere else" disabled={demo || busy} onPress={() => setConfirmSignOut(true)} style={styles.gap} />}
+            {confirmSignOut ? <View testID="security-signout-confirm" style={styles.confirm}><Text style={[styles.note, { color: colors.bodyText }]}>Keep this device signed in and sign out everywhere else?</Text><PrimaryButton testID="security-signout-others-confirm" label="Confirm sign out" disabled={busy} onPress={() => void signOutOthers()} /><Pressable onPress={() => setConfirmSignOut(false)}><Text style={[styles.link, { color: colors.subtleText }]}>Cancel</Text></Pressable></View> : <PrimaryButton testID="security-signout-others" label="Sign out everywhere else" disabled={busy} onPress={() => setConfirmSignOut(true)} style={styles.gap} />}
           </>
         ) : null}
       </LedgerCard>

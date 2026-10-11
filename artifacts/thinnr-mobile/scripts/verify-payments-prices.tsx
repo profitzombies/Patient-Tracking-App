@@ -1,8 +1,8 @@
 import React from 'react';
-import { mount, STAFF, setScript, requests, writes, paths, resetRequests, press, type, isBlocked, one, all, ids, text, textOf, check, section, finish, settle, routerLog } from './payments-stubs/harness';
+import { mount, STAFF, setScript, requests, writes, paths, resetRequests, press, type, one, all, ids, text, textOf, check, section, finish, settle, routerLog } from './payments-stubs/harness';
 import { setSearchParams, setPathname } from './provider-training-stubs/expo-router';
 import PricesScreen from '../app/(tabs)/payments/prices';
-import { DEMO_PRICES } from '../data/office-payments-demo';
+import { SAMPLE_PRICES } from './fixtures/sample-office-payments';
 import type { OfficeBillingStatus } from '../lib/office-billing-types';
 
 const STATUS = {
@@ -14,7 +14,7 @@ const STATUS = {
   viewer: { office_role: 'owner', can_manage: true },
   office: { provider_id: 'prov-1', office_name: 'Maple Med Spa' },
 } as unknown as OfficeBillingStatus;
-const PRICES = { products: DEMO_PRICES, settings: { shipping_charge_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, subscribe_save_enabled: true, subscribe_save_percent: 10 } };
+const PRICES = { products: SAMPLE_PRICES, settings: { shipping_charge_cents: 1000, card_fee_bps: 290, card_fee_fixed_cents: 30, subscribe_save_enabled: true, subscribe_save_percent: 10 } };
 
 function script(over: Partial<Record<string, { status: number; body: unknown }>> = {}) {
   setScript((req) => {
@@ -22,7 +22,7 @@ function script(over: Partial<Record<string, { status: number; body: unknown }>>
     if (over[req.path]) return over[req.path];
     if (req.path === '/api/billing/office/status') return { status: 200, body: STATUS };
     if (req.path === '/api/billing/office/prices' && req.method === 'GET') return { status: 200, body: PRICES };
-    if (req.path.startsWith('/api/billing/office/prices/') && req.method === 'PUT') return { status: 200, body: { product: DEMO_PRICES[0] } };
+    if (req.path.startsWith('/api/billing/office/prices/') && req.method === 'PUT') return { status: 200, body: { product: SAMPLE_PRICES[0] } };
     return undefined;
   });
 }
@@ -31,14 +31,12 @@ async function main() {
   setPathname('/payments/prices');
   setSearchParams({});
 
-  section('Demo persona');
+  section('Signed out');
   resetRequests();
   script();
-  const demo = await mount(<PricesScreen />, null);
-  check('demo uses pinned catalog without fetches', requests.length === 0 && ids(demo.root, 'price-row-').length === DEMO_PRICES.length, paths().join(' | '));
-  check('demo edit controls are blocked', DEMO_PRICES.every((p) => isBlocked(demo.root, `button-edit-price-${p.product_id}`)));
-  check('catalog copy and cadence details render', text(demo.root, 'prices-catalog').includes('Subscriptions need your own price') && text(demo.root, 'text-price-plan-control').includes('subscribe and save 10%'));
-  await demo.unmount();
+  const signedOut = await mount(<PricesScreen />, null);
+  check('signed-out mount holds the sign-in frame: no catalog, no fetch', requests.length === 0 && !!one(signedOut.root, 'billing-session-loading') && ids(signedOut.root, 'price-row-').length === 0, paths().join(' | '));
+  await signedOut.unmount();
 
   section('Live read, edit, validation and save');
   resetRequests();
@@ -46,6 +44,7 @@ async function main() {
   const live = await mount(<PricesScreen />, STAFF);
   check('status and prices use staff bearer', requests.length === 2 && requests.every((r) => r.auth === 'Bearer staff-token'), paths().join(' | '));
   check('live catalog renders', ids(live.root, 'price-row-').length === 2);
+  check('catalog copy and cadence details render', text(live.root, 'prices-catalog').includes('Subscriptions need your own price') && text(live.root, 'text-price-plan-control').includes('subscribe and save 10%'));
   await press(live.root, 'button-edit-price-control');
   check('edit exposes labelled money and toggles', !!one(live.root, 'input-price-control') && !!one(live.root, 'toggle-offered-control') && !!one(live.root, 'toggle-subscription-control'));
 

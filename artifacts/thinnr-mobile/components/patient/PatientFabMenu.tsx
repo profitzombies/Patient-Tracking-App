@@ -69,8 +69,7 @@ export function PatientFabMenu() {
           badgeLabel: count => `${count} item${count === 1 ? '' : 's'} in your cart`,
           action: { kind: 'push', href: '/shop' as Href },
         },
-        // Real accounts manage their profile here; the guided demo opens the
-        // same screen as a read-only security preview. Unresolved accounts
+        // Real accounts manage their profile here. Unresolved accounts
         // (still hydrating) get no row rather than a screen that bounces.
         ...(account.kind !== 'unresolved'
           ? [

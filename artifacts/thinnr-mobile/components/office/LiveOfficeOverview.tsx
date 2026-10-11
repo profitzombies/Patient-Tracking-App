@@ -23,7 +23,7 @@ import { fetchOfficeAlerts } from '@/lib/office-alerts-api';
 
 type FeatherName = React.ComponentProps<typeof Feather>['name'];
 
-/** Greeting for the device's local hour (live screens never use the demo anchor). */
+/** Greeting for the device's local hour (live screens never use a fixed anchor date). */
 export function greetingForHour(hour: number): string {
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';

@@ -65,7 +65,7 @@
 - [Operational follow-up semantics](operational-followups.md) — staff review state never suppresses the live risk; keep rows structured and free of notes or clinical payloads.
 - [PL/pgSQL table-return traps](plpgsql-table-return-contracts.md) — qualify columns sharing OUT names and cast sum(bigint) to declared bigint before live PostgREST probes.
 - [Live/demo UI isolation](live-demo-ui-isolation.md) — choose demo vs live from auth state, never missing data; propagate loading/errors so outages cannot look like healthy zeroes.
-- [Guided demo removed](demo-switch.md) — no demo door or switch anywhere; seed modules + signed-out branches are dead suite baselines; tokenless AI grounding and suite rewrites are follow-ups.
+- [Guided demo removed](demo-switch.md) — no demo door anywhere; mobile has no demo kind/data (lint test guards copy, fixtures test-only, signed-out = holding frame); web seed modules remain dead suite baselines.
 - [Local Postgres SQL tests](local-postgres-sql-tests.md) — test Supabase SQL functions by booting a temp initdb/pg_ctl instance in vitest; workspace PGHOST/PGDATABASE point at helium, always pass -h/-d.
 - [Roster unknown vs zero](roster-unknown-state.md) — live activity signals are nullable per family + whole-row unknown status; UI three-way model, null never lapsed, sorts last; detail shares the DTO.
 - [Export jobs & office analytics](export-jobs-and-office-analytics.md) — staff requests are pinned (never 403), expiry is a status flip, pre-dataset ranges go null, drill links must match real roster filters.

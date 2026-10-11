@@ -6,13 +6,13 @@
  * react-test-renderer, against a scripted API with a per-patient in-memory
  * chat store and hand-fed SSE streams:
  *
- *   1. The demo persona is byte-identical to today: without the account
+ *   1. The signed-out session stays local: without the account
  *      provider the greeting seeds synchronously, ids stay in the classic
  *      `coach-<n>` space, the chat request carries no Authorization header
  *      and no localDate, and NOTHING calls the persistence API.
  *   2. A signed-in patient's first-ever open hydrates an empty transcript
  *      and greets from the account's own name and program day (never the
- *      demo seed); the greeting persists so later opens replay it instead
+ *      signed-out seed); the greeting persists so later opens replay it instead
  *      of rebuilding it. Chat requests carry the bearer token and the
  *      app's local date.
  *   3. Finalized messages persist with exactly the revealed text — cards,
@@ -23,16 +23,16 @@
  *   4. Chat photos upload once to the account's media rail; the stored
  *      message carries the object path, the rebuilt bubble displays via the
  *      signed-URL route, and replayed history stays text-only.
- *   5. Accounts never bleed: sign-out returns the demo seed with zero
+ *   5. Accounts never bleed: sign-out returns the signed-out seed with zero
  *      further persistence calls, and a second account starts fresh.
  *   6. Hydration failures retry rather than silently forking the thread.
  *   7. The support screen persists its thread per account with the same
- *      hydrate/append pattern, and stays session-only for the demo persona.
+ *      hydrate/append pattern, and stays session-only for the signed-out session.
  *   8. HQ's coach-availability policy: a signed-in patient whose care team
  *      paused the coach sees the paused state up front (availability probe
  *      on open), a paused 503 on send withdraws the waiting bubble instead
  *      of an error, send/sendPhoto stay no-ops while paused, the coach
- *      screen closes its composer with the notice, and the demo persona
+ *      screen closes its composer with the notice, and the signed-out session
  *      never probes or pauses.
  *
  * Run: pnpm --filter @workspace/thinnr-mobile run test:chat-account
@@ -472,7 +472,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 
   // Chat streams answer with a hand-fed SSE body — unless HQ has the coach
   // paused for this patient, in which case the server answers 503 JSON
-  // before any model work (the demo persona is never paused).
+  // before any model work (a signed-out session is never paused).
   if (path === 'coach/chat' || path === 'support/chat') {
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
     const patientId = token ? tokenRoles.get(token)?.patientId : undefined;
@@ -570,7 +570,7 @@ async function mountLiveCoachScreen(onScroll: (args: unknown) => void): Promise<
 }
 
 /** How every existing coach suite mounts the provider — no account layer. */
-async function mountDemo(): Promise<ReactTestRenderer> {
+async function mountSignedOut(): Promise<ReactTestRenderer> {
   let tree!: ReactTestRenderer;
   await act(async () => {
     tree = create(
@@ -638,33 +638,31 @@ async function sendText(text: string): Promise<void> {
 const RILEY_GREETING_PREFIX = 'Hey Riley, good to see you. 12 days in.';
 
 async function main() {
-  // ── 1 · Demo persona byte-identical ────────────────────────────────────────
-  section('demo persona: synchronous greeting, bare request, zero persistence');
-  let tree = await mountDemo();
-  // The demo seed's stall trigger is live, so the outreach bubble may join
-  // the greeting — exactly as in production today.
-  assert('demo greeting seeds synchronously', chat.messages[0]?.id === GREETING_MESSAGE_ID);
-  assert('demo greeting keeps its fixed id', chat.messages[0]?.id === GREETING_MESSAGE_ID);
-  assert('demo account is the context default', account.account.kind === 'demo' && !account.resolving);
+  // ── 1 · Signed-out session stays local ────────────────────────────────────────
+  section('signed-out session: synchronous greeting, bare request, zero persistence');
+  let tree = await mountSignedOut();
+  assert('signed-out greeting seeds synchronously', chat.messages[0]?.id === GREETING_MESSAGE_ID);
+  assert('signed-out greeting keeps its fixed id', chat.messages[0]?.id === GREETING_MESSAGE_ID);
+  assert('signed-out account is the context default', account.account.kind === 'signed-out' && !account.resolving);
 
   await sendText('hi');
-  const demoStream = await takeStream('demo send');
-  if (demoStream) {
-    assert('demo request has no Authorization header', demoStream.auth === null);
-    assert('demo request body has no localDate', !('localDate' in demoStream.body));
-    demoStream.emit({ content: 'Hello there.' });
-    demoStream.emit({ done: true });
-    demoStream.close();
+  const localStream = await takeStream('signed-out send');
+  if (localStream) {
+    assert('signed-out request has no Authorization header', localStream.auth === null);
+    assert('signed-out request body has no localDate', !('localDate' in localStream.body));
+    localStream.emit({ content: 'Hello there.' });
+    localStream.emit({ done: true });
+    localStream.close();
   }
-  await waitUntil('demo reply reveals', () => tail()?.status === 'done' && tail()?.text === 'Hello there.');
+  await waitUntil('signed-out reply reveals', () => tail()?.status === 'done' && tail()?.text === 'Hello there.');
   assert(
-    'demo ids stay in the coach-<n> space',
+    'signed-out ids stay in the coach-<n> space',
     chat.messages
       .slice(1)
       .filter(m => m.id !== OUTREACH_MESSAGE_ID)
       .every(m => /^coach-\d+$/.test(m.id)),
   );
-  assert('demo made zero JSON API calls', apiCalls.length === 0);
+  assert('signed-out made zero JSON API calls', apiCalls.length === 0);
   await unmount(tree);
 
   // Superseded single-thread assertions are retained below as migration
@@ -852,13 +850,13 @@ async function main() {
   await waitUntil('post-photo reply reveals', () => tail()?.status === 'done' && tail()?.text === 'Chicken, mostly.');
   await waitUntil('post-photo turns persist', () => storedThread('p-1', 'coach').length === 13);
 
-  // ── 6 · Account isolation: sign-out reseeds demo, second account is fresh ─
-  section('isolation: sign-out returns demo, second account never sees the first');
+  // ── 6 · Account isolation: sign-out reseeds the local greeting, second account is fresh ─
+  section('isolation: sign-out returns the local seed, second account never sees the first');
   const p1Snapshot = JSON.stringify(storedThread('p-1', 'coach'));
   const chatCallsBeforeSignOut = callsTo('patient-chat/coach').length + callsTo('patient-chat/coach/messages').length;
   await signIn(null);
-  assert('sign-out reseeds the demo greeting', chat.messages.length === 1 && chat.messages[0]?.id === GREETING_MESSAGE_ID);
-  assert('demo greeting is not the account greeting', !chat.messages[0]?.text.includes('Riley'));
+  assert('sign-out reseeds the local greeting', chat.messages.length === 1 && chat.messages[0]?.id === GREETING_MESSAGE_ID);
+  assert('signed-out greeting is not the account greeting', !chat.messages[0]?.text.includes('Riley'));
   assert(
     'sign-out makes no persistence calls',
     callsTo('patient-chat/coach').length + callsTo('patient-chat/coach/messages').length === chatCallsBeforeSignOut,
@@ -1394,8 +1392,8 @@ async function main() {
   );
   await unmount(tree);
 
-  // ── 8 · Support screen: same per-account pattern, demo stays session-only ─
-  section('support chat: persists per account, hydrates on reopen, demo untouched');
+  // ── 8 · Support screen: same per-account pattern, signed-out stays session-only ─
+  section('support chat: persists per account, hydrates on reopen, signed-out untouched');
   chatStoreFor('p-1').support.set('staff-support-1', {
     id: 'staff-support-1',
     role: 'staff',
@@ -1463,8 +1461,8 @@ async function main() {
   const supportReadsBefore = callsTo('patient-chat/support').length;
   supportTree = await mountSupport();
   await settle();
-  assert('demo support screen never reads the account', callsTo('patient-chat/support').length === supportReadsBefore);
-  assert('demo support screen starts empty', JSON.stringify(supportTree.toJSON()).includes('Try reinstalling') === false);
+  assert('signed-out support screen never reads the account', callsTo('patient-chat/support').length === supportReadsBefore);
+  assert('signed-out support screen starts empty', JSON.stringify(supportTree.toJSON()).includes('Try reinstalling') === false);
   await unmount(supportTree);
 
   // ── 9 · HQ coach-availability policy ──────────────────────────────────────
@@ -1545,14 +1543,14 @@ async function main() {
     screenTree.unmount();
   });
 
-  // Care team turns the coach back on: the demo persona was never affected.
+  // Care team turns the coach back on: the signed-out session was never affected.
   coachPausedFor.delete('p-1');
   await signIn(null);
   const probesBefore = callsTo('coach/availability').length;
-  tree = await mountDemo();
+  tree = await mountSignedOut();
   await settle();
-  assert('demo persona never probes availability', callsTo('coach/availability').length === probesBefore);
-  assert('demo persona is never paused', chat.coachPaused === null);
+  assert('signed-out persona never probes availability', callsTo('coach/availability').length === probesBefore);
+  assert('signed-out persona is never paused', chat.coachPaused === null);
   await unmount(tree);
 
   console.log(`\n${checks} checks, ${failures} failure${failures === 1 ? '' : 's'}`);

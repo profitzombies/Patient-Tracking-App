@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   AppState,
   Image,
   Linking,
@@ -31,26 +30,8 @@ import {
 import { subscriptionHref } from '@/lib/patient-billing-core';
 import type {
   PatientBillingOverview,
-  ProductPageContent,
   PublicLinkProduct,
 } from '@/lib/patient-billing-types';
-
-/** Product-page copy is not shown on this screen; the demo rows carry empty content. */
-const DEMO_PAGE: ProductPageContent = {
-  category: 'supplement', tagline: '', format: '', benefits: [], how_to_take: '', facts_title: '', facts: [], faqs: [], disclaimer: '',
-};
-
-const DEMO_OVERVIEW: PatientBillingOverview = {
-  office: { provider_id: 'demo', office_name: 'Jenkins Wellness', payments_available: true },
-  shipping_charge_cents: 1000,
-  products: [
-    { ...DEMO_PAGE, product_id: 'demo-control', slug: 'control', name: 'Control', description: 'Daily metabolic support.', image_url: null, image_urls: [], unit_price_cents: 6999, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 6299 },
-    { ...DEMO_PAGE, product_id: 'demo-hydrate', slug: 'hydrate', name: 'Hydrate', description: 'Electrolyte drink mix.', image_url: null, image_urls: [], unit_price_cents: 3499, office_priced: true, subscription_available: true, subscription_cadences_weeks: [4, 8], default_cadence_weeks: 4, subscribe_save_percent: 10, subscription_unit_price_cents: 3149 },
-    { ...DEMO_PAGE, product_id: 'demo-protein', slug: 'protein', name: 'Protein', description: 'Vanilla protein blend.', image_url: null, image_urls: [], unit_price_cents: 4499, office_priced: true, subscription_available: false, subscription_cadences_weeks: [], default_cadence_weeks: 4, subscribe_save_percent: 0, subscription_unit_price_cents: null },
-  ],
-  orders: [],
-  subscriptions: [],
-};
 
 function money(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -69,20 +50,12 @@ async function openExternal(url: string): Promise<void> {
   if (!opened) await Linking.openURL(url);
 }
 
-function demoNudge(): void {
-  const title = 'Demo mode';
-  const message = 'Sign in with a patient account to manage payments.';
-  if (Platform.OS === 'web' && typeof window !== 'undefined') window.alert?.(`${title}\n\n${message}`);
-  else Alert.alert(title, message);
-}
-
 export default function BillingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { account } = usePatientAccount();
-  const demo = account.kind === 'demo';
-  const [overview, setOverview] = useState<PatientBillingOverview | null>(demo ? DEMO_OVERVIEW : null);
-  const [loading, setLoading] = useState(!demo);
+  const { account, resolving } = usePatientAccount();
+  const [overview, setOverview] = useState<PatientBillingOverview | null>(null);
+  const [loading, setLoading] = useState(account.kind === 'real' || resolving);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -107,13 +80,13 @@ export default function BillingScreen() {
     if (account.kind === 'real') {
       setOverview(null);
       void load();
-    } else if (account.kind === 'demo') {
-      setOverview(DEMO_OVERVIEW);
-      setLoading(false);
+    } else {
+      setOverview(null);
+      setLoading(resolving);
       setError(null);
     }
     return () => { mounted.current = false; };
-  }, [account.kind, load]);
+  }, [account.kind, resolving, load]);
 
   useEffect(() => {
     if (account.kind !== 'real') return;
@@ -147,7 +120,6 @@ export default function BillingScreen() {
   };
 
   const checkout = (productId?: string) => {
-    if (demo) return demoNudge();
     void run(`checkout:${productId ?? 'all'}`, async () => {
       const link = await createCheckoutLink(productId ? { product_id: productId } : {});
       await openExternal(link.url);

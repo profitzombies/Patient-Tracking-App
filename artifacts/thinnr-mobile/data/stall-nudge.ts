@@ -3,8 +3,8 @@
  * outreach when weight stalls while the food diary keeps drifting off-plan.
  *
  * Both apps read the SAME rules: this file and the operations dashboard's
- * `src/data/stall-nudge.ts` are deliberate near-copies, and the demo-parity
- * suite pins their agreement for the shared demo patient. The mobile side
+ * `src/data/stall-nudge.ts` are deliberate near-copies and must agree. The
+ * mobile side
  * keys diary entries by seeded library ids; the staff side keys the same
  * dishes by name — the two verdict maps must stay pairwise identical.
  *
@@ -154,8 +154,8 @@ const NEUTRAL_FOOD_IDS = new Set(['fd_coffee', 'fd_sparkling']);
 /**
  * Curated verdicts for the seeded recipe library, judged ingredient-by-
  * ingredient against data/approved-foods.ts. `aligned` means every material
- * ingredient is on the list (Normalization additions included — the demo
- * patients are past day 43); `off_plan` names the ingredient that is not.
+ * ingredient is on the list (Normalization additions included — judged for
+ * a patient past day 43); `off_plan` names the ingredient that is not.
  * The staff dashboard keys the same dishes by display name.
  */
 export const RECIPE_VERDICTS: Record<string, EntryVerdict> = {

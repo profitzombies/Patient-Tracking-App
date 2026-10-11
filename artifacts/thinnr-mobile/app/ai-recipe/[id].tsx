@@ -57,12 +57,11 @@ export default function AiRecipePreviewScreen() {
   const { mode, hydrated: modeHydrated } = useAppMode();
   const { getRecipeSuggestion, setSuggestionPhoto } = useCoachChat();
   // Signed-in accounts authenticate the image request so its usage counts
-  // against the account, not the IP; the demo stays tokenless.
-  const accountKind = patientAccount.account.kind;
+  // against the account, not the IP.
   const getAccessToken = patientAccount.getAccessToken;
   const imageAuth = useMemo(
-    () => (accountKind === 'demo' ? {} : { getAuthToken: getAccessToken ?? (async () => null) }),
-    [accountKind, getAccessToken],
+    () => (getAccessToken ? { getAuthToken: getAccessToken } : {}),
+    [getAccessToken],
   );
   const { id } = useLocalSearchParams<{ id: string }>();
   const suggestion = getRecipeSuggestion(id ?? '');

@@ -3,8 +3,9 @@
  *
  * Training is the provider side's first live-data screen, so unlike the
  * seeded tabs it can genuinely be loading, failing, offline, or running in a
- * build without Supabase configuration. All three training screens render
- * this view for any status other than 'ready'.
+ * build without Supabase configuration, or opened without a staff sign-in.
+ * All four training screens render this view for any status other than
+ * 'ready'.
  */
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,7 +14,7 @@ import { useColors } from '@/hooks/useColors';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 
 interface TrainingStatusViewProps {
-  status: 'loading' | 'error' | 'unconfigured';
+  status: 'loading' | 'signed-out' | 'error' | 'unconfigured';
   errorMessage?: string | null;
   onRetry?: () => void;
 }
@@ -45,8 +46,22 @@ export function TrainingStatusView({ status, errorMessage, onRetry }: TrainingSt
             configuration. Add the Supabase environment settings (EXPO_PUBLIC_SUPABASE_URL and its
             publishable key) and restart the app to browse training.
           </Text>
-          <Text style={[styles.footnote, { color: colors.subtleText }]}>
-            Every other Care Team tab uses seeded demo data and keeps working without it.
+        </LedgerCard>
+      </View>
+    );
+  }
+
+  if (status === 'signed-out') {
+    return (
+      <View style={styles.cardWrap} testID="training-signed-out">
+        <LedgerCard style={styles.card}>
+          <View style={[styles.iconChip, { backgroundColor: colors.accent }]}>
+            <Feather name="lock" size={18} color={colors.cobalt} />
+          </View>
+          <Text style={[styles.title, { color: colors.navy }]}>Sign in to see training</Text>
+          <Text style={[styles.body, { color: colors.bodyText }]}>
+            Training is private to signed-in provider staff. Sign in with your office account to
+            browse the live course catalog, your roster, and your progress.
           </Text>
         </LedgerCard>
       </View>
@@ -118,11 +133,6 @@ const styles = StyleSheet.create({
   body: {
     fontSize: 12,
     lineHeight: 18,
-    fontFamily: 'Inter_400Regular',
-  },
-  footnote: {
-    fontSize: 11,
-    lineHeight: 16,
     fontFamily: 'Inter_400Regular',
   },
   retryBtn: {

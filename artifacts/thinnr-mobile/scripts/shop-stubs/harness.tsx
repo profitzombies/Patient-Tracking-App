@@ -22,11 +22,12 @@ export const alerts: string[] = [];
 
 import React, { act } from 'react';
 import { create, type ReactTestRenderer } from 'react-test-renderer';
+import { setBaseUrl } from '@workspace/api-client-react';
 import { CartProvider } from '../../context/CartContext';
 import { PatientAccountProvider } from '../../context/PatientAccountProvider';
 import { PatientProvider } from '../../context/PatientContext';
 import { localQuote, type CartLine } from '../../lib/cart-math';
-import { buildDemoShop } from '../../lib/shop-catalog';
+import { buildSampleShop } from '../fixtures/sample-shop';
 import type { CartCheckoutResponse, PatientShop, PublicLinkProduct } from '../../lib/patient-billing-types';
 import { setStubSession, setStubSessionLoadingTicks, type StubSession } from '../live-diary-stubs/supabase';
 
@@ -49,13 +50,13 @@ export type Call = { method: string; path: string; auth: string | null; headers:
 export const calls: Call[] = [];
 export const shopCalls = () => calls.filter(call => call.path.startsWith('patient-data/billing/'));
 
-/** The "real office" storefront: the demo catalog re-keyed with server-style ids. */
+/** The "real office" storefront: the bundled catalog re-keyed with server-style ids. */
 export function liveShop(): PatientShop {
-  const demo = buildDemoShop();
+  const sample = buildSampleShop();
   return {
-    ...demo,
+    ...sample,
     office: { provider_id: 'office-1', office_name: 'Harbor Health', payments_available: true },
-    products: demo.products.map(product => ({ ...product, product_id: `prod-${product.slug}`, image_urls: [`/objects/products/${product.slug}.jpg`], image_url: `/objects/products/${product.slug}.jpg` })),
+    products: sample.products.map(product => ({ ...product, product_id: `prod-${product.slug}`, image_urls: [`/objects/products/${product.slug}.jpg`], image_url: `/objects/products/${product.slug}.jpg` })),
     default_address: { name: 'Pat Example', line1: '9 Harbor Rd', line2: 'Unit 4', city: 'Boston', state: 'MA', postal_code: '02110', country: 'US', phone: '+15550001010' },
     stripe_account_id: 'acct_office1',
     publishable_key: 'pk_test_office1',
@@ -72,6 +73,14 @@ type CheckoutAnswer = { status: number; body: unknown } | 'network';
 
 export const script = {
   shop: liveShop() as PatientShop,
+  /** One live care-team thread for the signed-in patient; suites push suggestion messages onto it. */
+  careTeam: {
+    conversation: {
+      id: 'conv-1', providerId: 'office-1', businessName: 'Live Health', current: true, canSend: true, status: 'open',
+      unreadCount: 0, lastMessageSeq: 0, lastReadSeq: 0, createdAt: '2026-09-01T12:00:00.000Z', updatedAt: '2026-09-01T12:00:00.000Z',
+    },
+    messages: [] as Array<Record<string, unknown>>,
+  },
   shopFailure: null as null | { status: number; error: string },
   quoteFailure: null as null | { status: number; error: string; field?: string },
   shippingMode: 'live' as 'live' | 'fallback',
@@ -107,6 +116,10 @@ export function paidResponse(cartId: string, lines: CartLine[]): CartCheckoutRes
 
 export const profile = { firstName: 'Pat', lastName: 'Example', email: 'pat@example.com', phone: '+15550001010', dateOfBirth: '1985-04-03', heightInches: 66, startingWeight: 205, currentWeight: 191, goalWeight: 165, timezone: 'America/New_York', programId: 'glp1', programStartDate: '2026-08-20', setupComplete: true };
 const patientState = { entries: [], water: {}, targets: {}, favorites: [], recents: [], customFoods: [], catalogFoods: [], savedRecipes: [], photos: [], checkIns: [], medications: [], doseLogs: [], flags: { nudgeOptOut: false, nudgeEngaged: false, nudgeLastSentKey: null, nudgeLastCrossingKey: null, onboardingComplete: true }, entry: { firstName: 'Pat', programStartDate: '2026-08-20', todayKey: '2026-09-07', programDay: 19 }, profile };
+
+// The generated client (care-team routes) builds relative /api URLs; anchor
+// them to the same scripted host the hand-written client already uses.
+setBaseUrl('https://thinnr.test');
 
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   const url = new URL(String(input));
@@ -177,14 +190,20 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (answer === 'network') throw new TypeError('Failed to fetch');
     status = answer.status; body = answer.body;
   } else if (path === 'patient-data/billing/cards') body = script.cards;
+  else if (path === 'patient-care-team') body = { current: script.careTeam.conversation, retained: [] };
+  else if (path === `patient-care-team/${script.careTeam.conversation.id}/messages`) body = { conversation: script.careTeam.conversation, messages: script.careTeam.messages, nextBefore: null };
   else throw new Error(`Unscripted request: ${call.method} ${path}`);
   return {
     ok: status < 300,
     status,
-    headers: new Headers(path.startsWith('patient-data/billing/')
-      ? { 'X-Billing-Scope': call.auth === `Bearer ${otherSession.access_token}` ? 'live:acct_office2' : 'test:acct_office1' }
-      : undefined),
+    headers: new Headers({
+      'content-type': 'application/json',
+      ...(path.startsWith('patient-data/billing/')
+        ? { 'X-Billing-Scope': call.auth === `Bearer ${otherSession.access_token}` ? 'live:acct_office2' : 'test:acct_office1' }
+        : {}),
+    }),
     json: async () => body,
+    text: async () => JSON.stringify(body),
   } as Response;
 }) as typeof fetch;
 

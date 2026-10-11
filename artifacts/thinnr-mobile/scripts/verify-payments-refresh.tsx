@@ -2,8 +2,8 @@
  * Refreshable office payments screens: header Refresh + pull-to-refresh on
  * transactions, fulfillment and the transaction detail. A refresh re-reads
  * every active office-billing query through our API, a failed re-read keeps
- * the last loaded data behind a dismissable notice, and the demo persona
- * animates without any network call.
+ * the last loaded data behind a dismissable notice, and a signed-out mount
+ * never fetches or renders rows.
  */
 import React, { act } from 'react';
 import {
@@ -14,15 +14,15 @@ import { announcements } from './onboarding-gate-stubs/react-native';
 import TransactionsScreen from '../app/(tabs)/payments/transactions/index';
 import DetailScreen from '../app/(tabs)/payments/transactions/[orderId]';
 import FulfillmentScreen from '../app/(tabs)/payments/fulfillment';
-import { DEMO_FULFILLMENT, DEMO_ORDER_DETAILS, DEMO_ORDERS } from '../data/office-payments-demo';
+import { SAMPLE_FULFILLMENT, SAMPLE_ORDER_DETAILS, SAMPLE_ORDERS } from './fixtures/sample-office-payments';
 
 const STATUS: any = { account: {}, sandbox: true, viewer: { can_manage: true }, office: {} };
 
-let ordersBody: unknown = { items: DEMO_ORDERS.slice(0, 2), next_cursor: null };
+let ordersBody: unknown = { items: SAMPLE_ORDERS.slice(0, 2), next_cursor: null };
 let ordersFailure = false;
 let ordersDelay = false;
-let detailBody: unknown = { ...DEMO_ORDER_DETAILS['demo-order-1'], tracking_number: null, carrier: null };
-let fulfillmentBody: unknown = { items: DEMO_FULFILLMENT.filter((order) => order.fulfillment_status === 'to_ship'), next_cursor: null };
+let detailBody: unknown = { ...SAMPLE_ORDER_DETAILS['demo-order-1'], tracking_number: null, carrier: null };
+let fulfillmentBody: unknown = { items: SAMPLE_FULFILLMENT.filter((order) => order.fulfillment_status === 'to_ship'), next_cursor: null };
 let fulfillmentFailure = false;
 
 setScript((request) => {
@@ -56,7 +56,7 @@ async function main() {
   check('live list loads once with the header Refresh and pull control', byPath('/api/billing/office/orders').length === 1 && ids(mounted.root, 'row-order-').length === 2 && !!one(mounted.root, 'payments-refresh') && !!pull(mounted.root));
   const button = one(mounted.root, 'payments-refresh')!;
   check('Refresh is an accessible button named for the screen', button.props.accessibilityRole === 'button' && button.props.accessibilityLabel === 'Refresh transactions' && !isBlocked(mounted.root, 'payments-refresh'));
-  ordersBody = { items: DEMO_ORDERS.slice(0, 3), next_cursor: null };
+  ordersBody = { items: SAMPLE_ORDERS.slice(0, 3), next_cursor: null };
   ordersDelay = true;
   announcements.length = 0;
   await act(async () => { button.props.onPress(); });
@@ -90,7 +90,7 @@ async function main() {
   resetRequests();
   mounted = await mount(<DetailScreen />, STAFF);
   check('detail loads once with Refresh named for the transaction', byPath('/api/billing/office/orders/demo-order-1').length === 1 && one(mounted.root, 'payments-refresh')?.props.accessibilityLabel === 'Refresh this transaction' && !textOf(mounted.root).includes('USPS · 9400111899'));
-  detailBody = { ...DEMO_ORDER_DETAILS['demo-order-1'], tracking_number: '9400111899', carrier: 'USPS' };
+  detailBody = { ...SAMPLE_ORDER_DETAILS['demo-order-1'], tracking_number: '9400111899', carrier: 'USPS' };
   await press(mounted.root, 'payments-refresh');
   check('detail refresh re-reads the order and shows the tracking number that arrived', byPath('/api/billing/office/orders/demo-order-1').length === 2 && textOf(mounted.root).includes('USPS · 9400111899'));
   await mounted.unmount();
@@ -112,25 +112,13 @@ async function main() {
   check('a successful refresh replaces the queue with the fresh answer', byPath('/api/billing/office/fulfillment').length === 5 && ids(mounted.root, 'link-fulfillment-order-').length === 0 && !!one(mounted.root, 'fulfillment-empty'));
   await mounted.unmount();
 
-  section('Demo persona');
-  setPathname('/payments/transactions');
-  resetRequests();
-  mounted = await mount(<TransactionsScreen />, null);
-  check('demo transactions show Refresh and pull without any fetch', requests.length === 0 && !!one(mounted.root, 'payments-refresh') && !!pull(mounted.root));
-  announcements.length = 0;
-  await act(async () => { one(mounted.root, 'payments-refresh')!.props.onPress(); });
-  await settle(2);
-  check('demo refresh animates', spinning(mounted.root) && pull(mounted.root).props.refreshing === true);
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
-  await settle();
-  check('demo refresh is a no-op: no network, spinner stops, rows remain, announced', requests.length === 0 && !spinning(mounted.root) && ids(mounted.root, 'row-order-').length === DEMO_ORDERS.length && announcements.includes('Demo data is up to date') && !one(mounted.root, 'payments-refresh-notice'));
-  await mounted.unmount();
-  for (const [Screen, params, path] of [[DetailScreen, { orderId: 'demo-order-1' }, '/payments/transactions/demo-order-1'], [FulfillmentScreen, {}, '/payments/fulfillment']] as const) {
+  section('Signed out');
+  for (const [Screen, params, path] of [[TransactionsScreen, {}, '/payments/transactions'], [DetailScreen, { orderId: 'demo-order-1' }, '/payments/transactions/demo-order-1'], [FulfillmentScreen, {}, '/payments/fulfillment']] as const) {
     setPathname(path);
     setSearchParams(params as Record<string, string>);
     resetRequests();
     mounted = await mount(<Screen />, null);
-    check(`demo ${path} carries Refresh with no fetch`, requests.length === 0 && !!one(mounted.root, 'payments-refresh') && !!pull(mounted.root));
+    check(`signed-out ${path} holds the sign-in frame with no fetch and no rows`, requests.length === 0 && !!one(mounted.root, 'billing-session-loading') && ids(mounted.root, 'row-order-').length === 0 && ids(mounted.root, 'link-fulfillment-order-').length === 0);
     await mounted.unmount();
   }
 

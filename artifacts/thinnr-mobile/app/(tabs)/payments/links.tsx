@@ -9,7 +9,6 @@ import { useColors } from '@/hooks/useColors';
 import { officeBilling } from '@/lib/office-billing-api';
 import { formatDate, formatDateTime } from '@/lib/office-billing-format';
 import type { OfficePrice, PatientSearchHit, PaymentLink, PaymentLinkInput, PaymentLinkUpdate } from '@/lib/office-billing-types';
-import { DEMO_LINKS, DEMO_PRICES } from '@/data/office-payments-demo';
 
 const TITLE = 'Payment links';
 const SUB = 'Share an office link or create a link locked to one patient.';
@@ -21,7 +20,6 @@ export default function PaymentLinksScreen() {
       section="links"
       title={TITLE}
       sub={SUB}
-      demo={<LinksView links={DEMO_LINKS} products={DEMO_PRICES} demo />}
       live={(ctx) => <LinksQuery ctx={ctx} />}
     />
   );
@@ -37,7 +35,7 @@ function LinksQuery({ ctx }: { ctx: PaymentsLive }) {
   return <LinksView ctx={ctx} links={links.data.items} products={prices.data.products} />;
 }
 
-function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive; links: PaymentLink[]; products: OfficePrice[]; demo?: boolean }) {
+function LinksView({ ctx, links, products }: { ctx: PaymentsLive; links: PaymentLink[]; products: OfficePrice[] }) {
   const colors = useColors();
   const [q, setQ] = useState('');
   const [patients, setPatients] = useState<PatientSearchHit[]>([]);
@@ -58,7 +56,7 @@ function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive;
   const offered = useMemo(() => products.filter((p) => p.active && p.offered && p.sell_price_cents != null), [products]);
 
   useEffect(() => {
-    if (demo || !ctx || q.trim().length < 2) {
+    if (q.trim().length < 2) {
       setPatients([]);
       setSearchError(null);
       return;
@@ -71,20 +69,20 @@ function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive;
       );
     }, 300);
     return () => { active = false; clearTimeout(timer); };
-  }, [ctx, demo, q]);
+  }, [ctx, q]);
 
-  const create = useOfficeBillingMutation(ctx?.userId ?? 'demo', (body: PaymentLinkInput, scope) => officeBilling.createLink(body, scope), {
+  const create = useOfficeBillingMutation(ctx.userId, (body: PaymentLinkInput, scope) => officeBilling.createLink(body, scope), {
     onSuccess: ({ link }) => {
       setNotice({ tone: 'good', text: 'Link created. Share it with the payer.' });
       void Share.share({ message: link.url });
     },
     onError: (error) => setNotice({ tone: 'bad', text: `Link not created. ${error.message}` }),
   });
-  const update = useOfficeBillingMutation(ctx?.userId ?? 'demo', ({ id, body }: { id: string; body: PaymentLinkUpdate }, scope) => officeBilling.updateLink(id, body, scope), {
+  const update = useOfficeBillingMutation(ctx.userId, ({ id, body }: { id: string; body: PaymentLinkUpdate }, scope) => officeBilling.updateLink(id, body, scope), {
     onSuccess: () => { setEditing(null); setNotice({ tone: 'good', text: 'Link updated' }); },
     onError: (error) => setNotice({ tone: 'bad', text: `Link not updated. ${error.message}` }),
   });
-  const deactivate = useOfficeBillingMutation(ctx?.userId ?? 'demo', (id: string, scope) => officeBilling.deactivateLink(id, scope), {
+  const deactivate = useOfficeBillingMutation(ctx.userId, (id: string, scope) => officeBilling.deactivateLink(id, scope), {
     onSuccess: () => { setDeactivating(null); setNotice({ tone: 'good', text: 'Payment link deactivated.' }); },
     onError: (error) => setNotice({ tone: 'bad', text: `Link not deactivated. ${error.message}` }),
   });
@@ -142,11 +140,11 @@ function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive;
             </View>
           </>
         ) : (
-          <Button label="Create office link" variant="primary" testID="button-create-office-link" disabled={demo} busy={create.isPending} onPress={() => createLink(null)} />
+          <Button label="Create office link" variant="primary" testID="button-create-office-link" busy={create.isPending} onPress={() => createLink(null)} />
         )}
       </Panel>
       <Panel title="Patient payment link" sub="Search, choose a patient, then create their private link.">
-        <Field label="Search patients" placeholder="Search patients" value={q} onChangeText={setQ} editable={!demo} testID="input-patient-search" />
+        <Field label="Search patients" placeholder="Search patients" value={q} onChangeText={setQ} testID="input-patient-search" />
         {searchError ? <InlineNotice tone="bad" testID="patient-search-error">{searchError}</InlineNotice> : null}
         {patients.map((patient) => (
           <Pressable
@@ -163,19 +161,19 @@ function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive;
           </Pressable>
         ))}
         <View style={styles.actions}>
-          <Button label="Create and copy" variant="primary" testID="button-create-patient-link" disabled={demo || !selected} busy={create.isPending} onPress={() => selected && createLink(selected)} />
-          <Button label="Sell to patient" testID="button-sell-to-patient" disabled={demo || !selectedPatient} onPress={() => {
+          <Button label="Create and copy" variant="primary" testID="button-create-patient-link" disabled={!selected} busy={create.isPending} onPress={() => selected && createLink(selected)} />
+          <Button label="Sell to patient" testID="button-sell-to-patient" disabled={!selectedPatient} onPress={() => {
             if (selectedPatient) router.push({ pathname: '/sell-to-patient', params: { patientId: selectedPatient.id, name: selectedPatient.name } } as never);
           }} />
         </View>
       </Panel>
       <Panel title="New link options" sub="These options apply to the next office or patient link you create.">
-        <RadioGroup label="Expires" value={expires} onChange={setExpires} disabled={demo} testIDPrefix="select-link-expiry" options={[
+        <RadioGroup label="Expires" value={expires} onChange={setExpires}  testIDPrefix="select-link-expiry" options={[
           { value: '', label: 'Never' }, { value: '24', label: '24 hours' }, { value: '168', label: '7 days' }, { value: '720', label: '30 days' },
         ]} />
-        <Toggle label="Single-use" value={single} disabled={demo} testID="toggle-link-single-use" onChange={(next) => { setSingle(next); if (next) setLimit(''); }} />
-        <Field label="Up to N uses" placeholder="Unlimited" keyboardType="number-pad" value={single ? '' : limit} onChangeText={setLimit} editable={!demo && !single} testID="input-link-max-uses" />
-        <RadioGroup label="Preselect a product" value={productId} onChange={setProductId} disabled={demo} testIDPrefix="select-link-product" options={[
+        <Toggle label="Single-use" value={single}  testID="toggle-link-single-use" onChange={(next) => { setSingle(next); if (next) setLimit(''); }} />
+        <Field label="Up to N uses" placeholder="Unlimited" keyboardType="number-pad" value={single ? '' : limit} onChangeText={setLimit} editable={!single} testID="input-link-max-uses" />
+        <RadioGroup label="Preselect a product" value={productId} onChange={setProductId}  testIDPrefix="select-link-product" options={[
           { value: '', label: 'Payer chooses' },
           ...offered.map((product) => ({ value: product.product_id, label: product.name })),
         ]} />
@@ -197,8 +195,8 @@ function LinksView({ ctx, links, products, demo = false }: { ctx?: PaymentsLive;
             <View style={styles.actions}>
               <Button small label="Share link" testID={`button-share-link-${link.id}`} onPress={() => void Share.share({ message: link.url })} />
               <Button small label="Open" testID={`button-open-link-${link.id}`} onPress={() => void Linking.openURL(link.url)} />
-              <Button small label="Edit" testID={`button-edit-link-${link.id}`} disabled={demo} onPress={() => openEdit(link)} />
-              {link.active ? <Button small label="Deactivate" variant="danger" testID={`button-deactivate-link-${link.id}`} disabled={demo} onPress={() => setDeactivating(link)} /> : null}
+              <Button small label="Edit" testID={`button-edit-link-${link.id}`}  onPress={() => openEdit(link)} />
+              {link.active ? <Button small label="Deactivate" variant="danger" testID={`button-deactivate-link-${link.id}`}  onPress={() => setDeactivating(link)} /> : null}
             </View>
           </View>
         ))}

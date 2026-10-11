@@ -27,7 +27,6 @@ import { fileURLToPath } from 'node:url';
 import {
   activityDueForCheckIn,
   coachDietContextFor,
-  demoDietState,
   eatingWindowStatus,
   fastingWindowFor,
   fitContextFor,
@@ -45,6 +44,7 @@ import {
   type DietState,
   type DietTargetsState,
 } from '@/lib/diet-state';
+import { sampleDietState } from './fixtures/sample-diet-state';
 import { classifyCatalogFood, type ClassifierContext } from '@/lib/diet-fit';
 import { approvedFlagFor, describeFood, type DescribableFood } from '@/lib/food-description';
 import { dietSettingsFor, dietWritesFor, type DietWriteSink } from '@/lib/onboarding-diet-writes';
@@ -94,8 +94,8 @@ const queued = (payload: QueuedWrite['payload'], id = 'q1'): QueuedWrite => ({
 } as unknown as QueuedWrite);
 
 // Maintenance-phase state (episode long finished) and protocol state (day 10).
-const maintenance: DietState = demoDietState(TODAY, '2026-01-05');
-const protocol: DietState = demoDietState(TODAY, '2026-10-01');
+const maintenance: DietState = sampleDietState(TODAY, '2026-01-05');
+const protocol: DietState = sampleDietState(TODAY, '2026-10-01');
 
 async function main() {
   section('eating window clock');

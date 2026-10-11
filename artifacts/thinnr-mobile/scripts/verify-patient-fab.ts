@@ -275,7 +275,6 @@ const PROVIDER_SECTIONS: SectionSpec[] = [
     rows: [
       { key: 'overview', label: 'Overview', iconHost: 'Feather', iconName: 'home' },
       { key: 'patients', label: 'Patients', iconHost: 'Feather', iconName: 'users' },
-      { key: 'outcomes', label: 'Outcomes', iconHost: 'Feather', iconName: 'bar-chart-2' },
       { key: 'leaderboard', label: 'Leaderboard', iconHost: 'Feather', iconName: 'award' },
       { key: 'payments', label: 'Payments', iconHost: 'Feather', iconName: 'credit-card' },
       { key: 'training', label: 'Training', iconHost: 'Feather', iconName: 'book-open' },

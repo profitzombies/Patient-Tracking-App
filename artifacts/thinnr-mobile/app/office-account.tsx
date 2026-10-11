@@ -9,7 +9,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { PageScrollView } from '@/components/ui/PageScrollView';
-import { Body, Button, DetailList, ErrorBox, LoadingBox, Panel, DemoNotice } from '@/components/payments/primitives';
+import { Body, Button, DetailList, ErrorBox, LoadingBox, Panel } from '@/components/payments/primitives';
 import { useColors } from '@/hooks/useColors';
 import { fonts } from '@/constants/colors';
 import { useSupabaseSession } from '@/lib/supabase';
@@ -41,7 +41,7 @@ export default function OfficeAccountScreen() {
       {sessionLoading ? (
         <LoadingBox label="Checking your sign-in…" testID="office-account-session-loading" />
       ) : !session?.user ? (
-        <DemoNotice />
+        <LoadingBox label="Checking your sign-in…" testID="office-account-session-loading" />
       ) : loading ? (
         <LoadingBox label="Loading your account…" testID="office-account-loading" />
       ) : (

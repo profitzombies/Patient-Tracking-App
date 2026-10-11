@@ -36,7 +36,7 @@ export function officeAccessGateDecision(input: {
   snapshot?: OfficeAccessSnapshot;
 }): OfficeAccessGateDecision {
   if (!input.modeHydrated || input.sessionLoading) return { kind: 'hold' };
-  // Demo/signed-out staff and every patient route retain their existing admission policy.
+  // Signed-out staff and every patient route retain their existing admission policy.
   if (input.mode !== 'staff' || !input.signedIn || !isProviderArea(input.pathname)) {
     return { kind: 'allow' };
   }

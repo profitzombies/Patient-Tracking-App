@@ -354,7 +354,7 @@ export const FORMULA_SECTION = {
 
 // ─── Day → phase helpers ─────────────────────────────────────────────────────
 
-/** Highest day the demo preview control can dial in. */
+/** Highest program day the day → phase helpers accept. */
 export const MAX_PROGRAM_DAY = 365;
 
 export function clampProgramDay(day: number): number {

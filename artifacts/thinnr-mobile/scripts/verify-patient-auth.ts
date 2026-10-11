@@ -343,9 +343,9 @@ function routing(){
  assert('signed-out visitor is never admitted to patient data',liveEntryDecision({...signedOut,pathname:'/today'}).kind==='redirect');
  assert('incomplete real patient goes onboarding',liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:false,pathname:'/today'}).kind==='redirect');
  assert('complete real patient leaves onboarding',liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:true,pathname:'/onboarding/welcome'}).kind==='redirect'&&(liveEntryDecision({...signedOut,accountKind:'real',patientHydrated:true,onboardingComplete:true,pathname:'/onboarding/welcome'}) as {href:string}).href==='/today');
- const demo=visibleSteps(DEFAULT_ANSWERS),real=visibleSteps(DEFAULT_ANSWERS,true);
- assert('demo retains simulated account sequence',['contact','verify','provider-code','face-id','password'].every(k=>demo.includes(k as never)));
- assert('real onboarding filters credential/device steps',['contact','verify','provider-code','face-id','password'].every(k=>!real.includes(k as never)));
+ const real=visibleSteps(DEFAULT_ANSWERS) as string[];
+ assert('onboarding carries no credential/device steps',['contact','verify','provider-code','face-id','password'].every(k=>!real.includes(k)));
+ assert('onboarding opens with welcome → identity',real[0]==='welcome'&&real[1]==='identity');
 }
 async function staleResponses(){
  console.log('· slow responses cannot yank the screen into a stale phase');

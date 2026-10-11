@@ -37,8 +37,9 @@ function rowsOf(result: { status: number; json: unknown }, label: string): Row[]
 const str = (value: unknown): string | null => (typeof value === "string" ? value : null);
 const num = (value: unknown): number | null => (typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
 
-export type ActorRole = "patient" | "staff" | "system";
+export type ActorRole = "patient" | "staff" | "coach" | "system";
 export interface DietActor {
+  /** "coach" = the AI coach writing a list item the patient confirmed in chat. */
   role: Exclude<ActorRole, "system">;
   userId: string;
   /** Display name stored on rows so "who entered this" survives staff churn. Patients store null. */
@@ -64,6 +65,8 @@ export interface SelectionRecord {
   screeningSnapshot: Record<string, unknown>;
   startedAt: string;
   endedAt: string | null;
+  /** When the coach acknowledged this choice in chat; null until it has. */
+  coachAcknowledgedAt: string | null;
 }
 export interface BlockRecord {
   id: string;
@@ -118,7 +121,7 @@ export interface PatientDietState {
   overrides: TargetOverrides;
 }
 
-export const SELECTION_SELECT = "id,diet_slug,status,selected_by,selected_by_role,settings,screening_snapshot,started_at,ended_at";
+export const SELECTION_SELECT = "id,diet_slug,status,selected_by,selected_by_role,settings,screening_snapshot,started_at,ended_at,coach_acknowledged_at";
 export const BLOCK_SELECT = "id,selection_id,diet_slug,questions,status,override_challenge,override_challenged_at,override_challenged_by,reviewed_by,reviewed_by_name,reviewed_at,review_note,created_at";
 export const PREFERENCE_SELECT = "id,list,item_key,label,is_custom,severity,entered_by,entered_by_role,entered_by_name,created_at";
 export const EPISODE_SELECT = "id,episode_number,started_on,ended_on,reason,started_by,started_by_role,note,created_at";
@@ -136,6 +139,7 @@ export function selectionRecord(row: Row): SelectionRecord {
     settings: row.settings && typeof row.settings === "object" ? (row.settings as Record<string, unknown>) : {},
     screeningSnapshot: row.screening_snapshot && typeof row.screening_snapshot === "object" ? (row.screening_snapshot as Record<string, unknown>) : {},
     startedAt: String(row.started_at ?? ""), endedAt: str(row.ended_at),
+    coachAcknowledgedAt: str(row.coach_acknowledged_at),
   };
 }
 export function blockRecord(row: Row): BlockRecord {

@@ -28,6 +28,7 @@ import {
   FERTILITY_PREGNANCY_SLUG,
   PREFERENCE_LISTS,
   RESTRICTION_BY_KEY,
+  resolvePreferenceKey,
   SENSITIVITY_BY_KEY,
   blockingYeses,
   evaluateDietChoice,
@@ -169,7 +170,7 @@ export async function chooseDiet(input: ChooseDietInput): Promise<ChooseDietResu
   if (Object.keys(relevant).length > 0) await recordScreeningAnswers(input.patient.id, relevant, entry.slug, input.actor, input.now);
   const answers: ScreeningAnswers = { ...state.answers, ...relevant };
 
-  const verdict = evaluateDietChoice(facts, { phase: phase.phase, programId: programIdOf(input.patient), gender, answers, actor: input.actor.role });
+  const verdict = evaluateDietChoice(facts, { phase: phase.phase, programId: programIdOf(input.patient), gender, answers, actor: input.actor.role === "staff" ? "staff" : "patient" });
   if (verdict.kind === "locked") return { kind: "locked", programDay: phase.programDay };
   if (verdict.kind === "needs_answers") return { kind: "needs_answers", questions: verdict.questions };
 
@@ -391,13 +392,18 @@ export function parsePreferenceItem(input: unknown): { ok: true; value: Preferen
     return { ok: false, error: "Only allergies carry a severity.", field: "severity" };
   }
   let catalogLabel: string | null = null;
-  if (key && !key.startsWith("custom:")) {
-    if (typedList === "allergy" && (ALLERGEN_KEYS as readonly string[]).includes(key)) catalogLabel = ALLERGEN_LABELS[key as keyof typeof ALLERGEN_LABELS];
-    else if (typedList === "restriction" && RESTRICTION_BY_KEY.has(key)) catalogLabel = RESTRICTION_BY_KEY.get(key)!.label;
-    else if (typedList === "sensitivity" && SENSITIVITY_BY_KEY.has(key)) catalogLabel = SENSITIVITY_BY_KEY.get(key)!.label;
-    else return { ok: false, error: `"${key}" is not a known ${typedList} option.`, field: "key" };
+  // A free-text allergy or sensitivity that names a catalog entry (or one of
+  // its common forms: "tree nuts", "peanuts", "shrimp", "dairy") is stored
+  // under the catalog key, so the classifier's tag and ingredient rules apply
+  // to it. Only a label the catalog does not recognise stays custom.
+  const resolvedKey = key ? key : rawLabel ? resolvePreferenceKey(typedList, rawLabel) : null;
+  if (resolvedKey && !resolvedKey.startsWith("custom:")) {
+    if (typedList === "allergy" && (ALLERGEN_KEYS as readonly string[]).includes(resolvedKey)) catalogLabel = ALLERGEN_LABELS[resolvedKey as keyof typeof ALLERGEN_LABELS];
+    else if (typedList === "restriction" && RESTRICTION_BY_KEY.has(resolvedKey)) catalogLabel = RESTRICTION_BY_KEY.get(resolvedKey)!.label;
+    else if (typedList === "sensitivity" && SENSITIVITY_BY_KEY.has(resolvedKey)) catalogLabel = SENSITIVITY_BY_KEY.get(resolvedKey)!.label;
+    else return { ok: false, error: `"${resolvedKey}" is not a known ${typedList} option.`, field: "key" };
   }
-  if (catalogLabel) return { ok: true, value: { list: typedList, itemKey: key, label: catalogLabel, isCustom: false, severity } };
+  if (catalogLabel && resolvedKey) return { ok: true, value: { list: typedList, itemKey: resolvedKey, label: catalogLabel, isCustom: false, severity } };
   if (rawLabel.length < 1 || rawLabel.length > 80) return { ok: false, error: "Give the item a name (1–80 characters).", field: "label" };
   const slug = slugify(rawLabel);
   if (!slug) return { ok: false, error: "Give the item a name with letters or numbers.", field: "label" };

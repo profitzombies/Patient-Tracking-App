@@ -32,14 +32,6 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-programs-api"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-programs-mobile"
-
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3073,3 +3065,14 @@ args = "cd /home/runner/workspace && pnpm exec tsc -b lib/diet-programs && pnpm 
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "coach-diet-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/diet-programs && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/coach/diet-guard.test.ts src/coach/diet-followups.test.ts src/coach/diet-grounding.test.ts src/diet/food-tags.test.ts src/diet/preferences.test.ts src/diet/programs.test.ts src/coach/real-patient.test.ts src/coach/prompt-order.test.ts src/coach/meal-chat.test.ts src/coach/menu-chat.test.ts src/routes/coach-real-grounding.test.ts src/routes/coach-product-offers.test.ts src/routes/coach.test.ts src/routes/coach-recipe.test.ts src/routes/coach-photo.test.ts src/routes/coach-meal-photo.test.ts src/routes/coach-label-photo.test.ts src/routes/label-scan.test.ts src/routes/patient-diet.test.ts src/routes/office-patient-diet.test.ts && pnpm --filter @workspace/api-server run typecheck"

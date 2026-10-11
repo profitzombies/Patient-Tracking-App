@@ -96,6 +96,17 @@ beforeAll(() => {
     if (url.pathname === "/rest/v1/patient_activity_levels") {
       return Promise.resolve(json(200, store.activity));
     }
+    // Diet grounding reads (coach/diet-grounding.ts): empty tables = a
+    // patient with no diet chosen and no list items yet.
+    if (
+      url.pathname === "/rest/v1/patient_diet_selections" ||
+      url.pathname === "/rest/v1/patient_preference_items" ||
+      url.pathname === "/rest/v1/patient_screening_answers" ||
+      url.pathname === "/rest/v1/diet_library_entries" ||
+      url.pathname === "/rest/v1/diet_library_settings"
+    ) {
+      return Promise.resolve(json(200, []));
+    }
     return Promise.resolve(json(404, { message: `fake: no route ${url.pathname}` }));
   });
 });

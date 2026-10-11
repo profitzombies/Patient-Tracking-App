@@ -65,6 +65,10 @@ const migrationNames = [
   "20261206000000_diet_library.sql",
   "20261206000001_patient_diet.sql",
   "20261206000002_patient_diet_closure.sql",
+  // Coach follows the diet: list items the coach adds on confirmation carry
+  // entered_by_role 'coach'; the selection row remembers when the coach
+  // acknowledged a diet change.
+  "20261206000003_coach_diet_followups.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -295,6 +299,17 @@ await query(`
        or (select count(*) from public.diet_library_entries) < 27
        or not exists (select 1 from public.diet_library_entries where slug = 'just_tracking' and review_status = 'published')
        or to_regprocedure('public.patient_protocol_restart(uuid,date,uuid,text)') is null
+       -- Coach follow-ups: the coach may enter list items, and selections
+       -- carry the one-time acknowledgement stamp.
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.patient_preference_items'::regclass
+            and contype = 'c' and pg_get_constraintdef(oid) like '%coach%'
+       )
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'patient_diet_selections' and column_name = 'coach_acknowledged_at'
+       )
        or exists (
          select 1 from unnest(array['patient_protocol_episodes','patient_diet_selections','patient_diet_blocks',
                                     'patient_preference_items','patient_screening_answers','patient_activity_levels',

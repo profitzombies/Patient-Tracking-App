@@ -64,7 +64,7 @@ const patientRow: Row = {
 let patients: Row[] = [];
 
 const selection = (over: Partial<SelectionRecord> = {}): SelectionRecord => ({
-  id: "sel-1", dietSlug: "mediterranean", status: "active", selectedByRole: "staff", settings: {}, screeningSnapshot: {}, startedAt: "2026-10-09T00:00:00Z", endedAt: null, ...over,
+  id: "sel-1", dietSlug: "mediterranean", status: "active", selectedByRole: "staff", settings: {}, screeningSnapshot: {}, startedAt: "2026-10-09T00:00:00Z", endedAt: null, coachAcknowledgedAt: null, ...over,
 });
 const block = (over: Partial<BlockRecord> = {}): BlockRecord => ({
   id: BLOCK, selectionId: "sel-2", dietSlug: "keto", questions: ["medication"], status: "pending", overrideChallenge: null, overrideChallengedAt: null, overrideChallengedBy: null,

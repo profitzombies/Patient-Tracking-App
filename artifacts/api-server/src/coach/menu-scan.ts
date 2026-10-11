@@ -26,6 +26,7 @@ function cleanCoachText(text: string): string {
   return stripDashes(cleanModelText(text)).trim();
 }
 import { patientContextLine, sourcesBlock, type PatientContext } from "./prompt";
+import { guardMenuPayload } from "./diet-guard";
 import { UpstreamTimeoutError, createUpstreamDeadline } from "./upstream";
 import type { UsageRecorder } from "./usage";
 import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
@@ -292,7 +293,16 @@ export async function generateMenuScan(args: {
     const messages = buildMessages(systemPrompt, args.image, previous);
     const raw = await callModel(messages, args.signal, args.log, args.onUsage);
     const outcome = interpret(raw);
-    if (outcome.ok) return outcome.payload;
+    if (outcome.ok) {
+      // Real accounts: picks that hit the patient's lists or diet move to
+      // the skip side (or drop, for dislikes) no matter what the model chose.
+      if (!args.patient.diet) return outcome.payload;
+      const guarded = guardMenuPayload(outcome.payload, args.patient.diet);
+      if (guarded.moved.length > 0) {
+        args.log.warn({ moved: guarded.moved.map((m) => m.code) }, "menu scan picks removed by diet guard");
+      }
+      return guarded.payload;
+    }
     args.log.warn(
       { attempt, problems: outcome.problems },
       "menu scan output failed validation",

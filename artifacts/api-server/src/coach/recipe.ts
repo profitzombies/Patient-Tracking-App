@@ -35,6 +35,8 @@ import {
   isApprovedItemId,
 } from "./approved-catalog";
 import { MEAL_SLOTS, type MealSlotContext } from "./meal-slot";
+import { recipeDietProblems } from "./diet-guard";
+import type { DietGrounding } from "./diet-grounding";
 import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
 import { modelFor } from "../ai/models";
 
@@ -313,7 +315,7 @@ type Interpretation =
   | { ok: true; reply: string; recipe: GeneratedRecipe | null }
   | { ok: false; problems: string[] };
 
-function interpret(raw: string, approvedOnly: boolean): Interpretation {
+function interpret(raw: string, approvedOnly: boolean, diet?: DietGrounding): Interpretation {
   const json = extractModelJson(raw);
   if (json === null) return { ok: false, problems: ["response was not valid JSON"] };
   const parsed = ModelOutputSchema.safeParse(json);
@@ -344,6 +346,14 @@ function interpret(raw: string, approvedOnly: boolean): Interpretation {
   if (recipe) {
     const nutritionProblems = ingredientNutritionProblems(recipe);
     if (nutritionProblems.length > 0) return { ok: false, problems: nutritionProblems };
+    // Real accounts: the draft must clear the patient's diet and lists
+    // (allergies, sensitivities, restrictions, dislikes, kosher / halal
+    // pairing) before it can return; a miss sends the model back exactly
+    // like a bad citation does.
+    if (diet) {
+      const dietProblems = recipeDietProblems(recipe, diet);
+      if (dietProblems.length > 0) return { ok: false, problems: dietProblems };
+    }
   }
   return {
     ok: true,
@@ -623,7 +633,7 @@ export async function generateRecipeTurn(args: RecipeTurnArgs): Promise<RecipeTu
   let messages = baseMessages;
   for (let attempt = 0; attempt <= RETRY_LIMIT; attempt++) {
     const raw = await callModel(messages, args.signal, args.log);
-    const outcome = interpret(raw, approvedOnly);
+    const outcome = interpret(raw, approvedOnly, args.patient.diet);
     if (outcome.ok) {
       if (!outcome.recipe) return { reply: outcome.reply, card: null };
       // An explicit client pin wins over whatever the model chose — the

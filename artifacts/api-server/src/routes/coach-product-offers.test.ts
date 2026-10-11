@@ -181,6 +181,16 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/patient_water_days") return json(200, [{ oz: 40 }]);
   if (url.pathname === "/rest/v1/patient_target_overrides") return json(200, []);
   if (url.pathname === "/rest/v1/patient_protocol_episodes" || url.pathname === "/rest/v1/patient_activity_levels") return json(200, []);
+  // Diet grounding tables (coach/diet-grounding.ts): nothing on record here.
+  if (
+    url.pathname === "/rest/v1/patient_diet_selections" ||
+    url.pathname === "/rest/v1/patient_preference_items" ||
+    url.pathname === "/rest/v1/patient_screening_answers" ||
+    url.pathname === "/rest/v1/diet_library_entries" ||
+    url.pathname === "/rest/v1/diet_library_settings"
+  ) {
+    return json(200, []);
+  }
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
 

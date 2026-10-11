@@ -51,7 +51,7 @@ let patientRow: Row;
 let calls: Array<{ method: string; path: string; body?: unknown }> = [];
 
 const selection = (over: Partial<SelectionRecord> = {}): SelectionRecord => ({
-  id: "sel-1", dietSlug: "mediterranean", status: "active", selectedByRole: "patient", settings: {}, screeningSnapshot: {}, startedAt: "2026-10-09T00:00:00Z", endedAt: null, ...over,
+  id: "sel-1", dietSlug: "mediterranean", status: "active", selectedByRole: "patient", settings: {}, screeningSnapshot: {}, startedAt: "2026-10-09T00:00:00Z", endedAt: null, coachAcknowledgedAt: null, ...over,
 });
 const emptyState = (over: Partial<PatientDietState> = {}): PatientDietState => ({
   episode: { id: "ep-1", episodeNumber: 1, startedOn: "2026-10-01", endedOn: null, reason: "enrollment", startedByRole: "system", note: null, createdAt: "" },

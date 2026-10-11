@@ -87,6 +87,7 @@ import app from "../app";
 import { BACK_ON_TRACK_OFFER } from "../coach/back-on-track";
 import { demoPatientContext } from "../coach/demo-patient";
 import { COACH_PAUSED_MESSAGE } from "./coach";
+import { ALLERGY_SEVERITY_CHIPS, LIST_OFFER_CHIPS, listOfferLine } from "../coach/diet-followups";
 import { invalidateOrgPolicyCache } from "../lib/org-policy";
 
 /** Valid scan answers for the photo routes' JSON contracts. */
@@ -130,6 +131,13 @@ const fake = {
   consent: { version: CONSENT_POLICY_VERSION as string | null, photoAnalysis: true },
   /** HQ policy row served for hq_organization_settings; null = table unreachable (404). */
   coachAvailable: null as boolean | null,
+  /** Diet grounding tables for PATIENT_ID (coach/diet-grounding.ts). */
+  dietSelections: [] as Array<Record<string, unknown>>,
+  preferenceItems: [] as Array<Record<string, unknown>>,
+  screeningAnswers: [] as Array<Record<string, unknown>>,
+  dietLibrary: [] as Array<Record<string, unknown>>,
+  /** Every PATCH/POST the route made against the diet tables (method, pathname, body). */
+  dietWrites: [] as Array<{ method: string; pathname: string; body: Record<string, unknown> | null }>,
 };
 
 function json(status: number, body: unknown): Response {
@@ -161,7 +169,7 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
     const byId = url.searchParams.get("id");
     if (byId === `eq.${PATIENT_ID}`) {
       return json(200, [
-        { name: "Riley Chen", program_start_date: "2026-08-10", created_at: "2026-08-10T09:00:00Z" },
+        { id: PATIENT_ID, name: "Riley Chen", program_start_date: "2026-08-10", created_at: "2026-08-10T09:00:00Z", provider_id: null, timezone: null },
       ]);
     }
     return json(200, []);
@@ -202,6 +210,32 @@ function handleSupabase(url: URL, init?: RequestInit): Response {
   if (url.pathname === "/rest/v1/hq_organization_settings" && fake.coachAvailable !== null) {
     return json(200, [{ coach_available: fake.coachAvailable, version: 1 }]);
   }
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (url.pathname === "/rest/v1/patient_diet_selections" || url.pathname === "/rest/v1/patient_preference_items") {
+    if (method !== "GET") {
+      const raw = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : null;
+      const body = (Array.isArray(raw) ? raw[0] : raw) as Record<string, unknown> | null;
+      fake.dietWrites.push({ method, pathname: url.pathname, body });
+      if (method === "PATCH" && url.pathname === "/rest/v1/patient_diet_selections") {
+        const id = (url.searchParams.get("id") ?? "").replace(/^eq\./, "");
+        for (const row of fake.dietSelections) if (row.id === id && body) Object.assign(row, body);
+      }
+      if (method === "POST" && url.pathname === "/rest/v1/patient_preference_items") {
+        if (fake.preferenceItems.some((item) => item.list === body?.list && item.item_key === body?.item_key)) {
+          return json(409, { message: "duplicate" });
+        }
+        const row = { id: `pref-${fake.dietWrites.length}`, created_at: "2026-08-22T12:00:00Z", ...body };
+        fake.preferenceItems.push(row);
+        return json(201, [row]);
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (url.searchParams.get("patient_id") !== `eq.${PATIENT_ID}`) return json(200, []);
+    return json(200, url.pathname === "/rest/v1/patient_diet_selections" ? fake.dietSelections : fake.preferenceItems);
+  }
+  if (url.pathname === "/rest/v1/patient_screening_answers") return json(200, fake.screeningAnswers);
+  if (url.pathname === "/rest/v1/diet_library_entries") return json(200, fake.dietLibrary);
+  if (url.pathname === "/rest/v1/diet_library_settings") return json(200, []);
   return json(404, { message: `fake: no route ${url.pathname}` });
 }
 
@@ -240,6 +274,11 @@ afterEach(() => {
   fake.failOnce.clear();
   fake.consent = { version: CONSENT_POLICY_VERSION, photoAnalysis: true };
   fake.coachAvailable = null;
+  fake.dietSelections = [];
+  fake.preferenceItems = [];
+  fake.screeningAnswers = [];
+  fake.dietLibrary = [];
+  fake.dietWrites = [];
   invalidateOrgPolicyCache();
 });
 
@@ -497,5 +536,147 @@ describe("coach chat grounding ladder", () => {
     await demo.text();
     expect(modelState.calls.length).toBeGreaterThan(0);
     expect(modelState.calls[0].stream).toBe(false);
+  });
+});
+
+// ── Diet grounding, confirm-to-add and the diet-change acknowledgement ──────
+
+const MEDITERRANEAN_ROW = {
+  id: "lib-med", slug: "mediterranean", name: "Mediterranean", summary: "Olive oil, fish, vegetables.", complexity: "easy",
+  rule_sheet: ["Olive oil is the main fat."], sample_day: [], oversight_note: false, pregnancy_blocked: false,
+  screening_questions: [], fit_rules: null, evidence_strength: "strong", supervision_level: "none", sources: [], review_status: "approved",
+};
+
+function seedDiet(options: { acknowledged?: boolean } = {}) {
+  fake.dietLibrary = [MEDITERRANEAN_ROW];
+  fake.dietSelections = [{
+    id: "sel-1", patient_id: PATIENT_ID, diet_slug: "mediterranean", status: "active", settings: {},
+    started_at: "2026-08-20T00:00:00Z", coach_acknowledged_at: options.acknowledged ? "2026-08-20T01:00:00Z" : null,
+  }];
+  fake.preferenceItems = [{
+    id: "pref-peanut", patient_id: PATIENT_ID, list: "allergy", item_key: "peanut", label: "Peanuts", is_custom: false,
+    severity: "severe", entered_by_role: "patient", entered_by_name: null, created_at: "2026-08-20T00:00:00Z",
+  }];
+}
+
+async function chatText(body: unknown, token?: string) {
+  const res = await postChat(body, token);
+  expect(res.status).toBe(200);
+  const events = sseEvents(await res.text());
+  const content = events.map((e) => (typeof e.content === "string" ? e.content : "")).join("");
+  const quickReplies = events.find((e) => Array.isArray(e.quickReplies))?.quickReplies as string[] | undefined;
+  return { events, content, quickReplies };
+}
+
+describe("coach diet grounding for real accounts", () => {
+  it("renders the diet, lists and targets into the real system prompt only; demo and staff prompts never carry it", async () => {
+    seedDiet({ acknowledged: true });
+    await chatText({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(modelState.calls).toHaveLength(1);
+    const system = modelState.calls[0].system;
+    const dietAt = system.indexOf("Diet and food lists (authoritative");
+    expect(dietAt).toBeGreaterThan(system.indexOf("Today so far (2026-08-22)"));
+    expect(dietAt).toBeLessThan(system.indexOf("Grounding rules:"));
+    expect(system).toContain("- Diet: Mediterranean (complexity: easy). Olive oil, fish, vegetables.");
+    expect(system).toContain("  • Olive oil is the main fat.");
+    expect(system).toContain("- Allergies: Peanuts (SEVERE).");
+    expect(system).toContain("- Dislikes: none recorded.");
+    expect(system).toContain("1400 calories, 120g protein");
+
+    modelState.calls = [];
+    await chatText(QUESTION);
+    await chatText(QUESTION, "tok-staff");
+    expect(modelState.calls).toHaveLength(2);
+    for (const call of modelState.calls) expect(call.system).not.toContain("Diet and food lists");
+  });
+
+  it("opens the first reply after a diet change with one acknowledgement, stamps it, and never repeats it", async () => {
+    seedDiet();
+    const first = await chatText({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(first.content.startsWith("Quick note: I see you're following Mediterranean now")).toBe(true);
+    expect(first.content.endsWith("Hello there.")).toBe(true);
+    // The stamp is fire-and-forget after the stream closes.
+    await vi.waitFor(() => expect(fake.dietWrites.some((w) => w.method === "PATCH" && w.pathname === "/rest/v1/patient_diet_selections")).toBe(true));
+    const patch = fake.dietWrites.find((w) => w.method === "PATCH")!;
+    expect(typeof patch.body?.coach_acknowledged_at).toBe("string");
+    expect(fake.dietSelections[0]!.coach_acknowledged_at).toBe(patch.body?.coach_acknowledged_at);
+
+    modelState.calls = [];
+    const second = await chatText({ ...QUESTION, localDate: "2026-08-22" }, "tok-patient");
+    expect(second.content).toBe("Hello there.");
+    expect(second.content).not.toContain("Quick note");
+  });
+
+  it("offers to add a mentioned dislike after the model reply and sends the confirm chips", async () => {
+    seedDiet({ acknowledged: true });
+    const turn = await chatText({ messages: [{ role: "user", content: "Honestly I hate broccoli, what else is green?" }], localDate: "2026-08-22" }, "tok-patient");
+    expect(modelState.calls).toHaveLength(1);
+    expect(turn.content).toBe(`Hello there.\n\n${listOfferLine({ list: "dislike", label: "broccoli" })}`);
+    expect(turn.quickReplies).toEqual(LIST_OFFER_CHIPS);
+    expect(fake.dietWrites).toHaveLength(0);
+
+    // Mentioning a food that is already listed earns no offer.
+    modelState.calls = [];
+    const listed = await chatText({ messages: [{ role: "user", content: "I'm allergic to peanuts, remember" }], localDate: "2026-08-22" }, "tok-patient");
+    expect(listed.content).toBe("Hello there.");
+    expect(listed.quickReplies).toBeUndefined();
+
+    // The demo persona never hears the offer.
+    modelState.calls = [];
+    const demo = await chatText({ messages: [{ role: "user", content: "Honestly I hate broccoli, what else is green?" }] });
+    expect(demo.content).toBe("Hello there.");
+    expect(demo.quickReplies).toBeUndefined();
+  });
+
+  it("writes the list item through the foundation store with the coach as entered-by on confirmation, with no model call", async () => {
+    seedDiet({ acknowledged: true });
+    const confirm = await chatText({
+      messages: [
+        { role: "user", content: "Honestly I hate broccoli" },
+        { role: "assistant", content: `Fair enough.\n\n${listOfferLine({ list: "dislike", label: "broccoli" })}` },
+        { role: "user", content: LIST_OFFER_CHIPS[0] },
+      ],
+      localDate: "2026-08-22",
+    }, "tok-patient");
+    expect(modelState.calls).toHaveLength(0);
+    expect(confirm.content).toMatch(/^Done\. Broccoli is on your dislikes now/);
+    const post = fake.dietWrites.find((w) => w.method === "POST" && w.pathname === "/rest/v1/patient_preference_items");
+    expect(post?.body).toMatchObject({ patient_id: PATIENT_ID, list: "dislike", item_key: "custom:broccoli", label: "broccoli", is_custom: true, entered_by_role: "coach", severity: null });
+
+    // Allergies ask for the severity first, then write it.
+    modelState.calls = [];
+    const ask = await chatText({
+      messages: [
+        { role: "assistant", content: `Noted.\n\n${listOfferLine({ list: "allergy", label: "shellfish" })}` },
+        { role: "user", content: LIST_OFFER_CHIPS[0] },
+      ],
+      localDate: "2026-08-22",
+    }, "tok-patient");
+    expect(ask.content).toMatch(/Is your shellfish allergy mild or severe\?$/);
+    expect(ask.quickReplies).toEqual(ALLERGY_SEVERITY_CHIPS);
+    const severe = await chatText({
+      messages: [
+        { role: "assistant", content: ask.content },
+        { role: "user", content: ALLERGY_SEVERITY_CHIPS[1] },
+      ],
+      localDate: "2026-08-22",
+    }, "tok-patient");
+    expect(severe.content).toMatch(/as severe\./);
+    const allergyPost = fake.dietWrites.filter((w) => w.method === "POST").at(-1);
+    // The spoken label lands on the catalog key, so tag rules apply to it.
+    expect(allergyPost?.body).toMatchObject({ list: "allergy", item_key: "shellfish", label: "Shellfish", is_custom: false, severity: "severe", entered_by_role: "coach" });
+    expect(modelState.calls).toHaveLength(0);
+
+    // Declining writes nothing and the next turn is an ordinary model reply.
+    const declined = await chatText({
+      messages: [
+        { role: "assistant", content: listOfferLine({ list: "dislike", label: "kale" }) },
+        { role: "user", content: LIST_OFFER_CHIPS[1] },
+      ],
+      localDate: "2026-08-22",
+    }, "tok-patient");
+    expect(modelState.calls).toHaveLength(0);
+    expect(fake.dietWrites.filter((w) => w.method === "POST")).toHaveLength(2);
+    expect(declined.content).not.toMatch(/^Done/);
   });
 });

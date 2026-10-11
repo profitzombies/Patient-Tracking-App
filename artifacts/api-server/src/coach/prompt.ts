@@ -1,6 +1,7 @@
 import { COMPARTMENTS, type Compartment } from "./compartments";
 import type { OfferProduct } from "./products";
 import { QUICK_REPLY_SETS } from "./quick-replies";
+import { renderDietBlock, type DietGrounding } from "./diet-grounding";
 
 export interface PatientDayTargets {
   calories: number;
@@ -31,6 +32,12 @@ export interface PatientContext {
    * demo persona has none, which keeps its prompt byte-identical.
    */
   today?: PatientDayContext;
+  /**
+   * The patient's diet, phase, four food lists, settings and cautions —
+   * real signed-in accounts only (coach/diet-grounding.ts). Rendered as one
+   * canonical block after the today line; the demo persona has none.
+   */
+  diet?: DietGrounding;
 }
 
 /**
@@ -137,8 +144,11 @@ export function patientContextLine(patient: PatientContext): string {
   // far, straight from their diary. Whole numbers read like a coach, not a
   // spreadsheet. The demo persona never reaches this branch.
   const n = (value: number) => String(Math.max(0, Math.round(value)));
-  return `${base}
+  const live = `${base}
 Today so far (${today.dateKey}): ${firstName} has logged ${n(today.calories)} of ${n(today.targets.calories)} calories, ${n(today.protein)}g of ${n(today.targets.protein)}g protein, ${n(today.carbs)}g of ${n(today.targets.carbs)}g carbs, ${n(today.fat)}g of ${n(today.targets.fat)}g fat, and ${n(today.waterOz)} of ${n(today.targets.waterOz)} oz water. These live diary numbers are the truth for today. Use them when the patient asks about today's meals, totals, or what room is left, and never invent different ones.`;
+  // The diet block rides the same compartment, after the today line, so the
+  // whole patient section stays one stable prefix for the prompt cache.
+  return patient.diet ? `${live}\n${renderDietBlock(patient.diet, firstName, today.targets)}` : live;
 }
 
 /**

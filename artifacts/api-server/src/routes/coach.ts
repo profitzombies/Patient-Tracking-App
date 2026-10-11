@@ -5,7 +5,7 @@ import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { DEMO_PRODUCT_COMPARTMENT_ID, type Compartment } from "../coach/compartments";
 import { liveStorefrontCompartment } from "../coach/products";
-import { buildChatMessages, buildSystemPrompt, toModelMessages } from "../coach/prompt";
+import { buildChatMessages, buildSystemPrompt, toModelMessages, type PatientContext } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { realPatientContext } from "../coach/real-patient";
 import { bearerToken, resolvePatient } from "../lib/patient-auth";
@@ -53,6 +53,21 @@ import { modelFor } from "../ai/models";
 import { attributeModelUsage } from "../ai-usage/context";
 import { screenCoachMessage } from "../coach/safety-screen";
 import { recordCoachChatFlag } from "../alerts/coach-chat-flags";
+import { dietChangeAckLine, markDietChangeAcknowledged } from "../coach/diet-grounding";
+import { filterChipLabels } from "../coach/diet-guard";
+import {
+  ALLERGY_SEVERITY_CHIPS,
+  LIST_DECLINED_REPLY,
+  LIST_DUPLICATE_REPLY,
+  LIST_OFFER_CHIPS,
+  LIST_WRITE_FAILED_REPLY,
+  allergySeverityQuestion,
+  detectListFollowup,
+  listAddedReply,
+  listOfferLine,
+  shouldOfferListAdd,
+  writeConfirmedListItem,
+} from "../coach/diet-followups";
 
 const router: IRouter = Router();
 
@@ -202,13 +217,13 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     //   403 → a real session that is not a patient (staff browsing the
     //     persona); the demo seed is exactly what they are looking at.
     //   502 → the account exists but its data could not be loaded.
-    let patientContext = demoPatientContext();
+    let patientContext: PatientContext = demoPatientContext();
     let realPatient = false;
     let authenticatedPatientId: string | null = null;
     let recalledMemories: RecallMemory[] = [];
     let historicalExcerpts: string[] = [];
     let historicalClarification = false;
-    let signedIn: { patientId: string; providerId: string | null } | null = null;
+    let signedIn: { patientId: string; authUserId: string; providerId: string | null } | null = null;
     if (bearerToken(req) !== null) {
       let auth;
       try {
@@ -225,7 +240,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         return;
       }
       if (auth.ok) {
-        signedIn = { patientId: auth.patientId, providerId: auth.providerId };
+        signedIn = { patientId: auth.patientId, authUserId: auth.authUserId, providerId: auth.providerId };
       } else if (auth.status !== 403 || auth.code !== undefined) {
         // 401/503 are retryable session problems; a consent refusal is a
         // real patient who must act first (never the staff→demo fallback).
@@ -417,6 +432,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       | "meal-keep"
       | "back-on-track"
       | "recipe"
+      | "list-followup"
       | "cravings" = "plain";
 
     // Token accounting for photo turns: every vision pipeline reports each
@@ -447,6 +463,26 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         res.write(": keepalive\n\n");
       }
     }, keepaliveIntervalMs());
+
+    // ── Diet-change acknowledgement (real accounts) ─────────────────────
+    // The first reply after the patient changes their diet opens with one
+    // short line saying the coach noticed; every pipeline routes its
+    // opening text through `withAck` so the line rides exactly once, and
+    // the selection is stamped after the turn so it never repeats. A
+    // failed stamp only risks a repeat, never the reply.
+    const pendingAck = patientContext.diet?.pendingAck ?? null;
+    let ackDelivered = false;
+    const withAck = (content: string): string => {
+      if (!pendingAck || ackDelivered) return content;
+      ackDelivered = true;
+      return `${dietChangeAckLine(pendingAck)}\n\n${content}`;
+    };
+    const stampAck = () => {
+      if (!pendingAck || !ackDelivered || signedIn === null) return;
+      markDietChangeAcknowledged(signedIn.patientId, pendingAck.selectionId, new Date()).catch((error) => {
+        req.log.error({ err: error }, "coach diet change acknowledgement stamp failed");
+      });
+    };
 
     try {
       // ── Photo turns ─────────────────────────────────────────────────────
@@ -497,6 +533,56 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // below needs it before the pipeline is even known.
       const mealCorrection =
         image !== undefined && isMealCorrectionText(latest.content) ? latest.content : undefined;
+
+      // ── Confirm-to-add list follow-up (real accounts) ───────────────────
+      // The patient's one-tap answer right under the coach's "Want me to add
+      // X to your dislikes?" offer (or the mild/severe question for an
+      // allergy). Strict adjacency, server-authored replies, zero model
+      // calls; the write goes through the diet foundation's own service with
+      // the coach as entered-by, so validation, duplicate handling and the
+      // severe-allergy care-team notice are the app's own.
+      const listFollowup = image === undefined && signedIn !== null && patientContext.diet ? detectListFollowup(history) : null;
+      if (listFollowup && signedIn !== null) {
+        const confirmedBy = signedIn;
+        pipeline = "list-followup";
+        let reply: string;
+        let chips: readonly string[] | null = null;
+        if (listFollowup.kind === "declined") {
+          reply = LIST_DECLINED_REPLY;
+        } else if (listFollowup.kind === "ask_severity") {
+          reply = allergySeverityQuestion(listFollowup.label);
+          chips = ALLERGY_SEVERITY_CHIPS;
+        } else {
+          try {
+            const outcome = await writeConfirmedListItem({
+              patientId: confirmedBy.patientId,
+              authUserId: confirmedBy.authUserId,
+              list: listFollowup.list,
+              label: listFollowup.label,
+              severity: listFollowup.severity,
+              now: new Date(),
+              log: req.log,
+            });
+            reply = outcome === "duplicate" ? LIST_DUPLICATE_REPLY : listAddedReply(listFollowup.list, listFollowup.label, listFollowup.severity);
+            req.log.info({ list: listFollowup.list, outcome }, "coach list item confirmed");
+          } catch (error) {
+            req.log.error({ err: error, list: listFollowup.list }, "coach list item write failed");
+            reply = LIST_WRITE_FAILED_REPLY;
+          }
+        }
+        if (!abort.signal.aborted) {
+          res.write(`data: ${JSON.stringify({ content: withAck(reply) })}\n\n`);
+          if (chips) res.write(`data: ${JSON.stringify({ quickReplies: chips })}\n\n`);
+          res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+          req.log.info({ pipeline, elapsedMs: Date.now() - startedAt, kind: listFollowup.kind }, "coach chat turn completed");
+        }
+        return;
+      }
+
+      // A dislike / reaction / allergy mention in a typed message earns the
+      // server-authored offer as the reply's closing line plus the confirm
+      // chips (text turns only; photo turns carry their own closers).
+      const listMention = image === undefined && signedIn !== null ? shouldOfferListAdd(patientContext.diet, latest.content) : null;
 
       // A kindless chat-camera photo is overwhelmingly a plate, yet the
       // triage that confirms it used to cost a full serial round trip before
@@ -592,7 +678,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
           photoTimings.firstTokenMs = Date.now() - startedAt;
-          res.write(`data: ${JSON.stringify({ content: mealTurn.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(mealTurn.reply) })}\n\n`);
           if (mealTurn.card) {
             res.write(`data: ${JSON.stringify({ card: mealTurn.card })}\n\n`);
           }
@@ -653,7 +739,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
           photoTimings.firstTokenMs = Date.now() - startedAt;
-          res.write(`data: ${JSON.stringify({ content: labelTurn.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(labelTurn.reply) })}\n\n`);
           if (labelTurn.draft) {
             res.write(`data: ${JSON.stringify({ labelDraft: labelTurn.draft })}\n\n`);
           }
@@ -700,7 +786,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         photoTimings.analysisMs = Date.now() - analysisStartedAt;
         if (!abort.signal.aborted) {
           photoTimings.firstTokenMs = Date.now() - startedAt;
-          res.write(`data: ${JSON.stringify({ content: menuTurn.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(menuTurn.reply) })}\n\n`);
           if (menuTurn.offerRecipe) {
             const yesNo = firstQuickReplySet(["yes_no"]);
             if (yesNo) {
@@ -744,7 +830,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           log: req.log,
         });
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(result.reply) })}\n\n`);
           if (result.card) {
             res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
           }
@@ -785,7 +871,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           log: req.log,
         });
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(result.reply) })}\n\n`);
           if (result.card) {
             res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
           }
@@ -800,7 +886,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       if (!prioritizeRecall && versionChoice === "keep") {
         pipeline = "meal-keep";
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: MEAL_KEEP_REPLY })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(MEAL_KEEP_REPLY) })}\n\n`);
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           req.log.info(
             { pipeline, elapsedMs: Date.now() - startedAt },
@@ -829,7 +915,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           log: req.log,
         });
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: makeover.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(makeover.reply) })}\n\n`);
           if (makeover.askVersion) {
             res.write(
               `data: ${JSON.stringify({ quickReplies: MEAL_VERSION_REPLY_SET.labels })}\n\n`,
@@ -870,7 +956,7 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           log: req.log,
         });
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: turn.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(turn.reply) })}\n\n`);
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           req.log.info(
             { pipeline, elapsedMs: Date.now() - startedAt },
@@ -899,13 +985,16 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           log: req.log,
         });
         if (!abort.signal.aborted) {
-          res.write(`data: ${JSON.stringify({ content: result.reply })}\n\n`);
+          res.write(`data: ${JSON.stringify({ content: withAck(listMention ? `${result.reply}\n\n${listOfferLine(listMention)}` : result.reply) })}\n\n`);
           if (result.card) {
             res.write(`data: ${JSON.stringify({ card: result.card })}\n\n`);
           }
+          if (listMention) {
+            res.write(`data: ${JSON.stringify({ quickReplies: LIST_OFFER_CHIPS })}\n\n`);
+          }
           res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
           req.log.info(
-            { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null },
+            { pipeline, elapsedMs: Date.now() - startedAt, card: result.card !== null, listOffer: listMention?.list },
             "coach chat turn completed",
           );
         }
@@ -963,7 +1052,8 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
           if (delta) {
             const visible = dashSmoother.push(brandSmoother.push(markerFilter.push(delta)));
             if (visible) {
-              res.write(`data: ${JSON.stringify({ content: visible })}\n\n`);
+              // The diet-change opener rides ahead of the first visible text.
+              res.write(`data: ${JSON.stringify({ content: withAck(visible) })}\n\n`);
             }
           }
         }
@@ -993,7 +1083,13 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         dashSmoother.push(brandSmoother.push(markerFilter.flush()) + brandSmoother.flush()) +
         dashSmoother.flush();
       if (tail) {
-        res.write(`data: ${JSON.stringify({ content: tail })}\n\n`);
+        res.write(`data: ${JSON.stringify({ content: withAck(tail) })}\n\n`);
+      }
+      // A dislike / reaction / allergy mention: the server-authored offer
+      // closes the reply (its own block), and the confirm chips below
+      // replace whatever one-tap set the model proposed.
+      if (listMention) {
+        res.write(`data: ${JSON.stringify({ content: `\n\n${listOfferLine(listMention)}` })}\n\n`);
       }
 
       // Server-side enforcement: a card is sent only for the first marker id
@@ -1022,10 +1118,20 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       // label pair to send — unknown ids die here, and the labels come from
       // the server allow-list, never from model text. When nothing is sent
       // the client falls back to its static yes/no pair.
+      // Real accounts: a chip that names a food the patient must not be
+      // offered drops the whole set (the client falls back to yes/no).
       const replySet = firstQuickReplySet(markerFilter.idsFor("replies"));
-      if (replySet) {
-        res.write(`data: ${JSON.stringify({ quickReplies: replySet.labels })}\n\n`);
-        req.log.info({ quickReplySet: replySet.id }, "coach chat quick replies attached");
+      if (listMention) {
+        res.write(`data: ${JSON.stringify({ quickReplies: LIST_OFFER_CHIPS })}\n\n`);
+        req.log.info({ listOffer: listMention.list }, "coach chat list offer attached");
+      } else if (replySet) {
+        const labels = patientContext.diet ? filterChipLabels(replySet.labels, patientContext.diet) : replySet.labels;
+        if (labels.length === replySet.labels.length) {
+          res.write(`data: ${JSON.stringify({ quickReplies: replySet.labels })}\n\n`);
+          req.log.info({ quickReplySet: replySet.id }, "coach chat quick replies attached");
+        } else {
+          req.log.info({ quickReplySet: replySet.id }, "coach chat quick replies dropped by diet guard");
+        }
       }
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       req.log.info({ pipeline, elapsedMs: Date.now() - startedAt }, "coach chat turn completed");
@@ -1051,6 +1157,9 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
     } finally {
       clearInterval(keepalive);
       res.end();
+      // After the reply is on the wire (any pipeline, even one that failed
+      // after its opener), stamp the acknowledgement so it never repeats.
+      stampAck();
     }
   } finally {
     // Releases never reject (the limiter logs a failed release and lets the

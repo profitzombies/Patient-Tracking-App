@@ -24,6 +24,8 @@ import {
 } from "./label-photo";
 import type { MealSlotContext } from "./meal-slot";
 import type { PatientContext } from "./prompt";
+import { labelFitLine } from "./diet-guard";
+import type { DietGrounding } from "./diet-grounding";
 import type { UsageRecorder } from "./usage";
 
 /**
@@ -78,13 +80,18 @@ function factsBlock(draft: LabelDraft): string {
  * Formats the structured read as blank-line-separated thought blocks (the
  * shape the chat bubbles render).
  */
-export function formatLabelReply(analysis: LabelPhotoAnalysis): string {
+export function formatLabelReply(analysis: LabelPhotoAnalysis, diet?: DietGrounding): string {
   if (analysis.outcome !== "ok" || analysis.draft === null) {
     return `${analysis.message}\n\n${LABEL_TRY_ANOTHER_PHOTO}`;
   }
   const blocks: string[] = [analysis.message, factsBlock(analysis.draft)];
   if (analysis.draft.flagged) {
     blocks.push(LABEL_CHECK_NOTE);
+  }
+  // Real accounts: the fit line from the printed numbers (honest "can't
+  // tell" unless a number itself breaks the diet). Demo replies unchanged.
+  if (diet) {
+    blocks.push(labelFitLine(analysis.draft, diet).text);
   }
   blocks.push(LABEL_NAME_ASK);
   return blocks.join("\n\n");
@@ -114,7 +121,7 @@ export async function generateLabelChatTurn(args: {
 }): Promise<LabelChatTurn> {
   const analysis = await generateLabelPhotoAnalysis(args);
   return {
-    reply: formatLabelReply(analysis),
+    reply: formatLabelReply(analysis, args.patient.diet),
     draft: analysis.draft,
     outcome: analysis.outcome,
   };

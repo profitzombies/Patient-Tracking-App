@@ -39,6 +39,8 @@ import {
   type PatientContext,
 } from "./prompt";
 import { ensureApprovedFoodsCompartment, type RecipeCardPayload } from "./recipe";
+import { plateFitLine } from "./diet-guard";
+import type { DietGrounding } from "./diet-grounding";
 import { stripDashes } from "./text-style";
 import { createUpstreamDeadline, UpstreamTimeoutError } from "./upstream";
 import type { UsageRecorder } from "./usage";
@@ -90,7 +92,7 @@ function itemLine(item: RecipeCardPayload["ingredients"][number]): string {
  * send the curated yes/no chips with this reply — true exactly when the
  * reply closes with the makeover offer.
  */
-export function formatMealReply(analysis: MealPhotoAnalysis): {
+export function formatMealReply(analysis: MealPhotoAnalysis, diet?: DietGrounding): {
   reply: string;
   offerMakeover: boolean;
 } {
@@ -99,6 +101,21 @@ export function formatMealReply(analysis: MealPhotoAnalysis): {
   }
   const blocks: string[] = [analysis.message];
   blocks.push(analysis.payload.ingredients.map(itemLine).join("\n"));
+  // Real accounts: the "Fits your diet" verdict rides every successful read,
+  // judged by the shared classifier against the diet and the four lists.
+  // The demo persona (no diet grounding) keeps today's reply byte-for-byte.
+  if (diet) {
+    const offPlan = new Set(analysis.offPlanItems.map((name) => name.toLowerCase()));
+    blocks.push(
+      plateFitLine(
+        analysis.payload.ingredients.map((ingredient) => ({
+          name: ingredient.name,
+          thinnrApproved: offPlan.has(ingredient.name.toLowerCase()) ? false : ingredient.approvedItemId ? true : undefined,
+        })),
+        diet,
+      ).text,
+    );
+  }
   if (analysis.offPlanItems.length === 0) {
     // Fully approved plate: brief nod, then the usual closer ends the reply
     // (no "?", so no chips — exactly like today).
@@ -160,7 +177,7 @@ export async function generateMealChatTurn(args: {
   log: { warn: (obj: Record<string, unknown>, msg: string) => void };
 }): Promise<MealChatTurn> {
   const analysis = await generateMealPhotoAnalysis(args);
-  const { reply, offerMakeover } = formatMealReply(analysis);
+  const { reply, offerMakeover } = formatMealReply(analysis, args.patient.diet);
   return {
     reply,
     card: analysis.payload ? { kind: "recipe", payload: analysis.payload } : null,

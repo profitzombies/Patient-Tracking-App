@@ -19,6 +19,7 @@ import { dayKeyInTimeZone, maxPlausibleDayKey } from "../lib/local-day";
 import { computePatientTargets, type TargetPatientRow } from "../diet/targets";
 import { episodeRecord, EPISODE_SELECT, type EpisodeRecord } from "../diet/store";
 import type { PatientContext, PatientDayTargets } from "./prompt";
+import { buildDietGrounding, loadRawDietGrounding } from "./diet-grounding";
 
 const enc = encodeURIComponent;
 
@@ -47,13 +48,14 @@ export interface PatientProfile extends TargetPatientRow {
   program_start_date: string | null;
   created_at: string | null;
   timezone?: string | null;
+  provider_id?: string | null;
 }
 
 /** The clinical row facts the chat surfaces need (name, dates, timezone, body numbers for targets). */
 export async function fetchPatientProfile(patientId: string): Promise<PatientProfile> {
   const lookup = await supabaseAdmin(
     "GET",
-    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,program_id,program_start_date,created_at,timezone,gender,date_of_birth,height_inches,current_weight,goal_weight`,
+    `/rest/v1/patients?id=eq.${enc(patientId)}&select=first_name,last_name,name,provider_id,program_id,program_start_date,created_at,timezone,gender,date_of_birth,height_inches,current_weight,goal_weight`,
   );
   if (lookup.status >= 300 || !Array.isArray(lookup.json) || lookup.json.length === 0) {
     throw new Error(`patient profile lookup failed (${lookup.status})`);
@@ -125,7 +127,7 @@ export async function realPatientContext(
       ? localDate
       : dayKeyInTimeZone(profile.timezone);
 
-  const [entries, water, overrides, episode, activityLevel] = await Promise.all([
+  const [entries, water, overrides, episode, activityLevel, rawDiet] = await Promise.all([
     supabaseAdmin(
       "GET",
       `/rest/v1/patient_diary_entries?patient_id=eq.${enc(patientId)}&date_key=eq.${dateKey}&select=calories,protein,carbs,fat`,
@@ -140,6 +142,7 @@ export async function realPatientContext(
     ),
     fetchOpenEpisode(patientId),
     fetchActivityLevel(patientId),
+    loadRawDietGrounding(patientId),
   ]);
   if (entries.status >= 300 || !Array.isArray(entries.json)) {
     throw new Error(`patient diary lookup failed (${entries.status})`);
@@ -177,5 +180,8 @@ export async function realPatientContext(
         typeof waterRow.oz === "number" && Number.isFinite(waterRow.oz) ? waterRow.oz : 0,
       targets: { ...computed.targets.effective },
     },
+    // Diet, lists, settings and cautions: the coach's second grounding block
+    // for real accounts (the demo persona never has one).
+    diet: buildDietGrounding(rawDiet, computed.phase.phase, dateKey),
   };
 }

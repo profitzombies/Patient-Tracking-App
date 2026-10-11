@@ -5,3 +5,5 @@ export * from "./phase";
 export * from "./targets";
 export * from "./screening";
 export * from "./seed-sql";
+export * from "./food-tags";
+export * from "./preferences";

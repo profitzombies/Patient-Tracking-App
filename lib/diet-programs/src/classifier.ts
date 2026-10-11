@@ -192,20 +192,8 @@ function dislikeReasons(food: FoodDescription, tags: Set<FoodTag>, items: readon
   });
 }
 
-export function dietRuleReasons(entry: Pick<DietCatalogEntry, "name" | "slug">, rules: DietFitRules, food: FoodDescription, tags: Set<FoodTag>): FitReason[] {
+function numericRuleReasons(entry: Pick<DietCatalogEntry, "name">, rules: DietFitRules, food: FoodDescription): FitReason[] {
   const reasons: FitReason[] = [];
-  const informed = hasInformation(food, tags);
-  const hasRules = (rules.excludeTags?.length ?? 0) > 0 || rules.mode === "include" || (rules.forbiddenCombinations?.length ?? 0) > 0;
-  if (!informed && hasRules) {
-    reasons.push({ source: "diet", code: "diet:unknown_food", kind: "unknown", message: `Not enough is known about this food to check it against ${entry.name}.` });
-    return reasons;
-  }
-  reasons.push(...tagRuleReasons("diet", "diet", entry.name, rules.excludeTags ?? [], tags, rules.forbiddenCombinations));
-  if (rules.mode === "include" && tags.size > 0 && !(rules.includeTags ?? []).some((tag) => tags.has(tag))) {
-    reasons.push({ source: "diet", code: "diet:not_included", kind: "hit", message: `${entry.name} only includes ${(rules.includeTags ?? []).slice(0, 4).map((t) => t.replace(/_/g, " ")).join(", ")} and similar foods.` });
-  } else if (rules.mode === "include" && tags.size === 0) {
-    reasons.push({ source: "diet", code: "diet:unknown_food", kind: "unknown", message: `Not enough is known about this food to check it against ${entry.name}.` });
-  }
   if (typeof rules.maxCarbsPerServing === "number" && typeof food.carbsPerServing === "number" && food.carbsPerServing > rules.maxCarbsPerServing) {
     reasons.push({ source: "diet", code: "diet:carbs_over_limit", kind: "hit", message: `${Math.round(food.carbsPerServing)} g of carbohydrate per serving is above the ${rules.maxCarbsPerServing} g ${entry.name} allows.` });
   }
@@ -215,6 +203,28 @@ export function dietRuleReasons(entry: Pick<DietCatalogEntry, "name" | "slug">, 
       reasons.push({ source: "diet", code: "diet:energy_dense", kind: "hit", message: `${density.toFixed(1)} calories per gram is denser than ${entry.name} recommends.` });
     }
   }
+  return reasons;
+}
+
+export function dietRuleReasons(entry: Pick<DietCatalogEntry, "name" | "slug">, rules: DietFitRules, food: FoodDescription, tags: Set<FoodTag>): FitReason[] {
+  const reasons: FitReason[] = [];
+  const informed = hasInformation(food, tags);
+  const hasRules = (rules.excludeTags?.length ?? 0) > 0 || rules.mode === "include" || (rules.forbiddenCombinations?.length ?? 0) > 0;
+  // Printed numbers (a Nutrition Facts panel) can break a numeric rule on
+  // their own, even when nothing is known about what the food is made of.
+  const numeric = numericRuleReasons(entry, rules, food);
+  if (!informed && hasRules) {
+    if (numeric.length > 0) return numeric;
+    reasons.push({ source: "diet", code: "diet:unknown_food", kind: "unknown", message: `Not enough is known about this food to check it against ${entry.name}.` });
+    return reasons;
+  }
+  reasons.push(...tagRuleReasons("diet", "diet", entry.name, rules.excludeTags ?? [], tags, rules.forbiddenCombinations));
+  if (rules.mode === "include" && tags.size > 0 && !(rules.includeTags ?? []).some((tag) => tags.has(tag))) {
+    reasons.push({ source: "diet", code: "diet:not_included", kind: "hit", message: `${entry.name} only includes ${(rules.includeTags ?? []).slice(0, 4).map((t) => t.replace(/_/g, " ")).join(", ")} and similar foods.` });
+  } else if (rules.mode === "include" && tags.size === 0) {
+    reasons.push({ source: "diet", code: "diet:unknown_food", kind: "unknown", message: `Not enough is known about this food to check it against ${entry.name}.` });
+  }
+  reasons.push(...numeric);
   for (const tag of rules.limitTags ?? []) {
     if (tags.has(tag)) reasons.push({ source: "diet", code: `diet:limit:${tag}`, kind: "note", message: `${entry.name} asks you to limit ${tag.replace(/_/g, " ")}.` });
   }

@@ -89,7 +89,8 @@
     "test:session-persistence": "tsx --tsconfig tsconfig.session-persistence.json scripts/verify-session-persistence.tsx",
     "test:diet-parity": "tsx scripts/verify-diet-parity.ts",
     "test:diet-patient": "tsx --tsconfig tsconfig.diet-patient.json scripts/verify-diet-patient.tsx",
-    "test:diet-logic": "tsx --tsconfig tsconfig.diet-patient.json scripts/verify-diet-logic.ts"
+    "test:diet-logic": "tsx --tsconfig tsconfig.diet-patient.json scripts/verify-diet-logic.ts",
+    "test:roster-diet": "tsx --tsconfig tsconfig.payments.json scripts/verify-roster-diet.tsx"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

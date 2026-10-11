@@ -446,7 +446,7 @@ describe("requesting exports", () => {
     adminScript({});
     const json = await (await call("/exports")).json() as { jobs: unknown[]; available: Array<{ kind: string }>; ttlHours: number };
     expect(json.jobs).toHaveLength(1);
-    expect(json.available.map((k) => k.kind)).toEqual(["office_comparison", "training_completion"]);
+    expect(json.available.map((k) => k.kind)).toEqual(["office_comparison", "training_completion", "diet_restrictions"]);
     expect(json.ttlHours).toBe(24);
     const list = mocks.admin.mock.calls.find(([, path]) => String(path).includes("order=created_at.desc"))!;
     expect(list[1]).toContain("requested_by=eq.hq-user");

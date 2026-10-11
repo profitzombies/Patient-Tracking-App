@@ -22,6 +22,7 @@ import { WeightTrend } from "@/components/patient/WeightTrend";
 import { BodyMeasurementsCard } from "@/components/patient/BodyMeasurements";
 import { LiveBodyMeasurements } from "@/components/office/LiveBodyMeasurements";
 import { LiveMedications } from "@/components/office/LiveMedications";
+import { LiveDiet } from "@/components/office/LiveDiet";
 import { LiveProgressPhotos } from "@/components/office/LiveProgressPhotos";
 import { LivePatientPurchases, PatientPurchasesPanel, demoPurchasesSummary } from "@/components/office/PatientPurchases";
 import { CustomerEmailsCard } from "@/components/billing/CustomerEmailsCard";
@@ -599,6 +600,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
           </SectionCard>
           <LiveBodyMeasurements patient={record.patient} visits={record.bodyMeasurements ?? []} office={office} canEdit={canRecordWeight} />
           <LiveMedications patient={record.patient} office={office} canEdit={canEdit} />
+          <LiveDiet patientId={identity.id} office={office} canEdit={canEdit} />
           <SectionCard title="Provider notes" sub="Internal care-team notes on this record.">
             <ProviderNotes patient={record.patient} notes={providerNotes} office={office} canEdit={canEdit} />
           </SectionCard>

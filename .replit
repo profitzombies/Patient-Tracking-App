@@ -32,26 +32,6 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-programs-api"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-programs-mobile"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-patient-mobile"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-onboarding"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "diet-patient-api"
-
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3129,3 +3109,36 @@ args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vi
 
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow]]
+name = "diet-ops-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/diet src/routes/hq-diet-reporting.test.ts src/routes/office-alerts.test.ts src/routes/exports.test.ts src/jobs/definitions/staff-attention-digest.test.ts src/exports/patient-record.test.ts src/exports/office-bundle.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "diet-ops-web"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:live-diet && pnpm --filter @workspace/thinnr-operations run test:diet-library && pnpm --filter @workspace/thinnr-operations run test:diet-reporting && pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:staff-alerts && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[[workflows.workflow]]
+name = "diet-ops-mobile"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:roster-diet && pnpm --filter @workspace/thinnr-mobile run typecheck"

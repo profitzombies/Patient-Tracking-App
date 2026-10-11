@@ -77,6 +77,32 @@ export interface OfficeChatFlags {
   items: OfficeChatFlag[];
 }
 
+export type DietAlertKind = 'diet_change' | 'diet_safety' | 'diet_allergy_severe';
+export interface OfficeDietAlert {
+  id: string;
+  kind: DietAlertKind;
+  kindLabel: string;
+  patientId: string;
+  patientName: string;
+  day: string;
+  createdAt: string;
+  refs: { selectionId: string | null; blockId: string | null; itemId: string | null };
+}
+export interface OfficePendingDietBlock {
+  patientId: string;
+  patientName: string;
+  blockId: string;
+  createdAt: string | null;
+}
+export interface OfficeDietAlerts {
+  asOf: string;
+  pendingBlockCount: number;
+  pendingBlocks: OfficePendingDietBlock[];
+  items: OfficeDietAlert[];
+}
+/** Where a diet alert lands: the patient record scrolled to the Diet & food preferences section. */
+export const dietAlertHref = (patientId: string) => `/patients/${encodeURIComponent(patientId)}?section=diet`;
+
 export interface StaffAlertDelivery {
   id: string;
   providerId: string;
@@ -105,6 +131,7 @@ export const officeAlertsQueryKey = (office?: string | null) => ['office-alerts'
 export const officeAlertDigestsQueryKey = (office?: string | null) => ['office-alert-digests', office ?? 'own-office'] as const;
 export const officeAlertSettingsQueryKey = (office?: string | null) => ['office-alert-settings', office ?? 'own-office'] as const;
 export const officeChatFlagsQueryKey = (office?: string | null) => ['office-chat-flags', office ?? 'own-office'] as const;
+export const officeDietAlertsQueryKey = (office?: string | null) => ['office-diet-alerts', office ?? 'own-office'] as const;
 
 export const fetchOfficeAlerts = (office?: string | null) =>
   officeRequest<OfficeAlerts>(`/api/office/alerts${officeQuery(office)}`, MESSAGES);
@@ -144,6 +171,9 @@ export const fetchOfficeChatFlags = (office?: string | null) => {
   const extra = new URLSearchParams({ status: 'all' });
   return officeRequest<OfficeChatFlags>(`/api/office/alerts/chat-flags${officeQuery(office, extra)}`, MESSAGES);
 };
+
+export const fetchOfficeDietAlerts = (office?: string | null) =>
+  officeRequest<OfficeDietAlerts>(`/api/office/alerts/diet${officeQuery(office)}`, MESSAGES);
 
 export const markOfficeChatFlagReviewed = (flagId: string, office?: string | null) =>
   officeRequest<OfficeChatFlag>(

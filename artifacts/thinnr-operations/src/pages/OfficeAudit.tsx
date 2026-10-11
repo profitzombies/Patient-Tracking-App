@@ -29,6 +29,8 @@ const DEFAULT_ACTIONS = [
   'patient_invitation_created', 'patient_invitation_resent', 'patient_profile_updated', 'patient_status_changed',
   'patient_note_added', 'patient_note_deleted', 'patient_weight_recorded', 'patient_weight_updated', 'patient_weight_removed',
   'patient_follow_up_open', 'patient_follow_up_resolved', 'coach_chat_flag_reviewed',
+  'patient_diet_set', 'patient_diet_cleared', 'patient_diet_block_override_started', 'patient_diet_block_overridden',
+  'patient_diet_block_rejected', 'patient_protocol_restarted', 'patient_preference_item_added', 'patient_preference_item_removed',
   'patient_group_created', 'patient_group_renamed', 'patient_group_deleted', 'patient_group_member_added', 'patient_group_member_removed',
   'office_team_invited', 'office_team_role_changed',
   'office_team_deactivated', 'office_team_reactivated', 'office_team_signed_out', 'conversation_transcript_read',

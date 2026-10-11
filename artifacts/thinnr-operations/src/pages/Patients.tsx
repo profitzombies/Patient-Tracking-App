@@ -14,6 +14,7 @@ import {
   builtInQuickSets,
   dateKeyOf,
   demoStatusToRoster,
+  dietLabel,
   loadCustomQuickSets,
   matchesAllConditions,
   isArchivedRosterView,
@@ -46,6 +47,7 @@ import { BTN_SECONDARY } from "@/components/patient/heritage";
 import { resendInvitation, type OfficePatient, type OutreachRoster } from "@/lib/office-roster";
 import { compareLiveLogging, isLiveLapsed, rosterActivityFor, type RosterActivity } from "@/lib/roster-activity";
 import { LiveEngagementCell, LiveLoggingCell } from "@/components/office/RosterActivity";
+import { FitsDietCell, RosterDietCell } from "@/components/office/RosterDiet";
 import { OutreachChip } from "@/components/office/NotificationTimeline";
 import { DeletedAccountsSection, DeletionChip } from "@/components/office/AccountDeletion";
 import { PatientRosterLoading } from "@/components/office/ProviderLoading";
@@ -406,12 +408,22 @@ export default function Patients() {
           loggingLapsed: activity.kind === 'unknown' ? null : isLiveLapsed(activity),
           attentionReasons: p.operational?.reasons ?? [],
           groupIds: p.groupIds ?? [],
+          // Diet family: null = could not be read (matches no diet condition).
+          diet: p.diet == null ? null : {
+            slug: p.diet.diet?.slug ?? null,
+            pendingBlock: p.diet.pendingBlock != null,
+            severeAllergy: p.diet.severeAllergy,
+            fitsDietPct: p.diet.fitsDietPct,
+          },
         };
 
         return {
           id: p.id,
           filterRow,
           spentCents,
+          dietFacts: p.diet ?? null,
+          stage: p.program?.stage ?? null,
+          week: p.program?.week ?? null,
           name: p.name,
           initials,
           email: p.email,
@@ -466,11 +478,15 @@ export default function Patients() {
         loggingLapsed: isLapsed(stats),
         attentionReasons: [],
         groupIds: groupsApi.demoGroupIdsByPatient.get(p.id) ?? [],
+        diet: null,
       };
       return {
         id: p.id,
         filterRow,
         spentCents: spend.spentCents,
+        dietFacts: null,
+        stage: p.stage as 'protocol' | 'maintenance' | null,
+        week: p.stage === 'protocol' ? p.protocolWeek : null,
         name: p.name,
         initials: p.initials,
         email: p.email,
@@ -502,7 +518,17 @@ export default function Patients() {
   // runs); group options from the office's group list.
   const dynamicOptions = useMemo<DynamicFieldOptions>(() => {
     const ids = Array.from(new Set(unifiedRows.map((row) => row.filterRow.programId).filter((id): id is string => id != null))).sort();
-    return { program: ids.map((id) => ({ value: id, label: programLabel(id) })), group: groupsApi.options };
+    // Diets in use on this roster (slug → library name), so the filter only offers real choices.
+    const diets = new Map<string, string>();
+    for (const row of unifiedRows) {
+      const diet = row.dietFacts?.diet;
+      if (diet) diets.set(diet.slug, diet.slug === 'just_tracking' ? dietLabel(diet.slug) : diet.name);
+    }
+    return {
+      program: ids.map((id) => ({ value: id, label: programLabel(id) })),
+      group: groupsApi.options,
+      diet: Array.from(diets, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+    };
   }, [unifiedRows, groupsApi.options]);
 
   // A filter naming a group that no longer exists is dropped from the URL as
@@ -551,6 +577,15 @@ export default function Patients() {
           return a.spentCents == null ? 1 : -1;
         }
         comparison = a.spentCents - b.spentCents;
+      } else if (sortField === 'fitsDiet') {
+        // Unknown percentages sink to the bottom in either direction.
+        const pa = a.dietFacts?.fitsDietPct ?? null;
+        const pb = b.dietFacts?.fitsDietPct ?? null;
+        if (pa == null || pb == null) {
+          if (pa == null && pb == null) return 0;
+          return pa == null ? 1 : -1;
+        }
+        comparison = pa - pb;
       } else if (sortField === 'logging') {
         if (a.activity || b.activity) {
           // Live: unknown rates sink to the bottom in either direction.
@@ -701,6 +736,18 @@ export default function Patients() {
                     <LiveEngagementCell activity={patient.activity} align="right" />
                   </div>
                 )}
+                {patient.isLive && !patient.closure && (
+                  <div className="mt-3 flex items-start justify-between gap-3 border-t border-border/60 pt-3">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[.1em] text-muted-foreground">Diet</p>
+                      <p className="mt-1 text-[9px] font-bold uppercase tracking-[.1em] text-muted-foreground">Fits diet</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <RosterDietCell patientId={patient.id} facts={patient.dietFacts} stage={patient.stage} week={patient.week} align="right" />
+                      <FitsDietCell patientId={patient.id} facts={patient.dietFacts} align="right" />
+                    </div>
+                  </div>
+                )}
                 {patient.showResend && (
                   <div className="mt-3 flex justify-end">
                     <button
@@ -747,10 +794,10 @@ export default function Patients() {
 
         {/* Table */}
         <div className={liveEnabled && liveRosterIsLoading ? 'hidden' : 'hidden overflow-x-auto md:block'}>
-          <table className={`w-full table-fixed text-left text-xs ${liveEnabled ? "min-w-[1040px]" : "min-w-[840px]"}`}>
+          <table className={`w-full table-fixed text-left text-xs ${liveEnabled ? "min-w-[1240px]" : "min-w-[840px]"}`}>
             <thead className="border-b border-border bg-secondary text-[10px] uppercase tracking-[.11em] text-muted-foreground">
               <tr>
-                <th className={`${liveEnabled ? "w-[21%]" : "w-[34%]"} px-3 py-3 font-semibold`}>
+                <th className={`${liveEnabled ? "w-[18%]" : "w-[34%]"} px-3 py-3 font-semibold`}>
                   <button onClick={() => handleSort('name')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Patient {sortField === 'name' && <ArrowUpDown size={12} className="text-primary" />}
                   </button>
@@ -772,6 +819,14 @@ export default function Patients() {
                 </th>
                 {liveEnabled && <th className="whitespace-nowrap px-3 py-3 font-semibold">Check-ins &amp; wellbeing</th>}
                 {liveEnabled && <th className="w-[3.75rem] px-3 py-3 font-semibold">Meds</th>}
+                {liveEnabled && <th className="w-[9.5rem] whitespace-nowrap px-3 py-3 font-semibold">Diet</th>}
+                {liveEnabled && (
+                  <th className="w-[5.25rem] whitespace-nowrap px-3 py-3 font-semibold">
+                    <button onClick={() => handleSort('fitsDiet')} className="flex items-center gap-1 rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      % fits diet {sortField === 'fitsDiet' && <ArrowUpDown size={12} className="text-primary" />}
+                    </button>
+                  </th>
+                )}
                 <th className="w-[6rem] whitespace-nowrap px-3 py-3 font-semibold text-right">
                   <button onClick={() => handleSort('weightLoss')} className="flex items-center justify-end gap-1 w-full rounded-sm transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     Weight Loss {sortField === 'weightLoss' && <ArrowUpDown size={12} className="text-primary" />}
@@ -843,6 +898,16 @@ export default function Patients() {
                         {patient.medicationAdherence?.rate == null ? '—' : `${patient.medicationAdherence.rate}%`}
                       </td>
                     )}
+                    {liveEnabled && (
+                      <td className="px-3 py-3">
+                        {!patient.closure && <RosterDietCell patientId={patient.id} facts={patient.dietFacts} stage={patient.stage} week={patient.week} />}
+                      </td>
+                    )}
+                    {liveEnabled && (
+                      <td className="px-3 py-3">
+                        {!patient.closure && <FitsDietCell patientId={patient.id} facts={patient.dietFacts} />}
+                      </td>
+                    )}
                     <td className="px-3 py-3 text-right">
                       <b className="block font-mono font-semibold text-navy">{patient.weightLossDisplay}</b>
                       <span className="text-[10px] text-muted-foreground">{patient.percentLossDisplay}</span>
@@ -878,14 +943,14 @@ export default function Patients() {
 
               {liveEnabled && liveRosterIsError && (
                 <tr>
-                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-destructive">
+                  <td colSpan={liveEnabled ? 9 : 6} className="px-4 py-12 text-center text-destructive">
                     {liveRosterError instanceof Error ? liveRosterError.message : 'The roster could not be loaded.'}
                   </td>
                 </tr>
               )}
               {(!liveEnabled || liveRosterData) && filteredAndSortedPatients.length === 0 && (
                 <tr>
-                  <td colSpan={liveEnabled ? 7 : 6} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={liveEnabled ? 9 : 6} className="px-4 py-12 text-center text-muted-foreground">
                     No patients found matching your search. Search by name, email, or phone.
                   </td>
                 </tr>

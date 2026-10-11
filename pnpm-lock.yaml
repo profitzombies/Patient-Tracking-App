@@ -837,6 +837,9 @@ importers:
       '@workspace/app-usage-insights':
         specifier: workspace:*
         version: link:../../lib/app-usage-insights
+      '@workspace/diet-programs':
+        specifier: workspace:*
+        version: link:../../lib/diet-programs
       '@workspace/email-templates':
         specifier: workspace:*
         version: link:../../lib/email-templates

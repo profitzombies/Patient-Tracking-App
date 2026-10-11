@@ -4,6 +4,7 @@ import { localClock, parseClockMinutes } from "../../notifications/policy";
 import { supabaseAdmin } from "../../lib/supabase-admin";
 import { officeIsActive } from "../../lib/office-status";
 import { staffDigestPushBody, type DigestReasonCount } from "../../alerts/staff-sender";
+import { dietDigestCounts, dietDigestPatientIds, loadDietCareTeamAlerts, loadPendingDietBlocks } from "../../diet/care-team-alerts";
 import type { JobContext, JobDefinition } from "../types";
 
 /** Counts patients per reason label in first-seen order; this is all the email and push ever learn. */
@@ -65,8 +66,19 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
       ok(existing, "staff digest idempotence read");
       if (Array.isArray(existing.json) && existing.json[0]) { ctx.tally("alreadyGenerated"); continue; }
       const attention = await loadOfficeAttention(providerId, ctx.now);
+      // Diet family: pending safety blocks (standing) and the last day's
+      // care-team diet alerts. Counts only — if the diet reads fail the digest
+      // still goes out without those lines rather than not at all.
+      let dietLines: DigestReasonCount[] = [];
+      let dietPatients = new Set<string>();
+      try {
+        const [pendingBlocks, alerts] = await Promise.all([loadPendingDietBlocks(providerId, ctx.now), loadDietCareTeamAlerts(providerId, ctx.now, 1)]);
+        dietLines = dietDigestCounts({ alerts, pendingBlocks, now: ctx.now });
+        dietPatients = dietDigestPatientIds({ alerts, pendingBlocks, now: ctx.now });
+      } catch (error) { ctx.tally("dietLinesUnavailable"); ctx.log("diet digest lines unavailable", { providerId, error: String(error) }); }
+      const flaggedIds = new Set([...attention.items.map((item) => item.patientId), ...dietPatients]);
       ctx.tally("officesDue");
-      ctx.tally("patientsFlagged", attention.items.length);
+      ctx.tally("patientsFlagged", flaggedIds.size);
       if (ctx.dryRun) continue;
       const inserted = await supabaseAdmin("POST", "/rest/v1/office_attention_digests?on_conflict=provider_id,digest_date", [{
         provider_id: providerId, digest_date: digestDate, generated_at: ctx.now.toISOString(),
@@ -75,7 +87,7 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
       ok(inserted, "staff digest insert");
       if (!Array.isArray(inserted.json) || !inserted.json[0]) { ctx.tally("alreadyGenerated"); continue; }
       ctx.tally("digestsGenerated");
-      if (!attention.items.length) continue;
+      if (!flaggedIds.size) continue;
       const membersResult = await supabaseAdmin("GET", `/rest/v1/team_members?provider_id=eq.${enc(providerId)}&activation_status=neq.disabled&auth_user_id=not.is.null&select=id,name,email,office_role,auth_user_id&limit=500`);
       ok(membersResult, "staff digest recipient scan");
       const candidates = [
@@ -87,20 +99,20 @@ export async function runStaffAttentionDigest(ctx: JobContext): Promise<void> {
         (overrides.alertRecipientMode === "owners_admins" && (row.office_role === "owner" || row.office_role === "admin")) ||
         (overrides.alertRecipientMode === "selected" && overrides.alertRecipientMemberIds.includes(String(row.id))),
       );
-      const body = staffDigestPushBody(attention.items.length);
+      const body = staffDigestPushBody(flaggedIds.size);
       // The email renders from this snapshot so the message matches the digest
       // exactly as it was generated, even if the roster moves on later. Only
       // counts per reason are stored: email and push leave through vendors
       // without a BAA, so no patient name or per-patient finding may ride
       // along. The names live in office_attention_digests for the in-app page.
-      const reasonCounts = digestReasonCounts(attention.items);
+      const reasonCounts = [...digestReasonCounts(attention.items), ...dietLines];
       const expires = digestExpiry(ctx.now, zone).toISOString();
       const notifications = recipients.flatMap((recipient) => (["email", "push"] as const).map((channel) => ({
         provider_id: providerId, auth_user_id: recipient.auth_user_id, channel,
         email: channel === "email" ? recipient.email ?? null : null,
         kind: "staff_attention_digest", category: "staff_alerts", title: "Patients need attention", body,
         data: {
-          digestDate, flaggedCount: attention.items.length, providerId,
+          digestDate, flaggedCount: flaggedIds.size, providerId,
           officeName: String(provider.provider_name ?? "Your office"),
           recipientName: typeof recipient.name === "string" && recipient.name.trim() ? recipient.name.trim() : null,
           reasonCounts,

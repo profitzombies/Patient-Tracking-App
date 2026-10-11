@@ -55,6 +55,9 @@ import ViewerProfile from '@/pages/admin/training/ViewerProfile';
 import TrainingAnalytics from '@/pages/admin/training/TrainingAnalytics';
 import LearnerPreview from '@/pages/admin/training/LearnerPreview';
 import KnowledgeBase from '@/pages/admin/KnowledgeBase';
+import DietLibrary from '@/pages/admin/DietLibrary';
+import DietLibraryEntry from '@/pages/admin/DietLibraryEntry';
+import DietReporting from '@/pages/admin/DietReporting';
 import SupportTestBench from '@/pages/admin/SupportTestBench';
 import Audit from '@/pages/admin/Audit';
 import PatientDeletions from '@/pages/admin/PatientDeletions';
@@ -135,6 +138,9 @@ function AdminArea() {
               <Route path="/admin/training/viewers/:viewerId" component={ViewerProfile} />
               <Route path="/admin/training/analytics" component={TrainingAnalytics} />
               <Route path="/admin/knowledge" component={KnowledgeBase} />
+              <Route path="/admin/diet-library" component={DietLibrary} />
+              <Route path="/admin/diet-library/:slug" component={DietLibraryEntry} />
+              <Route path="/admin/diet-reporting" component={DietReporting} />
               <Route path="/admin/support-test" component={SupportTestBench} />
               <Route path="/admin/audit/deletions">
                 {canViewAudit ? <PatientDeletions /> : <Redirect to="/admin" replace />}

@@ -161,6 +161,6 @@
 - [Office patient groups](patient-groups.md) — office-scoped labels, HQ read-only via ?office=, nested membership responses; roster now reads memberships (stub it in roster fakes); throwaway offices need the launch waiver.
 - [RTR React Query polling](rtr-react-query-polling.md) — isServer is frozen at import: call environmentManager.setIsServer(() => false) or refetchInterval never fires in Node suites; bundle rows need billingIdentity.
 - [HQ Customer health](hq-customer-health.md) — one RPC + one pure scoring module; weekly email: ISO-week run row written last, send-time opt-out re-check, staff mail ignores dev delivery mode.
-- [Diet programs foundation](diet-programs.md) — catalog in the lib generates the seed; phase from the open episode; blocks re-evaluated at activation; pushes carry one generic non-clinical kind, rows keep the specific one.
+- [Diet programs](diet-programs.md) — lib catalog seeds the DB; phase from the open episode; roster diet facts are a nullable family (unknown ≠ no diet, % fits never 0); pushes carry one generic kind; HQ library content-gated.
 - [Coach diet grounding & guard](coach-diet-grounding.md) — real-only diet block; guard deterministic on structured outputs only; spoken list labels resolve to catalog keys before saving.
 - [Patient diet experience](patient-diet-experience.md) — diet slice outside PersistedState; only seeded fd_* ids can be "not approved" (else no badge); in-flight list edits re-point to the server id.

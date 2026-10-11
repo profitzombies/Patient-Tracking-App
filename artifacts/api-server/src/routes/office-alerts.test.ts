@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   items: [] as Row[], seen: [] as Row[], digests: [] as Row[], preferences: [] as Row[],
   version: 1, mode: "all", selected: [] as string[], sendTime: "08:00", zone: null as string | null,
   flags: [] as Row[], audits: [] as Row[],
+  dietFacts: [] as Row[] | null, dietRows: [] as Row[],
 }));
 vi.mock("../auth/office-scope", () => ({
   resolveOfficeScope: vi.fn(async (input: Row) => {
@@ -45,6 +46,8 @@ vi.mock("../lib/supabase-admin", () => ({
       Object.assign(target, body as Row); return { status: 200, json: [target] };
     }
     if (name === "office_attention_digests") return { status: 200, json: state.digests };
+    if (name === "provider_patient_diet_facts") return state.dietFacts ? { status: 200, json: state.dietFacts } : { status: 500, json: { message: "rpc missing" } };
+    if (name === "staff_notifications" && method === "GET") return { status: 200, json: state.dietRows };
     if (name === "providers") return { status: 200, json: [{ provider_name: "Owner", email: "owner@example.com", auth_user_id: "owner-user" }] };
     if (name === "team_members") return { status: 200, json: [{ id: "member-1", name: "Staff", email: "staff@example.com", office_role: "staff", activation_status: "active", auth_user_id: "staff-user" }] };
     if (name === "staff_alert_preferences") {
@@ -75,6 +78,15 @@ beforeEach(() => {
   state.seen = []; state.digests = [{ digest_date: "2026-10-11", generated_at: "2026-10-11T12:00:00Z", time_zone: "UTC", flagged_count: 1, items: state.items }, { digest_date: "2026-10-10", generated_at: "2026-10-10T12:00:00Z", time_zone: "UTC", flagged_count: 0, items: [] }];
   state.preferences = []; state.version = 1; state.mode = "all"; state.sendTime = "08:00"; state.zone = null;
   state.audits = [];
+  state.dietFacts = [
+    { patient_id: "patient-1", diet_slug: "keto", diet_name: "Keto", pending_block_id: "blk-1", pending_block_created_at: "2026-10-10T20:00:00Z", severe_allergy: false, fit_count: 0, fit_total: 0, fit_window_days: 14 },
+    { patient_id: "patient-gone", diet_slug: null, diet_name: null, pending_block_id: "blk-9", pending_block_created_at: "2026-10-10T21:00:00Z", severe_allergy: false, fit_count: 0, fit_total: 0, fit_window_days: 14 },
+  ];
+  state.dietRows = [
+    { id: "n2", kind: "diet_change", created_at: new Date(Date.now() - 3_600_000).toISOString(), data: { patientId: "patient-1", day: "2026-10-11", selectionId: "sel-1" } },
+    { id: "n1", kind: "diet_change", created_at: new Date(Date.now() - 3_600_000).toISOString(), data: { patientId: "patient-1", day: "2026-10-11", selectionId: "sel-1" } },
+    { id: "n0", kind: "diet_allergy_severe", created_at: new Date(Date.now() - 7_200_000).toISOString(), data: { patientId: "patient-1", day: "2026-10-11", itemId: "item-1" } },
+  ];
   state.flags = [
     { id: "flag-1", patient_id: "patient-1", conversation_id: "conv-1", category: "self_harm", reason: "Expressed a wish to not wake up.", message_excerpt: "I wish I wouldn't wake up", status: "open", created_at: "2026-10-11T03:30:00Z", reviewed_at: null, reviewed_by_name: null },
     { id: "flag-0", patient_id: "patient-1", conversation_id: null, category: "pregnancy", reason: "Reports a positive test.", message_excerpt: "I'm pregnant", status: "reviewed", created_at: "2026-10-09T10:00:00Z", reviewed_at: "2026-10-09T11:00:00Z", reviewed_by_name: "Owner" },
@@ -114,6 +126,25 @@ describe("coach chat flag routes", () => {
     expect((await call("POST", "/office/alerts/chat-flags/flag-1/reviewed", "owner")).json).toMatchObject({ reviewedByName: "Owner" });
     expect((await call("POST", "/office/alerts/chat-flags/missing/reviewed", "owner")).status).toBe(404);
     expect((await call("GET", "/office/alerts/chat-flags", "patient")).status).toBe(403);
+  });
+});
+describe("diet care-team alert routes", () => {
+  it("lists pending blocks and recent diet alerts once per patient / kind / day, named behind office scope", async () => {
+    const response = await call("GET", "/office/alerts/diet");
+    expect(response.status).toBe(200);
+    expect(response.json.pendingBlockCount).toBe(2);
+    // Only patients still on the roster are listed by name; the count stays honest.
+    expect(response.json.pendingBlocks).toEqual([{ patientId: "patient-1", blockId: "blk-1", createdAt: "2026-10-10T20:00:00Z", patientName: "Pat Example" }]);
+    const items = response.json.items as Row[];
+    expect(items.map((item) => [item.id, item.kind, item.kindLabel])).toEqual([["n2", "diet_change", "Eating plan changed"], ["n0", "diet_allergy_severe", "Severe allergy recorded"]]);
+    expect(items[0]).toMatchObject({ patientId: "patient-1", patientName: "Pat Example", day: "2026-10-11", refs: { selectionId: "sel-1", blockId: null, itemId: null } });
+    expect(JSON.stringify(response.json)).not.toMatch(/Keto|allergen|peanut/i);
+  });
+  it("lets HQ drill-in read diet alerts and reports unavailability instead of zeros", async () => {
+    expect((await call("GET", "/office/alerts/diet?office=office-1", "hq")).status).toBe(200);
+    state.dietFacts = null;
+    const broken = await call("GET", "/office/alerts/diet");
+    expect(broken.status).toBe(502);
   });
 });
 describe("office alerts routes", () => {

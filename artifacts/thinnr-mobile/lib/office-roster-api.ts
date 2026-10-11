@@ -31,6 +31,21 @@ export class OfficeRosterError extends Error {
   }
 }
 
+/**
+ * Roster diet facts (read-only on the provider app). Three-way model:
+ *  - the whole object null → the diet family could not be read (unknown);
+ *  - `diet` null → a real "no diet chosen";
+ *  - `fitsDietPct` null → unknown (no scored foods yet), never 0.
+ */
+export interface RosterDietFacts {
+  diet: { slug: string; name: string; startedAt: string | null } | null;
+  pendingBlock: { id: string; createdAt: string | null } | null;
+  severeAllergy: boolean;
+  fitsDietPct: number | null;
+  fitsDietSample: number;
+  fitWindowDays: number;
+}
+
 export interface OfficePatient {
   id: string;
   name: string;
@@ -40,6 +55,9 @@ export interface OfficePatient {
   activationStatus: string | null;
   verified: boolean;
   createdAt: string | null;
+  closure?: { closedAt: string; recordRetainUntil: string } | null;
+  program?: { stage?: 'protocol' | 'maintenance' | null; week?: number } | null;
+  diet?: RosterDietFacts | null;
   invitation: {
     state: 'pending' | 'verified';
     invitedAt: string;

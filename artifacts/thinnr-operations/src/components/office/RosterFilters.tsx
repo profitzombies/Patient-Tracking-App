@@ -638,6 +638,7 @@ export const SORT_CHOICES: ReadonlyArray<{ sort: RosterSort; label: string }> = 
   { sort: { field: 'weightLoss', order: 'desc' }, label: 'Most weight lost' },
   { sort: { field: 'logging', order: 'asc' }, label: 'Lowest logging rate' },
   { sort: { field: 'spent', order: 'desc' }, label: 'Highest spend' },
+  { sort: { field: 'fitsDiet', order: 'asc' }, label: 'Lowest % fits diet' },
   { sort: { field: 'status', order: 'asc' }, label: 'Status' },
 ];
 

@@ -392,7 +392,7 @@ export async function planPatientRecord(patientId: string, options: PlanPatientR
     "part and every file in the set; every part carries the same manifest.",
     "",
     "record-summary.pdf  Printable summary: identity, enrollment, latest measurements,",
-    "                    medications with dose history, bloodwork results, photo list,",
+    "                    medications with dose history, diet and food preferences, bloodwork results, photo list,",
     "                    care-team transcript, orders, and a guide to these files",
     "manifest.json       Every part in this set and which part holds each file",
     ...ARCHIVE_FILE_GUIDE.map(([name, description]) => `${name.padEnd(20)}${description}`),

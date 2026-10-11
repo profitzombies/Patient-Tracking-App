@@ -23,4 +23,5 @@ export const ExportKind = {
   app_payments_offices: 'app_payments_offices',
   app_payments_forecast: 'app_payments_forecast',
   app_payments_transactions: 'app_payments_transactions',
+  diet_restrictions: 'diet_restrictions',
 } as const;

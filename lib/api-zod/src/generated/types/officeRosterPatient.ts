@@ -11,6 +11,7 @@ import type { OperationalPatient } from './operationalPatient';
 import type { PatientAttention } from './patientAttention';
 import type { PatientProgram } from './patientProgram';
 import type { PatientSpend } from './patientSpend';
+import type { RosterDietFacts } from './rosterDietFacts';
 
 export interface OfficeRosterPatient {
   id: string;
@@ -40,4 +41,6 @@ export interface OfficeRosterPatient {
   activeSubscription?: boolean | null;
   /** Lifetime spend at this office from its orders (one grouped query): gross paid, succeeded refunds, net, and the last paid moment. A patient with no paid order is a real zero; null means the spend aggregate could not be read (unknown). */
   spend?: null | PatientSpend;
+  /** Diet facts for the row (active diet, pending safety block, severe allergy, "% fits diet"). null when the diet facts could not be read or the chart is sealed (unknown family, never "no diet"). */
+  diet?: null | RosterDietFacts;
 }

@@ -65,14 +65,44 @@ console.log('staff alerts: bell');
   __setSupabaseSession('staff-token');
   __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' } });
   const item = { patientId: 'pat-1', name: 'Ava Patient', reasons: [{ code: 'no_weight', label: 'No weight logged', days: 8 }], signature: 'no_weight', seen: false };
-  responses = [json(200, { asOf: '2026-08-22', count: 1, total: 1, items: [item] })];
+  // The bell also reads the diet care-team feed; answer by URL so the two
+  // fetch orders cannot matter. Pending safety blocks add to the badge.
+  const dietFeed = {
+    asOf: '2026-08-22T12:00:00Z', pendingBlockCount: 1,
+    pendingBlocks: [{ patientId: 'pat-3', patientName: 'Noor Patient', blockId: 'blk-1', createdAt: '2026-08-21T09:00:00Z' }],
+    items: [{ id: 'n-1', kind: 'diet_allergy_severe', kindLabel: 'Severe allergy recorded', patientId: 'pat-4', patientName: 'Omar Patient', day: '2026-08-22', createdAt: '2026-08-22T08:00:00Z', refs: { selectionId: null, blockId: null, itemId: 'item-1' } }],
+  };
+  let attention = { asOf: '2026-08-22', count: 1, total: 1, items: [item] };
+  const previous = g.fetch;
+  g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const method = (init?.method ?? 'GET').toUpperCase();
+    requests.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (url.includes('/alerts/diet')) return json(200, dietFeed);
+    if (method === 'POST') { attention = { ...attention, count: 0, items: [{ ...item, seen: true }] }; return json(200, { ok: true, count: 0 }); }
+    return json(200, attention);
+  };
   const renderer = await render(<AttentionBell />);
-  check('badge count and fetched patient render', text(one(renderer.root, 'badge-attention-count')) === '1' && text(one(renderer.root, 'attention-item-pat-1')).includes('Ava Patient'));
-  responses = [json(200, { ok: true, count: 0 }), json(200, { asOf: '2026-08-22', count: 0, total: 1, items: [{ ...item, seen: true }] })];
+  check('badge counts unseen attention plus pending diet blocks', text(one(renderer.root, 'badge-attention-count')) === '2' && text(one(renderer.root, 'attention-item-pat-1')).includes('Ava Patient'), text(one(renderer.root, 'badge-attention-count')));
+  const block = one(renderer.root, 'bell-diet-block-pat-3');
+  check('pending block names the patient and deep-links to the diet section', text(block).includes('Noor Patient') && text(block).includes('Safety block awaiting your review') && block.findAll((node) => node.type === 'a')[0]?.props.href === '/patients/pat-3?section=diet', text(block));
+  const alert = one(renderer.root, 'bell-diet-alert-n-1');
+  check('recent diet alert shows the PHI-free kind label only', text(alert).includes('Omar Patient') && text(alert).includes('Severe allergy recorded') && !/peanut|item-1/.test(text(alert)), text(alert));
   await act(async () => { one(renderer.root, 'button-mark-seen-pat-1').props.onClick(); });
   await settle();
-  check('mark seen posts signature and drops badge', requests.some((request) => request.method === 'POST' && request.url === '/api/office/alerts/pat-1/seen' && (request.body as any).signature === 'no_weight') && !maybe(renderer.root, 'badge-attention-count'));
+  check('mark seen posts signature; the diet block keeps the badge at 1', requests.some((request) => request.method === 'POST' && request.url === '/api/office/alerts/pat-1/seen' && (request.body as any).signature === 'no_weight') && text(one(renderer.root, 'badge-attention-count')) === '1', text(maybe(renderer.root, 'badge-attention-count') ?? renderer.root));
   renderer.unmount();
+
+  // Diet feed outage: the attention items still render and the section says so.
+  g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes('/alerts/diet')) return json(502, { error: 'Diet alerts are unavailable right now.' });
+    return json(200, { asOf: '2026-08-22', count: 1, total: 1, items: [item] });
+  };
+  const broken = await render(<AttentionBell />);
+  check('diet feed outage shows an error line, not an empty diet section', Boolean(maybe(broken.root, 'bell-diet-error')) && text(one(broken.root, 'badge-attention-count')) === '1' && Boolean(maybe(broken.root, 'attention-item-pat-1')));
+  broken.unmount();
+  g.fetch = previous;
 }
 
 console.log('\nstaff alerts: demo seen persistence');
@@ -124,7 +154,12 @@ console.log('\nstaff alerts: chat flags live');
   __setSession({ authStatus: 'signed-in', authRole: 'provider_staff', authUser: { id: 'staff-1' } });
   const flag = { id: 'flag-9', patientId: 'pat-7', patientName: 'Ava Patient', conversationId: 'conv-3', category: 'self_harm', categoryLabel: 'Thoughts of self-harm', reason: 'Expressed a wish to not wake up.', messageExcerpt: 'I wish I would not wake up', status: 'open', createdAt: '2026-08-22T15:00:00Z', reviewedAt: null, reviewedByName: null };
   // The page fetches the digest list and the flags; order is not fixed, so answer by URL.
-  const byUrl = (url: string) => url.includes('/alerts/chat-flags') ? json(200, { openCount: 1, items: [flag] }) : json(200, { dates: ['2026-08-22'], latestDate: '2026-08-22', digest: { digestDate: '2026-08-22', generatedAt: '2026-08-22T12:00:00Z', timeZone: 'UTC', flaggedCount: 0, items: [] } });
+  const dietFeed = {
+    asOf: '2026-08-22T12:00:00Z', pendingBlockCount: 1,
+    pendingBlocks: [{ patientId: 'pat-3', patientName: 'Noor Patient', blockId: 'blk-1', createdAt: '2026-08-21T09:00:00Z' }],
+    items: [{ id: 'n-1', kind: 'diet_change', kindLabel: 'Eating plan changed', patientId: 'pat-7', patientName: 'Ava Patient', day: '2026-08-22', createdAt: '2026-08-22T08:00:00Z', refs: { selectionId: 'sel-1', blockId: null, itemId: null } }],
+  };
+  const byUrl = (url: string) => url.includes('/alerts/chat-flags') ? json(200, { openCount: 1, items: [flag] }) : url.includes('/alerts/diet') ? json(200, dietFeed) : json(200, { dates: ['2026-08-22'], latestDate: '2026-08-22', digest: { digestDate: '2026-08-22', generatedAt: '2026-08-22T12:00:00Z', timeZone: 'UTC', flaggedCount: 0, items: [] } });
   const previous = g.fetch;
   g.fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -135,6 +170,8 @@ console.log('\nstaff alerts: chat flags live');
   const renderer = await render(<OfficeAlerts />, '/alerts');
   check('live flag renders the reason and excerpt and links to the transcript', text(one(renderer.root, 'chat-flag-flag-9')).includes('wake up') && one(renderer.root, 'button-open-chat-flag-9').props.href === '/patients/pat-7?coach=conv-3');
   check('flags are fetched with status=all', requests.some((request) => request.url === '/api/office/alerts/chat-flags?status=all'));
+  check('diet section lists the pending block with a Review on record link to the diet section', text(one(renderer.root, 'diet-block-pat-3')).includes('Noor Patient') && one(renderer.root, 'button-review-block-pat-3').props.href === '/patients/pat-3?section=diet');
+  check('diet section lists the week\'s alerts by kind label', text(one(renderer.root, 'diet-alert-n-1')).includes('Eating plan changed') && text(one(renderer.root, 'diet-alerts-recent')).includes('Last 7 days (1)'));
   await act(async () => { one(renderer.root, 'button-review-chat-flag-9').props.onClick(); });
   await settle();
   check('mark reviewed posts to the flag', requests.some((request) => request.method === 'POST' && request.url === '/api/office/alerts/chat-flags/flag-9/reviewed'));
@@ -155,6 +192,7 @@ console.log('\nstaff alerts: chat flags live');
   __setSession({ authStatus: 'signed-in', authRole: 'hq_admin', authUser: { id: 'hq-1' } });
   const hq = await render(<OfficeAlerts />, '/alerts');
   check('HQ sees the flag without a Mark reviewed button', Boolean(maybe(hq.root, 'chat-flag-flag-9')) && !maybe(hq.root, 'button-review-chat-flag-9'));
+  check('HQ drill-in reads diet alerts with the office scope', requests.some((request) => request.url === '/api/office/alerts/diet?office=office-1') && Boolean(maybe(hq.root, 'diet-block-pat-3')));
   hq.unmount();
   g.fetch = previous;
   __setScope(null);

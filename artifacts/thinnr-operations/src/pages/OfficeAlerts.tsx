@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, MessageSquareWarning } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, MessageSquareWarning, Salad } from 'lucide-react';
 import { Link, useLocation, useSearch } from 'wouter';
 import { PageHeader } from '@/components/admin/primitives';
 import { BTN_PRIMARY, BTN_SECONDARY, SectionCard } from '@/components/patient/heritage';
 import { ATTENTION_DEMO_DATES, buildDemoChatFlags, buildDemoDigest } from '@/data/attention-demo';
 import { useScopedPatients } from '@/data/scoped-data';
-import { useMarkChatFlagReviewed, useOfficeAlertDigests, useOfficeChatFlags } from '@/hooks/use-office-alerts';
-import type { AttentionDigest, OfficeChatFlag } from '@/lib/office-alerts-api';
+import { useMarkChatFlagReviewed, useOfficeAlertDigests, useOfficeChatFlags, useOfficeDietAlerts } from '@/hooks/use-office-alerts';
+import { dietAlertHref, type AttentionDigest, type OfficeChatFlag } from '@/lib/office-alerts-api';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useDemoAttentionSeen } from '@/hooks/use-demo-attention-seen';
 
@@ -41,6 +41,9 @@ export default function OfficeAlerts() {
   const openFlags = flags.filter((flag) => flag.status === 'open');
   const reviewedFlags = flags.filter((flag) => flag.status === 'reviewed').slice(0, 5);
   const canReview = !flagsQuery.liveOffice;
+  const dietQuery = useOfficeDietAlerts();
+  const pendingBlocks = dietQuery.isDemo ? [] : dietQuery.data?.pendingBlocks ?? [];
+  const dietAlerts = dietQuery.isDemo ? [] : dietQuery.data?.items ?? [];
 
   // An alert email links here with ?chat=<flagId>. Once the list is in, jump
   // straight to that patient's record with the transcript open.
@@ -125,6 +128,42 @@ export default function OfficeAlerts() {
           </details>
         )}
       </SectionCard>
+
+      {!dietQuery.isDemo && (
+        <SectionCard
+          title="Diet & food preferences"
+          sub={dietQuery.liveEnabled && dietQuery.isPending ? 'Checking diet alerts…' : pendingBlocks.length ? `${pendingBlocks.length} safety block${pendingBlocks.length === 1 ? '' : 's'} awaiting review · overrides need a second confirmation on the record` : 'No safety blocks awaiting review. Diet changes and severe allergies from the last 7 days are listed below.'}
+        >
+          {dietQuery.isError && <p role="alert" className="px-5 py-4 text-sm text-destructive" data-testid="diet-alerts-error">Diet alerts could not be loaded. Refresh to try again.</p>}
+          <ul data-testid="diet-pending-blocks">
+            {pendingBlocks.map((block) => (
+              <li key={block.blockId} className="flex flex-col gap-3 border-b border-border px-5 py-4 last:border-0 md:flex-row md:items-center md:justify-between" data-testid={`diet-block-${block.patientId}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Salad size={14} className="text-destructive" aria-hidden />
+                  <p className="font-serif text-sm font-bold text-navy">{block.patientName}</p>
+                  <span className="rounded-sm border border-[#d5a7a7] bg-[#fff0f0] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[.06em] text-destructive">Safety block</span>
+                  {block.createdAt && <span className="text-[11px] text-muted-foreground">{whenText(block.createdAt)}</span>}
+                </div>
+                <Link href={dietAlertHref(block.patientId)} className={`${BTN_PRIMARY} h-8 px-3`} data-testid={`button-review-block-${block.patientId}`}>Review on record</Link>
+              </li>
+            ))}
+          </ul>
+          {!dietQuery.isPending && !dietQuery.isError && (
+            <div className="border-t border-border px-5 py-3" data-testid="diet-alerts-recent">
+              <p className="text-xs font-semibold text-muted-foreground">Last 7 days ({dietAlerts.length})</p>
+              {dietAlerts.length === 0 && <p className="mt-1 text-xs text-muted-foreground">No diet changes or severe allergies recorded this week.</p>}
+              <ul className="mt-2 space-y-1">
+                {dietAlerts.map((alert) => (
+                  <li key={alert.id} className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground" data-testid={`diet-alert-${alert.id}`}>
+                    <span><span className="font-semibold text-foreground">{alert.patientName}</span> · {alert.kindLabel} · {whenText(alert.createdAt)}</span>
+                    <Link href={dietAlertHref(alert.patientId)} className="font-semibold text-primary underline-offset-2 hover:underline">Open record</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </SectionCard>
+      )}
 
       <SectionCard title="Digest day" sub={effectiveDate ? `${dayLabel(effectiveDate)} · ${digest?.flaggedCount ?? 0} flagged${query.isDemo && effectiveDate === ATTENTION_DEMO_DATES[0] ? ` · ${demoSeen.length} seen in bell` : ''}` : 'No digest has been generated yet.'}>
         <div className="flex flex-wrap items-center gap-2 px-5 py-4">

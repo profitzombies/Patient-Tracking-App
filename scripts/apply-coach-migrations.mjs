@@ -69,6 +69,11 @@ const migrationNames = [
   // entered_by_role 'coach'; the selection row remembers when the coach
   // acknowledged a diet change.
   "20261206000003_coach_diet_followups.sql",
+  // Staff diet surfaces: per-entry fit verdict, the office roster diet-facts
+  // RPC and the HQ diets & restrictions rollup RPC.
+  "20261207000000_diet_roster_facts.sql",
+  "20261207100000_diet_restrictions_export_kind.sql",
+  "20261207200000_diet_facts_fixes.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -310,6 +315,9 @@ await query(`
          select 1 from information_schema.columns
           where table_schema = 'public' and table_name = 'patient_diet_selections' and column_name = 'coach_acknowledged_at'
        )
+       or to_regprocedure('public.provider_patient_diet_facts(text,timestamptz)') is null
+       or to_regprocedure('public.hq_diet_restrictions_facts(date,date,text)') is null
+       or not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'patient_diary_entries' and column_name = 'fit_verdict')
        or exists (
          select 1 from unnest(array['patient_protocol_episodes','patient_diet_selections','patient_diet_blocks',
                                     'patient_preference_items','patient_screening_answers','patient_activity_levels',

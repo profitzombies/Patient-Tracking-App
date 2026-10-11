@@ -56,14 +56,15 @@ export function canHq(role: HqRole | null, permission: HqPermission): boolean {
 
 export function permissionForAdminPath(path: string): HqPermission {
   // App usage, Patient retention and Customer health are analytics: the same gate as the overview / office comparison.
-  if (path.startsWith('/admin/app-usage') || path.startsWith('/admin/patient-retention') || path.startsWith('/admin/customer-health')) return 'overview';
+  if (path.startsWith('/admin/app-usage') || path.startsWith('/admin/patient-retention') || path.startsWith('/admin/customer-health') || path.startsWith('/admin/diet-reporting')) return 'overview';
   if (path.startsWith('/admin/payments')) return 'payments';
   if (path.startsWith('/admin/accounts')) return 'accounts';
   if (path.startsWith('/admin/conversations')) return 'conversations';
   if (path.startsWith('/admin/escalations')) return 'escalations';
   if (path.startsWith('/admin/team')) return 'team';
   if (path.startsWith('/admin/training')) return 'training';
-  if (path.startsWith('/admin/knowledge') || path.startsWith('/admin/support-test')) return 'knowledge';
+  // The diet library is HQ content (mirrors the server's content_manage gate).
+  if (path.startsWith('/admin/knowledge') || path.startsWith('/admin/support-test') || path.startsWith('/admin/diet-library')) return 'knowledge';
   if (path.startsWith('/admin/audit')) return 'audit';
   if (path.startsWith('/admin/files')) return 'files';
   if (path.startsWith('/admin/exports')) return 'exports';

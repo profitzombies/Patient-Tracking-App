@@ -590,8 +590,12 @@ interface EntryRow {
   fat: number;
   adjustments: Array<{ index: number; amount: number; unit: string }> | null;
   nutrition_snapshot: Record<string, unknown> | null;
+  /** Diet fit verdict the app recorded at log time; null when it recorded none. */
+  fit_verdict: "fits" | "does_not_fit" | "unknown" | null;
   updated_at: string;
 }
+
+const FIT_VERDICTS = new Set(["fits", "does_not_fit", "unknown"]);
 
 /**
  * One diary entry from the app, checked field by field into a DB row.
@@ -659,6 +663,15 @@ function parseEntry(
   }
   const nutrition = parseNutritionSnapshot(e.nutritionSnapshot);
   if ("error" in nutrition) return nutrition;
+  // Optional: whether the food fit the diet in force when it was logged. The
+  // roster's "% fits diet" counts these; an entry without one is not scored.
+  let fitVerdict: EntryRow["fit_verdict"] = null;
+  if (e.fitVerdict !== undefined && e.fitVerdict !== null) {
+    if (typeof e.fitVerdict !== "string" || !FIT_VERDICTS.has(e.fitVerdict)) {
+      return { error: "Entry fit verdict is invalid." };
+    }
+    fitVerdict = e.fitVerdict as EntryRow["fit_verdict"];
+  }
   return {
     row: {
       patient_id: patientId,
@@ -676,6 +689,7 @@ function parseEntry(
       fat: e.fat,
       adjustments,
       nutrition_snapshot: nutrition.snapshot,
+      fit_verdict: fitVerdict,
       updated_at: stamp,
     },
   };
@@ -1276,7 +1290,7 @@ router.get("/patient-data/state", async (req, res) => {
       supabaseAdmin(
         "GET",
         `/rest/v1/patient_diary_entries?${rangeFilters([`patient_id=eq.${pid}`])}` +
-          `&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments,nutrition_snapshot` +
+          `&select=entry_id,date_key,meal,kind,ref_id,name,detail,quantity,calories,protein,carbs,fat,adjustments,nutrition_snapshot,fit_verdict` +
           `&order=created_at.asc,entry_id.asc&limit=${MAX_ENTRIES_RETURNED}`,
       ),
       supabaseAdmin(
@@ -1353,6 +1367,7 @@ router.get("/patient-data/state", async (req, res) => {
       if (row.nutrition_snapshot && typeof row.nutrition_snapshot === "object") {
         entry.nutritionSnapshot = row.nutrition_snapshot;
       }
+      if (typeof row.fit_verdict === "string" && FIT_VERDICTS.has(row.fit_verdict)) entry.fitVerdict = row.fit_verdict;
       return entry;
     });
 

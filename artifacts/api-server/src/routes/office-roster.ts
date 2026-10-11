@@ -46,6 +46,7 @@ import { activeSubscriptionPatientIds, officePatientSpend, ZERO_SPEND } from "..
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
+import { loadOfficeDietFacts, NO_DIET_FACTS } from "../diet/roster-facts";
 import { resolvePatientInviteLink } from "../lib/patient-invite-link";
 import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 
@@ -472,7 +473,7 @@ router.get("/office/roster", async (req, res) => {
     const patientVisibility = includeArchived
       ? "archived_into_patient_id=is.null"
       : "archived_at=is.null";
-    const [rows, archivedRows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient, groupMembers] = await Promise.all([
+    const [rows, archivedRows, operational, followUps, outreachStates, pendingDeletions, tombstones, medicationState, subscribedPatients, spendByPatient, groupMembers, dietFacts] = await Promise.all([
       supabaseAdmin(
       "GET",
       `/rest/v1/patients?provider_id=eq.${enc(scope.providerId)}&${patientVisibility}&select=${PATIENT_SELECT}&order=created_at.desc&limit=500`,
@@ -508,6 +509,13 @@ router.get("/office/roster", async (req, res) => {
       // Office-defined group memberships ride the roster row so the client
       // can render tags and filter by group without a per-row fetch.
       supabaseAdmin("GET", `/rest/v1/patient_group_members?provider_id=eq.${enc(scope.providerId)}&select=group_id,patient_id,added_at&order=added_at.asc&limit=10000`),
+      // Diet, pending safety block, severe allergy and the "% fits diet"
+      // sample ride the row; null on every row when the facts RPC failed
+      // (unknown family), never a silent "no diet".
+      loadOfficeDietFacts(scope.providerId, now).catch((error: unknown) => {
+        req.log?.warn({ err: error }, "roster diet facts unavailable");
+        return null;
+      }),
     ]);
     if (rows.status >= 300) throw new Error(`roster load failed (${rows.status})`);
     if (groupMembers.status >= 300 || !Array.isArray(groupMembers.json)) throw new Error(`group membership roster load failed (${groupMembers.status})`);
@@ -570,6 +578,9 @@ router.get("/office/roster", async (req, res) => {
         // this office; a patient with no paid order is a real zero.
         spend: spendByPatient ? spendByPatient.get(String(row.id)) ?? ZERO_SPEND : null,
         groupIds: groupIdsByPatient.get(String(row.id)) ?? [],
+        // Diet facts: a listed row, NO_DIET_FACTS for an unlisted live
+        // patient, null when the family could not be read (or the chart is sealed).
+        diet: dietFacts && live ? dietFacts.get(String(row.id)) ?? NO_DIET_FACTS : null,
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted
@@ -589,6 +600,8 @@ router.get("/office/roster", async (req, res) => {
       loggingLapsed: livePatients.filter((patient) => patient.operational.reasons.includes("logging_lapsed")).length,
       deletionRequested: livePatients.filter((patient) => patient.deletion != null).length,
       deletedAccounts: deletedAccounts.length,
+      // Safety blocks awaiting provider review; null when the diet facts could not be read.
+      pendingDietBlocks: dietFacts ? livePatients.filter((patient) => patient.diet?.pendingBlock != null).length : null,
       asOf,
     };
     res.json({
@@ -734,9 +747,13 @@ router.get("/office/patients/:id", async (req, res) => {
     }
     const patientTz = typeof patient.timezone === "string" ? patient.timezone : null;
     const patientToday = dayKeyInTimeZone(patientTz);
-    const [medications, doseLogs] = await Promise.all([
+    const [medications, doseLogs, dietFacts] = await Promise.all([
       listMedications(patientId),
       listDoseLogs(patientId, shiftDateKey(patientToday, -(ADHERENCE_WINDOW_DAYS + 1))),
+      // Roster diet facts for this one patient; null = unknown (RPC failed), never "no diet".
+      patient.closed_at
+        ? Promise.resolve(null)
+        : loadOfficeDietFacts(scope.providerId, new Date()).then((facts) => facts.get(patientId) ?? NO_DIET_FACTS).catch(() => null),
     ]);
 
     const entryList = (entries.json as PatientRosterRow[]).map((row) => ({
@@ -870,6 +887,7 @@ router.get("/office/patients/:id", async (req, res) => {
         version: recordVersion(patient),
         deletion: recordDeletionDto(patient, (pendingDeletion.json as OperationalRow[])[0]),
         groupIds: (groupMemberships.json as OperationalRow[]).map((row) => String(row.group_id)),
+        diet: dietFacts,
       },
       providerNotes,
       staffWeights: staffWeightList,

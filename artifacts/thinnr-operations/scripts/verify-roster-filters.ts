@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import {
   EMPTY_DYNAMIC_OPTIONS,
   FILTER_FIELDS,
+  NO_DIET_VALUE,
+  dietLabel,
   activeQuickSet,
   builtInQuickSets,
   decodeCondition,
@@ -344,6 +346,41 @@ section('program day', () => {
   assert.equal(programDayOn('2026-09-02', TODAY), 17);
   assert.equal(programDayOn('2026-09-19', TODAY), null, 'future start');
   assert.equal(programDayOn(null, TODAY), null);
+});
+
+section('diet facts — three-way unknown, no-diet value, fits %, flags, URL round trip', () => {
+  const onDiet: RosterFilterRow = { ...base, diet: { slug: 'mediterranean', pendingBlock: false, severeAllergy: true, fitsDietPct: 82 } };
+  const noDiet: RosterFilterRow = { ...base, diet: { slug: null, pendingBlock: true, severeAllergy: false, fitsDietPct: null } };
+  const unknownDiet: RosterFilterRow = { ...base, diet: null };
+  const unreadDiet: RosterFilterRow = { ...base };
+  hit(onDiet, c('diet', 'is', 'mediterranean'), true, 'diet is');
+  hit(onDiet, c('diet', 'is_not', 'keto'), true, 'diet is not another');
+  hit(onDiet, c('diet', 'is', NO_DIET_VALUE), false, 'on a diet is not "no diet"');
+  hit(noDiet, c('diet', 'is', NO_DIET_VALUE), true, 'no diet chosen is a real fact');
+  hit(noDiet, c('diet', 'is_not', 'mediterranean'), true, 'no diet is not mediterranean');
+  hit(unknownDiet, c('diet', 'is', NO_DIET_VALUE), false, 'unknown family never reads as no diet');
+  hit(unknownDiet, c('diet', 'is_not', 'keto'), false, 'unknown family matches no negative either');
+  hit(unreadDiet, c('diet', 'is', 'mediterranean'), false, 'missing family is unknown');
+  hit(onDiet, c('fits_diet', 'gte', '80'), true, 'fits % number operator');
+  hit(onDiet, c('fits_diet', 'lt', '50'), false, 'fits % below');
+  hit(noDiet, c('fits_diet', 'lt', '50'), false, 'null fits % is unknown, never 0');
+  hit(unknownDiet, c('fits_diet', 'lte', '100'), false, 'unknown family has no fits %');
+  hit(onDiet, c('severe_allergy', 'is', 'yes'), true, 'severe allergy yes');
+  hit(noDiet, c('severe_allergy', 'is', 'no'), true, 'severe allergy no');
+  hit(unknownDiet, c('severe_allergy', 'is', 'no'), false, 'unknown is not "no severe allergy"');
+  hit(noDiet, c('pending_block', 'is', 'yes'), true, 'pending block yes');
+  hit(onDiet, c('pending_block', 'is', 'no'), true, 'pending block no');
+  hit(unknownDiet, c('pending_block', 'is', 'no'), false, 'unknown is not "no block"');
+  const view = { conditions: [c('diet', 'is', NO_DIET_VALUE), c('fits_diet', 'gte', '75'), c('severe_allergy', 'is', 'yes'), c('pending_block', 'is', 'yes')], sort: { field: 'fitsDiet' as const, order: 'desc' as const } };
+  const search = serializeRosterView('?office=abc', view);
+  assert.deepEqual(new URLSearchParams(search).getAll('f'), ['diet:is:none', 'fits_diet:gte:75', 'severe_allergy:is:yes', 'pending_block:is:yes']);
+  assert.equal(new URLSearchParams(search).get('sort'), 'fitsDiet.desc');
+  assert.deepEqual(parseRosterView(search), view, 'diet view round trips');
+  assert.equal(describeCondition(c('diet', 'is', NO_DIET_VALUE), EMPTY_DYNAMIC_OPTIONS), 'Diet is No diet chosen');
+  assert.equal(describeCondition(c('diet', 'is', 'mediterranean'), { ...EMPTY_DYNAMIC_OPTIONS, diet: [{ value: 'mediterranean', label: 'Mediterranean' }] }), 'Diet is Mediterranean');
+  assert.equal(dietLabel('low_fodmap'), 'Low Fodmap', 'unlisted slugs humanize');
+  assert.deepEqual(optionsForField('diet', { ...EMPTY_DYNAMIC_OPTIONS, diet: [{ value: 'keto', label: 'Ketogenic' }] }).map((o) => o.value), ['keto', NO_DIET_VALUE], 'no-diet option appended');
+  assert.equal(describeCondition(c('fits_diet', 'gte', '75'), EMPTY_DYNAMIC_OPTIONS), 'Fits diet (%) at least 75%');
 });
 
 console.log(`\nroster filters: ${passed} sections passed`);

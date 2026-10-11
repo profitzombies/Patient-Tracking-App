@@ -23,6 +23,9 @@
     },
     {
       "path": "../../lib/app-usage-insights"
+    },
+    {
+      "path": "../../lib/diet-programs"
     }
   ]
 }

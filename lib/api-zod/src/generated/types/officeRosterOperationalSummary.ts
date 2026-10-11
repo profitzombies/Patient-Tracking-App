@@ -18,5 +18,10 @@ export interface OfficeRosterOperationalSummary {
   invited: number;
   checkInsOverdue: number;
   loggingLapsed: number;
+  /**
+     * Safety blocks awaiting provider review; null when the diet facts could not be read.
+     * @nullable
+     */
+  pendingDietBlocks?: number | null;
   asOf: Date;
 }

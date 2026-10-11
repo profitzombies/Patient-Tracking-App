@@ -1491,6 +1491,14 @@ paths:
         - { name: status, in: query, schema: { type: string, enum: [open, all] } }
       responses:
         "200": { description: Coach chat safety flags for the office, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeChatFlagsResult" } } } }
+  /office/alerts/diet:
+    get:
+      operationId: getOfficeDietAlerts
+      tags: [office]
+      parameters:
+        - $ref: "#/components/parameters/OfficeId"
+      responses:
+        "200": { description: Pending diet safety blocks and recent care-team diet alerts for the office, content: { application/json: { schema: { $ref: "#/components/schemas/OfficeDietAlertsResult" } } } }
   /office/alerts/chat-flags/{flagId}/reviewed:
     post:
       operationId: markOfficeChatFlagReviewed
@@ -2223,6 +2231,28 @@ paths:
         "200":
           description: Network totals plus one row per enabled office (aggregate only)
           content: { application/json: { schema: { $ref: "#/components/schemas/PatientRetentionResult" } } }
+        "400": { description: Invalid range }
+        "404": { description: Unknown or disabled office }
+  /hq/diet-restrictions:
+    get:
+      operationId: getHqDietRestrictions
+      tags: [hq]
+      summary: Diets, phases, allergies and restrictions across the network, as aggregate counts
+      description: >-
+        Standing figures (patients, frameworks, protocol / maintenance phase, list items, severe
+        allergies, pending safety blocks, pregnancy conflicts) are as of the request; event figures
+        (diet changes, blocks opened / overridden / rejected, screening answers) are bounded by the
+        date range. A scope with no activated patient reports `available: false` and null counts,
+        never zeros. `office` narrows every figure to one enabled practice. HQ analytics readers only;
+        no patient identifiers are returned.
+      parameters:
+        - { name: start, in: query, required: true, schema: { type: string, format: date } }
+        - { name: end, in: query, required: true, schema: { type: string, format: date } }
+        - { name: office, in: query, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: Network (or office) counts plus one row per office with patients
+          content: { application/json: { schema: { $ref: "#/components/schemas/DietRestrictionsResult" } } }
         "400": { description: Invalid range }
         "404": { description: Unknown or disabled office }
   /hq/customer-health:
@@ -4441,6 +4471,121 @@ components:
         offices:
           type: array
           items: { $ref: "#/components/schemas/PatientRetentionOfficeRow" }
+    DietFrameworkCount:
+      type: object
+      required: [slug, name, patients]
+      properties:
+        slug: { type: string, description: Library slug; "none" = no diet chosen yet }
+        name: { type: string }
+        patients: { type: number }
+    DietRestrictionItemCount:
+      type: object
+      required: [list, key, label, severity, patients]
+      properties:
+        list: { $ref: "#/components/schemas/PreferenceListName" }
+        key: { type: string }
+        label: { type: string }
+        severity:
+          type: string
+          enum: [mild, severe]
+          nullable: true
+        patients: { type: number }
+    DietScreeningCount:
+      type: object
+      required: [question, yes, no]
+      properties:
+        question: { $ref: "#/components/schemas/DietScreeningQuestion" }
+        yes: { type: number }
+        no: { type: number }
+    DietReportCounts:
+      type: object
+      required: [patients, onDiet, justTracking, noDiet, byFramework, phases, lists, severeAllergyPatients, topItems, changes, blocks, pregnancyConflicts, screening]
+      properties:
+        patients: { type: number }
+        onDiet: { type: number, description: Active selection of a real framework; tracking-only is not a diet }
+        justTracking: { type: number, description: Active "just tracking" selection }
+        noDiet: { type: number, description: No active selection yet }
+        byFramework:
+          type: array
+          items: { $ref: "#/components/schemas/DietFrameworkCount" }
+        phases:
+          type: object
+          required: [protocol, maintenance]
+          properties:
+            protocol: { type: number }
+            maintenance: { type: number }
+        lists:
+          type: object
+          required: [allergy, sensitivity, restriction, dislike]
+          properties:
+            allergy: { type: number }
+            sensitivity: { type: number }
+            restriction: { type: number }
+            dislike: { type: number }
+        severeAllergyPatients: { type: number }
+        topItems:
+          type: array
+          items: { $ref: "#/components/schemas/DietRestrictionItemCount" }
+        changes:
+          type: object
+          required: [total, byPatient, byStaff, bySystem]
+          description: Selections started in range by who made them (persisted roles; HQ cannot set diets)
+          properties:
+            total: { type: number }
+            byPatient: { type: number }
+            byStaff: { type: number }
+            bySystem: { type: number }
+        blocks:
+          type: object
+          required: [opened, pending, overridden, rejected]
+          properties:
+            opened: { type: number }
+            pending: { type: number }
+            overridden: { type: number }
+            rejected: { type: number }
+        pregnancyConflicts: { type: number }
+        screening:
+          type: array
+          items: { $ref: "#/components/schemas/DietScreeningCount" }
+    DietReportOfficeRow:
+      type: object
+      required: [providerId, name, patients, onDiet, protocol, maintenance, severeAllergy, pendingBlocks, pregnancyConflicts]
+      properties:
+        providerId: { type: string }
+        name: { type: string }
+        patients: { type: number }
+        onDiet: { type: number }
+        protocol: { type: number }
+        maintenance: { type: number }
+        severeAllergy: { type: number }
+        pendingBlocks: { type: number }
+        pregnancyConflicts: { type: number }
+    DietRestrictionsResult:
+      type: object
+      required: [range, asOf, todayKey, office, available, counts, offices]
+      properties:
+        range: { $ref: "#/components/schemas/DateRangeKeys" }
+        asOf: { type: string }
+        todayKey: { type: string, description: The UTC day phases were evaluated on }
+        office:
+          description: The practice the figures are narrowed to, or null network-wide
+          oneOf:
+            - type: object
+              required: [id, name]
+              properties:
+                id: { type: string }
+                name: { type: string }
+            - type: "null"
+        available:
+          type: boolean
+          description: False when no activated patient is in scope; counts are then null, never zero
+        counts:
+          oneOf:
+            - $ref: "#/components/schemas/DietReportCounts"
+            - type: "null"
+        offices:
+          type: array
+          items: { $ref: "#/components/schemas/DietReportOfficeRow" }
     CustomerHealthBucket:
       type: string
       enum: [active, quiet3to6, quiet6to12, quietOverYear]
@@ -4712,7 +4857,7 @@ components:
           items: { $ref: "#/components/schemas/OfficeSeriesPoint" }
     ExportKind:
       type: string
-      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory, billing_transactions, billing_subscriptions, billing_payouts, patient_record, office_bundle, app_payments_offices, app_payments_forecast, app_payments_transactions]
+      enum: [office_comparison, patient_activity, audit_events, training_completion, provider_directory, billing_transactions, billing_subscriptions, billing_payouts, patient_record, office_bundle, app_payments_offices, app_payments_forecast, app_payments_transactions, diet_restrictions]
     ExportRequestInput:
       type: object
       required: [kind]
@@ -6366,6 +6511,40 @@ components:
       properties:
         openCount: { type: number }
         items: { type: array, items: { $ref: "#/components/schemas/OfficeChatFlag" } }
+    OfficeDietAlert:
+      type: object
+      required: [id, kind, kindLabel, patientId, patientName, day, createdAt, refs]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [diet_change, diet_safety, diet_allergy_severe] }
+        kindLabel: { type: string }
+        patientId: { type: string }
+        patientName: { type: string }
+        day: { type: string, format: date }
+        createdAt: { type: string, format: date-time }
+        refs:
+          type: object
+          required: [selectionId, blockId, itemId]
+          properties:
+            selectionId: { type: ["string", "null"] }
+            blockId: { type: ["string", "null"] }
+            itemId: { type: ["string", "null"] }
+    OfficePendingDietBlock:
+      type: object
+      required: [patientId, patientName, blockId, createdAt]
+      properties:
+        patientId: { type: string }
+        patientName: { type: string }
+        blockId: { type: string }
+        createdAt: { type: ["string", "null"], format: date-time }
+    OfficeDietAlertsResult:
+      type: object
+      required: [asOf, pendingBlockCount, pendingBlocks, items]
+      properties:
+        asOf: { type: string, format: date-time }
+        pendingBlockCount: { type: number }
+        pendingBlocks: { type: array, items: { $ref: "#/components/schemas/OfficePendingDietBlock" } }
+        items: { type: array, items: { $ref: "#/components/schemas/OfficeDietAlert" } }
     OfficeAlertSettings:
       type: object
       required: [recipientMode, recipientMemberIds, sendTime, timeZone, timeZoneSource, version, canEdit, me, team]
@@ -6468,6 +6647,46 @@ components:
             query): gross paid, succeeded refunds, net, and the last paid
             moment. A patient with no paid order is a real zero; null means
             the spend aggregate could not be read (unknown).
+        diet:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/RosterDietFacts"
+          description: >-
+            Diet facts for the row (active diet, pending safety block, severe
+            allergy, "% fits diet"). null when the diet facts could not be
+            read or the chart is sealed (unknown family, never "no diet").
+    RosterDietFacts:
+      type: object
+      required: [diet, pendingBlock, severeAllergy, fitsDietPct, fitsDietSample, fitWindowDays]
+      properties:
+        diet:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [slug, name, startedAt]
+              properties:
+                slug: { type: string, description: 'Library slug; "just_tracking" is a real entry.' }
+                name: { type: string }
+                startedAt: { type: ["string", "null"], format: date-time }
+          description: Active diet; null = no diet chosen.
+        pendingBlock:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [id, createdAt]
+              properties:
+                id: { type: string }
+                createdAt: { type: ["string", "null"], format: date-time }
+          description: Newest safety block awaiting provider review; null when none.
+        severeAllergy: { type: boolean, description: True when any current allergy item is marked severe. }
+        fitsDietPct:
+          type: ["number", "null"]
+          description: >-
+            Share (0–100) of recent logged foods that fit the diet in force.
+            null = unknown (no diet, or no verdict-bearing entries in the
+            window); never rendered as 0.
+        fitsDietSample: { type: number, description: Verdict-bearing entries behind the percentage (0 when unknown). }
+        fitWindowDays: { type: number }
     PatientSpend:
       type: object
       required: [paidCents, refundedCents, netCents, lastPaidAt]
@@ -6879,6 +7098,9 @@ components:
         invited: { type: number }
         checkInsOverdue: { type: number }
         loggingLapsed: { type: number }
+        pendingDietBlocks:
+          type: ["number", "null"]
+          description: Safety blocks awaiting provider review; null when the diet facts could not be read.
         asOf: { type: string, format: date }
     PatientGroup:
       type: object
@@ -7075,6 +7297,11 @@ components:
                 claimedAt: { type: ["string", "null"] }
                 lastLoginAt: { type: ["string", "null"] }
             program: { $ref: "#/components/schemas/PatientProgram" }
+            diet:
+              description: Roster diet facts for this patient (same shape as the roster row); null when the diet family could not be read or the chart is sealed — unknown, never "no diet".
+              oneOf:
+                - type: "null"
+                - $ref: "#/components/schemas/RosterDietFacts"
             closure:
               oneOf:
                 - type: "null"

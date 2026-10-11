@@ -15,6 +15,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { COACH_SAFETY_CATEGORY_LABELS } from "../coach/safety-screen";
 import { isCoachSafetyCategory } from "../alerts/coach-chat-flags";
+import { loadDietCareTeamAlerts, loadPendingDietBlocks } from "../diet/care-team-alerts";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -188,6 +189,27 @@ router.post("/office/alerts/chat-flags/:flagId/reviewed", async (req, res) => {
     const patients = await patientsById(scope.providerId, [String(row.patient_id)]);
     res.json(chatFlagDto(row, patients.get(String(row.patient_id))));
   } catch (error) { req.log?.error({ err: error }, "office chat flag review failed"); res.status(502).json({ error: "Could not mark this flag reviewed." }); }
+});
+// ── Diet & food preference alerts ───────────────────────────────────────────
+// Standing pending safety blocks (live, until a provider reviews them) plus
+// the last week of care-team diet alerts, one per patient / kind / day. The
+// rows carry ids only; names are joined here behind office scope. Review
+// itself happens on the patient record (two-step override), so there is no
+// write here and HQ drill-in may read.
+router.get("/office/alerts/diet", async (req, res) => {
+  try {
+    const scope = await scoped(req, res); if (!scope) return;
+    const now = new Date();
+    const [pendingBlocks, alerts] = await Promise.all([loadPendingDietBlocks(scope.providerId, now), loadDietCareTeamAlerts(scope.providerId, now)]);
+    const patients = await patientsById(scope.providerId, [...new Set([...pendingBlocks.map((block) => block.patientId), ...alerts.map((alert) => alert.patientId)])]);
+    const named = (patientId: string) => patientDisplayName(patients.get(patientId));
+    res.json({
+      asOf: now.toISOString(),
+      pendingBlockCount: pendingBlocks.length,
+      pendingBlocks: pendingBlocks.filter((block) => patients.has(block.patientId)).map((block) => ({ ...block, patientName: named(block.patientId) })),
+      items: alerts.filter((alert) => patients.has(alert.patientId)).map((alert) => ({ ...alert, patientName: named(alert.patientId) })),
+    });
+  } catch (error) { req.log?.error({ err: error }, "office diet alerts failed"); res.status(502).json({ error: "Diet alerts are unavailable right now." }); }
 });
 router.get("/office/alerts/settings", async (req, res) => {
   try { const scope = await scoped(req, res); if (scope) res.json(await settingsDto(scope)); }

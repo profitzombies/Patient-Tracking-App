@@ -8,11 +8,14 @@
 import type { OfficePatientRecordPatientClosure } from './officePatientRecordPatientClosure';
 import type { OfficePatientRecordPatientIdentity } from './officePatientRecordPatientIdentity';
 import type { PatientProgram } from './patientProgram';
+import type { RosterDietFacts } from './rosterDietFacts';
 
 export type OfficePatientRecordPatient = {
   /** Ids of the office's patient groups this patient belongs to. */
   groupIds: string[];
   identity: OfficePatientRecordPatientIdentity;
   program: PatientProgram;
+  /** Roster diet facts for this patient (same shape as the roster row); null when the diet family could not be read or the chart is sealed — unknown, never "no diet". */
+  diet?: null | RosterDietFacts;
   closure: OfficePatientRecordPatientClosure;
 };

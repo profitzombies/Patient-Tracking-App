@@ -5,13 +5,14 @@ import { Link } from 'wouter';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useScopedPatients } from '@/data/scoped-data';
 import { buildDemoAttentionItems } from '@/data/attention-demo';
-import { useOfficeAlerts } from '@/hooks/use-office-alerts';
-import { markOfficeAlertSeen, officeAlertsQueryKey, type OfficeAlerts } from '@/lib/office-alerts-api';
+import { useOfficeAlerts, useOfficeDietAlerts } from '@/hooks/use-office-alerts';
+import { dietAlertHref, markOfficeAlertSeen, officeAlertsQueryKey, type OfficeAlerts } from '@/lib/office-alerts-api';
 import { useToast } from '@/hooks/use-toast';
 import { useProviderScope } from '@/contexts/provider-scope';
 import { useDemoAttentionSeen } from '@/hooks/use-demo-attention-seen';
 
 const reasonText = (days: number | null) => days === null ? 'never logged' : `${days} day${days === 1 ? '' : 's'}`;
+const dietWhen = (iso: string | null) => iso ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso)) : '';
 
 export function AttentionBell() {
   const patients = useScopedPatients();
@@ -24,7 +25,13 @@ export function AttentionBell() {
   const items = query.isDemo
     ? demoItems.map((item) => ({ ...item, seen: demoSeen.includes(`${item.patientId}:${item.signature}`) }))
     : query.data?.items ?? [];
-  const count = query.isDemo ? items.filter((item) => !item.seen).length : query.data?.count ?? 0;
+  // Diet care-team alerts share the bell: pending safety blocks are the
+  // actionable count; recent diet events list below the attention items.
+  const dietQuery = useOfficeDietAlerts();
+  const pendingBlocks = dietQuery.isDemo ? [] : dietQuery.data?.pendingBlocks ?? [];
+  const dietItems = dietQuery.isDemo ? [] : (dietQuery.data?.items ?? []).slice(0, 8);
+  const attentionCount = query.isDemo ? items.filter((item) => !item.seen).length : query.data?.count ?? 0;
+  const count = attentionCount + pendingBlocks.length;
 
   const seen = useMutation({
     mutationFn: ({ patientId, signature }: { patientId: string; signature: string }) =>
@@ -73,14 +80,38 @@ export function AttentionBell() {
         <div className="flex items-center justify-between border-b border-border bg-paper-alt px-4 py-3">
           <div>
             <h2 className="font-serif text-base font-bold text-navy">Needs attention</h2>
-            <p className="text-[11px] text-muted-foreground">{count} unseen · {items.length} flagged</p>
+            <p className="text-[11px] text-muted-foreground">{attentionCount} unseen · {items.length} flagged{pendingBlocks.length ? ` · ${pendingBlocks.length} diet block${pendingBlocks.length === 1 ? '' : 's'}` : ''}</p>
           </div>
           <Link href="/alerts" className="text-xs font-semibold text-primary underline-offset-2 hover:underline">View digest</Link>
         </div>
         <div className="max-h-[430px] overflow-y-auto">
           {query.liveEnabled && query.isPending && <p className="px-4 py-8 text-center text-xs text-muted-foreground">Loading patient alerts…</p>}
           {query.liveEnabled && query.isError && <p role="alert" aria-live="polite" className="px-4 py-6 text-xs text-destructive">Patient alerts could not be loaded.</p>}
-          {!query.isResolving && !query.isError && items.length === 0 && <p className="px-4 py-8 text-center text-xs text-muted-foreground">No patients need attention right now.</p>}
+          {!query.isResolving && !query.isError && items.length === 0 && pendingBlocks.length === 0 && dietItems.length === 0 && <p className="px-4 py-8 text-center text-xs text-muted-foreground">No patients need attention right now.</p>}
+          {(pendingBlocks.length > 0 || dietItems.length > 0 || (dietQuery.liveEnabled && dietQuery.isError)) && (
+            <section aria-label="Diet and food preference alerts" className="border-b border-border bg-paper-alt/40" data-testid="bell-diet-alerts">
+              <h3 className="px-4 pt-3 text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground">Diet &amp; food preferences</h3>
+              {dietQuery.isError && <p role="alert" className="px-4 py-3 text-xs text-destructive" data-testid="bell-diet-error">Diet alerts could not be loaded.</p>}
+              {pendingBlocks.map((block) => (
+                <article key={block.blockId} className="px-4 py-3" data-testid={`bell-diet-block-${block.patientId}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="truncate font-serif text-sm font-bold text-navy">{block.patientName}</h4>
+                      <p className="mt-0.5 text-[11px] text-destructive">Safety block awaiting your review{block.createdAt ? ` · since ${dietWhen(block.createdAt)}` : ''}</p>
+                    </div>
+                  </div>
+                  <Link href={dietAlertHref(block.patientId)} className="mt-2 inline-block text-[11px] font-semibold text-primary underline-offset-2 hover:underline">Review block</Link>
+                </article>
+              ))}
+              {dietItems.map((item) => (
+                <article key={item.id} className="px-4 py-3" data-testid={`bell-diet-alert-${item.id}`}>
+                  <h4 className="truncate font-serif text-sm font-bold text-navy">{item.patientName}</h4>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{item.kindLabel} · {dietWhen(item.createdAt)}</p>
+                  <Link href={dietAlertHref(item.patientId)} className="mt-2 inline-block text-[11px] font-semibold text-primary underline-offset-2 hover:underline">Open record</Link>
+                </article>
+              ))}
+            </section>
+          )}
           {items.map((item) => (
             <article key={`${item.patientId}:${item.signature}`} className="border-b border-border px-4 py-3 last:border-0" data-testid={`attention-item-${item.patientId}`}>
               <div className="flex items-start justify-between gap-3">

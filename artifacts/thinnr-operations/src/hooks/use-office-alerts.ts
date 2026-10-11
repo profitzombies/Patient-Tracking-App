@@ -5,9 +5,11 @@ import {
   fetchOfficeAlerts,
   fetchOfficeAlertSettings,
   fetchOfficeChatFlags,
+  fetchOfficeDietAlerts,
   markOfficeChatFlagReviewed,
   officeAlertDigestsQueryKey,
   officeChatFlagsQueryKey,
+  officeDietAlertsQueryKey,
   officeAlertsQueryKey,
   officeAlertSettingsQueryKey,
 } from '@/lib/office-alerts-api';
@@ -48,6 +50,18 @@ export function useOfficeChatFlags() {
   const query = useQuery({
     queryKey: [...officeChatFlagsQueryKey(scope.liveOffice), scope.authUserId],
     queryFn: () => fetchOfficeChatFlags(scope.liveOffice),
+    enabled: scope.liveEnabled,
+    refetchInterval: scope.liveEnabled ? 60_000 : false,
+  });
+  return { ...query, ...scope };
+}
+
+/** Diet care-team alerts: pending safety blocks (standing) plus the last week of diet events. */
+export function useOfficeDietAlerts() {
+  const scope = useLiveOfficeScope();
+  const query = useQuery({
+    queryKey: [...officeDietAlertsQueryKey(scope.liveOffice), scope.authUserId],
+    queryFn: () => fetchOfficeDietAlerts(scope.liveOffice),
     enabled: scope.liveEnabled,
     refetchInterval: scope.liveEnabled ? 60_000 : false,
   });

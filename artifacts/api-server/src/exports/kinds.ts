@@ -37,6 +37,7 @@ export const EXPORT_KINDS = [
   "app_payments_offices",
   "app_payments_forecast",
   "app_payments_transactions",
+  "diet_restrictions",
 ] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
@@ -58,6 +59,7 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   app_payments_offices: "App payments: billable offices",
   app_payments_forecast: "App payments: scheduled charges and forecast",
   app_payments_transactions: "App payments: transactions",
+  diet_restrictions: "Diets & restrictions",
 };
 
 /** Kinds whose rows are bounded by a date range (others ignore start/end). */
@@ -71,6 +73,7 @@ export const RANGED_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "billing_payouts",
   "app_payments_forecast",
   "app_payments_transactions",
+  "diet_restrictions",
 ]);
 
 /**
@@ -83,6 +86,12 @@ export const APP_PAYMENT_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "app_payments_forecast",
   "app_payments_transactions",
 ]);
+
+/**
+ * HQ-only aggregate reports (network-wide or one named office). Offices read
+ * these figures on their own screens; the CSV is an HQ reporting artefact.
+ */
+export const HQ_REPORT_KINDS: ReadonlySet<ExportKind> = new Set<ExportKind>(["diet_restrictions"]);
 
 /** Kinds that must freeze the Test/Live billing identity when requested. */
 export function capturesBillingIdentity(kind: ExportKind): boolean {
@@ -186,6 +195,7 @@ const HQ_PERMISSION_FOR_KIND: Record<ExportKind, HqPermission> = {
   app_payments_offices: "financial_read",
   app_payments_forecast: "financial_read",
   app_payments_transactions: "financial_read",
+  diet_restrictions: "analytics_read",
 };
 
 /** HQ kinds that may run network-wide (no office named). */
@@ -200,6 +210,7 @@ const NETWORK_WIDE: ReadonlySet<ExportKind> = new Set<ExportKind>([
   "app_payments_offices",
   "app_payments_forecast",
   "app_payments_transactions",
+  "diet_restrictions",
 ]);
 
 const NO_ACCESS = "You don't have access to that export.";
@@ -223,7 +234,7 @@ export async function authorizeExport(input: {
   }
 
   if (requester.kind === "office") {
-    if (kind === "provider_directory" || HQ_OFFICE_KINDS.has(kind) || APP_PAYMENT_KINDS.has(kind)) return { kind: "denied", status: 403, message: NO_ACCESS };
+    if (kind === "provider_directory" || HQ_OFFICE_KINDS.has(kind) || APP_PAYMENT_KINDS.has(kind) || HQ_REPORT_KINDS.has(kind)) return { kind: "denied", status: 403, message: NO_ACCESS };
     if (kind.startsWith("billing_") && requester.officeRole === "staff") {
       return { kind: "denied", status: 403, message: NO_ACCESS };
     }

@@ -24,6 +24,7 @@ import {
 import { loadAccessBillingSettings } from "../billing/office-access/settings";
 import { accessPriceCents, deriveAccessState } from "../billing/office-access/state";
 import { selectMany } from "../billing/store";
+import { buildDietRestrictionsReport } from "../diet/restrictions-report";
 
 export interface ExportSheet {
   header: string[];
@@ -548,6 +549,64 @@ async function appPaymentsTransactions(scope: ExportScope): Promise<ExportSheet>
   return { header, rows };
 }
 
+/* ------------------------------------------------- diets & restrictions */
+
+/**
+ * Long-format sheet (section / scope / measure / detail / value) so one file
+ * carries every figure on the HQ Diets & restrictions page: network or
+ * office totals, per-office rows, frameworks, lists, top items, changes,
+ * blocks, screening. Aggregate only; an unavailable scope writes a single
+ * "unavailable" row instead of zeros.
+ */
+async function dietRestrictions(scope: ExportScope): Promise<ExportSheet> {
+  const range = requireRange(scope);
+  const office = scope.providerId ? { id: scope.providerId, name: scope.officeName ?? scope.providerId } : null;
+  const report = await buildDietRestrictionsReport(range, office);
+  const header = ["Section", "Scope", "Measure", "Detail", "Value", "Range start", "Range end", "As of"];
+  const scopeName = office?.name ?? "All practices";
+  const rows: CsvCell[][] = [];
+  const add = (section: string, scopeLabel: string, measure: string, detail: CsvCell, value: CsvCell) =>
+    rows.push([section, scopeLabel, measure, detail, value, range.start, range.end, report.asOf]);
+  const c = report.counts;
+  if (!report.available || !c) {
+    add("Summary", scopeName, "Data available", "", "unavailable");
+    return { header, rows };
+  }
+  add("Summary", scopeName, "Patients", "activated, not closed", c.patients);
+  add("Summary", scopeName, "On a diet", "", c.onDiet);
+  add("Summary", scopeName, "Just tracking", "", c.justTracking);
+  add("Summary", scopeName, "No diet chosen", "", c.noDiet);
+  add("Summary", scopeName, "In protocol", `as of ${report.todayKey}`, c.phases.protocol);
+  add("Summary", scopeName, "In maintenance", `as of ${report.todayKey}`, c.phases.maintenance);
+  add("Summary", scopeName, "Severe allergy", "patients with any severe allergy", c.severeAllergyPatients);
+  add("Summary", scopeName, "Pregnancy conflicts", "pregnant/trying on a pregnancy-blocked diet", c.pregnancyConflicts);
+  for (const f of c.byFramework) add("By framework", scopeName, f.name, f.slug, f.patients);
+  for (const [list, n] of Object.entries(c.lists)) add("Lists", scopeName, list, "items currently on patient lists", n);
+  for (const item of c.topItems) add("Top items", scopeName, item.list, `${item.label}${item.severity ? ` (${item.severity})` : ""}`, item.patients);
+  add("Diet changes", scopeName, "Total", "in range", c.changes.total);
+  add("Diet changes", scopeName, "By patient", "in range", c.changes.byPatient);
+  add("Diet changes", scopeName, "By office staff", "in range", c.changes.byStaff);
+  add("Diet changes", scopeName, "By system", "in range", c.changes.bySystem);
+  add("Safety blocks", scopeName, "Opened", "in range", c.blocks.opened);
+  add("Safety blocks", scopeName, "Pending review", "now", c.blocks.pending);
+  add("Safety blocks", scopeName, "Overridden", "in range", c.blocks.overridden);
+  add("Safety blocks", scopeName, "Rejected", "in range", c.blocks.rejected);
+  for (const q of c.screening) {
+    add("Screening", scopeName, q.question, "yes (in range)", q.yes);
+    add("Screening", scopeName, q.question, "no (in range)", q.no);
+  }
+  for (const o of report.offices) {
+    add("By office", o.name, "Patients", o.providerId, o.patients);
+    add("By office", o.name, "On a diet", o.providerId, o.onDiet);
+    add("By office", o.name, "In protocol", o.providerId, o.protocol);
+    add("By office", o.name, "In maintenance", o.providerId, o.maintenance);
+    add("By office", o.name, "Severe allergy", o.providerId, o.severeAllergy);
+    add("By office", o.name, "Pending blocks", o.providerId, o.pendingBlocks);
+    add("By office", o.name, "Pregnancy conflicts", o.providerId, o.pregnancyConflicts);
+  }
+  return { header, rows };
+}
+
 export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<ExportSheet>> = {
   office_comparison: officeComparison,
   patient_activity: patientActivity,
@@ -569,4 +628,5 @@ export const GENERATORS: Record<ExportKind, (scope: ExportScope) => Promise<Expo
   app_payments_offices: scope => withExportBillingIdentity(scope, () => appPaymentsOffices()),
   app_payments_forecast: scope => withExportBillingIdentity(scope, () => appPaymentsForecast(scope)),
   app_payments_transactions: scope => withExportBillingIdentity(scope, () => appPaymentsTransactions(scope)),
+  diet_restrictions: dietRestrictions,
 };

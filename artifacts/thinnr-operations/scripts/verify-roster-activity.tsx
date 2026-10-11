@@ -127,10 +127,11 @@ const ROSTER: OfficeRoster = {
   office: { providerId: 'office-1', officeName: 'Beacon Hill Aesthetics', providerCode: '483920' },
   patients: [
     // Spend: Kara $600 net (a $50 refund), Liam $120, Nolan a real $0, Uma unknown (aggregate unreadable).
-    patient('pat-known', 'Kara Known', { ...base, latestDiaryDate: day(1), latestCheckInDate: AS_OF, loggedDays7: 4, checkIns7: 2, activity: KNOWN, status: 'on_track', reasons: [] }, { spend: { paidCents: 65000, refundedCents: 5000, netCents: 60000, lastPaidAt: '2026-09-01T15:00:00Z' }, activeSubscription: true }),
-    patient('pat-empty', 'Nolan Nodata', { ...base, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: NO_DATA, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }),
-    patient('pat-unknown', 'Uma Unknown', { ...base, latestActivityDate: null, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: null, status: 'unknown', reasons: [] }, { spend: null, activeSubscription: null }),
-    patient('pat-lapsed', 'Liam Lapsed', { ...base, latestDiaryDate: day(6), latestCheckInDate: day(20), loggedDays7: 1, checkIns7: 0, activity: LAPSED, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }, { spend: { paidCents: 12000, refundedCents: 0, netCents: 12000, lastPaidAt: '2026-06-01T15:00:00Z' } }),
+    // Diet: Kara Mediterranean 82% + severe allergy, Nolan no diet (pending block, no sample), Uma diet family unknown, Liam keto with a real 40%.
+    patient('pat-known', 'Kara Known', { ...base, latestDiaryDate: day(1), latestCheckInDate: AS_OF, loggedDays7: 4, checkIns7: 2, activity: KNOWN, status: 'on_track', reasons: [] }, { spend: { paidCents: 65000, refundedCents: 5000, netCents: 60000, lastPaidAt: '2026-09-01T15:00:00Z' }, activeSubscription: true, diet: { diet: { slug: 'mediterranean', name: 'Mediterranean', startedAt: '2026-08-01T00:00:00Z' }, pendingBlock: null, severeAllergy: true, fitsDietPct: 82, fitsDietSample: 11, fitWindowDays: 14 } }),
+    patient('pat-empty', 'Nolan Nodata', { ...base, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: NO_DATA, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }, { diet: { diet: null, pendingBlock: { id: 'blk-1', createdAt: '2026-09-05T00:00:00Z' }, severeAllergy: false, fitsDietPct: null, fitsDietSample: 0, fitWindowDays: 14 } }),
+    patient('pat-unknown', 'Uma Unknown', { ...base, latestActivityDate: null, latestDiaryDate: null, latestCheckInDate: null, loggedDays7: null, checkIns7: null, activity: null, status: 'unknown', reasons: [] }, { spend: null, activeSubscription: null, diet: null }),
+    patient('pat-lapsed', 'Liam Lapsed', { ...base, latestDiaryDate: day(6), latestCheckInDate: day(20), loggedDays7: 1, checkIns7: 0, activity: LAPSED, status: 'needs_attention', reasons: ['logging_lapsed', 'check_in_overdue'] }, { spend: { paidCents: 12000, refundedCents: 0, netCents: 12000, lastPaidAt: '2026-06-01T15:00:00Z' }, diet: { diet: { slug: 'keto', name: 'Keto', startedAt: '2026-07-10T00:00:00Z' }, pendingBlock: null, severeAllergy: false, fitsDietPct: 40, fitsDietSample: 5, fitWindowDays: 14 } }),
   ],
   summary: { totalPatients: 4, activePatients: 4, newEnrollments30d: 0, needsAttention: 2, attention: 2, inactive: 0, invited: 0, checkInsOverdue: 2, loggingLapsed: 2, asOf: AS_OF },
 };
@@ -300,6 +301,14 @@ console.log('\nlive roster rendering');
   check('lapsed: 1/7 with destructive last-log label', lapsedText.includes('1/7') && lapsedText.includes('Last log 6d ago') && lapsed.findAll((node) => typeof node.props.className === 'string' && /text-destructive/.test(node.props.className) && textOf(node).includes('Last log 6d ago')).length === 1, lapsedText);
   check('lapsed: real zero check-in streak and 3% rate shown as such', lapsedText.includes('0-day') && lapsedText.includes('3%') && lapsedText.includes('No side effects (30d)'), lapsedText);
 
+  // Diet facts ride the same three-way model: unknown reads as unknown, never 0 %.
+  check('diet column header present on the live table', root.findAll((node) => node.type === 'th').some((th) => textOf(th).includes('% fits diet')));
+  check('known: diet name, 82%, severe allergy badge', textOf(byTestId(known, 'diet-cell-pat-known')).includes('Mediterranean') && textOf(byTestId(known, 'fits-diet-pat-known')) === '82%' && allByTestId(known, 'badge-severe-allergy-pat-known').length === 1 && allByTestId(known, 'badge-pending-block-pat-known').length === 0, textOf(byTestId(known, 'diet-cell-pat-known')));
+  check('no-data: real "No diet", pending block badge, fits reads Unknown (not 0%)', textOf(byTestId(empty, 'diet-cell-pat-empty')).includes('No diet') && allByTestId(empty, 'badge-pending-block-pat-empty').length === 1 && textOf(byTestId(empty, 'fits-diet-pat-empty')) === 'Unknown', textOf(byTestId(empty, 'diet-cell-pat-empty')));
+  check('unknown: diet family unknown renders Unknown in both cells and no badges', textOf(byTestId(unknown, 'diet-cell-pat-unknown')).includes('Unknown') && !textOf(byTestId(unknown, 'diet-cell-pat-unknown')).includes('No diet') && textOf(byTestId(unknown, 'fits-diet-pat-unknown')) === 'Unknown' && allByTestId(unknown, 'badge-pending-block-pat-unknown').length === 0 && allByTestId(unknown, 'badge-severe-allergy-pat-unknown').length === 0);
+  check('phase badge rides the program stage on every row', allByTestId(known, 'badge-diet-phase').some((b) => textOf(b).includes('Protocol')) && allByTestId(known, 'badge-diet-phase').some((b) => textOf(b).includes('wk 9')));
+  check('lapsed: a real 40% reads as 40%', textOf(byTestId(lapsed, 'fits-diet-pat-lapsed')) === '40%');
+
   // Filters and sorts.
   await click(byTestId(root, 'quick-set-inactive-lapsed'));
   const lapsedNames = tableRows(root).map((row) => String(row.props['aria-label']));
@@ -391,7 +400,7 @@ console.log('\nroster filters: quick sets, builder, chips, URL');
   check('no quick set is pressed once the stack is custom', pressed().length === 0);
   check('count badge shows 2', byTestId(root, 'badge-filter-count').children.join('') === '2');
   await type(byTestId(root, 'filter-value-1'), '61');
-  check('program day ≥ 61 excludes everyone (fixture is day 60)', rowNames(root).length === 0 && root.findAll((node) => node.type === 'td' && node.props.colSpan === 7).length === 1, rowNames(root).join(','));
+  check('program day ≥ 61 excludes everyone (fixture is day 60)', rowNames(root).length === 0 && root.findAll((node) => node.type === 'td' && node.props.colSpan === 9).length === 1, rowNames(root).join(','));
   await type(byTestId(root, 'filter-value-1'), '60');
 
   // Spend on the builder: between, and unknown never matches "less than".
@@ -420,6 +429,27 @@ console.log('\nroster filters: quick sets, builder, chips, URL');
   check('changing the field resets operator and value (row incomplete again)', byTestId(root, 'filter-operator-0').props['data-value'] === 'is' && !lastUrl().includes('f='), lastUrl());
   await pickOption(root, 'filter-value-0', 'no');
   check('subscription "no": false matches, null does not', rowNames(root).sort().join(',') === 'Liam Lapsed,Nolan Nodata', rowNames(root).join(','));
+
+  // Diet facts filters: unknown family never matches; "none" is the real no-diet; URL round-trips.
+  await pickOption(root, 'filter-field-0', 'pending_block');
+  await pickOption(root, 'filter-value-0', 'yes');
+  check('pending block "yes": only Nolan, URL carries the key', rowNames(root).join(',') === 'Nolan Nodata' && lastUrl().includes('f=pending_block%3Ais%3Ayes'), `${rowNames(root)} ${lastUrl()}`);
+  await pickOption(root, 'filter-value-0', 'no');
+  check('pending block "no": real rows only, unknown family (Uma) does not match', rowNames(root).sort().join(',') === 'Kara Known,Liam Lapsed', rowNames(root).join(','));
+  await pickOption(root, 'filter-field-0', 'diet');
+  await pickOption(root, 'filter-value-0', 'none');
+  check('diet "none": Nolan only (unknown family excluded)', rowNames(root).join(',') === 'Nolan Nodata', rowNames(root).join(','));
+  await pickOption(root, 'filter-value-0', 'keto');
+  check('diet "keto" from the live roster options: Liam only', rowNames(root).join(',') === 'Liam Lapsed' && textOf(byTestId(root, 'filter-chip-0')).includes('Keto'), `${rowNames(root)} ${textOf(byTestId(root, 'filter-chip-0'))}`);
+  await pickOption(root, 'filter-field-0', 'fits_diet');
+  await pickOption(root, 'filter-operator-0', 'gte');
+  await type(byTestId(root, 'filter-value-0'), '75');
+  check('fits diet ≥ 75: Kara only; unknown percentages never match', rowNames(root).join(',') === 'Kara Known' && textOf(byTestId(root, 'filter-chip-0')).includes('Fits diet (%) at least 75%'), `${rowNames(root)} ${textOf(byTestId(root, 'filter-chip-0'))}`);
+  await pickOption(root, 'filter-field-0', 'severe_allergy');
+  await pickOption(root, 'filter-value-0', 'yes');
+  check('severe allergy "yes": Kara only', rowNames(root).join(',') === 'Kara Known', rowNames(root).join(','));
+  await pickOption(root, 'filter-field-0', 'active_subscription');
+  await pickOption(root, 'filter-value-0', 'no');
 
   // Date fields: "in the last N days" and a calendar range via the picker.
   await pickOption(root, 'filter-field-0', 'last_purchase');

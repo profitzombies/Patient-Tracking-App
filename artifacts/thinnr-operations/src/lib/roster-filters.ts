@@ -51,7 +51,23 @@ export interface RosterFilterRow {
   attentionReasons: readonly string[];
   /** Office-defined group ids the patient belongs to (always known; empty when none). */
   groupIds: readonly string[];
+  /**
+   * Diet facts. `undefined`/`null` = the diet family could not be read
+   * (unknown: matches no diet condition). Inside: `slug` null = no diet
+   * chosen; `fitsDietPct` null = unknown (no scored foods), never 0.
+   */
+  diet?: RosterDietFacts | null;
 }
+
+export interface RosterDietFacts {
+  slug: string | null;
+  pendingBlock: boolean;
+  severeAllergy: boolean;
+  fitsDietPct: number | null;
+}
+
+/** Filter value meaning "no diet chosen" (a real fact, unlike unknown). */
+export const NO_DIET_VALUE = 'none';
 
 export type FilterField =
   | 'status' | 'program' | 'stage' | 'program_day'
@@ -59,7 +75,8 @@ export type FilterField =
   | 'weight_lost_lb' | 'weight_lost_pct' | 'current_weight'
   | 'spent' | 'last_purchase' | 'active_subscription'
   | 'last_activity' | 'last_log' | 'logging_lapsed'
-  | 'reason' | 'group';
+  | 'reason' | 'group'
+  | 'diet' | 'fits_diet' | 'severe_allergy' | 'pending_block';
 
 export type FilterOperator =
   | 'is' | 'is_not'
@@ -93,14 +110,19 @@ export interface FieldOption {
 export interface DynamicFieldOptions {
   program: readonly FieldOption[];
   group: readonly FieldOption[];
+  /** Diets in use on the roster (library slug → name); "No diet" is appended by optionsForField. */
+  diet?: readonly FieldOption[];
 }
 
-export const EMPTY_DYNAMIC_OPTIONS: DynamicFieldOptions = { program: [], group: [] };
+export const EMPTY_DYNAMIC_OPTIONS: DynamicFieldOptions = { program: [], group: [], diet: [] };
+
+export const NO_DIET_OPTION: FieldOption = { value: NO_DIET_VALUE, label: 'No diet chosen' };
 
 /** Options for an enum/boolean field, static or dynamic. */
 export function optionsForField(field: FilterField, dynamic: Partial<DynamicFieldOptions> = {}): readonly FieldOption[] {
   if (field === 'program') return dynamic.program ?? [];
   if (field === 'group') return dynamic.group ?? [];
+  if (field === 'diet') return [...(dynamic.diet ?? []), NO_DIET_OPTION];
   return fieldDefinition(field).options ?? [];
 }
 
@@ -155,6 +177,13 @@ const PROGRAM_LABELS: Record<string, string> = {
   glp1: 'GLP-1 Support',
 };
 
+/** Display name for a diet slug not in the dynamic option list (humanized). */
+export function dietLabel(slug: string): string {
+  if (slug === NO_DIET_VALUE) return NO_DIET_OPTION.label;
+  if (slug === 'just_tracking') return 'Just tracking';
+  return slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function programLabel(programId: string): string {
   return PROGRAM_LABELS[programId] ?? programId.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -177,6 +206,11 @@ export const FILTER_FIELDS: readonly FieldDefinition[] = [
   { key: 'logging_lapsed', label: 'Logging lapsed', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
   { key: 'reason', label: 'Attention reason', kind: 'enum', operators: ['is'], options: REASON_OPTIONS },
   { key: 'group', label: 'Group', kind: 'enum', operators: ['is', 'is_not'] },
+  // Diet facts (phase is the existing "Program stage" field).
+  { key: 'diet', label: 'Diet', kind: 'enum', operators: ['is', 'is_not'] },
+  { key: 'fits_diet', label: 'Fits diet (%)', kind: 'number', operators: NUMBER_OPERATORS, unit: '%' },
+  { key: 'severe_allergy', label: 'Severe allergy on file', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
+  { key: 'pending_block', label: 'Safety block awaiting review', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
 ];
 
 const FIELD_BY_KEY = new Map(FILTER_FIELDS.map((field) => [field.key, field]));
@@ -287,6 +321,7 @@ function numberFact(row: RosterFilterRow, field: FilterField): number | null {
         ? ((row.startingWeight - row.currentWeight) / row.startingWeight) * 100
         : null;
     case 'spent': return row.spentCents == null ? null : row.spentCents / 100;
+    case 'fits_diet': return row.diet?.fitsDietPct ?? null;
     default: return null;
   }
 }
@@ -381,10 +416,21 @@ export function matchesCondition(row: RosterFilterRow, condition: FilterConditio
       return row.activeSubscription != null && row.activeSubscription === (value === 'yes');
     case 'logging_lapsed':
       return row.loggingLapsed != null && row.loggingLapsed === (value === 'yes');
+    case 'diet': {
+      // Unknown family matches nothing either way; "none" is the real "no diet chosen" fact.
+      if (row.diet == null) return false;
+      const hit = value === NO_DIET_VALUE ? row.diet.slug == null : row.diet.slug === value;
+      return operator === 'is_not' ? !hit : hit;
+    }
+    case 'severe_allergy':
+      return row.diet != null && row.diet.severeAllergy === (value === 'yes');
+    case 'pending_block':
+      return row.diet != null && row.diet.pendingBlock === (value === 'yes');
     case 'program_day':
     case 'weight_lost_lb':
     case 'weight_lost_pct':
     case 'current_weight':
+    case 'fits_diet':
     case 'spent': {
       const actual = numberFact(row, field);
       return actual != null && compareNumber(actual, operator, value);
@@ -459,6 +505,7 @@ export function describeConditionValue(condition: FilterCondition, dynamic: Part
     if (label != null) return label;
     if (condition.field === 'program') return programLabel(value);
     if (condition.field === 'group') return 'a removed group';
+    if (condition.field === 'diet') return dietLabel(value);
     return value;
   }
   if (operator === 'in_last') {
@@ -485,7 +532,7 @@ export function describeCondition(condition: FilterCondition, dynamic: Partial<D
 // Sorting
 // ---------------------------------------------------------------------------
 
-export type RosterSortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging' | 'spent';
+export type RosterSortField = 'name' | 'startDate' | 'status' | 'weightLoss' | 'logging' | 'spent' | 'fitsDiet';
 export type RosterSortOrder = 'asc' | 'desc';
 
 export interface RosterSort {
@@ -495,7 +542,7 @@ export interface RosterSort {
 
 export const DEFAULT_ROSTER_SORT: RosterSort = { field: 'startDate', order: 'desc' };
 
-const SORT_FIELDS: readonly RosterSortField[] = ['name', 'startDate', 'status', 'weightLoss', 'logging', 'spent'];
+const SORT_FIELDS: readonly RosterSortField[] = ['name', 'startDate', 'status', 'weightLoss', 'logging', 'spent', 'fitsDiet'];
 
 export function sameSort(a: RosterSort, b: RosterSort): boolean {
   return a.field === b.field && a.order === b.order;

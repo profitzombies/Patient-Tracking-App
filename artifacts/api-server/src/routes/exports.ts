@@ -28,6 +28,7 @@ import {
   EXPORT_KIND_LABELS,
   APP_PAYMENT_KINDS,
   HQ_OFFICE_KINDS,
+  HQ_REPORT_KINDS,
   capturesBillingIdentity,
   PATIENT_KINDS,
   RANGED_KINDS,
@@ -587,7 +588,7 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
   const all: ExportKind[] = [...EXPORT_KINDS];
   const kinds =
     who.kind === "office"
-      ? all.filter((kind) => kind !== "provider_directory" && !HQ_OFFICE_KINDS.has(kind) && !APP_PAYMENT_KINDS.has(kind) &&
+      ? all.filter((kind) => kind !== "provider_directory" && !HQ_OFFICE_KINDS.has(kind) && !APP_PAYMENT_KINDS.has(kind) && !HQ_REPORT_KINDS.has(kind) &&
           (!kind.startsWith("billing_") || who.officeRole !== "staff") &&
           (!PATIENT_KINDS.has(kind) || who.officeRole !== "staff"))
       : all.filter((kind) => {
@@ -595,7 +596,7 @@ export function availableKinds(who: ExportRequester): Array<{ kind: ExportKind; 
           if (PATIENT_KINDS.has(kind) || HQ_OFFICE_KINDS.has(kind)) return hasHqPermission(who.identity, "provider_manage");
           const role = who.identity.departmentRole;
           if (role === "super_admin" || role === "admin") return true;
-          if (role === "clinical") return kind === "office_comparison" || kind === "training_completion";
+          if (role === "clinical") return kind === "office_comparison" || kind === "training_completion" || HQ_REPORT_KINDS.has(kind);
           if (role === "support") return kind === "provider_directory";
           return kind === "training_completion";
         });

@@ -13,6 +13,8 @@ import { ReactNode, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   BookOpenText,
+  ClipboardList,
+  Salad,
   Building2,
   FlaskConical,
   FolderOpen,
@@ -55,12 +57,14 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/admin/app-usage', label: 'App usage', mobileLabel: 'Usage', icon: Smartphone },
   { path: '/admin/patient-retention', label: 'Patient retention', mobileLabel: 'Retention', icon: UserCheck },
   { path: '/admin/customer-health', label: 'Customer health', mobileLabel: 'Customers', icon: HeartHandshake },
+  { path: '/admin/diet-reporting', label: 'Diets & restrictions', mobileLabel: 'Diets', icon: ClipboardList },
   { path: '/admin/accounts', label: 'Provider accounts', mobileLabel: 'Accounts', icon: Building2 },
   { path: '/admin/conversations', label: 'Conversations', mobileLabel: 'Coach', icon: MessagesSquare },
   { path: '/admin/escalations', label: 'Escalations', icon: ActivitySquare },
   { path: '/admin/team', label: 'Team', icon: Users },
   { path: '/admin/training', label: 'Training', icon: GraduationCap },
   { path: '/admin/knowledge', label: 'AI Support', mobileLabel: 'Support', icon: BookOpenText },
+  { path: '/admin/diet-library', label: 'Diet library', mobileLabel: 'Diets', icon: Salad },
   { path: '/admin/support-test', label: 'Test AI Support', mobileLabel: 'Test chat', icon: FlaskConical },
   { path: '/admin/audit', label: 'Audit Log', mobileLabel: 'Audit', icon: ActivitySquare },
   { path: '/admin/files', label: 'Marketing Assets', mobileLabel: 'Marketing', icon: FolderOpen },
@@ -84,9 +88,9 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_NAV_SECTION_DEFS = [
-  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage', '/admin/patient-retention', '/admin/customer-health'] },
+  { label: 'Dashboard', paths: ['/admin', '/admin/app-usage', '/admin/patient-retention', '/admin/customer-health', '/admin/diet-reporting'] },
   { label: 'Operations', paths: ['/admin/accounts', '/admin/conversations', '/admin/escalations', '/admin/team'] },
-  { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/support-test'] },
+  { label: 'Learning', paths: ['/admin/training', '/admin/knowledge', '/admin/diet-library', '/admin/support-test'] },
   { label: 'Manage', paths: ['/admin/audit', '/admin/exports', '/admin/payments', '/admin/files', '/admin/settings', '/admin/system-health', '/security'] },
 ];
 

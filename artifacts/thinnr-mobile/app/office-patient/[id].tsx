@@ -21,6 +21,7 @@ import { LedgerCard, MetricCard, SectionHeader, EmptyState } from '@/components/
 import { PhotoLightbox, LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { Image } from 'expo-image';
 import { CoachReviewPanel } from '@/components/office/CoachReviewPanel';
+import { DietFactsCard } from '@/components/office/DietFacts';
 import { Button } from '@/components/payments/primitives';
 
 export default function LivePatientDetailScreen() {
@@ -338,6 +339,19 @@ function LivePatientData({
             detail={identity.activationStatus ?? '--'}
           />
         </View>
+
+        {/* Diet & food preferences (read-only facts; actions live in the office web app) */}
+        {!data.patient.closure && (
+          <View style={styles.section}>
+            <SectionHeader label="Diet & food preferences" />
+            <DietFactsCard
+              patientId={identity.id}
+              facts={data.patient.diet}
+              stage={program.stage ?? null}
+              week={program.week ?? null}
+            />
+          </View>
+        )}
 
         {/* Engagement Signals */}
         {engagement && (

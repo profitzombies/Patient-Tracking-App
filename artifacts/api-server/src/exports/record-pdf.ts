@@ -8,6 +8,7 @@
  * so; the JSON files in the archive keep the original text.
  */
 import PDFDocument from "pdfkit";
+import { DIET_BY_SLUG } from "@workspace/diet-programs";
 import { ARCHIVE_FILE_GUIDE, type PatientArchiveSections } from "../privacy/exports";
 import type { PatientChartContext, RecordManifestFile, RecordManifestOmission } from "./patient-record";
 
@@ -310,6 +311,69 @@ export async function renderRecordSummaryPdf(input: RecordSummaryInput): Promise
       ];
     }),
     "No medications recorded.",
+  );
+
+  // ── Diet and food preferences ──────────────────────────────────────────
+  heading(doc, "Diet and food preferences");
+  const dietName = (slug: unknown): string => {
+    const key = String(slug ?? "");
+    return DIET_BY_SLUG.get(key)?.name ?? (key ? titleCase(key) : "");
+  };
+  const activeSelection = [...sections.diet.selections].reverse().find((row) => String(row.status ?? "") === "active");
+  const openEpisode = [...sections.diet.episodes].reverse().find((row) => row.ended_on === null || row.ended_on === undefined);
+  const latestActivity = sections.diet.activityLevels.at(-1);
+  const pendingBlocks = sections.diet.blocks.filter((row) => String(row.status ?? "") === "pending");
+  keyValues(doc, [
+    ["Current diet", activeSelection ? `${dietName(activeSelection.diet_slug)} (since ${fmtDate(activeSelection.started_at)}, chosen by ${titleCase(String(activeSelection.selected_by_role ?? "patient"))})` : "No diet chosen"],
+    ["Protocol episode", openEpisode ? `Episode ${String(openEpisode.episode_number ?? "")}, day one ${fmtDate(openEpisode.started_on)}${openEpisode.reason ? ` (${titleCase(String(openEpisode.reason))})` : ""}` : "No open protocol episode"],
+    ["Protocol restarts", String(Math.max(0, sections.diet.episodes.length - 1))],
+    ["Activity level", latestActivity ? `${titleCase(String(latestActivity.level ?? ""))} (recorded ${fmtDate(latestActivity.recorded_on)})` : ""],
+    ["Pending safety blocks", String(pendingBlocks.length)],
+  ]);
+  table(
+    doc,
+    [{ header: "Diet", width: 0.3 }, { header: "Status", width: 0.14 }, { header: "Chosen by", width: 0.16 }, { header: "Started", width: 0.2 }, { header: "Ended", width: 0.2 }],
+    sections.diet.selections.map((row) => [dietName(row.diet_slug), titleCase(String(row.status ?? "")), titleCase(String(row.selected_by_role ?? "")), fmtDateTime(row.started_at), fmtDateTime(row.ended_at)]),
+    "No diet history recorded.",
+  );
+  table(
+    doc,
+    [{ header: "Episode", width: 0.12 }, { header: "Day one", width: 0.18 }, { header: "Ended", width: 0.18 }, { header: "Reason", width: 0.2 }, { header: "Started by", width: 0.14 }, { header: "Note", width: 0.18 }],
+    sections.diet.episodes.map((row) => [String(row.episode_number ?? ""), fmtDate(row.started_on), fmtDate(row.ended_on), titleCase(String(row.reason ?? "")), titleCase(String(row.started_by_role ?? "")), String(row.note ?? "")]),
+    "No protocol episodes recorded.",
+  );
+  table(
+    doc,
+    [{ header: "List", width: 0.16 }, { header: "Item", width: 0.3 }, { header: "Severity", width: 0.12 }, { header: "Entered by", width: 0.24 }, { header: "Added", width: 0.18 }],
+    sections.diet.preferenceItems
+      .filter((row) => row.removed_at === null || row.removed_at === undefined)
+      .map((row) => [
+        titleCase(String(row.list ?? "")),
+        String(row.label ?? row.item_key ?? ""),
+        row.severity ? titleCase(String(row.severity)) : "",
+        [row.entered_by_name, row.entered_by_role ? `(${titleCase(String(row.entered_by_role))})` : ""].filter(Boolean).map(String).join(" "),
+        fmtDate(row.created_at),
+      ]),
+    "No allergies, sensitivities, restrictions or dislikes recorded.",
+  );
+  table(
+    doc,
+    [{ header: "Screening question", width: 0.3 }, { header: "Answer", width: 0.16 }, { header: "For diet", width: 0.22 }, { header: "Answered by", width: 0.14 }, { header: "When", width: 0.18 }],
+    sections.diet.screeningAnswers.map((row) => [titleCase(String(row.question ?? "")), titleCase(String(row.answer ?? "")), dietName(row.context_diet_slug), titleCase(String(row.answered_by_role ?? "")), fmtDateTime(row.created_at)]),
+    "No screening answers recorded.",
+  );
+  table(
+    doc,
+    [{ header: "Safety block", width: 0.22 }, { header: "Questions", width: 0.2 }, { header: "Status", width: 0.14 }, { header: "Reviewed by", width: 0.16 }, { header: "Reviewed", width: 0.14 }, { header: "Note", width: 0.14 }],
+    sections.diet.blocks.map((row) => [
+      dietName(row.diet_slug),
+      Array.isArray(row.questions) ? row.questions.map((q) => titleCase(String(q))).join(", ") : "",
+      titleCase(String(row.status ?? "")),
+      String(row.reviewed_by_name ?? ""),
+      fmtDateTime(row.reviewed_at),
+      String(row.review_note ?? ""),
+    ]),
+    "No safety blocks or overrides recorded.",
   );
 
   // ── Bloodwork ──────────────────────────────────────────────────────────

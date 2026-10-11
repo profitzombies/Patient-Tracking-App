@@ -80,6 +80,18 @@ export interface PatientSpend {
   netCents: number;
   lastPaidAt: string | null;
 }
+export interface RosterDietFacts {
+  /** Active diet; null = no diet chosen. "just_tracking" is a real library entry. */
+  diet: { slug: string; name: string; startedAt: string | null } | null;
+  /** Newest safety block awaiting provider review; null when none. */
+  pendingBlock: { id: string; createdAt: string | null } | null;
+  severeAllergy: boolean;
+  /** 0–100 share of recent logged foods that fit the diet; null = unknown (never 0). */
+  fitsDietPct: number | null;
+  fitsDietSample: number;
+  fitWindowDays: number;
+}
+
 export interface OfficePatient {
   id: string;
 
@@ -140,6 +152,12 @@ export interface OfficePatient {
    * paid order is a real zero; null means the aggregate could not be read.
    */
   spend?: PatientSpend | null;
+
+  /**
+   * Diet facts for the row; null when the diet family could not be read or
+   * the chart is sealed (unknown — never rendered as "no diet").
+   */
+  diet?: RosterDietFacts | null;
 
   program?: {
     id: string | null;
@@ -244,6 +262,8 @@ export interface OfficeRosterSummary {
   deletedAccounts?: number;
   /** Sealed clinical charts, independent of whether this response included them. */
   archived: number;
+  /** Diet safety blocks awaiting provider review; null when the diet facts could not be read. */
+  pendingDietBlocks?: number | null;
   asOf: string;
 }
 

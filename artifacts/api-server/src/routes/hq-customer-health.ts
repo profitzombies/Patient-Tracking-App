@@ -17,7 +17,7 @@
 import { Router, type IRouter } from "express";
 import { requireHqPermission, requireStaff, type StaffIdentity } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { officeIsActive } from "../lib/office-status";
+import { loadAppReviewOfficeIds, officeIsCustomer } from "../lib/office-status";
 import { loadOrgPolicy } from "../lib/org-policy";
 import { previousIsoWeek, scoreChangeFrom, weeklyRunMoment } from "../customer-health/weekly";
 import {
@@ -71,6 +71,8 @@ export const WEEKLY_HEALTH_EMAIL_PREFERENCE_KIND = "weekly_customer_health_email
 export interface OfficeHealthRow extends OfficeHealthFacts {
   accessDisabled: boolean;
   offboardingStatus: string | null;
+  /** The dedicated App Review office: never a customer. */
+  appReview: boolean;
 }
 
 function num(value: unknown): number {
@@ -90,6 +92,7 @@ export function officeHealthRowDto(raw: Record<string, unknown>): OfficeHealthRo
     providerName: text(raw.provider_name) ?? text(raw.office_name) ?? "",
     accessDisabled: raw.access_disabled === true,
     offboardingStatus: text(raw.offboarding_status),
+    appReview: raw.app_review === true,
     createdAt: text(raw.created_at),
     lastPaidOrderAt: text(raw.last_paid_order_at),
     activeSubscribers: num(raw.active_subscribers),
@@ -101,9 +104,11 @@ export function officeHealthRowDto(raw: Record<string, unknown>): OfficeHealthRo
   };
 }
 
-/** Drop offices that fail the shared active-office rule, then score and rank the rest. */
+/** Drop offices that fail the shared customer rule (inactive or App Review), then score and rank the rest. */
 export function assembleCustomerHealth(rows: OfficeHealthRow[], asOf: Date): CustomerHealthSummary {
-  const customers = rows.filter((row) => officeIsActive({ access_disabled: row.accessDisabled, offboarding_status: row.offboardingStatus }));
+  const customers = rows.filter((row) =>
+    officeIsCustomer({ access_disabled: row.accessDisabled, offboarding_status: row.offboardingStatus, app_review: row.appReview }),
+  );
   return summarizeCustomerHealth(customers, asOf);
 }
 
@@ -147,15 +152,20 @@ export async function loadPriorWeekScores(now: Date): Promise<PriorWeekScores> {
   return { isoWeek: null, scores: new Map() };
 }
 
-/** The raw facts for every office as of a date (shared with the weekly run). */
+/**
+ * The raw facts for every office as of a date (shared with the weekly run).
+ * The facts RPC predates the App Review flag, so the flagged office ids are
+ * read alongside and stamped onto the rows before the customer rule runs.
+ */
 export async function loadOfficeHealthRows(asOf: Date): Promise<OfficeHealthRow[]> {
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/office_customer_health", {
-    p_as_of: asOf.toISOString().slice(0, 10),
-  });
+  const [result, review] = await Promise.all([
+    supabaseAdmin("POST", "/rest/v1/rpc/office_customer_health", { p_as_of: asOf.toISOString().slice(0, 10) }),
+    loadAppReviewOfficeIds(),
+  ]);
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`office customer health failed (${result.status})`);
   }
-  return (result.json as Record<string, unknown>[]).map(officeHealthRowDto);
+  return (result.json as Record<string, unknown>[]).map((raw) => officeHealthRowDto({ ...raw, app_review: review.has(String(raw.provider_id)) }));
 }
 
 router.get("/hq/customer-health", requireHqPermission("analytics_read"), async (req, res) => {

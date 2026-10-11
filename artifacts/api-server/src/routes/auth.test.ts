@@ -35,6 +35,7 @@ class FakeBackend {
   deletedUsers: string[] = [];
   adminLogouts: string[] = [];
   audits: Row[] = [];
+  failAudit = false;
   failHqAccept = false;
   failProvision = false;
   failRejectedSendSpend = false;
@@ -78,6 +79,7 @@ class FakeBackend {
     };
     this.authUsers.clear();
     this.audits = [];
+    this.failAudit = false;
     this.sentEmails = [];
     this.twilioStarts = [];
     this.twilioStartServices = [];
@@ -357,6 +359,7 @@ class FakeBackend {
     // No live GoTrue sessions are modelled here; the atomic revoke-and-end
     // RPC therefore touches nothing, and the sweep proceeds as before.
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") {
+      if (this.failAudit) return json(500, { message: "fake: audit ledger down" });
       this.audits.push(body as Row);
       return json(200, null);
     }
@@ -1129,6 +1132,7 @@ beforeEach(() => {
   delete process.env.TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID;
   delete process.env.RESEND_API_KEY;
   delete process.env.CLAIM_EMAIL_FROM;
+  delete process.env.APP_REVIEW_SIGN_IN;
 });
 
 function seedProvider(overrides: Row = {}): Row {
@@ -2792,5 +2796,248 @@ describe("live delivery", () => {
     });
     expect(verify.status).toBe(200);
     expect(verify.json.realm).toBe("staff");
+  });
+});
+
+describe("store reviewer sign-in (APP_REVIEW_SIGN_IN)", () => {
+  const REVIEW_OFFICE = "live-app-review-office";
+  const PATIENT_PHONE = "+15555550100";
+  const STAFF_EMAIL = "reviewer-staff@thinnr.example";
+  const reviewEnv = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      patient: { identifier: "(555) 555-0100", code: "246810" },
+      staff: { identifier: "Reviewer-Staff@thinnr.example", code: "135790" },
+      ...overrides,
+    });
+  const setPolicy = (flags: Partial<{ hq: boolean; managers: boolean; all: boolean }>) => {
+    const row = backend.tables.hq_organization_settings[0];
+    if (flags.hq !== undefined) row.second_factor_hq_users = flags.hq;
+    if (flags.managers !== undefined) row.second_factor_office_managers = flags.managers;
+    if (flags.all !== undefined) row.second_factor_all_staff = flags.all;
+  };
+
+  function seedReviewOffice() {
+    return seedProvider({
+      provider_id: REVIEW_OFFICE,
+      provider_name: "App Review",
+      office_name: "THINNR App Review",
+      email: STAFF_EMAIL,
+      app_review: true,
+    });
+  }
+  function seedReviewPatient() {
+    const patient = seedPatient({ provider_id: REVIEW_OFFICE, name: "Review Patient", phone: PATIENT_PHONE, activation_status: "activated" });
+    const user = backend.seedAuthUser({
+      email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`,
+      phone: PATIENT_PHONE,
+      password: "OldStrong!Pass",
+    });
+    patient.auth_user_id = user.id;
+    return { patient, user };
+  }
+  const ledger = () => backend.tables.claim_verifications;
+  const reviewerAudits = () => backend.audits.filter((a) => a.p_action === "app_review_sign_in");
+
+  it("gives the listed patient a fixed code that is never delivered or echoed, and audits the sign-in", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    // Live SMS delivery: an ordinary patient would be texted through Twilio.
+    process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+    process.env.TWILIO_ACCOUNT_SID = "AC_test";
+    process.env.TWILIO_AUTH_TOKEN = "token";
+    process.env.TWILIO_VERIFY_SERVICE_SID = "VA_test";
+    seedReviewOffice();
+    const { user } = seedReviewPatient();
+
+    const start = await livePatientLogin("555-555-0100");
+    expect(start.status).toBe(200);
+    expect(start.json.ok).toBe(true);
+    expect(start.json.devCode ?? null).toBeNull();
+    await settle();
+    expect(backend.twilioStarts).toEqual([]);
+    expect(backend.sentEmails).toEqual([]);
+    expect(ledger()).toHaveLength(1);
+    expect(ledger()[0].delivery).toBe("app_review");
+    expect(ledger()[0].code_hash).toBeTruthy();
+
+    const wrong = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "000000" });
+    expect(wrong.status).toBe(400);
+    expect(reviewerAudits()).toHaveLength(0);
+
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "246810" });
+    expect(verify.status).toBe(200);
+    expect(verify.json.realm).toBe("patient");
+    expect(reviewerAudits()).toHaveLength(1);
+    expect(reviewerAudits()[0]).toMatchObject({
+      p_actor_user_id: user.id,
+      p_actor_kind: "patient",
+      p_provider_id: REVIEW_OFFICE,
+      p_target_kind: "auth_user",
+      p_target_id: user.id,
+      p_metadata: { realm: "patient" },
+    });
+    expect(ledger()[0].consumed_at).toBeTruthy();
+  });
+
+  it("signs the listed office staff identity in without the texted second factor, with an audit row", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    setPolicy({ all: true, managers: true });
+    const office = seedReviewOffice();
+
+    const start = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    expect(start.status).toBe(200);
+    expect(start.json.devCode ?? null).toBeNull();
+    expect(ledger()[0].delivery).toBe("app_review");
+    await settle();
+    expect(backend.sentEmails).toEqual([]);
+
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(verify.status).toBe(200);
+    expect(verify.json.secondFactor).toBeUndefined();
+    expect(verify.json.tokenHash).toBe(`hashed-${STAFF_EMAIL}`);
+    expect(office.auth_user_id).toBeTruthy();
+    expect(reviewerAudits()).toHaveLength(1);
+    expect(reviewerAudits()[0]).toMatchObject({
+      p_actor_user_id: office.auth_user_id,
+      p_actor_kind: "provider",
+      p_provider_id: REVIEW_OFFICE,
+      p_metadata: { realm: "staff" },
+    });
+  });
+
+  it("leaves every other identity on the ordinary path, second factor included", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    setPolicy({ managers: true });
+    seedReviewOffice();
+    seedProvider();
+    const start = await startLogin("staff", "rivera@clinic.example");
+    expect(start.json.devCode).toMatch(/^\d{6}$/);
+    expect(ledger()[0].delivery).toBe("dev");
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: start.json.devCode });
+    expect(verify.status).toBe(200);
+    expect(verify.json.secondFactor).toMatchObject({ mode: "enroll" });
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("never applies to an HQ login, even when the variable names one", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv({ staff: { identifier: "boss@thinnr.example", code: "135790" } });
+    backend.tables.hq_memberships.push({ id: "mem-hq-1", email: "boss@thinnr.example", display_name: "The Boss", status: "active", auth_user_id: "hq-user-1" });
+    backend.seedAuthUser({ id: "hq-user-1", email: "boss@thinnr.example" });
+    const start = await startLogin("staff", "boss@thinnr.example");
+    expect(ledger()[0].delivery).toBe("dev");
+    const fixed = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(fixed.status).toBe(400);
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("ignores a listed identity whose account lives in an ordinary office", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    setPolicy({ managers: true });
+    // Same emails and phone as the reviewer identities, but the office is a
+    // real customer (no app_review flag).
+    seedProvider({ provider_id: "customer-office", email: STAFF_EMAIL, office_name: "Customer Clinic" });
+    const patient = seedPatient({ provider_id: "customer-office", name: "Real Patient", phone: PATIENT_PHONE, activation_status: "activated" });
+    const user = backend.seedAuthUser({ email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid`, phone: PATIENT_PHONE, password: "OldStrong!Pass" });
+    patient.auth_user_id = user.id;
+
+    const patientStart = await livePatientLogin(PATIENT_PHONE);
+    expect(patientStart.status).toBe(200);
+    expect(patientStart.json.devCode).toMatch(/^\d{6}$/);
+    expect(ledger()[0].delivery).toBe("dev");
+    const fixedPatient = await api("POST", "/api/auth/login/verify", { requestId: patientStart.json.requestId, code: "246810" });
+    expect(fixedPatient.status).toBe(400);
+
+    const staffStart = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    expect(staffStart.json.devCode).toMatch(/^\d{6}$/);
+    expect(ledger()[1].delivery).toBe("dev");
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: staffStart.json.requestId, code: staffStart.json.devCode });
+    expect(verify.status).toBe(200);
+    expect(verify.json.secondFactor).toMatchObject({ mode: "enroll" });
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("refuses a reviewer code once the office loses its review flag", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    const office = seedReviewOffice();
+    const start = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    expect(ledger()[0].delivery).toBe("app_review");
+    office.app_review = false;
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(verify.status).toBe(409);
+    expect(ledger()[0].consumed_at).toBeTruthy();
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("refuses a reviewer code when the identity was promoted to HQ after issuance", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    setPolicy({ hq: false });
+    seedReviewOffice();
+    const start = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    expect(ledger()[0].delivery).toBe("app_review");
+    // An active HQ membership now owns the email: the directory resolves it
+    // as HQ ahead of the office record.
+    backend.tables.hq_memberships.push({ id: "mem-hq-review", email: STAFF_EMAIL, display_name: "Promoted", status: "active", auth_user_id: "hq-user-review" });
+    backend.seedAuthUser({ id: "hq-user-review", email: STAFF_EMAIL });
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(verify.status).toBe(409);
+    expect(verify.json.tokenHash).toBeUndefined();
+    expect(ledger()[0].consumed_at).toBeTruthy();
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("refuses a reviewer code when the patient was moved to another office after issuance", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    seedReviewOffice();
+    seedProvider({ provider_id: "customer-office", office_name: "Customer Clinic" });
+    const { patient } = seedReviewPatient();
+    const start = await livePatientLogin(PATIENT_PHONE);
+    expect(ledger()[0].delivery).toBe("app_review");
+    patient.provider_id = "customer-office";
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "246810" });
+    expect(verify.status).toBe(409);
+    expect(ledger()[0].consumed_at).toBeTruthy();
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("is disabled entirely when the variable is unset or malformed", async () => {
+    seedReviewOffice();
+    seedReviewPatient();
+    for (const value of [undefined, "", "not json", "[]", JSON.stringify({ patient: { identifier: PATIENT_PHONE, code: "246810" } }), reviewEnv({ staff: { identifier: STAFF_EMAIL, code: "12" } }), reviewEnv({ staff: { identifier: PATIENT_PHONE, code: "135790" } })]) {
+      backend.tables.claim_verifications = [];
+      if (value === undefined) delete process.env.APP_REVIEW_SIGN_IN;
+      else process.env.APP_REVIEW_SIGN_IN = value;
+      const start = await livePatientLogin(PATIENT_PHONE);
+      expect(start.status).toBe(200);
+      expect(start.json.devCode).toMatch(/^\d{6}$/);
+      expect(ledger()[0].delivery).toBe("dev");
+      const staff = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+      expect(staff.json.devCode).toMatch(/^\d{6}$/);
+    }
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("refuses a reviewer code issued before the variable was removed", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    seedReviewOffice();
+    const start = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    expect(ledger()[0].delivery).toBe("app_review");
+    delete process.env.APP_REVIEW_SIGN_IN;
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(verify.status).toBe(400);
+    expect(ledger()[0].consumed_at).toBeTruthy();
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
+    expect(reviewerAudits()).toHaveLength(0);
+  });
+
+  it("refuses the sign-in when the audit row cannot be written", async () => {
+    process.env.APP_REVIEW_SIGN_IN = reviewEnv();
+    seedReviewOffice();
+    backend.failAudit = true;
+    const start = await api("POST", "/api/auth/login/start", { realm: "staff", identifier: STAFF_EMAIL });
+    const verify = await api("POST", "/api/auth/login/verify", { requestId: start.json.requestId, code: "135790" });
+    expect(verify.status).toBe(502);
+    expect(backend.tables.auth_sign_ins).toHaveLength(0);
   });
 });

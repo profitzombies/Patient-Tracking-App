@@ -33,6 +33,7 @@ const PRESENCE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/2
 const MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261027010000_patient_app_events.sql");
 const SOURCE_KEYS_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261108000100_app_event_source_keys.sql");
 const TIMEZONE_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20260925138000_patient_activity_summary.sql");
+const APP_REVIEW_MIGRATION = path.resolve(here, "../../../../supabase/migrations/20261209100000_app_review_event_insights.sql");
 
 function hasBinary(name: string): boolean {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0;
@@ -141,6 +142,8 @@ const B_PATIENT = uuid(4); // office B
 const ARCHIVED = uuid(5);
 const STAFF_ONLY = uuid(6); // no auth user
 const OFF_PATIENT = uuid(7); // disabled office
+const OFFICE_REVIEW = "office-app-review";
+const REVIEW_PATIENT = uuid(8); // App Review office (not a customer)
 
 /** Fresh aggregate straight from the raw rows — the truth the read must match. */
 function rawAggregate(feature: string, start: string, end: string, office: string | null) {
@@ -148,7 +151,8 @@ function rawAggregate(feature: string, start: string, end: string, office: strin
     select e.local_day::text as local_day, e.local_hour, count(*)::int as events, count(distinct e.patient_id)::int as patients
     from patient_app_events e join providers pr on pr.provider_id = e.provider_id
     where e.feature = '${feature}' and e.local_day between '${start}' and '${end}'
-      and coalesce(pr.access_disabled, false) = false ${office ? `and e.provider_id = '${office}'` : ""}
+      and coalesce(pr.access_disabled, false) = false and coalesce(pr.app_review, false) = false
+      ${office ? `and e.provider_id = '${office}'` : ""}
     group by e.local_day, e.local_hour order by 1, 2`);
 }
 function insights(feature: string, start: string, end: string, office: string | null) {
@@ -179,7 +183,7 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
     const tzEnd = tzSource.indexOf("create or replace function public.provider_patient_activity_summary");
     const tzFile = path.join(dir, "tz.sql");
     writeFileSync(tzFile, tzSource.slice(tzStart, tzEnd));
-    for (const file of [schemaFile, tzFile, PRESENCE_MIGRATION, MIGRATION, SOURCE_KEYS_MIGRATION]) {
+    for (const file of [schemaFile, tzFile, PRESENCE_MIGRATION, MIGRATION, SOURCE_KEYS_MIGRATION, APP_REVIEW_MIGRATION]) {
       execFileSync(
         "psql",
         ["-h", dir, "-p", String(PORT), "-U", "postgres", "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", file],
@@ -496,5 +500,32 @@ describe.skipIf(!POSTGRES_AVAILABLE)("patient app events + rollups + insights (r
     // Idempotent: a second run finds nothing.
     expect(rows("select keyed, removed from public.patient_app_events_dedupe('coach_message', false)")).toEqual([{ keyed: 0, removed: 0 }]);
     expect(fails("select * from public.patient_app_events_dedupe('app_open', true)")).toContain("unsupported feature");
+  });
+
+  it("leaves the App Review office out of network insights and bounds, rolled or raw", () => {
+    const range: [string, string] = ["2026-09-01", "2026-09-30"];
+    const beforeNetwork = insights("progress_photo", ...range, null);
+    const beforeBounds = rows("select first_day::text as first_day from public.patient_app_event_bounds('progress_photo', null)");
+    psql(`
+      insert into providers (provider_id, office_name, provider_name, access_disabled, app_review) values
+        ('${OFFICE_REVIEW}', 'THINNR App Review', 'App Review', false, true);
+      insert into patients (id, provider_id, timezone, auth_user_id, archived_at) values
+        ('${REVIEW_PATIENT}', '${OFFICE_REVIEW}', 'America/New_York', '${uuid(108)}', null);
+      set test.role = 'service_role';
+      select public.patient_app_event_record('${REVIEW_PATIENT}', 'progress_photo', 'ios', '2026-09-03T15:00:00Z', 3);
+      select public.patient_app_event_record('${REVIEW_PATIENT}', 'progress_photo', 'ios', '2026-09-20T15:00:00Z', 1);
+    `);
+    // The raw rows exist; the network reads do not see them.
+    expect(scalar(`select count(*) from patient_app_events where provider_id = '${OFFICE_REVIEW}'`)).toBe("4");
+    expect(insights("progress_photo", ...range, null)).toEqual(beforeNetwork);
+    expect(insights("progress_photo", ...range, null)).toEqual(rawAggregate("progress_photo", ...range, null));
+    expect(rows("select first_day::text as first_day from public.patient_app_event_bounds('progress_photo', null)")).toEqual(beforeBounds);
+    // Naming the review office explicitly reads nothing either: it is not a customer anywhere in Insights.
+    expect(insights("progress_photo", ...range, OFFICE_REVIEW)).toEqual([]);
+    expect(rows(`select first_day from public.patient_app_event_bounds('progress_photo', '${OFFICE_REVIEW}')`)).toEqual([{ first_day: null }]);
+    // Rolled-up days are excluded the same way as the raw tail.
+    rollup("2026-10-02T15:00:00Z");
+    expect(insights("progress_photo", ...range, null)).toEqual(beforeNetwork);
+    expect(insights("progress_photo", ...range, OFFICE_REVIEW)).toEqual([]);
   });
 });

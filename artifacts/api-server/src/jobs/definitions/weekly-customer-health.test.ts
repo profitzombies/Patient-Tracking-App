@@ -23,7 +23,7 @@ const ago = (days: number, from = MONDAY_9AM) => new Date(from.getTime() - days 
 
 function office(providerId: string, extra: Partial<OfficeHealthRow> = {}): OfficeHealthRow {
   return {
-    providerId, officeName: `${providerId} office`, providerName: `Dr ${providerId}`, accessDisabled: false, offboardingStatus: "active",
+    providerId, officeName: `${providerId} office`, providerName: `Dr ${providerId}`, accessDisabled: false, offboardingStatus: "active", appReview: false,
     createdAt: ago(400), lastPaidOrderAt: null, activeSubscribers: 0, cancellingSubscriptions: 0, appUsers: 0,
     activeAppUsers30d: 0, activeAppUsersPrior30d: 0, staffEnrolled: 0, ...extra,
   };
@@ -55,6 +55,8 @@ function fakeStore(overrides: Partial<WeeklyHealthStore> = {}) {
       office("a", { lastPaidOrderAt: ago(5), activeSubscribers: 10, appUsers: 25, activeAppUsers30d: 25, staffEnrolled: 3 }),
       office("b", { lastPaidOrderAt: ago(75), appUsers: 10, activeAppUsers30d: 2, activeAppUsersPrior30d: 6 }),
       office("c", { offboardingStatus: "offboarding", lastPaidOrderAt: ago(1) }),
+      // The App Review office is active but never a customer: no snapshot, no email row.
+      office("review", { appReview: true, lastPaidOrderAt: ago(1), activeSubscribers: 10 }),
       office("f", { officeName: "Fern · Field Clinic", lastPaidOrderAt: ago(500), cancellingSubscriptions: 2, activeSubscribers: 2 }),
     ]; },
     priorScores: async (week) => { calls.push(`priorScores:${week}`); return week === "2026-W41" ? new Map([["a", 88], ["b", 50]]) : new Map(); },

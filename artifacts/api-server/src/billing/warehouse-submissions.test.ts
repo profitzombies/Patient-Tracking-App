@@ -26,7 +26,7 @@ vi.mock("../lib/supabase-admin", () => ({
     state.admin.push({ method, path, body });
     if (path.startsWith("/rest/v1/hq_memberships")) return { status: 200, json: state.recipients };
     // No office is offboarding in these fixtures; the job's exclusion scan sees an empty set.
-    if (path.startsWith("/rest/v1/providers?offboarding_status=in.")) return { status: 200, json: [] };
+    if (path.startsWith("/rest/v1/providers?or=(offboarding_status.in.")) return { status: 200, json: [] };
     if (path.startsWith("/rest/v1/staff_notifications")) {
       state.tables.staff_notifications ??= [];
       state.tables.staff_notifications.push(...(Array.isArray(body) ? body : [body]));

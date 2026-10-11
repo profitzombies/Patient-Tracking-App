@@ -87,7 +87,7 @@ describe("HQ office comparison", () => {
         return response([dailyRow("p1", "2026-08-30", 0), dailyRow("p1", "2026-08-31", 0), dailyRow("p1", "2026-09-01", 1), dailyRow("p1", "2026-09-02", 2), dailyRow("p2", "2026-08-30", 0)]);
       }
       // Offboarding / offboarded offices leave the comparison; p3 is one.
-      if (path.startsWith("/rest/v1/providers?offboarding_status=in.")) return response([{ provider_id: "p3" }]);
+      if (path.startsWith("/rest/v1/providers?or=(offboarding_status.in.")) return response([{ provider_id: "p3" }]);
       throw new Error(`unexpected ${path}`);
     });
     const res = await call("/hq/office-comparison?start=2026-08-30&end=2026-09-02");
@@ -141,8 +141,11 @@ describe("HQ app usage", () => {
           usageRow(),
           usageRow({ provider_id: "p2", office_name: "Two", first_patient_date: "2026-08-31", activated_patients: 4, activated_patients_now: 4, active_now: 0, active_today: 1, weekly_active_today: 2, monthly_active_today: 3, weekly_active: 1, monthly_active: 2 }),
           usageRow({ provider_id: "p3", office_name: "Empty", first_patient_date: null, activated_patients: 0, activated_patients_now: 0, active_now: 0, active_today: 0, weekly_active_today: 0, monthly_active_today: 0, weekly_active: 0, monthly_active: 0 }),
+          // The App Review office would otherwise inflate every network figure.
+          usageRow({ provider_id: "review", office_name: "App Review", activated_patients: 50, activated_patients_now: 50, active_now: 50, active_today: 50, weekly_active_today: 50, monthly_active_today: 50, weekly_active: 50, monthly_active: 50 }),
         ]);
       }
+      if (path.startsWith("/rest/v1/providers?app_review=is.true")) return response([{ provider_id: "review" }]);
       if (path.endsWith("patient_app_usage_daily")) {
         expect(body).toEqual({ p_start: "2026-08-30", p_end: "2026-09-02" });
         return response([
@@ -179,6 +182,7 @@ describe("HQ app usage", () => {
     mocks.staff.mockReturnValue({ userId: "u", role: "hq_admin", departmentRole: "admin" });
     mocks.admin.mockReset().mockImplementation(async (_m: string, path: string) => {
       if (path.endsWith("patient_app_usage_offices")) return response([usageRow({ first_patient_date: "2026-09-10", weekly_active: 0, monthly_active: 0 })]);
+      if (path.startsWith("/rest/v1/providers?app_review=is.true")) return response([]);
       return response([usageDay("p1", "2026-08-30", 0, 0)]);
     });
     const json = await (await call(`/hq/app-usage?${RANGE}`)).json() as { network: { available: boolean; atRangeEnd: { weeklySharePct: number | null } }; offices: Array<{ available: boolean; metrics: unknown }> };

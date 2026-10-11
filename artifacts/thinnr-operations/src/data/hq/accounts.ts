@@ -47,6 +47,8 @@ export interface ProviderAccount {
     startedAt: string | null;
     offboardedAt: string | null;
   } | null;
+  /** The dedicated App Review office store reviewers sign in to: not a customer. */
+  appReview: boolean;
 }
 
 export interface ProviderPatient {

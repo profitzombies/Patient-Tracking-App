@@ -31,13 +31,22 @@ afterAll(() => server.close());
 function response(json: unknown, status = 200) { return { status, json, contentRange: null }; }
 async function call(path: string, init: RequestInit = {}) { return fetch(base + path, { ...init, headers: { authorization: "Bearer t", "content-type": "application/json", ...(init.headers ?? {}) } }); }
 const SNAPSHOTS = "/rest/v1/office_customer_health_weekly_snapshots";
-/** Routes the facts RPC and the two weekly snapshot reads (last week W40, this week W41 around 2026-10-09). */
-function serve(facts: Record<string, unknown>[], snapshots: Record<string, Array<{ provider_id: string; score: number }>> = {}) {
+const REVIEW_OFFICES = "/rest/v1/providers?app_review=is.true";
+/** Routes the facts RPC, the App Review flag read and the two weekly snapshot reads (last week W40, this week W41 around 2026-10-09). */
+function serve(
+  facts: Record<string, unknown>[],
+  snapshots: Record<string, Array<{ provider_id: string; score: number }>> = {},
+  reviewOffices: string[] = [],
+) {
   mocks.admin.mockImplementation(async (method: string, path: string) => {
     if (path.startsWith(SNAPSHOTS)) {
       expect(method).toBe("GET");
       const week = /iso_week=eq\.([^&]+)/.exec(path)?.[1] ?? "";
       return response(snapshots[decodeURIComponent(week)] ?? []);
+    }
+    if (path.startsWith(REVIEW_OFFICES)) {
+      expect(method).toBe("GET");
+      return response(reviewOffices.map((provider_id) => ({ provider_id })));
     }
     expect(method).toBe("POST");
     expect(path).toBe("/rest/v1/rpc/office_customer_health");
@@ -121,6 +130,20 @@ describe("GET /hq/customer-health", () => {
       bandThresholds: { healthy: 70, watch: 40 },
       newOfficeDays: 90,
     });
+  });
+
+  it("drops the flagged App Review office even though it is active, and fails loudly when the flag read fails", async () => {
+    serve([row("a", { last_paid_order_at: ago(5) }), row("review", { last_paid_order_at: ago(1), active_subscribers: 4 })], {}, ["review"]);
+    const res = await call("/hq/customer-health");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as CustomerHealthResult;
+    expect(json.offices.map((o) => o.providerId)).toEqual(["a"]);
+    expect(json.bucketCounts.active).toBe(1);
+
+    mocks.admin.mockImplementation(async (_method: string, path: string) =>
+      path.startsWith(REVIEW_OFFICES) ? response({ message: "down" }, 500) : response([row("a")]),
+    );
+    expect((await call("/hq/customer-health")).status).toBeGreaterThanOrEqual(500);
   });
 
   it("adds each office's prior-week score and signed change from last ISO week's Monday snapshot", async () => {

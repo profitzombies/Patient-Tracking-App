@@ -23,6 +23,8 @@ import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { STAFF_REAUTH_SCOPE_PREFIX } from "../auth/fresh-code";
+import { APP_REVIEW_DELIVERY, appReviewIdentity, type AppReviewRealm } from "../auth/app-review";
+import { loadOfficeIsAppReview } from "../lib/office-status";
 import { normalizeIdentifier, type NormalizedIdentifier } from "../claim/normalize";
 import {
   PASSWORD_RESET_REQUIRED_CODE,
@@ -34,7 +36,7 @@ import {
   forcedResetPending,
   noteSignIn,
 } from "../security/sign-in-hooks";
-import { recordAdminAuditEvent, requestIdOf } from "../lib/admin-audit";
+import { recordAdminAuditEvent, requestIdOf, type AuditActorKind } from "../lib/admin-audit";
 import {
   deliveryMode,
   DeliveryNotConfiguredError,
@@ -294,6 +296,17 @@ function deliverEmailAfterResponse(
   });
 }
 
+/**
+ * Which reviewer identity (if any) a resolved account type may match. The
+ * realm is derived from the directory hit, never the request, and HQ account
+ * types never map to a reviewer realm.
+ */
+function appReviewRealmOf(accountType: VerificationRow["account_type"]): AppReviewRealm | null {
+  if (accountType === "patient") return "patient";
+  if (accountType === "provider" || accountType === "team_member") return "staff";
+  return null;
+}
+
 export async function spendUndelivered(row: VerificationRow): Promise<void> {
   const spent = await patchRow(
     row.id,
@@ -312,6 +325,12 @@ export interface RegisterSendInput {
   candidates: Candidate[];
   scopeKey?: string | null;
   scopeMaxPerHour?: number | null;
+  /**
+   * The office the resolved account belongs to. Only the store-reviewer rule
+   * reads it: a listed identity gets the fixed code solely while its account
+   * sits in the flagged App Review office. Omitted = no reviewer path.
+   */
+  officeId?: string | null;
 }
 
 /**
@@ -326,8 +345,24 @@ export async function registerSend(
   const kind = input.identifier.kind;
   const stored = kind === "phone" ? input.identifier.e164 : input.identifier.email;
   const mode = deliveryMode(kind === "phone" ? "sms" : "email");
-  const delivery = mode === "dev" ? "dev" : kind === "phone" ? "twilio_verify" : "resend";
-  const localCode = delivery === "twilio_verify" ? null : generateCode();
+  // Store reviewers: the environment-named patient / staff identity gets a
+  // fixed code on a row nothing delivers. Only sign-in codes, only after the
+  // directory matched the identity (this runs after the lookup), the realm
+  // follows the resolved account type rather than the request, and the
+  // account must sit in the flagged App Review office. HQ logins and listed
+  // identities in any ordinary office stay on the delivered path.
+  const reviewerRealm = appReviewRealmOf(input.accountType);
+  const listed =
+    input.purpose === "login" && reviewerRealm ? appReviewIdentity(reviewerRealm, input.identifier) : null;
+  const reviewer = listed && input.officeId && (await loadOfficeIsAppReview(input.officeId)) ? listed : null;
+  const delivery: VerificationRow["delivery"] = reviewer
+    ? APP_REVIEW_DELIVERY
+    : mode === "dev"
+      ? "dev"
+      : kind === "phone"
+        ? "twilio_verify"
+        : "resend";
+  const localCode = reviewer ? reviewer.code : delivery === "twilio_verify" ? null : generateCode();
   const salt = localCode ? crypto.randomBytes(16).toString("hex") : null;
 
   const registered = await supabaseAdmin("POST", "/rest/v1/rpc/claim_register_send", {
@@ -349,7 +384,9 @@ export async function registerSend(
     throw new Error(`auth send registration failed (${registered.status})`);
   }
   if (registered.json.length === 0) return null;
-  return { row: registered.json[0] as VerificationRow, localCode };
+  // A reviewer code is known to the reviewer already; it never rides a
+  // response (dev inline code included) or a message.
+  return { row: registered.json[0] as VerificationRow, localCode: reviewer ? null : localCode };
 }
 
 /** Shared code-check preamble: row guards, attempt counting, code matching. */
@@ -506,6 +543,7 @@ export async function patientCodeStart(
           purpose, identifier, accountType: "patient",
           candidates: [{ type: "patient", ref: patient.id, name: patient.name, dob: null, claimed: true, auth_user_id: patient.auth_user_id }],
           scopeKey: purpose === "login" ? `patient-password:${patient.id}` : null,
+          officeId: patient.provider_id ?? null,
         });
   if (!registered) {
     await holdUntilFloor(started);
@@ -592,6 +630,7 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
 
     let candidates: Candidate[] = [];
     let accountType: VerificationRow["account_type"] = null;
+    let officeId: string | null = null;
     {
       if (identifier.kind !== "email") {
         // Unreachable — the realm guard above already rejected this.
@@ -604,6 +643,7 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
           staff.hit.class === "hq_active" || staff.hit.class === "hq_invited"
             ? "hq_admin"
             : staff.hit.class;
+        officeId = staff.hit.providerId;
         candidates = [
           {
             type: accountType,
@@ -630,6 +670,7 @@ router.post(AUTH_LOGIN_START_PATH, async (req, res) => {
       identifier,
       accountType,
       candidates,
+      officeId,
     });
     if (!registered) {
       await holdUntilFloor(started);
@@ -700,8 +741,34 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       return;
     }
 
+    // A reviewer row (fixed, never-delivered code) is honoured only while the
+    // environment still names this exact identity for this realm. Removing or
+    // breaking the variable refuses rows issued before the change too. The
+    // account it resolves to is re-checked below: it must still be the same
+    // account class and reference the row was issued for, inside the flagged
+    // App Review office. An identity moved to another office or promoted to
+    // HQ since issuance never turns the fixed code into a session.
+    const reviewerRealm = appReviewRealmOf(row.account_type);
+    const reviewer = row.delivery === APP_REVIEW_DELIVERY && reviewerRealm ? appReviewIdentity(reviewerRealm, identifier) : null;
+    if (row.delivery === APP_REVIEW_DELIVERY && !reviewer) {
+      await patchRow(row.id, { consumed_at: new Date().toISOString() });
+      res.status(400).json({ error: CODE_ERROR });
+      return;
+    }
+    const reviewerBound = async (resolved: {
+      accountType: VerificationRow["account_type"];
+      ref: string;
+      providerId: string | null;
+    }): Promise<boolean> =>
+      resolved.accountType === row.account_type &&
+      row.candidates.length === 1 &&
+      row.candidates[0].ref === resolved.ref &&
+      resolved.providerId !== null &&
+      (await loadOfficeIsAppReview(resolved.providerId));
+
     let userId: string | null = null;
     let realm: "staff" | "patient";
+    let reviewerAudit: { actorKind: AuditActorKind; providerId: string | null } | null = null;
     if (row.account_type === "patient") {
       realm = "patient";
       const patients = await lookupPatients(identifier);
@@ -722,6 +789,19 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       ) {
         // Unlike staff first-login provisioning, this rail is only available
         // to identities that were linked before password verification.
+        if (reviewer) {
+          const bound = await reviewerBound({
+            accountType: "patient",
+            ref: String(patient.id),
+            providerId: patient.provider_id ?? null,
+          });
+          if (!bound) {
+            await patchRow(row.id, { consumed_at: new Date().toISOString() });
+            res.status(409).json({ error: CLINIC_MESSAGE });
+            return;
+          }
+          reviewerAudit = { actorKind: "patient", providerId: patient.provider_id ?? null };
+        }
         userId = patient.auth_user_id;
       } else {
         await patchRow(row.id, { consumed_at: new Date().toISOString() });
@@ -733,7 +813,25 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       if (identifier.kind === "email") {
         const staff = await lookupStaffByEmail(identifier.email);
         if (staff.kind === "ok") {
-          const step = await staffSecondFactorStep(staff.hit);
+          if (reviewer) {
+            // The fixed code was issued for an office staff account of the
+            // App Review office. Re-resolve that binding before it buys
+            // anything: a different class (HQ membership now owns the email),
+            // a different record, or an office without the flag ends here.
+            const bound = await reviewerBound({
+              accountType: staff.hit.class === "provider" || staff.hit.class === "team_member" ? staff.hit.class : "hq_admin",
+              ref: staff.hit.ref,
+              providerId: staff.hit.providerId,
+            });
+            if (!bound) {
+              await patchRow(row.id, { consumed_at: new Date().toISOString() });
+              res.status(409).json({ error: CLINIC_MESSAGE });
+              return;
+            }
+          }
+          // The reviewer staff identity has no phone a reviewer could read, so
+          // the texted second factor is skipped for that one identity only.
+          const step = reviewer ? null : await staffSecondFactorStep(staff.hit);
           if (step) {
             // The emailed code is proven but the session is NOT issued yet:
             // the row keeps verified_at (so the code can never be replayed)
@@ -749,6 +847,12 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
           }
           userId = await ensureStaffAuthUser(staff.hit);
           await startOfficeIncludedPeriod(staff.hit, userId, req);
+          if (reviewer) {
+            reviewerAudit = {
+              actorKind: staff.hit.class === "provider" ? "provider" : staff.hit.class === "team_member" ? "team_member" : "hq",
+              providerId: staff.hit.providerId,
+            };
+          }
         }
       }
     }
@@ -757,6 +861,22 @@ router.post(AUTH_LOGIN_VERIFY_PATH, async (req, res) => {
       await patchRow(row.id, { consumed_at: new Date().toISOString() });
       res.status(409).json({ error: CLINIC_MESSAGE });
       return;
+    }
+
+    // Every reviewer sign-in lands in the audit ledger BEFORE a session is
+    // minted: a failed audit write refuses the sign-in (502) rather than
+    // leaving an unrecorded reviewer session.
+    if (reviewerAudit) {
+      await recordAdminAuditEvent({
+        action: "app_review_sign_in",
+        actorUserId: userId,
+        actorKind: reviewerAudit.actorKind,
+        providerId: reviewerAudit.providerId,
+        targetKind: "auth_user",
+        targetId: userId,
+        requestId: requestIdOf(req),
+        metadata: { realm },
+      });
     }
 
     const now = new Date().toISOString();

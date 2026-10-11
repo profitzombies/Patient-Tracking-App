@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader, copyText } from '@/components/admin/primitives';
+import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
@@ -566,6 +566,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-2">
             {locked && <AccountLockedChip testId="chip-account-locked" />}
             <AccountStatusChip status={account.status} />
+            {account.appReview && <AppReviewChip testId="chip-account-app-review" />}
              <span className={CHIP_COBALT}>{account.plan ? `${account.plan} plan` : 'Plan —'}</span>
           </div>
         }

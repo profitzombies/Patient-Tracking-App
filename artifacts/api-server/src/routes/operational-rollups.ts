@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { loadInactiveOfficeIds } from "../lib/office-status";
+import { loadAppReviewOfficeIds, loadInactiveOfficeIds } from "../lib/office-status";
 import { inboxMetrics } from "./staff-conversations";
 import {
   assembleInsights,
@@ -282,15 +282,22 @@ export function appUsagePointDto(row: Record<string, unknown>): AppUsagePoint {
 }
 
 async function loadAppUsageOffices(range: DateRangeKeys, at: Date) {
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_app_usage_offices", {
-    p_start: range.start,
-    p_end: range.end,
-    p_at: at.toISOString(),
-  });
+  // The App Review office's sample patients are not app usage: drop it before
+  // the network sums (the RPC only knows access_disabled).
+  const [result, reviewOffices] = await Promise.all([
+    supabaseAdmin("POST", "/rest/v1/rpc/patient_app_usage_offices", {
+      p_start: range.start,
+      p_end: range.end,
+      p_at: at.toISOString(),
+    }),
+    loadAppReviewOfficeIds(),
+  ]);
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`app usage offices failed (${result.status})`);
   }
-  return (result.json as Record<string, unknown>[]).map((row) => appUsageOfficeDto(row, range));
+  return (result.json as Record<string, unknown>[])
+    .filter((row) => !reviewOffices.has(String(row.provider_id)))
+    .map((row) => appUsageOfficeDto(row, range));
 }
 
 async function loadAppUsageSeries(range: DateRangeKeys): Promise<Map<string, AppUsagePoint[]>> {

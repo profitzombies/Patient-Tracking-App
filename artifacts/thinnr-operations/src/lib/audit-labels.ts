@@ -104,6 +104,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   patient_sessions_viewed: 'Viewed a patient\'s sessions',
   patient_signed_out: 'Signed a patient out everywhere',
   access_denied: 'Was refused access',
+  app_review_sign_in: 'Signed in as the store reviewer',
   patient_record_viewed: 'Viewed patient record',
   patient_photos_viewed: 'Viewed progress photos',
   patient_bloodwork_viewed: 'Viewed bloodwork list',

@@ -115,9 +115,9 @@ export const AccountInput = z.object({
 });
 
 const PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at,app_review";
 const SUPPORT_PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at,offboarding_status,offboarding_started_at,offboarded_at";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at,offboarding_status,offboarding_started_at,offboarded_at,app_review";
 
 function enc(value: string): string {
   return encodeURIComponent(value);
@@ -200,6 +200,8 @@ async function loadAccounts(supportOnly = false) {
         startedAt: typeof row.offboarding_started_at === "string" ? row.offboarding_started_at : null,
         offboardedAt: typeof row.offboarded_at === "string" ? row.offboarded_at : null,
       },
+      // The dedicated App Review office: staff must know it is not a customer.
+      appReview: row.app_review === true,
       plan: row.plan ? String(row.plan) : null,
       address1: row.address_line_1 ? String(row.address_line_1) : "",
       address2: row.address_line_2 ? String(row.address_line_2) : "",

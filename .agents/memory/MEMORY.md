@@ -167,3 +167,4 @@
 - [EAS store builds](eas-store-builds.md) — config resolution skips plugin mods; Tap to Pay flag gated natively AND in JS; OTA publishes need build env + a fingerprint-matching build; project id lives in app.json.
 - [Legal documents versioning](legal-documents-versioning.md) — one version.json drives web pages, API bundle, app offline copy AND the consent version (bump = re-prompt); consent needs the EXACT required version's text readable.
 - [Twilio Verify codes are per number, per service](twilio-verify-per-purpose.md) — one pending code per phone per Verify service: a destructive purpose (account deletion) needs its OWN service or sign-in texts confirm it.
+- [Store review readiness](store-review-readiness.md) — reviewer fixed codes: prod env var + account must sit in the flagged App Review office (checked at issue AND verify); office excluded via shared office-status predicates; kit in docs/store.

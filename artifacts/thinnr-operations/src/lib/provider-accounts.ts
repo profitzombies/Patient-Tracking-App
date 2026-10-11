@@ -124,6 +124,7 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
     goalCompletion: account.goalCompletion ?? null,
     retention: account.retention ?? null,
     offboarding: account.offboarding ?? null,
+    appReview: account.appReview === true,
   };
 }
 

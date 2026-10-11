@@ -52,7 +52,12 @@ describe("GET /hq/patient-retention", () => {
 
   it("asks the database for every weekly period end (plus the range end) and sums offices into the network", async () => {
     // 30-day range → 7-day buckets walked back from the range end (the first one clamped to the start).
-    mocks.admin.mockImplementation(async (_method: string, path: string, body: Record<string, unknown>) => {
+    mocks.admin.mockImplementation(async (method: string, path: string, body: Record<string, unknown>) => {
+      if (method === "GET") {
+        // The network view also asks which office is the App Review office and drops it.
+        expect(path).toBe("/rest/v1/providers?app_review=is.true&select=provider_id&limit=50");
+        return response([{ provider_id: "review" }]);
+      }
       expect(path).toBe("/rest/v1/rpc/patient_retention_points");
       expect(body.p_provider_id).toBeNull();
       const dates = body.p_dates as string[];
@@ -61,6 +66,8 @@ describe("GET /hq/patient-retention", () => {
       for (const date of dates) {
         rows.push(row("a", date, { onboarded: 10, active: 7, buying: 4, inactive: 3, inactive_30_60: 1, inactive_60_90: 1, inactive_90_plus: 1 }));
         rows.push(row("b", date, { onboarded: 20, active: 12, buying: 5, inactive: 8, inactive_30_60: 4, inactive_60_90: 2, inactive_90_plus: 2 }));
+        // The App Review office's sample patients would otherwise inflate the network.
+        rows.push(row("review", date, { onboarded: 99, active: 99, buying: 99 }));
         // Enabled office with no onboarded patient yet: unavailable, never zero.
         rows.push(row("c", date, {}, { first_onboarded_on: null }));
         // Office whose first patient arrives after the range: unavailable too.

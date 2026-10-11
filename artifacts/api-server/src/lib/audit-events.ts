@@ -124,6 +124,7 @@ export const AUDIT_ACTIONS = [
   "patient_sessions_viewed",
   "patient_signed_out",
   "access_denied",
+  "app_review_sign_in",
   "billing_refund_issued",
   "billing_subscription_cancelled",
   "billing_subscription_payment_retried",
@@ -190,6 +191,7 @@ export const AUDIT_METADATA_KEYS = [
   "choice", "patients", "sessions", "sealed", "held", "destroyed", "retainUntil",
   "lifetime", "endsAt", "restart", "plan", "priceCentsOverride", "paidThrough", "amountCents",
   "groupId", "patientId",
+  "realm",
   "dietSlug", "previousDietSlug", "blockId", "selectionId", "episodeId", "episodeNumber", "startedOn", "list", "itemKey", "severity", "reviewStatus",
 ] as const;
 export const allowedMetadata: ReadonlySet<string> = new Set(AUDIT_METADATA_KEYS);

@@ -31,7 +31,7 @@ export interface VerificationRow {
   account_type: AccountType | null;
   candidates: Candidate[];
   resolved_ref: string | null;
-  delivery: "dev" | "twilio_verify" | "resend";
+  delivery: "dev" | "twilio_verify" | "resend" | "app_review";
   code_salt: string | null;
   code_hash: string | null;
   code_expires_at: string | null;

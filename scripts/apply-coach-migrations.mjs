@@ -79,6 +79,11 @@ const migrationNames = [
   "20261208000000_app_store_testing_links.sql",
   // Public delete-account page: one-time codes under their own ledger purpose.
   "20261208000000_account_deletion_code_purpose.sql",
+  // Store review readiness: the flagged App Review office (not a customer)
+  // and the never-delivered 'app_review' login code delivery kind.
+  "20261209000000_app_review_office.sql",
+  // The review office also stays out of HQ app-usage Insights totals + bounds.
+  "20261209100000_app_review_event_insights.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -352,6 +357,21 @@ await query(`
           where conrelid = 'public.claim_verifications'::regclass
             and conname = 'claim_verifications_purpose_check'
             and pg_get_constraintdef(oid) like '%account_deletion%'
+       )
+       -- App review: the office flag, its filter inside the HQ overview rollup,
+       -- and the never-delivered login code kind.
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'providers' and column_name = 'app_review'
+       )
+       or position('app_review' in pg_get_functiondef('public.nonfinancial_operational_rollup(text,date)'::regprocedure)) = 0
+       or position('app_review' in pg_get_functiondef('public.patient_app_event_insights(text,date,date,text)'::regprocedure)) = 0
+       or position('app_review' in pg_get_functiondef('public.patient_app_event_bounds(text,text)'::regprocedure)) = 0
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.claim_verifications'::regclass
+            and conname = 'claim_verifications_delivery_check'
+            and pg_get_constraintdef(oid) like '%app_review%'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

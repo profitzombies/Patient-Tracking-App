@@ -21,6 +21,7 @@
 import { Router, type IRouter } from "express";
 import { requireHqPermission } from "../lib/staff-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { loadAppReviewOfficeIds } from "../lib/office-status";
 import { retentionPeriodFor, retentionPeriodWindows, type RetentionPeriod, type RetentionPeriodWindow } from "@workspace/app-usage-insights";
 import { parseRange, type DateRangeKeys } from "./operational-rollups";
 
@@ -232,21 +233,25 @@ export function assembleRetention(input: {
 
 async function loadRetentionRows(range: DateRangeKeys, providerId: string | null): Promise<RetentionPointRow[]> {
   const dates = Array.from(new Set([...retentionPeriodWindows(range).map((window) => window.end), range.end]));
-  const result = await supabaseAdmin("POST", "/rest/v1/rpc/patient_retention_points", {
-    p_dates: dates,
-    p_provider_id: providerId,
-  });
+  // The network view drops the App Review office (its sample patients are not
+  // retention); a single-office request already refused it in loadOffice.
+  const [result, reviewOffices] = await Promise.all([
+    supabaseAdmin("POST", "/rest/v1/rpc/patient_retention_points", { p_dates: dates, p_provider_id: providerId }),
+    providerId === null ? loadAppReviewOfficeIds() : Promise.resolve(new Set<string>()),
+  ]);
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`patient retention points failed (${result.status})`);
   }
-  return (result.json as Record<string, unknown>[]).map(retentionPointRowDto);
+  return (result.json as Record<string, unknown>[])
+    .map(retentionPointRowDto)
+    .filter((row) => !reviewOffices.has(row.provider_id));
 }
 
-/** Enabled office by id, or null when unknown / disabled (mirrors the app-usage office rows). */
+/** Enabled customer office by id, or null when unknown / disabled / App Review (mirrors the app-usage office rows). */
 async function loadOffice(providerId: string): Promise<{ id: string; name: string } | null> {
   const result = await supabaseAdmin(
     "GET",
-    `/rest/v1/providers?provider_id=eq.${encodeURIComponent(providerId)}&access_disabled=is.false&select=provider_id,provider_name,office_name&limit=1`,
+    `/rest/v1/providers?provider_id=eq.${encodeURIComponent(providerId)}&access_disabled=is.false&app_review=is.false&select=provider_id,provider_name,office_name&limit=1`,
   );
   if (result.status >= 300 || !Array.isArray(result.json)) {
     throw new Error(`patient retention office failed (${result.status})`);

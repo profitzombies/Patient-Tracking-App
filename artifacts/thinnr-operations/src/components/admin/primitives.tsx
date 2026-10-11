@@ -106,6 +106,15 @@ export function AccountStatusChip({ status }: { status: 'active' | 'needs_setup'
   );
 }
 
+/** The dedicated App Review office — store reviewers sign in here; it is not a customer. */
+export function AppReviewChip({ testId }: { testId?: string }) {
+  return (
+    <span className={CHIP_WARM} data-testid={testId} title="Apple and Google reviewers sign in to this office. It is not a customer and is left out of health, retention and counts.">
+      App Review
+    </span>
+  );
+}
+
 /** Risk chip for accounts THINNR has locked out of the office side. */
 export function AccountLockedChip({ testId }: { testId?: string }) {
   return (

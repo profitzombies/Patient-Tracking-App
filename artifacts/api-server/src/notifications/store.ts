@@ -8,7 +8,7 @@
  * contracts (lease ownership guards, dedupe keys, status filters).
  */
 import { supabaseAdmin } from "../lib/supabase-admin";
-import { OFFICE_STATUS_COLUMNS, officeIsActive } from "../lib/office-status";
+import { OFFICE_STATUS_COLUMNS, loadAppReviewOfficeIds, officeIsActive } from "../lib/office-status";
 import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 import { DOSE_LOG_SELECT, MEDICATION_SELECT, doseLogFromRow, medicationFromRow } from "../medications/store";
 import type {
@@ -667,8 +667,11 @@ export const supabaseNotificationStore: NotificationStore = {
       "outreach fresh states",
     );
     const freshIds = new Set(fresh.map((row) => String(row.patient_id)));
+    // The App Review office's sample patients are never outreach candidates:
+    // reviewers must not receive stall nudges meant for real patients.
+    const reviewOffices = await loadAppReviewOfficeIds();
     return patients
-      .filter((row) => !freshIds.has(String(row.id)))
+      .filter((row) => !freshIds.has(String(row.id)) && !reviewOffices.has(String(row.provider_id)))
       .slice(0, limit)
       .map((row) => ({ patientId: String(row.id), providerId: String(row.provider_id) }));
   },

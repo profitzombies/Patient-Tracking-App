@@ -56,6 +56,14 @@ args = "legal-pages-web"
 task = "workflow.run"
 args = "legal-pages-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-review-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-review-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3256,6 +3264,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm exec tsc -b lib/legal-documents && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-review-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/auth/app-review.test.ts src/routes/auth.test.ts src/routes/app-events.sql.test.ts src/routes/hq-customer-health.test.ts src/jobs/definitions/weekly-customer-health.test.ts src/routes/hq-patient-retention.test.ts src/routes/operational-rollups.test.ts src/billing/warehouse-submissions.test.ts src/notifications/stall-outreach.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "app-review-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/api-client-react lib/api-zod && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

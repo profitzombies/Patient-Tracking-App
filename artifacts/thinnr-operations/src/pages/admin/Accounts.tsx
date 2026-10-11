@@ -27,7 +27,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react';
 import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { AccountLockedChip, AccountStatusChip, AdminPage, PageHeader } from '@/components/admin/primitives';
+import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, PageHeader } from '@/components/admin/primitives';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
@@ -334,6 +334,7 @@ export default function Accounts() {
                   <td className="px-3 py-3">
                     <span className="inline-flex flex-wrap items-center gap-1.5">
                       <AccountStatusChip status={account.status} />
+                      {account.appReview && <AppReviewChip testId={`chip-app-review-${account.id}`} />}
                       {isLocked(account.id) && <AccountLockedChip testId={`chip-locked-${account.id}`} />}
                     </span>
                   </td>

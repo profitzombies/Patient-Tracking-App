@@ -165,3 +165,5 @@
 - [Coach diet grounding & guard](coach-diet-grounding.md) — real-only diet block; guard deterministic on structured outputs only; spoken list labels resolve to catalog keys before saving.
 - [Patient diet experience](patient-diet-experience.md) — diet slice outside PersistedState; only seeded fd_* ids can be "not approved" (else no badge); in-flight list edits re-point to the server id.
 - [EAS store builds](eas-store-builds.md) — config resolution skips plugin mods; Tap to Pay flag gated natively AND in JS; OTA publishes need build env + a fingerprint-matching build; project id lives in app.json.
+- [Legal documents versioning](legal-documents-versioning.md) — one version.json drives web pages, API bundle, app offline copy AND the consent version (bump = re-prompt); consent needs the EXACT required version's text readable.
+- [Twilio Verify codes are per number, per service](twilio-verify-per-purpose.md) — one pending code per phone per Verify service: a destructive purpose (account deletion) needs its OWN service or sign-in texts confirm it.

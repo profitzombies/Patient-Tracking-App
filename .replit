@@ -44,6 +44,18 @@ args = "store-build-api"
 task = "workflow.run"
 args = "store-build-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "legal-pages-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "legal-pages-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "legal-pages-mobile"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -1280,6 +1292,7 @@ CLAIM_EMAIL_DELIVERY_MODE = "live"
 CLAIM_SMS_DELIVERY_MODE = "live"
 CLAIM_EMAIL_FROM = "THINNR Dashboard <hello@appnotifications.thinnrweightloss.com>"
 EMAIL_REPLY_TO = "support@thinnrweightloss.com"
+TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID = "VA11ebc24c1fd542ce05b7e532fd8393af"
 
 [userenv.development]
 SYSTEM_ALERT_EMAILS = "off"
@@ -3210,6 +3223,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:app-store-qr && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "legal-pages-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/legal-documents && node lib/legal-documents/scripts/build-documents.mjs --check && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/legal-documents.test.ts src/routes/auth.test.ts src/routes/patient-privacy.test.ts src/routes/patient-data.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "legal-pages-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/legal-documents && pnpm --filter @workspace/thinnr-operations run test:legal-public && pnpm --filter @workspace/thinnr-operations run test:staff-sign-in && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "legal-pages-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/legal-documents && pnpm --filter @workspace/thinnr-mobile run test:privacy-controls && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

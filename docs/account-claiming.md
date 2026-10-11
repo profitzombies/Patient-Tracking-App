@@ -55,7 +55,12 @@ Delivery mode on the API server can be set globally with
   the ONLY messages the system ever sends. Unconfigured live mode → 503.
 
 Env vars for live mode: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
-`TWILIO_VERIFY_SERVICE_SID`, `RESEND_API_KEY`, `CLAIM_EMAIL_FROM`.
+`TWILIO_VERIFY_SERVICE_SID`, `RESEND_API_KEY`, `CLAIM_EMAIL_FROM`, plus
+`TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID` — a SECOND Verify service used only
+by the public delete-account page. Twilio keeps one pending code per phone
+number per Verify service (and re-sends it), so a destructive proof must not
+share the sign-in service: with its own service a sign-in or recovery text can
+never confirm a deletion. Without it, phone identities on that page get 503.
 
 Current rollout: `CLAIM_SMS_DELIVERY_MODE=live` and
 `CLAIM_EMAIL_DELIVERY_MODE=live`. Phone claim/recovery uses real Twilio Verify
@@ -98,7 +103,9 @@ children-first; it is env-gated so normal `api-tests` runs skip it.
 
 ## Go-live checklist
 
-1. Create a Twilio Verify service; set the three `TWILIO_*` secrets.
+1. Create a Twilio Verify service; set the three `TWILIO_*` secrets. Create a
+   second Verify service ("Thinnr Account Deletion") and set its SID as
+   `TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID`.
 2. Verify the sending domain in Resend; set `RESEND_API_KEY` and
    `CLAIM_EMAIL_FROM` (an address on the verified domain).
 3. Set `CLAIM_SMS_DELIVERY_MODE=live`; set `CLAIM_EMAIL_DELIVERY_MODE=live`

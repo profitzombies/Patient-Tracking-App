@@ -41,11 +41,20 @@ export interface DeletionPolicy {
   retentionYears: number;
 }
 
+/** The published legal documents behind `consent.requiredVersion`. */
+export interface LegalVersionInfo {
+  version: string;
+  effectiveDate: string;
+  status: 'draft' | 'final';
+}
+
 export interface PrivacyState {
   consent: ConsentStatus;
   export: ExportJob | null;
   deletion: DeletionRequest | null;
   deletionPolicy: DeletionPolicy;
+  /** Null only when the server predates the published-documents field. */
+  legal: LegalVersionInfo | null;
 }
 
 export interface ConsentWrite {
@@ -145,6 +154,15 @@ export function parseDeletionPolicy(raw: unknown): DeletionPolicy {
   return { graceDays, retentionYears };
 }
 
+export function parseLegalVersion(raw: unknown): LegalVersionInfo | null {
+  if (!isRecord(raw)) return null;
+  const version = str(raw.version);
+  const effectiveDate = str(raw.effectiveDate);
+  const status = raw.status === 'draft' || raw.status === 'final' ? raw.status : null;
+  if (!version || !effectiveDate || !status) return null;
+  return { version, effectiveDate, status };
+}
+
 export function parsePrivacyState(raw: unknown): PrivacyState {
   if (!isRecord(raw)) throw new PrivacyParseError();
   return {
@@ -152,6 +170,7 @@ export function parsePrivacyState(raw: unknown): PrivacyState {
     export: parseExport(raw.export),
     deletion: parseDeletion(raw.deletion),
     deletionPolicy: parseDeletionPolicy(raw.deletionPolicy),
+    legal: parseLegalVersion(raw.legal),
   };
 }
 

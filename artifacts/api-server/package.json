@@ -27,6 +27,7 @@
     "@workspace/api-zod": "workspace:*",
     "@workspace/app-usage-insights": "workspace:*",
     "@workspace/diet-programs": "workspace:*",
+    "@workspace/legal-documents": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/email-templates": "workspace:*",
     "@workspace/integrations-openai-ai-server": "workspace:*",

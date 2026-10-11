@@ -43,6 +43,7 @@ import {
   generateCode,
   startTwilioVerification,
   checkTwilioVerification,
+  twilioVerifyServiceFor,
   sendClaimEmail,
 } from "../claim/delivery";
 import {
@@ -248,7 +249,9 @@ export async function deliverSmsRegistered(
   row: VerificationRow,
 ): Promise<void> {
   if (row.delivery === "twilio_verify") {
-    await startTwilioVerification(row.identifier);
+    // Each purpose rides its own Verify service where one exists, so the
+    // texted code is bound to the purpose of this ledger row.
+    await startTwilioVerification(row.identifier, twilioVerifyServiceFor(row.purpose));
   }
 }
 
@@ -300,7 +303,7 @@ export async function spendUndelivered(row: VerificationRow): Promise<void> {
   if (spent !== 1) throw new Error("undelivered auth send could not be spent");
 }
 
-export type CodePurpose = "login" | "signup" | "recovery" | "password_change" | "cart_pay" | "staff_sms";
+export type CodePurpose = "login" | "signup" | "recovery" | "password_change" | "cart_pay" | "staff_sms" | "account_deletion";
 
 export interface RegisterSendInput {
   purpose: CodePurpose;
@@ -389,7 +392,7 @@ export async function matchCode(
 
   let matched: boolean;
   if (row.delivery === "twilio_verify") {
-    matched = await checkTwilioVerification(row.identifier, code);
+    matched = await checkTwilioVerification(row.identifier, code, twilioVerifyServiceFor(row.purpose));
   } else {
     matched = codeMatches(row, code);
   }
@@ -422,7 +425,7 @@ export async function claimCode(row: VerificationRow): Promise<boolean> {
  */
 const LOGIN_ELIGIBLE_ACTIVATION = ["invited", "active", "activated", "paused", "discharged"];
 
-function eligibleLinkedPatient(patient: Awaited<ReturnType<typeof loadPatientById>>): boolean {
+export function eligibleLinkedPatient(patient: Awaited<ReturnType<typeof loadPatientById>>): boolean {
   return Boolean(
     patient &&
       patient.auth_user_id &&
@@ -443,21 +446,29 @@ async function resolveEligibleLinkedPatient(identifier: NormalizedIdentifier) {
  * shared hourly send pot already slows a burst; this stops a patient day-long
  * drip and, with the per-IP limits, closes the distributed-guessing angle.
  */
-async function recoveryBudgetSpent(identifier: NormalizedIdentifier): Promise<boolean> {
+async function recoveryBudgetSpent(
+  identifier: NormalizedIdentifier,
+  purpose: "recovery" | "account_deletion" = "recovery",
+): Promise<boolean> {
   const stored = identifier.kind === "phone" ? identifier.e164 : identifier.email;
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const counted = await supabaseAdmin(
     "GET",
-    `/rest/v1/claim_verifications?purpose=eq.recovery&identifier=eq.${encodeURIComponent(stored)}&created_at=gt.${encodeURIComponent(since)}&select=id&limit=${RECOVERY_PER_IDENTITY_PER_DAY + 1}`,
+    `/rest/v1/claim_verifications?purpose=eq.${purpose}&identifier=eq.${encodeURIComponent(stored)}&created_at=gt.${encodeURIComponent(since)}&select=id&limit=${RECOVERY_PER_IDENTITY_PER_DAY + 1}`,
   );
   if (counted.status >= 300 || !Array.isArray(counted.json)) throw new Error(`recovery budget read failed (${counted.status})`);
   return counted.json.length >= RECOVERY_PER_IDENTITY_PER_DAY;
 }
 
-async function patientCodeStart(
+/**
+ * Identity-neutral patient code start shared by sign-in, recovery and the
+ * public delete-account page: one answer shape for match and non-match, the
+ * shared send pot reserved before any delivery, timing floors on every exit.
+ */
+export async function patientCodeStart(
   req: any,
   res: any,
-  purpose: "login" | "recovery",
+  purpose: "login" | "recovery" | "account_deletion",
   started = Date.now(),
   boundPatient: { id: string; authUserId: string } | null = null,
 ): Promise<void> {
@@ -466,7 +477,7 @@ async function patientCodeStart(
     res.status(400).json({ error: "Enter your cell phone number or email address.", field: "identifier" });
     return;
   }
-  assertLiveChannelReady(identifier.kind === "phone" ? "sms" : "email");
+  assertLiveChannelReady(identifier.kind === "phone" ? "sms" : "email", twilioVerifyServiceFor(purpose));
   const mode = deliveryMode(identifier.kind === "phone" ? "sms" : "email");
   // Re-resolve after password proof: if the contact or auth link changed
   // during that request, do not transfer the proof to a different binding.
@@ -489,7 +500,7 @@ async function patientCodeStart(
     return;
   }
   const registered =
-    purpose === "recovery" && (await recoveryBudgetSpent(identifier))
+    (purpose === "recovery" || purpose === "account_deletion") && (await recoveryBudgetSpent(identifier, purpose))
       ? null
       : await registerSend({
           purpose, identifier, accountType: "patient",

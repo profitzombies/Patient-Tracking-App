@@ -82,6 +82,9 @@ import SecurityReport from '@/pages/SecurityReport';
 import PublicPayArea from '@/pages/public/pay/PublicPayArea';
 import HqPaymentsArea from '@/pages/admin/payments/HqPaymentsArea';
 import LegalHolds from '@/pages/admin/LegalHolds';
+import LegalDocumentPage from '@/pages/public/legal/LegalDocumentPage';
+import SupportPage from '@/pages/public/legal/SupportPage';
+import DeleteAccountPage from '@/pages/public/legal/DeleteAccountPage';
 
 const queryClient = new QueryClient();
 
@@ -284,6 +287,12 @@ function App() {
             <Route path="/security/report" component={SecurityReport} />
             {/* Patient-facing payment pages: public, no persona, no session. */}
             <Route path="/pay" nest component={PublicPayArea} />
+            {/* Store-listing URLs: policies, support and account deletion, no session. */}
+            <Route path="/privacy">{() => <LegalDocumentPage slug="privacy" />}</Route>
+            <Route path="/terms">{() => <LegalDocumentPage slug="terms" />}</Route>
+            <Route path="/health-data">{() => <LegalDocumentPage slug="health-data" />}</Route>
+            <Route path="/support" component={SupportPage} />
+            <Route path="/delete-account" component={DeleteAccountPage} />
             <Route>
               <SessionProvider>
                 <ReauthProvider>

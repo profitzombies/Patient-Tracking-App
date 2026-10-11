@@ -43,20 +43,32 @@ export function deliveryMode(channel?: "sms" | "email"): DeliveryMode {
 }
 
 export class DeliveryNotConfiguredError extends Error {
-  constructor(channel: "sms" | "email") {
+  constructor(channel: "sms" | "email", service: TwilioVerifyService = "default") {
     super(
       channel === "sms"
-        ? "Text-message delivery is not configured yet. Add the Twilio Verify credentials to enable it."
+        ? service === "account_deletion"
+          ? "Text-message delivery for account deletion is not configured yet. Add the dedicated Twilio Verify service (TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID) to enable it."
+          : "Text-message delivery is not configured yet. Add the Twilio Verify credentials to enable it."
         : "Email delivery is not configured yet. Add the Resend credentials to enable it.",
     );
     this.name = "DeliveryNotConfiguredError";
   }
 }
 
-function twilioCreds(): { sid: string; token: string; verifySid: string } | null {
+/**
+ * Twilio Verify keeps ONE pending code per phone number per Verify service and
+ * re-sends that same code while it is pending. Every purpose that shares a
+ * service therefore shares its codes, so a destructive proof must ride a
+ * service of its own: a sign-in or recovery code texted at the same moment
+ * can never satisfy an account-deletion check, and vice versa.
+ */
+export type TwilioVerifyService = "default" | "account_deletion";
+function twilioCreds(
+  service: TwilioVerifyService,
+): { sid: string; token: string; verifySid: string } | null {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const verifySid = process.env.TWILIO_VERIFY_SERVICE_SID;
+  const verifySid = process.env[TWILIO_VERIFY_SERVICE_ENV[service]];
   if (!sid || !token || !verifySid) return null;
   return { sid, token, verifySid };
 }
@@ -65,10 +77,13 @@ function resendCreds(): boolean {
   return isEmailConfigured();
 }
 
-/** Throws when live mode cannot deliver on the requested channel. */
-export function assertLiveChannelReady(channel: "sms" | "email"): void {
+/** Throws when live mode cannot deliver on the requested channel (and service). */
+export function assertLiveChannelReady(
+  channel: "sms" | "email",
+  service: TwilioVerifyService = "default",
+): void {
   if (deliveryMode(channel) !== "live") return;
-  if (channel === "sms" && !twilioCreds()) throw new DeliveryNotConfiguredError("sms");
+  if (channel === "sms" && !twilioCreds(service)) throw new DeliveryNotConfiguredError("sms", service);
   if (channel === "email" && !resendCreds()) throw new DeliveryNotConfiguredError("email");
 }
 
@@ -112,9 +127,12 @@ async function sendTransactionalEmail(
 }
 
 /** Live SMS: Twilio Verify creates and remembers the code itself. */
-export async function startTwilioVerification(phoneE164: string): Promise<void> {
-  const creds = twilioCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("sms");
+export async function startTwilioVerification(
+  phoneE164: string,
+  service: TwilioVerifyService = "default",
+): Promise<void> {
+  const creds = twilioCreds(service);
+  if (!creds) throw new DeliveryNotConfiguredError("sms", service);
   const auth = Buffer.from(`${creds.sid}:${creds.token}`).toString("base64");
   const response = await fetch(
     `https://verify.twilio.com/v2/Services/${creds.verifySid}/Verifications`,
@@ -143,12 +161,18 @@ export async function startTwilioVerification(phoneE164: string): Promise<void> 
   }
 }
 
+/**
+ * Checked against the SAME service the code was started on: Twilio only
+ * approves a code it issued for that service + number, so a code from any
+ * other purpose's service answers "pending" (not approved) here.
+ */
 export async function checkTwilioVerification(
   phoneE164: string,
   code: string,
+  service: TwilioVerifyService = "default",
 ): Promise<boolean> {
-  const creds = twilioCreds();
-  if (!creds) throw new DeliveryNotConfiguredError("sms");
+  const creds = twilioCreds(service);
+  if (!creds) throw new DeliveryNotConfiguredError("sms", service);
   const auth = Buffer.from(`${creds.sid}:${creds.token}`).toString("base64");
   const response = await fetch(
     `https://verify.twilio.com/v2/Services/${creds.verifySid}/VerificationCheck`,
@@ -233,4 +257,14 @@ export async function sendPasswordChangedEmail(
   input: { name: string; when: string; reportLink: string },
 ): Promise<void> {
   await sendTransactionalEmail(to, "password-changed", input);
+}
+
+export const TWILIO_VERIFY_SERVICE_ENV: Record<TwilioVerifyService, string> = {
+  default: "TWILIO_VERIFY_SERVICE_SID",
+  account_deletion: "TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID",
+};
+
+/** The Verify service a ledger purpose rides; unknown purposes share the default. */
+export function twilioVerifyServiceFor(purpose: string | null | undefined): TwilioVerifyService {
+  return purpose === "account_deletion" ? "account_deletion" : "default";
 }

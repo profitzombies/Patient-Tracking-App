@@ -9,6 +9,7 @@
  */
 import { useEffect } from 'react';
 import { INACTIVITY_SIGN_OUT_REASON_KEY } from '@/hooks/useIdleTimeout';
+import { Link } from 'wouter';
 import { Utensils } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -321,6 +322,22 @@ export default function SignIn() {
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           Not Medical Advice
         </p>
+        <nav aria-label="Policies" className="mt-1 flex flex-wrap justify-center gap-x-4 gap-y-1">
+          {[
+            { href: '/privacy', label: 'Privacy' },
+            { href: '/terms', label: 'Terms' },
+            { href: '/support', label: 'Support' },
+            { href: '/delete-account', label: 'Delete account' },
+          ].map((link) => (
+            <Link
+              key={link.href}
+              href={`~${link.href}`}
+              className="text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:underline"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
       </footer>
     </div>
   );

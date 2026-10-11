@@ -31,6 +31,11 @@ import {
 } from "../privacy/exports";
 import { DELETION_SELECT, deletionGraceSeconds, type DeletionRequestRow } from "../privacy/purge";
 import { DEFAULT_ORG_POLICY, loadOrgPolicy } from "../lib/org-policy";
+import {
+  LEGAL_DOCUMENTS_EFFECTIVE_DATE,
+  LEGAL_DOCUMENTS_STATUS,
+  LEGAL_DOCUMENTS_VERSION,
+} from "@workspace/legal-documents";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
@@ -105,6 +110,13 @@ export async function loadPrivacyState(patientId: string) {
     deletionPolicy: {
       graceDays: Math.ceil(deletionGraceSeconds() / 86_400),
       retentionYears: Math.ceil(policy.retention.clinicalRecordDays / 365),
+    },
+    // The published documents behind the consent version, so the app can
+    // tell whether its bundled copy is current before opening the full text.
+    legal: {
+      version: LEGAL_DOCUMENTS_VERSION,
+      effectiveDate: LEGAL_DOCUMENTS_EFFECTIVE_DATE,
+      status: LEGAL_DOCUMENTS_STATUS,
     },
   };
 }

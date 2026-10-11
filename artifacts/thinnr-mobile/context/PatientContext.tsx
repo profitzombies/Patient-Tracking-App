@@ -1831,6 +1831,7 @@ export function PatientProvider({ children }: { children: ReactNode }) {
               graceDays: 7,
               retentionYears: 7,
             },
+            legal: null,
           };
           baseRef.current = base;
           cachedFactsRef.current = {

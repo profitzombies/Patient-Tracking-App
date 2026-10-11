@@ -1,15 +1,16 @@
 /**
  * Versioned patient consent.
  *
- * `CONSENT_POLICY_VERSION` is the single knob: bump it when the terms,
- * privacy notice, or health-data wording changes and every real patient is
- * re-prompted on their next launch (the app blocks protected routes until a
- * record for the CURRENT version exists server-side). The legal text itself
- * is a placeholder keyed by this version — drafting it is out of scope here.
+ * `CONSENT_POLICY_VERSION` derives from the published legal documents
+ * (lib/legal-documents/documents/version.json): when the terms, privacy
+ * policy, or health-data wording changes, that version bumps and every real
+ * patient is re-prompted on their next launch (the app blocks protected
+ * routes until a record for the CURRENT version exists server-side).
  */
+import { LEGAL_DOCUMENTS_VERSION } from "@workspace/legal-documents";
 import { supabaseAdmin } from "../lib/supabase-admin";
 
-export const CONSENT_POLICY_VERSION = "2026-09-01";
+export const CONSENT_POLICY_VERSION: string = LEGAL_DOCUMENTS_VERSION;
 
 const enc = encodeURIComponent;
 

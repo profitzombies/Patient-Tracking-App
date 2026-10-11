@@ -70,6 +70,18 @@ export const Image = Object.assign(hostComponent('Image'), {
 });
 export const ActivityIndicator = hostComponent('ActivityIndicator');
 export const RefreshControl = hostComponent('RefreshControl');
+/** Like the real Modal: nothing is mounted while `visible` is false. */
+export function Modal(props: AnyProps & { visible?: boolean }): React.ReactElement | null {
+  const { visible, children, ...rest } = props;
+  return visible ? React.createElement('Modal', rest, children as React.ReactNode) : null;
+}
+Modal.displayName = 'Modal';
+export type ModalProps = AnyProps & { visible?: boolean };
+
+/** Fixed iPhone-sized frame (WebFitShell reads it; no DOM → it renders 1:1). */
+export function useWindowDimensions(): { width: number; height: number; scale: number; fontScale: number } {
+  return { width: 390, height: 844, scale: 1, fontScale: 1 };
+}
 
 export const StyleSheet = {
   create<T>(styles: T): T {

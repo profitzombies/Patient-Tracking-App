@@ -25,6 +25,9 @@
     },
     {
       "path": "../../lib/diet-programs"
+    },
+    {
+      "path": "../../lib/legal-documents"
     }
   ]
 }

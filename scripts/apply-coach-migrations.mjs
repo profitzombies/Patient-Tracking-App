@@ -77,6 +77,8 @@ const migrationNames = [
   // Store links accept TestFlight / Play internal-testing links as interim
   // values; patient invitations switch to them before the listings are live.
   "20261208000000_app_store_testing_links.sql",
+  // Public delete-account page: one-time codes under their own ledger purpose.
+  "20261208000000_account_deletion_code_purpose.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -343,6 +345,13 @@ await query(`
           where conrelid = 'public.staff_notifications'::regclass
             and conname = 'staff_notifications_kind_check'
             and pg_get_constraintdef(oid) like '%diet_allergy_severe%'
+       )
+       -- Public delete-account codes need their own ledger purpose.
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.claim_verifications'::regclass
+            and conname = 'claim_verifications_purpose_check'
+            and pg_get_constraintdef(oid) like '%account_deletion%'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

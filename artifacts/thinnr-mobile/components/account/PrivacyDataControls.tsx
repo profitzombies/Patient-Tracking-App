@@ -12,6 +12,7 @@ import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 import { ErrorBox, FieldLabel, GhostButton, LedgerInput, PrimaryButton } from '@/components/onboarding/OnboardingFields';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
+import { LegalLinks } from '@/components/legal/LegalLinks';
 import { useColors } from '@/hooks/useColors';
 import { usePatient } from '@/context/PatientContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
@@ -168,6 +169,7 @@ export function PrivacyDataControls() {
       <Text style={[styles.hint, { color: colors.labelText }]}>
         Photo analysis lets the coach read meal, label, and menu photos you choose to share. When it is off, those photo features are unavailable.
       </Text>
+      <LegalLinks testIDPrefix="privacy" style={styles.smallGap} requiredVersion={consent.requiredVersion} />
 
       <View style={styles.gap}>
         <FieldLabel text="Your data" />

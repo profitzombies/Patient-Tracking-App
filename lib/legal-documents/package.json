@@ -1,0 +1,13 @@
+{
+  "name": "@workspace/legal-documents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build:documents": "node scripts/build-documents.mjs",
+    "check:documents": "node scripts/build-documents.mjs --check"
+  }
+}

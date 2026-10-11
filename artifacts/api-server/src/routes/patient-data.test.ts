@@ -10,6 +10,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSENT_POLICY_VERSION } from "../privacy/consent";
+import { LEGAL_DOCUMENTS_EFFECTIVE_DATE, LEGAL_DOCUMENTS_STATUS, LEGAL_DOCUMENTS_VERSION } from "@workspace/legal-documents";
 import { PENDING_TTL_MS } from "../lib/idempotency";
 import express from "express";
 import type http from "node:http";
@@ -977,6 +978,7 @@ describe("GET /patient-data/state", () => {
         export: null,
         deletion: null,
         deletionPolicy: { graceDays: 7, retentionYears: 7 },
+        legal: { version: LEGAL_DOCUMENTS_VERSION, effectiveDate: LEGAL_DOCUMENTS_EFFECTIVE_DATE, status: LEGAL_DOCUMENTS_STATUS },
       },
       mediaToken: expect.any(String),
     });
@@ -1164,6 +1166,7 @@ describe("GET /patient-data/state", () => {
         export: null,
         deletion: null,
         deletionPolicy: { graceDays: 7, retentionYears: 7 },
+        legal: { version: LEGAL_DOCUMENTS_VERSION, effectiveDate: LEGAL_DOCUMENTS_EFFECTIVE_DATE, status: LEGAL_DOCUMENTS_STATUS },
       },
       mediaToken: expect.any(String),
     });

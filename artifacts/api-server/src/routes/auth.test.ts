@@ -22,6 +22,14 @@ class FakeBackend {
   authUsers = new Map<string, Row>();
   sentEmails: Array<{ to: string; code: string | null }> = [];
   twilioStarts: string[] = [];
+  /** Verify service SID each start hit, parallel to twilioStarts. */
+  twilioStartServices: string[] = [];
+  /**
+   * Live Twilio Verify behaviour: ONE pending code per (service, number); a
+   * repeat start on the same service re-sends that same code, and a check
+   * only approves the code pending on the service it is asked through.
+   */
+  twilioPending = new Map<string, string>();
   twilioApprovedCode: string | null = null;
   twilioStartFailure: { status: number; code?: number } | null = null;
   deletedUsers: string[] = [];
@@ -72,6 +80,8 @@ class FakeBackend {
     this.audits = [];
     this.sentEmails = [];
     this.twilioStarts = [];
+    this.twilioStartServices = [];
+    this.twilioPending.clear();
     this.twilioApprovedCode = null;
     this.twilioStartFailure = null;
     this.deletedUsers = [];
@@ -101,6 +111,7 @@ class FakeBackend {
     if (op === "ilike") return String(cell ?? "").toLowerCase() === value.toLowerCase();
     if (op === "gt") return typeof cell === "string" && cell > value;
     if (op === "lt") return typeof cell === "string" && cell < value;
+    if (op === "in") return value.replace(/^\(|\)$/g, "").split(",").includes(String(cell ?? ""));
     if (op === "is") {
       if (value === "null") return cell === null || cell === undefined;
       if (value === "false") return cell === false;
@@ -298,9 +309,12 @@ class FakeBackend {
     }
 
     if (url.hostname === "verify.twilio.com") {
+      const service = /\/Services\/([^/]+)\//.exec(url.pathname)?.[1] ?? "";
       if (url.pathname.endsWith("/Verifications")) {
         const params = new URLSearchParams(String(init?.body ?? ""));
-        this.twilioStarts.push(params.get("To") ?? "");
+        const to = params.get("To") ?? "";
+        this.twilioStarts.push(to);
+        this.twilioStartServices.push(service);
         if (this.twilioStartFailure) {
           return json(this.twilioStartFailure.status, {
             status: "failed",
@@ -308,12 +322,18 @@ class FakeBackend {
             message: "sanitized test rejection",
           });
         }
+        const key = `${service}:${to}`;
+        if (!this.twilioPending.has(key)) {
+          this.twilioPending.set(key, String(500000 + this.twilioPending.size * 7919).padStart(6, "0").slice(-6));
+        }
         return json(201, { status: "pending" });
       }
       if (url.pathname.endsWith("/VerificationCheck")) {
         const params = new URLSearchParams(String(init?.body ?? ""));
+        const code = params.get("Code");
         const approved =
-          this.twilioApprovedCode !== null && params.get("Code") === this.twilioApprovedCode;
+          (this.twilioApprovedCode !== null && code === this.twilioApprovedCode) ||
+          (code !== null && this.twilioPending.get(`${service}:${params.get("To") ?? ""}`) === code);
         return json(200, { status: approved ? "approved" : "pending" });
       }
       return json(404, {});
@@ -339,6 +359,28 @@ class FakeBackend {
     if (url.pathname === "/rest/v1/rpc/record_admin_audit_event") {
       this.audits.push(body as Row);
       return json(200, null);
+    }
+    if (url.pathname === "/rest/v1/rpc/patient_deletion_request") {
+      // Mirrors the real RPC closely enough for the public delete-account
+      // rail: one pending row per patient, grace from p_grace_seconds.
+      const p = body as Row;
+      const existing = this.tables.patient_deletion_requests.find(
+        (r) => r.patient_id === p.p_patient_id && (r.status === "pending" || r.status === "held"),
+      );
+      if (existing) return json(200, [existing]);
+      const patient = this.tables.patients.find((r) => r.id === p.p_patient_id);
+      const row: Row = {
+        id: crypto.randomUUID(),
+        patient_id: p.p_patient_id,
+        provider_id: patient?.provider_id ?? null,
+        auth_user_id: patient?.auth_user_id ?? null,
+        status: "pending",
+        requested_at: new Date().toISOString(),
+        purge_after: new Date(Date.now() + Number(p.p_grace_seconds) * 1000).toISOString(),
+        cancelled_at: null,
+      };
+      this.tables.patient_deletion_requests.push(row);
+      return json(200, [row]);
     }
     if (url.pathname === "/rest/v1/rpc/security_revoke_auth_sessions") {
       this.adminLogouts.push(String((body as Row).p_user_id));
@@ -644,6 +686,7 @@ beforeAll(async () => {
   });
 
   const { default: authRouter } = await import("./auth");
+  const { default: publicAccountDeletionRouter } = await import("./public-account-deletion");
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -654,6 +697,7 @@ beforeAll(async () => {
     next();
   });
   app.use("/api", authRouter);
+  app.use("/api", publicAccountDeletionRouter);
   server = app.listen(0);
   const address = server.address() as AddressInfo;
   base = `http://127.0.0.1:${address.port}`;
@@ -1082,6 +1126,7 @@ beforeEach(() => {
   delete process.env.TWILIO_ACCOUNT_SID;
   delete process.env.TWILIO_AUTH_TOKEN;
   delete process.env.TWILIO_VERIFY_SERVICE_SID;
+  delete process.env.TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID;
   delete process.env.RESEND_API_KEY;
   delete process.env.CLAIM_EMAIL_FROM;
 });
@@ -1147,6 +1192,155 @@ async function signupToDetails(phone: string): Promise<string> {
   expect(verify.json.signupToken).toMatch(/^[0-9a-f]{64}$/);
   return verify.json.signupToken as string;
 }
+
+describe("public delete-account request (web)", () => {
+  function seedLinkedPatient(overrides: Row = {}) {
+    const patient = seedPatient({ activation_status: "activated", ...overrides });
+    const user = backend.seedAuthUser({ email: `pt-${String(patient.id).toLowerCase()}@patients.thinnr.invalid` });
+    patient.auth_user_id = user.id;
+    return { patient, user };
+  }
+  const pendingRows = () => backend.tables.patient_deletion_requests.filter((r) => r.status === "pending");
+
+  it("answers an unknown identity exactly like a known one and files nothing", async () => {
+    seedLinkedPatient({ email: "known@example.com" });
+    const known = await api("POST", "/api/account-deletion/start", { identifier: "known@example.com" });
+    const unknown = await api("POST", "/api/account-deletion/start", { identifier: "nobody@example.com" });
+    expect(known.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    expect(Object.keys(known.json).sort()).toEqual(Object.keys(unknown.json).sort());
+    expect(unknown.json.ok).toBe(true);
+    expect(unknown.json.devCode).toMatch(/^\d{6}$/);
+    // Only the real match wrote a ledger row, under the deletion purpose.
+    const rows = backend.tables.claim_verifications;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].purpose).toBe("account_deletion");
+    expect(rows[0].identifier).toBe("known@example.com");
+    // A dummy code against the unknown request id never files anything.
+    const verify = await api("POST", "/api/account-deletion/verify", { requestId: unknown.json.requestId, code: unknown.json.devCode });
+    expect(verify.status).toBe(400);
+    expect(pendingRows()).toHaveLength(0);
+  });
+
+  it("files the same grace-period deletion request as the app and audits it", async () => {
+    const { patient, user } = seedLinkedPatient({ email: "leaving@example.com" });
+    const start = await api("POST", "/api/account-deletion/start", { identifier: "leaving@example.com" });
+    const verify = await api("POST", "/api/account-deletion/verify", { requestId: start.json.requestId, code: start.json.devCode });
+    expect(verify.status).toBe(202);
+    expect(verify.json.alreadyPending).toBe(false);
+    expect(verify.json.deletion.status).toBe("pending");
+    expect(new Date(verify.json.deletion.purgeAfter).getTime()).toBeGreaterThan(Date.now() + 6 * 86_400_000);
+    expect(pendingRows()).toHaveLength(1);
+    expect(pendingRows()[0].patient_id).toBe(patient.id);
+    await settle();
+    const audit = backend.audits.find((a) => a.p_action === "patient_deletion_requested");
+    expect(audit).toBeTruthy();
+    expect(audit?.p_actor_kind).toBe("patient");
+    expect(audit?.p_actor_user_id).toBe(user.id);
+    expect(audit?.p_target_id).toBe(patient.id);
+    expect((audit?.p_metadata as Row).channel).toBe("web_delete_account");
+    // Codes are one-shot: a replay cannot file or re-confirm.
+    const replay = await api("POST", "/api/account-deletion/verify", { requestId: start.json.requestId, code: start.json.devCode });
+    expect(replay.status).toBe(400);
+  });
+
+  it("reports a deletion already pending with its grace end instead of filing twice", async () => {
+    const { patient } = seedLinkedPatient({ email: "pending@example.com" });
+    const purgeAfter = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    backend.tables.patient_deletion_requests.push({
+      id: crypto.randomUUID(), patient_id: patient.id, provider_id: patient.provider_id,
+      auth_user_id: patient.auth_user_id, status: "pending",
+      requested_at: new Date(Date.now() - 4 * 86_400_000).toISOString(), purge_after: purgeAfter, cancelled_at: null,
+    });
+    const start = await api("POST", "/api/account-deletion/start", { identifier: "pending@example.com" });
+    const verify = await api("POST", "/api/account-deletion/verify", { requestId: start.json.requestId, code: start.json.devCode });
+    expect(verify.status).toBe(200);
+    expect(verify.json.alreadyPending).toBe(true);
+    expect(verify.json.deletion.purgeAfter).toBe(purgeAfter);
+    expect(pendingRows()).toHaveLength(1);
+    await settle();
+    expect(backend.audits.some((a) => a.p_action === "patient_deletion_requested")).toBe(false);
+  });
+
+  it("never accepts a sign-in or recovery code as a deletion code", async () => {
+    seedLinkedPatient({ email: "mixed@example.com" });
+    const recovery = await api("POST", "/api/auth/patient/recovery/start", { identifier: "mixed@example.com" });
+    const verify = await api("POST", "/api/account-deletion/verify", { requestId: recovery.json.requestId, code: recovery.json.devCode });
+    expect(verify.status).toBe(400);
+    expect(pendingRows()).toHaveLength(0);
+  });
+
+  describe("live SMS rides a dedicated Twilio Verify service", () => {
+    function liveSms(withDeletionService = true) {
+      process.env.CLAIM_SMS_DELIVERY_MODE = "live";
+      process.env.TWILIO_ACCOUNT_SID = "ACtest";
+      process.env.TWILIO_AUTH_TOKEN = "token";
+      process.env.TWILIO_VERIFY_SERVICE_SID = "VAsignin";
+      if (withDeletionService) process.env.TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID = "VAdelete";
+    }
+    const pendingCode = (service: string, to: string) => backend.twilioPending.get(`${service}:${to}`) ?? null;
+
+    it("never approves a concurrent sign-in or recovery text as a deletion code", async () => {
+      seedLinkedPatient({ phone: "+1 (555) 201-3344", email: "texted@example.com" });
+      liveSms();
+      // The same number asks for a recovery code and a deletion code at once.
+      const recovery = await api("POST", "/api/auth/patient/recovery/start", { identifier: "5552013344" });
+      const deletion = await api("POST", "/api/account-deletion/start", { identifier: "5552013344" });
+      expect(recovery.status).toBe(200);
+      expect(deletion.status).toBe(200);
+      expect(deletion.json.devCode).toBeUndefined();
+      expect(backend.twilioStarts).toEqual(["+15552013344", "+15552013344"]);
+      expect(backend.twilioStartServices).toEqual(["VAsignin", "VAdelete"]);
+      const recoveryCode = pendingCode("VAsignin", "+15552013344");
+      const deletionCode = pendingCode("VAdelete", "+15552013344");
+      expect(recoveryCode).toMatch(/^\d{6}$/);
+      expect(deletionCode).toMatch(/^\d{6}$/);
+      expect(recoveryCode).not.toBe(deletionCode);
+
+      // The recovery text, offered against the public deletion request id, is refused.
+      const crossed = await api("POST", "/api/account-deletion/verify", { requestId: deletion.json.requestId, code: recoveryCode });
+      expect(crossed.status).toBe(400);
+      expect(pendingRows()).toHaveLength(0);
+      // ...and the deletion text cannot complete the recovery.
+      const reversed = await api("POST", "/api/auth/patient/recovery/verify", { requestId: recovery.json.requestId, code: deletionCode });
+      expect(reversed.status).not.toBe(200);
+      // Only the code texted for THIS request, through the deletion service, files it.
+      const own = await api("POST", "/api/account-deletion/verify", { requestId: deletion.json.requestId, code: deletionCode });
+      expect(own.status).toBe(202);
+      expect(pendingRows()).toHaveLength(1);
+    });
+
+    it("fails closed for phone identities when the dedicated service is missing, without touching the sign-in service", async () => {
+      seedLinkedPatient({ phone: "+1 (555) 201-3344", email: "texted@example.com" });
+      liveSms(false);
+      const start = await api("POST", "/api/account-deletion/start", { identifier: "5552013344" });
+      expect(start.status).toBe(503);
+      expect(start.json.error).toContain("TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID");
+      expect(backend.twilioStarts).toEqual([]);
+      expect(backend.tables.claim_verifications).toHaveLength(0);
+      // Email identities are unaffected: their codes are server-issued per request.
+      process.env.CLAIM_EMAIL_DELIVERY_MODE = "dev";
+      const email = await api("POST", "/api/account-deletion/start", { identifier: "texted@example.com" });
+      expect(email.status).toBe(200);
+      expect(email.json.devCode).toMatch(/^\d{6}$/);
+    });
+  });
+
+  it("stops sending after the per-identity daily budget without changing the answer", async () => {
+    seedLinkedPatient({ email: "drip@example.com" });
+    const shapes = new Set<string>();
+    for (let i = 0; i < 10; i += 1) {
+      // The shared hourly pot is per identifier; age earlier rows out of it so
+      // only the daily deletion budget is under test.
+      for (const row of backend.tables.claim_verifications) row.created_at = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const res = await api("POST", "/api/account-deletion/start", { identifier: "drip@example.com" });
+      expect(res.status).toBe(200);
+      shapes.add(Object.keys(res.json).sort().join(","));
+    }
+    expect(shapes.size).toBe(1);
+    expect(backend.tables.claim_verifications.filter((r) => r.purpose === "account_deletion").length).toBeLessThanOrEqual(6);
+  });
+});
 
 describe("staff login start", () => {
   it("answers unknown and known emails with one identical shape, storing only the hit", async () => {

@@ -565,15 +565,53 @@ async function emailCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
 }
 
 async function smsCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
-  const base = { id: "sms_verify", section: "sms" as const, label: "SMS sign-in codes" };
+  return verifyServiceCheck(deps, {
+    id: "sms_verify", label: "SMS sign-in codes", envKey: "TWILIO_VERIFY_SERVICE_SID",
+    missing: "Twilio credentials are incomplete, so office owners cannot finish the texted sign-in step.",
+    missingFix: "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_VERIFY_SERVICE_SID.",
+  });
+}
+
+/**
+ * The public delete-account page texts its codes through a SEPARATE Verify
+ * service: Twilio keeps one pending code per number per service, so sharing
+ * the sign-in service would let a sign-in code confirm a deletion. Without
+ * the dedicated service, phone identities on that page answer 503.
+ */
+async function smsDeletionCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
+  return verifyServiceCheck(deps, {
+    id: "sms_account_deletion", label: "SMS account-deletion codes", envKey: "TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID",
+    missing: "No dedicated Twilio Verify service is configured for account-deletion codes, so patients cannot confirm a deletion by text on the public delete-account page.",
+    missingFix: "Create a second Verify service in Twilio → Verify → Services (e.g. \"THINNR account deletion\") and set its SID as TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID.",
+  });
+}
+export async function checkLaunchReadiness(overrides: Partial<ReadinessDeps> = {}): Promise<LaunchReadiness> {
+  const deps: ReadinessDeps = { ...defaultDeps, ...overrides };
+  const modeResult = modeCheck(deps);
+  const [app, mode, live, test, warehouse, email, sms, smsDeletion] = await Promise.all([
+    appChecks(deps), modeResult, stripeChecks(deps, "live"), stripeChecks(deps, "test"),
+    modeResult.then((result) => warehouseChecks(deps, result.mode)), emailCheck(deps), smsCheck(deps), smsDeletionCheck(deps),
+  ]);
+  return {
+    checkedAt: deps.now().toISOString(),
+    mode: mode.mode,
+    checks: [...app, mode.check, ...live, ...test, ...warehouse, email, sms, smsDeletion],
+  };
+}
+
+async function verifyServiceCheck(
+  deps: ReadinessDeps,
+  spec: { id: string; label: string; envKey: "TWILIO_VERIFY_SERVICE_SID" | "TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID"; missing: string; missingFix: string },
+): Promise<ReadinessCheck> {
+  const base = { id: spec.id, section: "sms" as const, label: spec.label };
   const sid = deps.env.TWILIO_ACCOUNT_SID?.trim();
   const token = deps.env.TWILIO_AUTH_TOKEN?.trim();
-  const service = deps.env.TWILIO_VERIFY_SERVICE_SID?.trim();
+  const service = deps.env[spec.envKey]?.trim();
   if (!sid || !token || !service) {
-    return { ...base, status: "fail", detail: "Twilio credentials are incomplete, so office owners cannot finish the texted sign-in step.", fix: "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_VERIFY_SERVICE_SID." };
+    return { ...base, status: "fail", detail: spec.missing, fix: spec.missingFix };
   }
   if (deps.env.CLAIM_SMS_DELIVERY_MODE?.trim() !== "live") {
-    return { ...base, status: "fail", detail: "CLAIM_SMS_DELIVERY_MODE is not \"live\", so texted sign-in codes are not sent.", fix: "Set CLAIM_SMS_DELIVERY_MODE to live." };
+    return { ...base, status: "fail", detail: "CLAIM_SMS_DELIVERY_MODE is not \"live\", so texted codes are not sent.", fix: "Set CLAIM_SMS_DELIVERY_MODE to live." };
   }
   try {
     const response = await deps.fetch(`https://verify.twilio.com/v2/Services/${encodeURIComponent(service)}`, {
@@ -581,24 +619,10 @@ async function smsCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
       signal: AbortSignal.timeout(VENDOR_TIMEOUT_MS),
     });
     if (response.status === 401) return { ...base, status: "fail", detail: "Twilio rejected the account credentials.", fix: "Check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN." };
-    if (response.status === 404) return { ...base, status: "fail", detail: "Twilio has no Verify service with the configured ID.", fix: "Copy the Verify service SID (starts with VA) from Twilio → Verify → Services into TWILIO_VERIFY_SERVICE_SID." };
+    if (response.status === 404) return { ...base, status: "fail", detail: "Twilio has no Verify service with the configured ID.", fix: `Copy the Verify service SID (starts with VA) from Twilio → Verify → Services into ${spec.envKey}.` };
     if (!response.ok) throw new Error(`Twilio answered ${response.status}.`);
     return { ...base, status: "pass", detail: "The Twilio Verify service is reachable.", fix: null };
   } catch (error) {
     return { ...base, status: "fail", detail: message(error, "Twilio could not be reached."), fix: "Re-run the check in a minute; if it keeps failing, check the Twilio settings." };
   }
-}
-
-export async function checkLaunchReadiness(overrides: Partial<ReadinessDeps> = {}): Promise<LaunchReadiness> {
-  const deps: ReadinessDeps = { ...defaultDeps, ...overrides };
-  const modeResult = modeCheck(deps);
-  const [mode, live, test, warehouse, email, sms] = await Promise.all([
-    modeResult, stripeChecks(deps, "live"), stripeChecks(deps, "test"),
-    modeResult.then((result) => warehouseChecks(deps, result.mode)), emailCheck(deps), smsCheck(deps),
-  ]);
-  return {
-    checkedAt: deps.now().toISOString(),
-    mode: mode.mode,
-    checks: [...(await appChecks(deps)), mode.check, ...live, ...test, ...warehouse, email, sms],
-  };
 }

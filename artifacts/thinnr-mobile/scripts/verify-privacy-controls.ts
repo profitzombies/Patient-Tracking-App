@@ -50,6 +50,8 @@ import {
   isProgramEndedResolutionError,
   liveEntryDecision,
 } from '../lib/live-patient-entry';
+import { legalDocumentsBundle } from '@workspace/legal-documents';
+import { resetLegalDocumentsCache, resolveLegalDocuments } from '../lib/legal-documents';
 import { describeExport, graceDaysRemaining, parsePrivacyState } from '../lib/patient-privacy';
 import { peekSignupSeed, setSignupSeed, takeSignupSeed } from '../lib/signup-seed';
 import ConsentScreen from '../app/consent';
@@ -110,8 +112,13 @@ function privacyBlock(store: Store) {
     export: job ?? null,
     deletion: store.deletion,
     deletionPolicy: { graceDays: 7, retentionYears: 8 },
+    // Like the real server: the published documents behind requiredVersion.
+    legal: { version: requiredVersion, effectiveDate: requiredVersion, status: 'draft' },
   };
 }
+
+/** What GET legal/documents answers; checks swap it (see §Full legal text). */
+let legalDocumentsResponse: () => { status: number; body: unknown } = () => ({ status: 200, body: legalDocumentsBundle() });
 
 function routeCall(call: ApiCall): { status: number; body: unknown } {
   const key = `${call.method} ${call.path}`;
@@ -121,6 +128,9 @@ function routeCall(call: ApiCall): { status: number; body: unknown } {
     const role = call.token ? tokenRoles.get(call.token) : undefined;
     return role ? { status: 200, body: role } : { status: 401, body: { error: 'Sign in required.' } };
   }
+  // Open route (no token): the published legal documents. Scripted per
+  // check — a newer bundle, the same bundle, or an outage.
+  if (key === 'GET legal/documents') return legalDocumentsResponse();
   const role = call.token ? tokenRoles.get(call.token) : undefined;
   if (!role?.patientId) return { status: 401, body: { error: 'Sign in required.' } };
   const store = storeFor(role.patientId);
@@ -234,6 +244,11 @@ function textOf(t: ReactTestRenderer, id: string): string {
   const flatten = (node: unknown): string => Array.isArray(node) ? node.map(flatten).join('') : typeof node === 'string' || typeof node === 'number' ? String(node) : node && typeof node === 'object' && 'props' in (node as object) ? flatten((node as { props: { children?: unknown } }).props.children) : '';
   return hosts(t, id).map(n => flatten(n.props.children)).join('');
 }
+/** Rendered text of a host subtree (composite children expanded, unlike textOf). */
+function renderedText(t: ReactTestRenderer, id: string): string {
+  const walk = (node: unknown): string => typeof node === 'string' ? node : Array.isArray(node) ? node.map(walk).join('') : node && typeof node === 'object' && 'children' in (node as object) ? walk((node as { children: unknown[] }).children) : '';
+  return hosts(t, id).map(walk).join('');
+}
 const btnLabel = (t: ReactTestRenderer, id: string) => t.root.findAllByProps({ testID: id }).map(n => n.props.label).find(x => typeof x === 'string') as string | undefined;
 const btnDisabled = (t: ReactTestRenderer, id: string) => t.root.findAllByProps({ testID: id }).map(n => n.props.disabled).find(x => typeof x === 'boolean') as boolean | undefined;
 
@@ -266,7 +281,19 @@ async function main() {
   assert('unhydrated real account holds', redirectTo(gate({ patientHydrated: false, consentSatisfied: null })) === 'hold');
 
   section('parser: shapes and honest failures');
-  const parsed = parsePrivacyState({ consent: { requiredVersion: 'v2', recordedVersion: 'v1', satisfied: true, photoAnalysis: false, recordedAt: null }, export: null, deletion: null });
+  const parsed = parsePrivacyState({ consent: { requiredVersion: 'v2', recordedVersion: 'v1', satisfied: true, photoAnalysis: false, recordedAt: null }, export: null, deletion: null, legal: { version: 'v2', effectiveDate: '2026-09-01', status: 'draft' } });
+  assert('published-document metadata is kept, not discarded', parsed.legal?.version === 'v2' && parsed.legal.status === 'draft' && parsed.legal.effectiveDate === '2026-09-01');
+  assert('a server without the legal field parses to null (never a throw)', parsePrivacyState({ consent: { requiredVersion: 'v2', recordedVersion: null, satisfied: false }, export: null, deletion: null }).legal === null);
+  {
+    const bundledNow = legalDocumentsBundle();
+    const newer = { ...bundledNow, version: '2027-01-01' };
+    const older = { ...bundledNow, version: '2020-01-01' };
+    const pick = (server: typeof bundledNow | null, required: string | null) => resolveLegalDocuments(bundledNow, server, required);
+    assert('resolver: required = bundled → bundled, current, even when the server has newer text', pick(newer, bundledNow.version).source === 'bundled' && pick(newer, bundledNow.version).current === true);
+    assert('resolver: required = server version → server copy, current', pick(newer, '2027-01-01').source === 'server' && pick(newer, '2027-01-01').current === true);
+    assert('resolver: required matches neither → newest copy on hand, NOT current', pick(newer, '2026-12-01').current === false && pick(newer, '2026-12-01').bundle.version === '2027-01-01' && pick(older, '2026-12-01').current === false && pick(older, '2026-12-01').source === 'bundled' && pick(null, '2026-12-01').current === false);
+    assert('resolver: no required version → server only when strictly newer', pick(newer, null).source === 'server' && pick(older, null).source === 'bundled' && pick(bundledNow, null).source === 'bundled' && pick(null, null).current === true);
+  }
   assert('satisfied is recomputed from versions, never trusted alone', parsed.consent.satisfied === false && parsed.consent.photoAnalysis === false);
   assert('older/demo privacy data defaults retention to seven years', parsed.deletionPolicy.retentionYears === 7);
   const held = parsePrivacyState({
@@ -297,7 +324,7 @@ async function main() {
   await press(tree, 'consent-privacy');
   assert('two of three still disabled', btnDisabled(tree, 'consent-agree') === true);
   await press(tree, 'consent-health');
-  assert('all required → enabled', btnDisabled(tree, 'consent-agree') === false);
+  assert('all required → enabled (bundled text IS the required version: no documents fetch, no loading or unavailable notice)', btnDisabled(tree, 'consent-agree') === false && callsTo('legal/documents').length === 0 && !has(tree, 'consent-legal-loading') && !has(tree, 'consent-legal-unavailable'));
   await press(tree, 'consent-photo'); // opt out of the optional item
   failNext.set('PUT patient-data/consent', { status: 503, body: { error: 'Consent service is briefly unavailable.' } });
   await press(tree, 'consent-agree');
@@ -306,14 +333,53 @@ async function main() {
   const consentCall = callsTo('patient-data/consent', 'PUT').pop();
   assert('consent write carries version, agreements, app version, platform', consentCall?.body?.policyVersion === REQUIRED_VERSION && consentCall.body.terms === true && consentCall.body.privacy === true && consentCall.body.healthData === true && consentCall.body.photoAnalysis === false && consentCall.body.appVersion === '1.0.0-test' && consentCall.body.platform === 'web');
   assert('recorded consent unlocks routes and rehydrates the refused data slice', ctx.hydratedPrivacy?.consent.satisfied === true && ctx.hydratedPrivacy.consent.photoAnalysis === false && redirectTo(gateFromCtx('/consent')) === '/today' && callsTo('patient-data/state').length === 2 && ctx.hydratedFlags?.onboardingComplete === true && ctx.hydrated);
+
+  section('consent screen: full legal text — the copy behind the required version, offline when bundled');
+  const bundled = legalDocumentsBundle();
+  assert('sheet closed until a link is tapped', !has(tree, 'legal-sheet-terms') && has(tree, 'consent-read-terms') && has(tree, 'consent-read-privacy') && has(tree, 'consent-read-health-data'));
+  legalDocumentsResponse = () => ({ status: 200, body: { ...bundled, version: '2027-01-01', effectiveDate: '2027-01-01', status: 'final', documents: bundled.documents.map(d => d.slug === 'terms' ? { ...d, markdown: '# Terms of Use\n\nCounsel-approved wording from the server.' } : d) } });
+  await press(tree, 'consent-read-terms');
+  assert('required version is bundled → bundled text shown with its draft banner, zero network (a newer server text is NOT what the patient is agreeing to)', has(tree, 'legal-sheet-terms') && textOf(tree, 'legal-sheet-title') === 'Terms of Use' && textOf(tree, 'legal-sheet-version').includes(bundled.version) && !textOf(tree, 'legal-sheet-version').includes('latest') && has(tree, 'legal-sheet-draft') && !has(tree, 'legal-sheet-outdated') && renderedText(tree, 'legal-sheet-scroll').includes('These terms govern') && callsTo('legal/documents').length === 0);
+  await press(tree, 'legal-sheet-close');
+  assert('Done closes the sheet', !has(tree, 'legal-sheet-terms'));
+  legalDocumentsResponse = () => ({ status: 503, body: { error: 'down' } });
+  await press(tree, 'consent-read-privacy');
+  assert('offline reading: privacy policy from the bundle, still no network', has(tree, 'legal-sheet-privacy') && textOf(tree, 'legal-sheet-title') === 'Privacy Policy' && renderedText(tree, 'legal-sheet-scroll').includes('app.trythinnr.com') && callsTo('legal/documents').length === 0);
+  await press(tree, 'legal-sheet-close');
+  await press(tree, 'consent-read-health-data');
+  assert('health data notice reads from the bundle too', has(tree, 'legal-sheet-health-data') && textOf(tree, 'legal-sheet-title') === 'Health data notice' && renderedText(tree, 'legal-sheet-scroll').includes('read-only'));
+  await press(tree, 'legal-sheet-close');
+  legalDocumentsResponse = () => ({ status: 200, body: bundled });
   await unmount(tree);
 
-  section('consent screen: policy version bump re-prompts');
+  section('consent screen: policy version bump re-prompts — agreement waits for the current text');
   requiredVersion = '2026-12-01';
+  resetLegalDocumentsCache();
+  // The server moved to 2026-12-01 but the documents route still answers the
+  // old bundle (stale deploy / CDN): the app must not let the patient agree.
   tree = await mount(ConsentScreen);
   assert('new version = not satisfied on hydrate', ctx.hydratedPrivacy?.consent.satisfied === false && ctx.hydratedPrivacy?.consent.recordedVersion === REQUIRED_VERSION && redirectTo(gateFromCtx('/today')) === '/consent');
+  assert('server legal metadata rides the privacy state', ctx.hydratedPrivacy?.legal?.version === '2026-12-01');
   assert('update framing names both versions', textOf(tree, 'consent-title') === 'Please review the updated terms.' && textOf(tree, 'consent-version').includes('2026-12-01'));
+  assert('bundled copy is older than required → documents fetched on open, stale answer = unavailable notice with retry', callsTo('legal/documents').length === 1 && has(tree, 'consent-legal-unavailable') && has(tree, 'consent-legal-retry') && textOf(tree, 'consent-legal-unavailable').includes('2026-12-01'));
   await press(tree, 'consent-terms'); await press(tree, 'consent-privacy'); await press(tree, 'consent-health');
+  assert('all three boxes ticked, agree STILL disabled while the current text is missing', btnDisabled(tree, 'consent-agree') === true);
+  await press(tree, 'consent-agree');
+  assert('blocked agree explains the missing text and records nothing', has(tree, 'consent-error') && textOf(tree, 'consent-error').includes('2026-12-01') && callsTo('patient-data/consent', 'PUT').length === 2 && storeFor('p-1').consents.length === 1);
+  await press(tree, 'consent-read-terms');
+  assert('reader still opens the earlier copy, clearly marked outdated against the required version', has(tree, 'legal-sheet-terms') && has(tree, 'legal-sheet-outdated') && textOf(tree, 'legal-sheet-outdated').includes('2026-12-01') && textOf(tree, 'legal-sheet-version').includes(bundled.version) && renderedText(tree, 'legal-sheet-scroll').includes('These terms govern'));
+  await press(tree, 'legal-sheet-close');
+  legalDocumentsResponse = () => ({ status: 503, body: { error: 'down' } });
+  await press(tree, 'consent-legal-retry');
+  assert('retry during an outage stays blocked', has(tree, 'consent-legal-unavailable') && btnDisabled(tree, 'consent-agree') === true && callsTo('legal/documents').length >= 3);
+  const currentBundle = { ...bundled, version: '2026-12-01', effectiveDate: '2026-12-01', status: 'final' as const, documents: bundled.documents.map(d => d.slug === 'terms' ? { ...d, markdown: '# Terms of Use\n\nCounsel-approved wording from the server.' } : d) };
+  legalDocumentsResponse = () => ({ status: 200, body: currentBundle });
+  await press(tree, 'consent-legal-retry');
+  assert('server copy of the required version arrives → notice clears, agree enabled', !has(tree, 'consent-legal-unavailable') && !has(tree, 'consent-legal-loading') && btnDisabled(tree, 'consent-agree') === false);
+  const fetchesBeforeRead = callsTo('legal/documents').length;
+  await press(tree, 'consent-read-terms');
+  assert('reader shows the current server text (version, "latest", no draft banner, no outdated notice) from the shared cache without another round trip', has(tree, 'legal-sheet-terms') && textOf(tree, 'legal-sheet-version').includes('2026-12-01') && textOf(tree, 'legal-sheet-version').includes('latest') && !has(tree, 'legal-sheet-draft') && !has(tree, 'legal-sheet-outdated') && renderedText(tree, 'legal-sheet-scroll').includes('Counsel-approved wording') && callsTo('legal/documents')[0].token === null && callsTo('legal/documents').length === fetchesBeforeRead);
+  await press(tree, 'legal-sheet-close');
   await press(tree, 'consent-agree');
   assert('re-consent recorded on the new version', ctx.hydratedPrivacy?.consent.satisfied === true && ctx.hydratedPrivacy.consent.recordedVersion === '2026-12-01' && storeFor('p-1').consents.length === 2);
   assert('a version bump keeps the earlier photo opt-out (never silently flips it on)', ctx.hydratedPrivacy?.consent.photoAnalysis === false);
@@ -324,6 +390,10 @@ async function main() {
   tree = await mount(PrivacyDataControls);
   assert('controls render for a consented real account', has(tree, 'privacy-controls') && !has(tree, 'privacy-unavailable'));
   assert('consent status reads recorded version', textOf(tree, 'privacy-consent-status').includes('2026-12-01'));
+  await press(tree, 'privacy-read-terms');
+  assert('Account → Privacy & data opens the same full-text reader on the current version', has(tree, 'legal-sheet-terms') && textOf(tree, 'legal-sheet-title') === 'Terms of Use' && textOf(tree, 'legal-sheet-version').includes('2026-12-01') && !has(tree, 'legal-sheet-outdated') && renderedText(tree, 'legal-sheet-scroll').includes('Counsel-approved wording'));
+  await press(tree, 'legal-sheet-close');
+  assert('reader closed, controls intact', !has(tree, 'legal-sheet-terms') && has(tree, 'privacy-controls'));
 
   section('account controls: photo analysis is a live choice');
   assert('status reads the photo choice and offers the opposite', textOf(tree, 'privacy-consent-status').includes('Photo analysis: off') && btnLabel(tree, 'privacy-photo-analysis-toggle') === 'Turn photo analysis on');
@@ -409,7 +479,7 @@ async function main() {
   assert('sign out leaves the deletion pending and ends the session', storeFor('p-1').deletion !== null && account.account.kind !== 'real');
   await unmount(tree);
   const privacyCallPaths = apiCalls.slice(privacyCallsBefore).map(c => c.path);
-  assert('privacy writes only ever hit the patient-data routes (plus session re-resolution)', privacyCallPaths.every(p => p.startsWith('patient-data/') || p === 'claim/whoami'));
+  assert('privacy writes only ever hit the patient-data routes (plus session re-resolution)', privacyCallPaths.every(p => p.startsWith('patient-data/') || p === 'claim/whoami' || p === 'legal/documents'));
 
   section('signed-out visitor: unavailable, zero network');
   const before = apiCalls.length;

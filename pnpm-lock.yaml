@@ -208,6 +208,9 @@ importers:
       '@workspace/integrations-openai-ai-server':
         specifier: workspace:*
         version: link:../../lib/integrations-openai-ai-server
+      '@workspace/legal-documents':
+        specifier: workspace:*
+        version: link:../../lib/legal-documents
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -588,6 +591,9 @@ importers:
       '@workspace/diet-programs':
         specifier: workspace:*
         version: link:../../lib/diet-programs
+      '@workspace/legal-documents':
+        specifier: workspace:*
+        version: link:../../lib/legal-documents
       babel-plugin-react-compiler:
         specifier: ^19.0.0-beta-e993439-20250117
         version: 19.0.0-beta-ebf51a3-20250411
@@ -847,6 +853,9 @@ importers:
       '@workspace/email-templates':
         specifier: workspace:*
         version: link:../../lib/email-templates
+      '@workspace/legal-documents':
+        specifier: workspace:*
+        version: link:../../lib/legal-documents
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1
@@ -996,6 +1005,8 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
+
+  lib/legal-documents: {}
 
   scripts:
     devDependencies:

@@ -20,6 +20,7 @@ function goodEnv(): NodeJS.ProcessEnv {
     CLAIM_EMAIL_DELIVERY_MODE: "live",
     CLAIM_SMS_DELIVERY_MODE: "live",
     TWILIO_ACCOUNT_SID: "AC1", TWILIO_AUTH_TOKEN: "tok", TWILIO_VERIFY_SERVICE_SID: "VA1",
+    TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID: "VA2",
   };
   for (const mode of ["LIVE", "TEST"]) {
     env[`STRIPE_${mode}_CONNECT_CLIENT_ID`] = "ca_abc123";
@@ -208,6 +209,16 @@ describe("provider launch readiness", () => {
     const result = await checkLaunchReadiness(deps({ fetch: fetchMock as unknown as typeof fetch }).deps);
     expect(byId(result, "email_domain")).toMatchObject({ status: "fail" });
     expect(byId(result, "sms_verify").detail).toContain("no Verify service");
+    expect(byId(result, "sms_account_deletion").detail).toContain("no Verify service");
+    expect(byId(result, "sms_account_deletion").fix).toContain("TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID");
+    const twilioProbes = fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("verify.twilio.com"));
+    expect(twilioProbes.some((u) => u.endsWith("/Services/VA1"))).toBe(true);
+    expect(twilioProbes.some((u) => u.endsWith("/Services/VA2"))).toBe(true);
+    // The deletion page's text codes need their OWN service: a missing one is
+    // a readiness failure even while sign-in texts work.
+    const shared = await checkLaunchReadiness(deps({ env: { ...goodEnv(), TWILIO_ACCOUNT_DELETION_VERIFY_SERVICE_SID: "" } }).deps);
+    expect(byId(shared, "sms_account_deletion").status).toBe("fail");
+    expect(byId(shared, "sms_account_deletion").detail).toContain("dedicated");
 
     const restricted = vi.fn(async (input: string | URL | Request) =>
       String(input).includes("resend") ? new Response(JSON.stringify({ name: "restricted_api_key" }), { status: 401 }) : new Response("{}", { status: 200 }));

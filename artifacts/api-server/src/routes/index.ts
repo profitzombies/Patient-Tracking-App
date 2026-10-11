@@ -49,6 +49,8 @@ import officeTeamRouter from "./office-team";
 import officeFilesRouter from "./office-files";
 import officeAuditEventsRouter from "./office-audit-events";
 import patientPrivacyRouter from "./patient-privacy";
+import legalDocumentsRouter from "./legal-documents";
+import publicAccountDeletionRouter from "./public-account-deletion";
 import hqPatientDeletionsRouter from "./hq-patient-deletions";
 import systemJobsRouter from "./system-jobs";
 import launchReadinessRouter from "./launch-readiness";
@@ -101,6 +103,10 @@ router.use(patientShopRouter);
 router.use(patientMedicationsRouter);
 router.use(patientDietRouter);
 router.use(patientPrivacyRouter);
+// Public (no session): the documents behind the consent version and the
+// store-required web delete-account request.
+router.use(legalDocumentsRouter);
+router.use(publicAccountDeletionRouter);
 router.use(patientMediaRouter);
 router.use(bloodworkRouter);
 router.use(patientChatRouter);

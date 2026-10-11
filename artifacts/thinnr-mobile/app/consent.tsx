@@ -13,6 +13,8 @@ import Constants from 'expo-constants';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
+import { LegalLinks } from '@/components/legal/LegalLinks';
+import { useLegalTextAvailability } from '@/components/legal/useLegalTextAvailability';
 import {
   CheckRow,
   ErrorBox,
@@ -64,6 +66,12 @@ export default function ConsentScreen() {
 
   const api = account.kind === 'real' ? account.api.privacy : null;
   const required = terms && privacyAgreed && healthData;
+  // The version the server will record. The full text behind exactly this
+  // version must be readable before agreement can be recorded; otherwise a
+  // patient on an older app could "agree" to wording they never saw.
+  const requiredVersion = privacy?.consent.requiredVersion ?? null;
+  const legalText = useLegalTextAvailability(requiredVersion);
+  const textReady = legalText.availability === 'current';
 
   const signOut = async () => {
     await supabase?.auth.signOut();
@@ -123,9 +131,14 @@ export default function ConsentScreen() {
   const consent = privacy.consent;
   const isUpdate = consent.recordedVersion !== null && consent.recordedVersion !== consent.requiredVersion;
 
+  const blockedMessage = () =>
+    textReady
+      ? 'Please review and agree to the three required items to continue.'
+      : `The full text of policy ${consent.requiredVersion} hasn’t loaded yet. Connect to the internet and tap “Try again” so you can read what you are agreeing to.`;
+
   const agree = async () => {
-    if (!required) {
-      setError('Please review and agree to the three required items to continue.');
+    if (!required || !textReady) {
+      setError(blockedMessage());
       return;
     }
     setBusy(true);
@@ -175,14 +188,31 @@ export default function ConsentScreen() {
           <CheckRow testID="consent-health" label="Health-data processing" sub={POLICY_SUMMARY.healthData} checked={healthData} onPress={() => setHealthData(v => !v)} />
           <CheckRow testID="consent-photo" label="Photo analysis (optional)" sub={POLICY_SUMMARY.photoAnalysis} checked={photoAnalysis} onPress={() => setPhotoAnalysis(v => !v)} />
         </View>
+        <LegalLinks testIDPrefix="consent" style={styles.legalLinks} requiredVersion={consent.requiredVersion} />
+        {legalText.availability !== 'current' ? (
+          <View
+            testID={legalText.availability === 'loading' ? 'consent-legal-loading' : 'consent-legal-unavailable'}
+            accessibilityRole="alert"
+            style={[styles.notice, styles.legalNotice, { backgroundColor: colors.warnBg, borderColor: colors.warnBorder, borderRadius: colors.radiusSm }]}
+          >
+            <Text style={[styles.body, styles.legalNoticeText, { color: colors.warnText }]}>
+              {legalText.availability === 'loading'
+                ? `Loading the full text of policy ${consent.requiredVersion}…`
+                : `We couldn’t load the full text of policy ${consent.requiredVersion}. This app has an earlier copy you can still read, but agreement needs the current wording. Connect to the internet and try again.`}
+            </Text>
+            {legalText.availability === 'unavailable' ? (
+              <GhostButton testID="consent-legal-retry" label="Try again" onPress={legalText.retry} style={styles.retry} />
+            ) : null}
+          </View>
+        ) : null}
 
         <InfoCard label="Your controls" body="You can download a copy of your data or delete your account at any time from Account → Privacy & data." />
         {error ? <ErrorBox testID="consent-error" message={error} /> : null}
         <PrimaryButton
           testID="consent-agree"
           label={busy ? 'Saving…' : 'Agree and continue'}
-          disabled={busy || !required}
-          onDisabledPress={() => setError('Please review and agree to the three required items to continue.')}
+          disabled={busy || !required || !textReady}
+          onDisabledPress={() => setError(blockedMessage())}
           onPress={() => void agree()}
           style={styles.primary}
         />
@@ -202,7 +232,11 @@ const styles = StyleSheet.create({
   body: { fontSize: 14, lineHeight: 21, fontFamily: 'Inter_400Regular', marginTop: 12 },
   version: { fontSize: 11, fontFamily: 'Inter_600SemiBold', marginTop: 10, letterSpacing: 0.4 },
   rows: { marginTop: 18, gap: 10 },
+  legalLinks: { marginTop: 4, marginBottom: 16 },
   notice: { borderWidth: 1, padding: 14, marginTop: 18 },
+  legalNotice: { marginTop: 0, marginBottom: 16 },
+  legalNoticeText: { marginTop: 0 },
+  retry: { marginTop: 10, alignSelf: 'flex-start' },
   primary: { marginTop: 18 },
   secondary: { marginTop: 10 },
 });

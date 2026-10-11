@@ -33,6 +33,8 @@ const NOTIFICATION_ROUTES = new Set([
   '/recipes',
   '/security',
   '/check-in',
+  '/food-preferences',
+  '/diet-picker',
   '/(tabs)/patients',
   '/orders',
   '/my-subscriptions',

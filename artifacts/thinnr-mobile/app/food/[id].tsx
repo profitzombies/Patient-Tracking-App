@@ -26,6 +26,8 @@ import {
 import type { FoodNutritionSnapshot } from '@/data/food-nutrition';
 import { createLegacyFoodDetailSnapshot } from '@/data/food-detail-amount';
 import { useColors } from '@/hooks/useColors';
+import { useFoodFit } from '@/hooks/useFoodFit';
+import { FitBadge } from '@/components/patient/FitBadge';
 import { catalogFoodToLoggable, type LoggableItem, useLoggableItems } from '@/hooks/useLoggableItems';
 import {
   catalogErrorMessage, catalogFoodSnapshot, getFamilyVariants, selectCatalogFood, type CatalogFood,
@@ -117,6 +119,7 @@ export default function FoodDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const foodFit = useFoodFit();
   const patientAccount = usePatientAccount();
   const { mode, hydrated } = useAppMode();
   const pathname = usePathname();
@@ -605,6 +608,17 @@ export default function FoodDetailScreen() {
       </View>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingBottom: bottomPad + 90 }}>
         <Text testID="food-detail-name" style={[styles.foodName, { color: colors.navy }]}>{item.name}</Text>
+        {(() => {
+          const fit = foodFit.classify(item);
+          if (fit.verdict === 'unknown') return null;
+          const why = fit.reasons.filter(reason => reason.kind === 'hit').map(reason => reason.message).slice(0, 2).join(' ');
+          return (
+            <View testID="food-detail-fit" style={{ marginTop: 8, gap: 4 }}>
+              <FitBadge verdict={fit.verdict} size="md" />
+              {why ? <Text style={[styles.summary, { color: colors.subtleText }]}>{why}</Text> : null}
+            </View>
+          );
+        })()}
         {!!(snapshot?.variant?.summary ?? item.catalog?.variantSummary) && (
           <Text style={[styles.summary, { color: colors.bodyText }]}>
             {snapshot?.variant?.summary ?? item.catalog?.variantSummary}

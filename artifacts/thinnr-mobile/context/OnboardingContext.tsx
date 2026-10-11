@@ -31,11 +31,14 @@ import { router, type Href } from 'expo-router';
 import {
   DEFAULT_ANSWERS,
   formatUsPhone,
+  PREFERENCE_ANSWER_KEYS,
   stepOrderIndex,
   visibleSteps,
   type OnboardingAnswers,
+  type PreferenceAnswer,
   type StepKey,
 } from '@/data/onboarding-data';
+import { dietWritesFor } from '@/lib/onboarding-diet-writes';
 import {
   usePatientAccount,
   type PatientFlagsWrite,
@@ -65,7 +68,20 @@ interface OnboardingContextValue {
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 function freshAnswers(): OnboardingAnswers {
-  return { ...DEFAULT_ANSWERS, diets: [...DEFAULT_ANSWERS.diets] };
+  return {
+    ...DEFAULT_ANSWERS,
+    dietAnswers: { ...DEFAULT_ANSWERS.dietAnswers },
+    allergies: [...DEFAULT_ANSWERS.allergies],
+    sensitivities: [...DEFAULT_ANSWERS.sensitivities],
+    restrictions: [...DEFAULT_ANSWERS.restrictions],
+    dislikes: [...DEFAULT_ANSWERS.dislikes],
+  };
+}
+
+function isPreferenceAnswer(value: unknown): value is PreferenceAnswer {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (v.key === null || typeof v.key === 'string') && typeof v.label === 'string';
 }
 
 /**
@@ -85,6 +101,7 @@ function withProfile(base: OnboardingAnswers, p: PatientProfile): OnboardingAnsw
     heightIn: p.heightInches ? Math.round(p.heightInches % 12) : base.heightIn,
     currentWeight: p.currentWeight === null ? '' : String(p.currentWeight),
     goalWeight: p.goalWeight === null ? '' : String(p.goalWeight),
+    gender: p.gender ?? base.gender,
     birthYear: birth[0] ?? '',
     birthMonth: birth[1] ? Number(birth[1]) : null,
     birthDay: birth[2] ?? '',
@@ -109,9 +126,12 @@ function restoredAnswers(
   const source: Record<string, unknown> = prefs ? { ...raw, ...prefs } : raw;
   for (const key of Object.keys(base)) {
     if (!(key in source)) continue;
-    if (key === 'diets') {
-      const diets = source[key];
-      if (Array.isArray(diets)) base[key] = diets.filter(d => typeof d === 'string');
+    if ((PREFERENCE_ANSWER_KEYS as readonly string[]).includes(key)) {
+      const items = source[key];
+      if (Array.isArray(items)) base[key] = items.filter(isPreferenceAnswer);
+    } else if (key === 'dietAnswers') {
+      const answers = source[key];
+      if (answers && typeof answers === 'object' && !Array.isArray(answers)) base[key] = answers;
     } else {
       base[key] = source[key];
     }
@@ -229,6 +249,10 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         ...(nameParts[0] ? { firstName: nameParts[0] } : {}),
         ...(nameParts[1] ? { lastName: nameParts.slice(1).join(' ') } : {}),
         ...(birthDate ? { dateOfBirth: birthDate } : {}),
+        // Gender reaches the server profile so the diet picker can ask the
+        // female-only pregnancy question and the target calculator has BMR
+        // inputs — without it every patient looks genderless to the server.
+        ...(a.gender ? { gender: a.gender } : {}),
         ...(heightInches >= 24 && heightInches <= 96 ? { heightInches } : {}),
         ...(inPounds(a.currentWeight)
           ? { startingWeight: inPounds(a.currentWeight), currentWeight: inPounds(a.currentWeight) }
@@ -280,7 +304,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       return true;
     }
     const saved = await (patient?.completeSetup(payload) ?? Promise.resolve(false));
-    if (saved) setBegun(false);
+    if (saved) {
+      setBegun(false);
+      // Diet + list answers ride the offline write queue AFTER completion is
+      // confirmed: a failed or slow diet write must never block entry to the
+      // app, and the queue retries it on its own.
+      if (patient) void dietWritesFor(final, patient);
+    }
     return saved;
   }, [patient, setupPayload]);
 

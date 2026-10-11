@@ -3,7 +3,8 @@
  * the searchable recipe grid with starred recipes pinned first under a
  * Favorites header; the Foods view browses every food (seeded + My Foods)
  * with star-to-favorite and inline add-to-diary; the Approved Foods button
- * opens the official program list. Approved foods carry the checkmark badge.
+ * opens the official program list. Foods and recipes carry the "Fits your
+ * diet" badge from the shared classifier (Approved Foods during the protocol).
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -14,7 +15,9 @@ import { patientContentBottom } from '@/constants/layout';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
-import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FitBadge } from '@/components/patient/FitBadge';
+import { useFoodFit } from '@/hooks/useFoodFit';
+import { describeRecipe } from '@/lib/food-description';
 import { FavoriteStar } from '@/components/patient/FavoriteStar';
 import { FoodSearchSkeleton } from '@/components/patient/FoodSearchSkeleton';
 import { LibraryImage } from '@/components/patient/LibraryImage';
@@ -23,7 +26,6 @@ import { PatientHeader } from '@/components/patient/PatientHeader';
 import { Divider, EmptyState, LedgerCard, PillSelector, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { usePatient } from '@/context/PatientContext';
-import { APPROVED_BADGE_EXPLANATION, isApprovedFood } from '@/data/approved-foods';
 import { MEAL_LABELS, MEAL_SLOTS, RECIPES, type FoodItem, type MealSlot, type Recipe } from '@/data/patient-data';
 import { RECIPE_IMAGES } from '@/data/recipe-images';
 import { type RemovedCustomFood } from '@/data/custom-food-state';
@@ -59,11 +61,15 @@ export default function LibraryScreen() {
   const [query, setQuery] = useState('');
   const [mealFilter, setMealFilter] = useState<MealFilter>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [recipesFitOnly, setRecipesFitOnly] = useState(false);
 
   // Foods view state
   const [foodQuery, setFoodQuery] = useState('');
   const [foodFavoritesOnly, setFoodFavoritesOnly] = useState(false);
-  const [foodApprovedOnly, setFoodApprovedOnly] = useState(false);
+  // "Fits your diet": protocol → Approved Foods (server approvedOnly); later → classifier per row.
+  const [foodFitOnly, setFoodFitOnly] = useState(false);
+  const foodFit = useFoodFit();
+  const foodApprovedOnly = foodFitOnly && foodFit.protocol;
   const [foodFavoriteLimit, setFoodFavoriteLimit] = useState(6);
   // Remote catalog searches are debounced. Keep the last completed result for
   // this exact account-epoch/query/filter key so a retry or an in-flight
@@ -133,11 +139,12 @@ export default function LibraryScreen() {
     return [...patient.savedRecipes, ...RECIPES].filter(r => {
       if (mealFilter !== 'all' && r.meal !== mealFilter) return false;
       if (favoritesOnly && !patient.favorites.includes(r.id)) return false;
+      if (recipesFitOnly && foodFit.verdict(describeRecipe(r)) !== 'fits') return false;
       if (!q) return true;
       const haystack = `${r.name} ${r.tags.join(' ')}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [query, mealFilter, favoritesOnly, patient.favorites, patient.savedRecipes]);
+  }, [query, mealFilter, favoritesOnly, recipesFitOnly, foodFit, patient.favorites, patient.savedRecipes]);
 
   const savedById = useMemo(
     () => new Map(patient.savedRecipes.map(r => [r.id, r])),
@@ -222,9 +229,9 @@ export default function LibraryScreen() {
       const filteredGroups = groups
         .map(group => ({
           ...group,
-          data: foodFavoritesOnly
-            ? group.data.filter(food => favoriteIds.has(food.id))
-            : group.data,
+          data: group.data
+            .filter(food => !foodFavoritesOnly || favoriteIds.has(food.id))
+            .filter(food => !foodFitOnly || foodFit.verdict(food) === 'fits'),
         }))
         .filter(group => group.data.length > 0);
       return {
@@ -237,7 +244,7 @@ export default function LibraryScreen() {
     const allMatches = patient.allFoods.filter(food => {
       if (q && !`${food.name} ${food.brand ?? ''} ${food.category}`.toLowerCase().includes(q)) return false;
       if (foodFavoritesOnly && !favoriteIds.has(food.id)) return false;
-      if (foodApprovedOnly && !isApprovedFood(food.id)) return false;
+      if (foodFitOnly && foodFit.verdict(food) !== 'fits') return false;
       return true;
     });
     const matches = foodFavoritesOnly ? allMatches.slice(0, foodFavoriteLimit) : allMatches;
@@ -264,7 +271,8 @@ export default function LibraryScreen() {
     patient.allFoods,
     foodQuery,
     foodFavoritesOnly,
-    foodApprovedOnly,
+    foodFitOnly,
+    foodFit,
     foodFavoriteLimit,
     favoriteIds,
     catalogResults,
@@ -365,9 +373,12 @@ export default function LibraryScreen() {
           </Pressable>
         </View>
         <View style={styles.cardBody}>
-          <Text style={[styles.cardName, { color: colors.navyLight }]} numberOfLines={2}>
-            {recipe.name}
-          </Text>
+          <View style={styles.foodNameRow}>
+            <Text style={[styles.cardName, { color: colors.navyLight, flexShrink: 1 }]} numberOfLines={2}>
+              {recipe.name}
+            </Text>
+            <FitBadge verdict={foodFit.verdict(describeRecipe(recipe))} size="sm" />
+          </View>
           <Text style={[styles.cardMeta, { color: colors.subtleText }]}>
             {/* Meals saved from a photo have no cook time (minutes 0). */}
             {recipe.minutes > 0 ? `${recipe.calories} cal · ${recipe.minutes} min` : `${recipe.calories} cal`}
@@ -456,6 +467,23 @@ export default function LibraryScreen() {
                   color={favoritesOnly ? colors.primaryForeground : colors.bodyText}
                 />
               </Pressable>
+              <Pressable
+                testID="recipes-fit-toggle"
+                accessibilityRole="button"
+                accessibilityState={{ selected: recipesFitOnly }}
+                accessibilityLabel={recipesFitOnly ? 'Show all recipes' : 'Show only recipes that fit your diet'}
+                onPress={() => setRecipesFitOnly(v => !v)}
+                style={({ pressed }) => [
+                  styles.favBtn,
+                  {
+                    borderColor: recipesFitOnly ? colors.activeGreen : colors.border,
+                    backgroundColor: recipesFitOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+                    borderRadius: colors.radiusSm,
+                  },
+                ]}
+              >
+                <Feather name="check" size={15} color={recipesFitOnly ? colors.activeGreen : colors.bodyText} />
+              </Pressable>
             </View>
 
             <PillSelector
@@ -468,6 +496,7 @@ export default function LibraryScreen() {
             <Text style={[styles.countText, { color: colors.labelText }]}>
               {filtered.length} RECIPE{filtered.length === 1 ? '' : 'S'}
               {favoritesOnly ? ' · FAVORITES' : ''}
+              {recipesFitOnly ? ' · FITS YOUR DIET' : ''}
             </Text>
 
             {filtered.length === 0 ? (
@@ -475,7 +504,7 @@ export default function LibraryScreen() {
                 <EmptyState
                   icon={<Feather name="book-open" size={22} color={colors.subtleText} />}
                   title="No recipes match"
-                  body={favoritesOnly ? 'Star a few recipes to build your favorites list.' : 'Try a different search or meal filter.'}
+                  body={favoritesOnly ? 'Star a few recipes to build your favorites list.' : recipesFitOnly ? 'Nothing here fits your diet yet. Turn off the filter to see every recipe.' : 'Try a different search or meal filter.'}
                 />
               </LedgerCard>
             ) : (
@@ -548,23 +577,23 @@ export default function LibraryScreen() {
               <Pressable
                 testID="foods-approved-toggle"
                 accessibilityRole="button"
-                accessibilityState={{ selected: foodApprovedOnly }}
-                accessibilityLabel={foodApprovedOnly ? 'Show all foods' : 'Show only approved foods'}
+                accessibilityState={{ selected: foodFitOnly }}
+                accessibilityLabel={foodFitOnly ? 'Show all foods' : 'Show only foods that fit your diet'}
                 onPress={() => {
-                  setFoodApprovedOnly(value => !value);
+                  setFoodFitOnly(value => !value);
                   setSelectedRowKey(null);
                   setPendingDeleteId(null);
                 }}
                 style={({ pressed }) => [
                   styles.favBtn,
                   {
-                    borderColor: foodApprovedOnly ? colors.activeGreen : colors.border,
-                    backgroundColor: foodApprovedOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
+                    borderColor: foodFitOnly ? colors.activeGreen : colors.border,
+                    backgroundColor: foodFitOnly ? colors.activeBg : pressed ? colors.accent : colors.card,
                     borderRadius: colors.radiusSm,
                   },
                 ]}
               >
-                <Feather name="check" size={15} color={foodApprovedOnly ? colors.activeGreen : colors.bodyText} />
+                <Feather name="check" size={15} color={foodFitOnly ? colors.activeGreen : colors.bodyText} />
               </Pressable>
             </View>
 
@@ -604,9 +633,11 @@ export default function LibraryScreen() {
               </View>
             </LedgerCard>
 
-            <View style={styles.legendRow}>
-              <ApprovedBadge size="sm" />
-              <Text style={[styles.legendText, { color: colors.subtleText }]}>= {APPROVED_BADGE_EXPLANATION}</Text>
+            <View style={styles.legendRow} testID="library-fit-legend">
+              <FitBadge verdict="fits" size="sm" />
+              <Text style={[styles.legendText, { color: colors.subtleText }]}>
+                = {foodFit.protocol ? 'On the THINNR Approved Foods list' : 'Fits your diet'}
+              </Text>
             </View>
 
             {foodQuery.trim().length >= 2 && (catalogSearch.loading || catalogSearch.error || catalogSearch.upstreamUnavailable) && (
@@ -658,7 +689,7 @@ export default function LibraryScreen() {
               <Text style={[styles.countText, { color: colors.labelText }]}>
                 {foodCount} FOOD{foodCount === 1 ? '' : 'S'}
                 {foodFavoritesOnly ? ' · FAVORITES' : ''}
-                {foodApprovedOnly ? ' · APPROVED' : ''}
+                {foodFitOnly ? ' · FITS YOUR DIET' : ''}
               </Text>
             )}
 
@@ -696,7 +727,7 @@ export default function LibraryScreen() {
                       const rowTestId = section.pinned ? `fav-${food.id}` : food.id;
                       const isSelected = selectedRowKey === rowKey;
                        const catalogFood = 'catalogId' in food ? food as CatalogFood : null;
-                       const approved = catalogFood?.approved ?? food.catalogApproved ?? isApprovedFood(food.id);
+                       const fitVerdict = foodFit.verdict(food);
                       return (
                         <View key={food.id}>
                           {index > 0 && <Divider />}
@@ -720,7 +751,7 @@ export default function LibraryScreen() {
                                 >
                                   {food.name}
                                 </Text>
-                                {approved && <ApprovedBadge size="sm" />}
+                                <FitBadge verdict={fitVerdict} size="sm" />
                               </View>
                               <Text style={[styles.foodSub, { color: colors.subtleText }]} numberOfLines={1}>
                                  {food.brand ?? food.category} · {food.serving} · P {food.protein}g

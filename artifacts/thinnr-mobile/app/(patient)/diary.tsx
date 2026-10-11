@@ -21,7 +21,8 @@ import { patientContentBottom } from '@/constants/layout';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
-import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FitBadge } from '@/components/patient/FitBadge';
+import { useFoodFit } from '@/hooks/useFoodFit';
 import { PendingDot } from '@/components/patient/PendingDot';
 import { EntryEditPanel } from '@/components/patient/EntryEditPanel';
 import { DiaryEntryCalories, DiaryEntryNutritionLine, formatDiaryCalories } from '@/components/patient/DiaryEntryNutrition';
@@ -33,7 +34,6 @@ import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
 import { Snackbar } from '@/components/ui/Snackbar';
 import { fonts } from '@/constants/colors';
 import { usePatient } from '@/context/PatientContext';
-import { isApprovedFood } from '@/data/approved-foods';
 import {
   dayLabel,
   DIARY_MIN_KEY,
@@ -65,6 +65,7 @@ export default function DiaryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const foodFit = useFoodFit();
   const liveTodayKey = patient.todayKey;
   const diaryMinKey = patient.entryFacts?.programStartDate ?? DIARY_MIN_KEY;
   const [dateKey, setDateKey] = useState(liveTodayKey);
@@ -422,7 +423,7 @@ export default function DiaryScreen() {
                           <Text style={[styles.entryName, { color: colors.navyLight }]} numberOfLines={1}>
                             {entry.name}
                           </Text>
-                          {entry.kind === 'food' && isApprovedFood(entry.refId) && <ApprovedBadge size="sm" />}
+                          {entry.kind === 'food' && <FitBadge verdict={foodFit.verdict(entry)} size="sm" />}
                           <PendingDot entityKey={`entry:${entry.id}`} size={10} />
                           {!!entryRecipeId(entry) && (
                             <Feather name="chevron-right" size={12} color={colors.subtleText} />

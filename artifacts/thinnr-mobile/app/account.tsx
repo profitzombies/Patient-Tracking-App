@@ -102,6 +102,7 @@ export default function AccountScreen() {
   );
   const billingRow = (
     <View testID="account-billing-links">
+      {accountLink('button-open-food-preferences', 'Eating', 'Food preferences', '/food-preferences', 'Open your diet and food preferences')}
       {accountLink('button-open-orders', 'Purchases', 'Orders', '/orders', 'Open your order history')}
       {accountLink('button-open-subscriptions', 'Purchases', 'Subscriptions', '/my-subscriptions', 'Manage your subscriptions')}
       {accountLink('button-open-billing', 'Payments', 'Shop & payments', '/billing', 'Open shop and payments')}

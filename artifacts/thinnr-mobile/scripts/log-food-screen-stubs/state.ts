@@ -344,6 +344,26 @@ export function ApprovedBadge(props: Record<string, unknown>) {
   return React.createElement('ApprovedBadge', props);
 }
 
+export function FitBadge(props: Record<string, unknown>) {
+  return props.verdict === 'unknown' ? null : React.createElement('FitBadge', props);
+}
+
+/** Suite default: no diet loaded, so nothing is badged and the filter is per-item unknown. */
+export const foodFitState = {
+  protocol: false,
+  verdict: (_food: unknown): 'fits' | 'does_not_fit' | 'unknown' => 'unknown',
+};
+
+export function useFoodFit() {
+  return {
+    context: null,
+    protocol: foodFitState.protocol,
+    classify: (food: unknown) => ({ verdict: foodFitState.verdict(food), reasons: [] }),
+    verdict: (food: unknown) => foodFitState.verdict(food),
+    sourceLabel: foodFitState.protocol ? 'Approved Foods' : 'Fits your diet',
+  };
+}
+
 export const routerCalls: Array<{ method: string; target: unknown }> = [];
 
 function routeTarget(target: unknown): unknown {

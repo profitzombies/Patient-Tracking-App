@@ -5,7 +5,7 @@ import { CoachChatBody } from "@workspace/api-zod";
 import { selectCompartments } from "../coach/select";
 import { DEMO_PRODUCT_COMPARTMENT_ID, type Compartment } from "../coach/compartments";
 import { liveStorefrontCompartment } from "../coach/products";
-import { buildChatMessages, buildSystemPrompt, toModelMessages, type PatientContext } from "../coach/prompt";
+import { buildChatMessages, buildSystemPrompt, sanitizeDietContext, toModelMessages, type PatientContext } from "../coach/prompt";
 import { demoPatientContext } from "../coach/demo-patient";
 import { realPatientContext } from "../coach/real-patient";
 import { bearerToken, resolvePatient } from "../lib/patient-auth";
@@ -291,6 +291,11 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
       }
       try {
         patientContext = await realPatientContext(signedIn.patientId, parsed.data.localDate);
+        // The app's own diet + food preference lists ride along on signed-in
+        // turns as a fallback only: the server-side diet grounding is the
+        // truth whenever the account has one. The demo prompt stays byte-identical.
+        const clientDiet = sanitizeDietContext(parsed.data.dietContext);
+        if (clientDiet && !patientContext.diet) patientContext = { ...patientContext, clientDiet };
         realPatient = true;
         authenticatedPatientId = signedIn.patientId;
       } catch (error) {

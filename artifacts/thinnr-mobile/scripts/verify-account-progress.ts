@@ -350,8 +350,9 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   return {
     ok: result.status < 300,
     status: result.status,
+    headers: { get: () => null },
     json: async () => result.body,
-  } as Response;
+  } as unknown as Response;
 }) as typeof fetch;
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
@@ -1002,7 +1003,7 @@ async function main() {
     account.account.kind === 'real'
     && onb.answers.reminderMorning === '7:15 AM'
     && onb.answers.notifications === 'enabled'
-    && Array.isArray(onb.answers.diets));
+    && Array.isArray(onb.answers.allergies));
   assert('a restored account is not dropped into a live run', onb.begun === false);
   assert('reload preserves onboarding completion for returning login',
     ctx.hydratedFlags?.onboardingComplete === true);

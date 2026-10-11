@@ -32,6 +32,26 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-programs-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-programs-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-patient-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-onboarding"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "diet-patient-api"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3076,3 +3096,36 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm exec tsc -b lib/diet-programs && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/coach/diet-guard.test.ts src/coach/diet-followups.test.ts src/coach/diet-grounding.test.ts src/diet/food-tags.test.ts src/diet/preferences.test.ts src/diet/programs.test.ts src/coach/real-patient.test.ts src/coach/prompt-order.test.ts src/coach/meal-chat.test.ts src/coach/menu-chat.test.ts src/routes/coach-real-grounding.test.ts src/routes/coach-product-offers.test.ts src/routes/coach.test.ts src/routes/coach-recipe.test.ts src/routes/coach-photo.test.ts src/routes/coach-meal-photo.test.ts src/routes/coach-label-photo.test.ts src/routes/label-scan.test.ts src/routes/patient-diet.test.ts src/routes/office-patient-diet.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "diet-patient-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:diet-patient && pnpm --filter @workspace/thinnr-mobile run test:diet-logic && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "diet-onboarding"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity && pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run test:claim-flow && pnpm --filter @workspace/thinnr-mobile run test:session-persistence && pnpm --filter @workspace/thinnr-mobile run test:diet-parity"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "diet-patient-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/diet src/routes/patient-diet.test.ts src/coach/prompt-diet-context.test.ts src/notifications/sender.test.ts src/routes/coach.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

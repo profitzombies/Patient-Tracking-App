@@ -44,7 +44,8 @@ import {
   StartedStep,
   WeightStep,
 } from '../components/onboarding/StepsProfile';
-import { DietsStep, InjectionDayStep } from '../components/onboarding/StepsPrefs';
+import { InjectionDayStep } from '../components/onboarding/StepsPrefs';
+import { AllergiesStep, DietStep } from '../components/onboarding/StepsDiet';
 import {
   ContactStep,
   PasswordStep,
@@ -478,16 +479,40 @@ const SPECS: GatedStepSpec[] = [
     makeValid: root => typeText(root, 'ob-goal-input', '150', 'goal valid'),
   },
   {
-    key: 'diets',
-    component: DietsStep,
-    expectedNext: 'complete',
-    makeValid: root => tap(root, 'ob-diet-vegan', 'diets valid'),
+    // GLP-1 patients pick right away (the THINNR protocol locks the picker;
+    // that branch is covered by the diet suite).
+    key: 'diet',
+    component: DietStep,
+    prep: { program: 'glp1', gender: 'male' },
+    expectedNext: 'allergies',
+    blockedPhases: [
+      {
+        label: 'diet picked, activity level missing',
+        mutate: root => tap(root, 'ob-diet-just_tracking', 'diet picked'),
+        hintContains: 'activity level',
+      },
+      {
+        label: 'screened diet with its safety question open',
+        mutate: root => {
+          tap(root, 'ob-diet-keto', 'keto picked');
+          tap(root, 'ob-activity-moderate', 'activity picked');
+        },
+        hintContains: 'safety question',
+      },
+    ],
+    makeValid: root => tap(root, 'ob-screen-medication-no', 'medication answered'),
+  },
+  {
+    key: 'allergies',
+    component: AllergiesStep,
+    expectedNext: 'restrictions',
+    makeValid: root => tap(root, 'ob-allergies-none', 'allergies none'),
   },
   {
     key: 'injection-day',
     component: InjectionDayStep,
     prep: { program: 'glp1' },
-    expectedNext: 'diets',
+    expectedNext: 'diet',
     makeValid: root => tap(root, 'ob-injection-day-1', 'injection day valid'),
   },
 ];
@@ -581,10 +606,10 @@ async function main() {
   }
 
   // Re-block behavior: a hint never lingers from a previous blocked round,
-  // and a fresh blocked tap re-arms it (diets can toggle back to empty).
+  // and a fresh blocked tap re-arms it (allergies can toggle back to empty).
   {
-    const label = 'step "diets" re-block';
-    const renderer = renderStep(DietsStep);
+    const label = 'step "allergies" re-block';
+    const renderer = renderStep(AllergiesStep);
     const root = renderer.root;
 
     // Arm the hint first: the blocked tap flips the frame's internal
@@ -595,10 +620,13 @@ async function main() {
     // ...so that after going valid, the frame MUST reset that state — if it
     // only hid the hint while enabled, re-blocking would resurrect stale
     // guidance without any tap.
-    tap(root, 'ob-diet-vegan', label);
-    assert(`${label}: choosing a diet enables Next`, !nextSemanticallyDisabled(root));
-    assert(`${label}: choosing a diet clears the hint`, !readHint(root).present);
-    tap(root, 'ob-diet-vegan', label); // toggle back off — blocked again
+    tap(root, 'ob-allergy-opt-milk', label);
+    assert(`${label}: adding an allergy enables Next`, !nextSemanticallyDisabled(root));
+    assert(`${label}: adding an allergy clears the hint`, !readHint(root).present);
+    assert(`${label}: a catalog allergy defaults to mild`, onboarding.answers.allergies[0]?.severity === 'mild');
+    tap(root, 'ob-allergy-item-milk-severe', label);
+    assert(`${label}: severity can be raised to severe`, onboarding.answers.allergies[0]?.severity === 'severe');
+    tap(root, 'ob-allergy-opt-milk', label); // toggle back off — blocked again
     assert(`${label}: clearing the selection re-blocks Next`, nextSemanticallyDisabled(root));
     assert(`${label}: re-blocking alone shows no stale hint`, !readHint(root).present);
 
@@ -610,15 +638,35 @@ async function main() {
     );
     assert(`${label}: still no navigation`, routerCalls.length === 0);
 
-    tap(root, 'ob-diet-none', label);
-    assert(`${label}: "None of the above" clears the hint`, !readHint(root).present);
+    tap(root, 'ob-allergies-none', label);
+    assert(`${label}: "None" clears the hint`, !readHint(root).present);
     tap(root, 'ob-next', label);
     const p = pushes();
     assert(
-      `${label}: Next then advances to /onboarding/complete`,
-      p.length === 1 && p[0].target === '/onboarding/complete',
+      `${label}: Next then advances to /onboarding/restrictions`,
+      p.length === 1 && p[0].target === '/onboarding/restrictions',
     );
 
+    act(() => renderer.unmount());
+  }
+
+  // The THINNR protocol locks the picker: the step explains, asks only for
+  // activity level, and leaves the diet unset.
+  {
+    const label = 'step "diet" locked by the protocol';
+    const renderer = renderStep(DietStep, { program: 'thinnr', started: 'no', startOffsetDays: 0 });
+    const root = renderer.root;
+    assert(`${label}: shows the lock explanation`, root.findAllByProps({ testID: 'ob-diet-locked' }).length > 0);
+    assert(`${label}: renders no diet cards`, root.findAllByProps({ testID: 'ob-diet-just_tracking' }).length === 0);
+    assert(`${label}: still waits for the activity level`, nextSemanticallyDisabled(root));
+    tap(root, 'ob-activity-light', label);
+    assert(`${label}: activity level alone unlocks Next`, !nextSemanticallyDisabled(root));
+    tap(root, 'ob-next', label);
+    const p = pushes();
+    assert(
+      `${label}: advances to /onboarding/allergies with no diet picked`,
+      p.length === 1 && p[0].target === '/onboarding/allergies' && onboarding.answers.dietSlug === null,
+    );
     act(() => renderer.unmount());
   }
 

@@ -30,7 +30,7 @@ import { openIdempotentWrite } from "../lib/idempotency";
 import { clientIp } from "../auth/ledger";
 import { changedFields, recordPatientEditHistory, snapshotFields } from "../lib/patient-edit-history";
 import { loadPatientLibrary, patientEntryDto } from "../diet/library";
-import { loadPatientDietState, recordActivityLevel, type DietActor } from "../diet/store";
+import { listActivityHistory, listEpisodes, loadPatientDietState, recordActivityLevel, type DietActor } from "../diet/store";
 import { computePatientTargets, targetsDto, upsertTargetSnapshot } from "../diet/targets";
 import {
   ACTIVITY_LEVEL_MESSAGE,
@@ -125,6 +125,21 @@ function historyPatient(req: Request, patientId: string, authUserId: string, rec
 router.get("/patient-data/diet/library", guarded("read", "load the eating plans", async ({ res }) => {
   const { settings, rows } = await loadPatientLibrary();
   res.json({ disclaimer: settings.disclaimer, entries: rows.map((row) => patientEntryDto(row, settings.oversightNoteText)) });
+}));
+
+// ── History ─────────────────────────────────────────────────────────────────
+
+/**
+ * The patient's own protocol episodes (every provider restart from day one)
+ * and activity-level history, newest first — what Plan's restart history and
+ * Progress's activity-over-time view read. No staff names, no notes.
+ */
+router.get("/patient-data/diet/history", guarded("read", "load your plan history", async ({ res, patient }) => {
+  const [episodes, activity] = await Promise.all([listEpisodes(patient.id), listActivityHistory(patient.id, 120)]);
+  res.json({
+    episodes: episodes.map((e) => ({ id: e.id, episodeNumber: e.episodeNumber, startedOn: e.startedOn, endedOn: e.endedOn, reason: e.reason })),
+    activity: activity.map((a) => ({ level: a.level, source: a.source, recordedOn: a.recordedOn })),
+  });
 }));
 
 // ── State ───────────────────────────────────────────────────────────────────

@@ -70,6 +70,26 @@ import {
   type SyncStatus,
 } from '@/lib/patient-write-queue';
 import {
+  LOCAL_PREFERENCE_PREFIX,
+  demoDietState,
+  isLocalPreferenceId,
+  parseDietState,
+  parseDietTargets,
+  projectDietQueue,
+  projectDietWrite,
+  projectTargetsQueue,
+  type AllergySeverity,
+  type DietPreference,
+  type DietQueuedWrite,
+  type DietSettings,
+  type DietState,
+  type DietTargetsState,
+  type ScreeningAnswers,
+  type TargetOverrideWrite,
+} from '@/lib/diet-state';
+import type { ActivityLevel, ActivitySource, PreferenceList } from '@/lib/diet-fit';
+import type { DietSelectionOutcome } from '@/context/PatientAccountContext';
+import {
   applyRemoveEntries,
   applyRemoveEntry,
   applyRestoreEntries,
@@ -504,7 +524,57 @@ interface PatientContextValue {
     onboardingAnswers: object;
     notificationPrefs: object;
   }) => Promise<boolean>;
+  // ─── Diet & food preferences ──────────────────────────────────────────────
+  /**
+   * The diet slice with queued edits projected over it: the demo persona's
+   * fixed snapshot, or the signed-in account's server answer. Null before the
+   * first live answer arrives or when it failed — read `dietStatus` to tell
+   * those apart; never treat null as "no diet".
+   */
+  diet: DietState | null;
+  dietStatus: DietStatus;
+  /** Calculated + overridden daily targets for the signed-in account (null for demo / before load). */
+  dietTargets: DietTargetsState | null;
+  refreshDiet: () => Promise<void>;
+  /**
+   * Picks a diet. Real accounts call the server directly — the picker needs
+   * the outcome (active / pending review / locked / needs answers) before it
+   * can close — and refresh the slice afterwards. Demo applies locally.
+   */
+  selectDiet: (input: {
+    dietSlug: string;
+    answers?: ScreeningAnswers;
+    settings?: DietSettings;
+    activityLevel?: ActivityLevel | null;
+  }) => Promise<DietSelectionOutcome>;
+  /**
+   * Same as selectDiet but through the offline queue: used at onboarding
+   * completion, where a failed write must never block entry to the app.
+   */
+  queueDietSelection: (input: {
+    dietSlug: string;
+    answers?: ScreeningAnswers;
+    settings?: DietSettings;
+    activityLevel?: ActivityLevel | null;
+  }) => Promise<boolean>;
+  clearDiet: () => Promise<boolean>;
+  saveDietSettings: (settings: DietSettings) => Promise<boolean>;
+  saveDietScreening: (answers: ScreeningAnswers) => Promise<boolean>;
+  saveDietActivity: (level: ActivityLevel, source: ActivitySource) => Promise<boolean>;
+  /** Adds one list item (instant, queued offline); duplicates resolve true without a write. */
+  addDietPreference: (input: {
+    list: PreferenceList;
+    key?: string;
+    label: string;
+    severity?: AllergySeverity | null;
+  }) => Promise<boolean>;
+  updateDietPreferenceSeverity: (id: string, severity: AllergySeverity) => Promise<boolean>;
+  removeDietPreference: (id: string) => Promise<boolean>;
+  /** Stores patient target overrides (null clears one back to the calculated number). */
+  saveDietTargets: (overrides: TargetOverrideWrite) => Promise<boolean>;
 }
+
+export type DietStatus = 'idle' | 'loading' | 'live' | 'error';
 
 export type FoodSubmissionReceipt =
   | { outcome: 'locally_saved_demo'; entries: MealLogEntry[] }
@@ -735,6 +805,8 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     profile: null,
   });
   const drainingRef = useRef(false);
+  /** Queue item whose server write is in flight right now (null between sends). */
+  const inFlightWriteIdRef = useRef<string | null>(null);
   const drainAgainRef = useRef(false);
   const forceAttemptRef = useRef(false);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -955,6 +1027,51 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     justSyncedTimerRef.current = timer;
   }, []);
 
+  // ─── Diet slice (selection, lists, screening, activity, targets) ──────────
+  // Held beside the persisted diary state rather than inside it: the server
+  // answer is the truth, the write queue projects over it, and the demo
+  // persona reads a fixed snapshot chosen by auth state (never by missing
+  // data). `dietStatus` tells screens apart "loading", "live" and "error" so
+  // an outage can never read as "no diet, no allergies".
+  const [dietTruth, setDietTruth] = useState<DietState | null>(null);
+  const [dietTargetsTruth, setDietTargetsTruth] = useState<DietTargetsState | null>(null);
+  const [dietStatus, setDietStatus] = useState<DietStatus>('idle');
+  const [dietTick, setDietTick] = useState(0);
+  const dietEpochRef = useRef(0);
+
+  /** Re-reads the diet + targets answers for the signed-in account (no-op for demo). */
+  /** Re-reads the diet slice; resolves the fresh state (null when it could not be read). */
+  const refreshDietTruth = useCallback(async (): Promise<DietState | null> => {
+    const run = runAccountRef.current;
+    if (run.kind !== 'real') return null;
+    const api = run.api;
+    if (typeof api.diet?.fetchDiet !== 'function') return null;
+    const epoch = epochRef.current;
+    const [dietResult, targetsResult] = await Promise.allSettled([api.diet.fetchDiet(), api.diet.fetchTargets()]);
+    if (epochRef.current !== epoch) return null;
+    let fresh: DietState | null = null;
+    if (dietResult.status === 'fulfilled') {
+      try {
+        fresh = parseDietState(dietResult.value);
+        setDietTruth(fresh);
+        setDietStatus('live');
+      } catch (error) {
+        console.error('Diet state parse failed', error);
+        setDietStatus('error');
+      }
+    } else {
+      setDietStatus('error');
+    }
+    if (targetsResult.status === 'fulfilled') {
+      try {
+        setDietTargetsTruth(parseDietTargets(targetsResult.value));
+      } catch (error) {
+        console.error('Diet targets parse failed', error);
+      }
+    }
+    return fresh;
+  }, []);
+
   /**
    * Sends one queued write. Returns the item as acknowledged — a photo
    * upload comes back carrying its uploadedPath so the base projection
@@ -1049,9 +1166,109 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           );
           return { ...item, payload: { ...write, uploadedPath } };
         }
+        case 'dietSelection': {
+          const outcome = await api.diet.select(
+            {
+              dietSlug: write.dietSlug,
+              ...(write.answers ? { answers: write.answers as Record<string, string> } : {}),
+              ...(write.settings ? { settings: write.settings as Record<string, unknown> } : {}),
+              ...(write.activityLevel !== undefined ? { activityLevel: write.activityLevel } : {}),
+            },
+            options,
+          );
+          // A lock means the protocol decides for now — nothing to retry; the
+          // refreshed state shows the protocol as the active plan. Any other
+          // refusal is permanent (bad slug, missing answers) and parks for
+          // the patient to discard.
+          if (outcome.kind === 'rejected' || outcome.kind === 'screening_required') {
+            throw new PatientDataError(outcome.message, null, { kind: 'http', status: 422 });
+          }
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        }
+        case 'dietPreferenceAdd': {
+          const created = await api.diet.addPreference(
+            {
+              list: write.item.list,
+              ...(write.item.isCustom ? { label: write.item.label } : { key: write.item.key }),
+              ...(write.item.list === 'allergy' ? { severity: write.item.severity ?? 'mild' } : {}),
+            },
+            options,
+          );
+          const fresh = await refreshDietTruth().catch(() => null);
+          // Edits the patient made while this add was in flight were queued
+          // under the local id: point them at the server row now that it
+          // exists (a 409 duplicate names no id, so match on list + key).
+          // They carry no editIds on purpose: reconcileQueue only knows
+          // diary / library / photo rows, so an editIds entry would make it
+          // drop the edit on the next restart or truth refresh.
+          const serverId =
+            created?.id ?? fresh?.preferences.find(p => p.list === write.item.list && p.key === write.item.key)?.id ?? null;
+          if (serverId) {
+            const localId = write.item.id;
+            replaceQueue(
+              queueRef.current.map(queued => {
+                const p = queued.payload;
+                if ((p.kind === 'dietPreferenceSeverity' || p.kind === 'dietPreferenceRemove') && p.id === localId) {
+                  return { ...queued, payload: { ...p, id: serverId } };
+                }
+                return queued;
+              }),
+              run,
+            );
+          }
+          return item;
+        }
+        case 'dietPreferenceSeverity':
+          if (isLocalPreferenceId(write.id)) {
+            // The add it edits never landed (parked as failed): fold the new
+            // severity into that queued add so one write carries both.
+            replaceQueue(
+              queueRef.current.map(queued =>
+                queued.payload.kind === 'dietPreferenceAdd' && queued.payload.item.id === write.id
+                  ? { ...queued, payload: { ...queued.payload, item: { ...queued.payload.item, severity: write.severity } } }
+                  : queued,
+              ),
+              run,
+            );
+            return item;
+          }
+          await api.diet.patchPreference(write.id, write.severity, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        case 'dietPreferenceRemove':
+          if (isLocalPreferenceId(write.id)) {
+            // The add never landed: dropping the queued add is the removal.
+            replaceQueue(
+              queueRef.current.filter(
+                queued => !(queued.payload.kind === 'dietPreferenceAdd' && queued.payload.item.id === write.id),
+              ),
+              run,
+            );
+            return item;
+          }
+          await api.diet.removePreference(write.id, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        case 'dietActivity':
+          await api.diet.writeActivity(write.level, write.source, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        case 'dietScreening':
+          await api.diet.writeScreening(write.answers as Record<string, string>, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        case 'dietSettings':
+          await api.diet.patchSettings(write.settings as Record<string, unknown>, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
+        case 'dietTargets':
+          await api.diet.writeTargets(write.overrides as Record<string, number | null>, options);
+          await refreshDietTruth().catch(() => undefined);
+          return item;
       }
     },
-    [replaceQueue],
+    [refreshDietTruth, replaceQueue],
   );
 
   const scheduleDrain = useRef<(delayMs: number) => void>(() => undefined);
@@ -1152,7 +1369,10 @@ export function PatientProvider({ children }: { children: ReactNode }) {
           break;
         }
         try {
-          const acked = await performWrite(item, run);
+          inFlightWriteIdRef.current = item.id;
+          const acked = await performWrite(item, run).finally(() => {
+            inFlightWriteIdRef.current = null;
+          });
           if (epochRef.current !== epoch) return;
           baseRef.current = projectWrite(baseRef.current, acked);
           const remaining = queueRef.current.filter(queued => queued.id !== item.id);
@@ -2890,6 +3110,271 @@ export function PatientProvider({ children }: { children: ReactNode }) {
     });
   }, [beginRun, commit, commitQueued, requireWritableAccount, runSerialized]);
 
+  // ─── Diet slice: load + mutations ──────────────────────────────────────────
+
+  useEffect(() => {
+    dietEpochRef.current += 1;
+    const myEpoch = dietEpochRef.current;
+    if (resolving) {
+      setDietStatus('loading');
+      return;
+    }
+    if (account.kind === 'demo') {
+      setDietTruth(demoDietState(TODAY_KEY, toDateKey(new Date(PATIENT_PROFILE.startDate))));
+      setDietTargetsTruth(null);
+      setDietStatus('live');
+      return;
+    }
+    if (account.kind !== 'real') {
+      setDietTruth(null);
+      setDietTargetsTruth(null);
+      setDietStatus('error');
+      return;
+    }
+    if (!hydrated) {
+      setDietStatus('loading');
+      return;
+    }
+    if (typeof account.api.diet?.fetchDiet !== 'function') {
+      // Older fakes in standalone suites: no diet rail at all.
+      setDietTruth(null);
+      setDietTargetsTruth(null);
+      setDietStatus('idle');
+      return;
+    }
+    setDietStatus(prev => (prev === 'live' ? prev : 'loading'));
+    void refreshDietTruth().then(() => {
+      if (dietEpochRef.current !== myEpoch) return;
+    });
+  }, [account, accountKey, hydrated, refreshDietTruth, rehydrateTick, resolving, dietTick, todayKey]);
+
+  // Account switches must never show the previous account's diet.
+  useEffect(() => {
+    setDietTruth(null);
+    setDietTargetsTruth(null);
+  }, [accountKey]);
+
+  const refreshDiet = useCallback(async (): Promise<void> => {
+    if (runAccountRef.current.kind !== 'real') return;
+    setDietTick(tick => tick + 1);
+    await refreshDietTruth();
+  }, [refreshDietTruth]);
+
+  /** Applies a diet write locally for the demo persona, or queues it for the account. */
+  const commitDietWrite = useCallback(
+    async (payload: DietQueuedWrite, summary: string): Promise<boolean> => {
+      await hydrationGate.current!.promise;
+      const startEpoch = epochRef.current;
+      return runSerialized(async () => {
+        const run = beginRun(startEpoch);
+        if (!run || !requireWritableAccount(run)) return false;
+        if (run.account.kind !== 'real') {
+          setDietTruth(prev => projectDietWrite(prev, payload));
+          return true;
+        }
+        return commitQueued(run, stateRef.current, { payload, summary });
+      });
+    },
+    [beginRun, commitQueued, requireWritableAccount, runSerialized],
+  );
+
+  const selectDiet = useCallback(
+    async (input: {
+      dietSlug: string;
+      answers?: ScreeningAnswers;
+      settings?: DietSettings;
+      activityLevel?: ActivityLevel | null;
+    }): Promise<DietSelectionOutcome> => {
+      await hydrationGate.current!.promise;
+      const run = runAccountRef.current;
+      if (run.kind !== 'real') {
+        if (run.kind === 'unresolved') {
+          setSyncNotice({ message: ACCOUNT_BLOCKED_MESSAGE, action: 'retry-account' });
+          return { kind: 'rejected', message: ACCOUNT_BLOCKED_MESSAGE };
+        }
+        const previous = dietTruth?.currentDiet?.dietSlug ?? null;
+        setDietTruth(prev => projectDietWrite(prev, { kind: 'dietSelection', ...input }));
+        return { kind: 'active', previousDietSlug: previous, oversightRecommended: false };
+      }
+      if (!serverTruthRef.current) {
+        setSyncNotice({ message: DIARY_BLOCKED_MESSAGE, action: 'retry-hydration' });
+        return { kind: 'rejected', message: DIARY_BLOCKED_MESSAGE };
+      }
+      try {
+        const outcome = await run.api.diet.select({
+          dietSlug: input.dietSlug,
+          ...(input.answers ? { answers: input.answers as Record<string, string> } : {}),
+          ...(input.settings ? { settings: input.settings as Record<string, unknown> } : {}),
+          ...(input.activityLevel !== undefined ? { activityLevel: input.activityLevel } : {}),
+        });
+        await refreshDietTruth().catch(() => undefined);
+        return outcome;
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE;
+        return { kind: 'rejected', message };
+      }
+    },
+    [dietTruth, refreshDietTruth],
+  );
+
+  const queueDietSelection = useCallback(
+    (input: { dietSlug: string; answers?: ScreeningAnswers; settings?: DietSettings; activityLevel?: ActivityLevel | null }) =>
+      commitDietWrite({ kind: 'dietSelection', ...input }, 'Saved your eating plan'),
+    [commitDietWrite],
+  );
+
+  const clearDiet = useCallback(async (): Promise<boolean> => {
+    await hydrationGate.current!.promise;
+    const run = runAccountRef.current;
+    if (run.kind !== 'real') {
+      if (run.kind === 'unresolved') return false;
+      setDietTruth(prev => (prev ? { ...prev, currentDiet: null, effectiveDietSlug: null } : prev));
+      return true;
+    }
+    try {
+      await run.api.diet.clear();
+      await refreshDietTruth().catch(() => undefined);
+      return true;
+    } catch (error) {
+      setSyncNotice({
+        message: error instanceof Error && error.message ? error.message : WRITE_FAILED_MESSAGE,
+        action: 'dismiss',
+      });
+      return false;
+    }
+  }, [refreshDietTruth]);
+
+  const saveDietSettings = useCallback(
+    (settings: DietSettings) => commitDietWrite({ kind: 'dietSettings', settings }, 'Updated your eating plan settings'),
+    [commitDietWrite],
+  );
+
+  const saveDietScreening = useCallback(
+    (answers: ScreeningAnswers) => commitDietWrite({ kind: 'dietScreening', answers }, 'Saved your health answers'),
+    [commitDietWrite],
+  );
+
+  const saveDietActivity = useCallback(
+    (level: ActivityLevel, source: ActivitySource) =>
+      commitDietWrite(
+        { kind: 'dietActivity', level, source, recordedOn: todayKey },
+        'Updated your activity level',
+      ),
+    [commitDietWrite, todayKey],
+  );
+
+  const addDietPreference = useCallback(
+    async (input: { list: PreferenceList; key?: string; label: string; severity?: AllergySeverity | null }): Promise<boolean> => {
+      const label = input.label.trim().replace(/\s+/g, ' ');
+      if (!label) return false;
+      const isCustom = !input.key || input.key.startsWith('custom:');
+      const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const key = isCustom ? `custom:${slug}` : input.key!;
+      const existing = projectDietQueue(dietTruth, queueRef.current)?.preferences ?? [];
+      if (existing.some(p => p.list === input.list && p.key === key)) return true;
+      const item: DietPreference = {
+        id: `${LOCAL_PREFERENCE_PREFIX}${newUuid()}`,
+        list: input.list,
+        key,
+        label,
+        isCustom,
+        severity: input.list === 'allergy' ? input.severity ?? 'mild' : null,
+        enteredByRole: 'patient',
+        enteredByName: null,
+        createdAt: new Date().toISOString(),
+      };
+      return commitDietWrite({ kind: 'dietPreferenceAdd', item }, `Added ${label}`);
+    },
+    [commitDietWrite, dietTruth],
+  );
+
+  /** True while the queued add that minted this local id is being sent right now. */
+  const addInFlight = useCallback((localId: string): boolean => {
+    const sending = inFlightWriteIdRef.current;
+    if (!sending) return false;
+    const item = queueRef.current.find(queued => queued.id === sending);
+    return item?.payload.kind === 'dietPreferenceAdd' && item.payload.item.id === localId;
+  }, []);
+
+  const updateDietPreferenceSeverity = useCallback(
+    async (id: string, severity: AllergySeverity): Promise<boolean> => {
+      if (isLocalPreferenceId(id) && !addInFlight(id)) {
+        // Still only in the queue: edit the pending add in place so one write lands.
+        await hydrationGate.current!.promise;
+        const startEpoch = epochRef.current;
+        return runSerialized(async () => {
+          const run = beginRun(startEpoch);
+          if (!run) return false;
+          if (run.account.kind !== 'real') {
+            setDietTruth(prev => projectDietWrite(prev, { kind: 'dietPreferenceSeverity', id, severity }));
+            return true;
+          }
+          if (addInFlight(id)) return commitDietWrite({ kind: 'dietPreferenceSeverity', id, severity }, 'Updated an allergy');
+          replaceQueue(
+            queueRef.current.map(item =>
+              item.payload.kind === 'dietPreferenceAdd' && item.payload.item.id === id
+                ? { ...item, payload: { ...item.payload, item: { ...item.payload.item, severity } } }
+                : item,
+            ),
+            run,
+          );
+          return true;
+        });
+      }
+      // Server-backed row, or a local add whose POST is in flight: queue the
+      // edit behind it; the add's ack re-points it at the server id.
+      return commitDietWrite({ kind: 'dietPreferenceSeverity', id, severity }, 'Updated an allergy');
+    },
+    [addInFlight, beginRun, commitDietWrite, replaceQueue, runSerialized],
+  );
+
+  const removeDietPreference = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (isLocalPreferenceId(id) && !addInFlight(id)) {
+        // Never reached the server: drop the pending add instead of queuing a delete.
+        await hydrationGate.current!.promise;
+        const startEpoch = epochRef.current;
+        return runSerialized(async () => {
+          const run = beginRun(startEpoch);
+          if (!run) return false;
+          if (run.account.kind !== 'real') {
+            setDietTruth(prev => projectDietWrite(prev, { kind: 'dietPreferenceRemove', id }));
+            return true;
+          }
+          if (addInFlight(id)) return commitDietWrite({ kind: 'dietPreferenceRemove', id }, 'Removed a food preference');
+          replaceQueue(
+            queueRef.current.filter(
+              item => !(item.payload.kind === 'dietPreferenceAdd' && item.payload.item.id === id),
+            ),
+            run,
+          );
+          return true;
+        });
+      }
+      // Server-backed row, or a local add whose POST is in flight: queue the
+      // delete behind it; the add's ack re-points it at the server id.
+      return commitDietWrite({ kind: 'dietPreferenceRemove', id }, 'Removed a food preference');
+    },
+    [addInFlight, beginRun, commitDietWrite, replaceQueue, runSerialized],
+  );
+
+  const saveDietTargets = useCallback(
+    async (overrides: TargetOverrideWrite): Promise<boolean> => {
+      const cleaned: TargetOverrideWrite = {};
+      for (const key of ['calories', 'protein', 'carbs', 'fat', 'waterOz'] as const) {
+        const value = overrides[key];
+        if (value === null || (typeof value === 'number' && Number.isFinite(value))) cleaned[key] = value;
+      }
+      if (Object.keys(cleaned).length === 0) return true;
+      await Haptics.selectionAsync();
+      return commitDietWrite({ kind: 'dietTargets', overrides: cleaned }, 'Updated daily targets');
+    },
+    [commitDietWrite],
+  );
+
+  const diet = useMemo(() => projectDietQueue(dietTruth, queue), [dietTruth, queue]);
+  const dietTargets = useMemo(() => projectTargetsQueue(dietTargetsTruth, queue), [dietTargetsTruth, queue]);
+
   // ─── Merged projections ────────────────────────────────────────────────────
 
   // Seeds belong to the demo persona only. While a live session is still
@@ -2900,9 +3385,15 @@ export function PatientProvider({ children }: { children: ReactNode }) {
   const seedCheckIns = seedsOn ? SEED_CHECKINS : NO_SEED_CHECKINS;
   const seedPhotos = seedsOn ? SEED_PHOTOS : NO_SEED_PHOTOS;
 
+  // Real accounts read the shared calculator's numbers (goal + BMR +
+  // activity, with the patient's overrides applied); the demo persona and a
+  // not-yet-loaded account keep the legacy fixed defaults.
   const targets = useMemo<DailyTargets>(
-    () => ({ ...DEFAULT_TARGETS, ...state.targetOverrides }),
-    [state.targetOverrides],
+    () =>
+      dietTargets
+        ? { ...DEFAULT_TARGETS, ...dietTargets.effective }
+        : { ...DEFAULT_TARGETS, ...state.targetOverrides },
+    [dietTargets, state.targetOverrides],
   );
 
   const allEntries = useMemo(() => {
@@ -3203,6 +3694,20 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveSetup,
       completeSetup,
       clearLocalState,
+      diet,
+      dietStatus,
+      dietTargets,
+      refreshDiet,
+      selectDiet,
+      queueDietSelection,
+      clearDiet,
+      saveDietSettings,
+      saveDietScreening,
+      saveDietActivity,
+      addDietPreference,
+      updateDietPreferenceSeverity,
+      removeDietPreference,
+      saveDietTargets,
     }),
     [
       hydrated,
@@ -3271,6 +3776,20 @@ export function PatientProvider({ children }: { children: ReactNode }) {
       saveSetup,
       completeSetup,
       clearLocalState,
+      diet,
+      dietStatus,
+      dietTargets,
+      refreshDiet,
+      selectDiet,
+      queueDietSelection,
+      clearDiet,
+      saveDietSettings,
+      saveDietScreening,
+      saveDietActivity,
+      addDietPreference,
+      updateDietPreferenceSeverity,
+      removeDietPreference,
+      saveDietTargets,
     ],
   );
 

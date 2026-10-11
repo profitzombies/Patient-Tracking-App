@@ -25,6 +25,7 @@ import { useColors } from '@/hooks/useColors';
 import { PatientHeader } from '@/components/patient/PatientHeader';
 import { PatientWeightChart } from '@/components/patient/PatientWeightChart';
 import { PendingDot } from '@/components/patient/PendingDot';
+import { ActivityHistoryCard } from '@/components/diet/ActivityHistoryCard';
 import { Divider, LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { PhotoLightbox, type LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { SyntheticDisclaimer } from '@/components/ui/ScreenHeader';
@@ -368,6 +369,9 @@ export default function ProgressScreen() {
             );
           })}
         </View>
+
+        {/* ── Activity level over time ── */}
+        <ActivityHistoryCard />
 
         {/* ── Check-in history ── */}
         <SectionHeader label="Check-In History" value="Last 10 entries" style={{ marginBottom: 8, marginTop: 4 }} />

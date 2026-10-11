@@ -27,6 +27,8 @@ import {
   type DailyTargets,
 } from '@/data/patient-data';
 import { phaseForDay } from '@/data/program-instructions';
+import { PlanDietSection } from '@/components/diet/PlanDietSection';
+import { TargetsEditor } from '@/components/diet/TargetsEditor';
 
 const formatISO = (iso: string, includeYear = false) =>
   new Date(iso).toLocaleDateString('en-US', includeYear
@@ -220,14 +222,29 @@ export default function PlanScreen() {
           </View>
         </LedgerCard>
 
+        {/* ── Eating plan: phase, diet rule sheet, restart history ── */}
+        <SectionTitle title="Eating Plan" />
+        <PlanDietSection onOpenPreferences={() => router.push('/food-preferences' as never)} />
+
         {/* ── Daily targets ── */}
         <SectionTitle
           title="Daily Targets"
-          action={isDefaultTargets ? undefined : {
+          action={live || isDefaultTargets ? undefined : {
             label: 'Reset to plan',
             onPress: () => patient.setTargets({ ...DEFAULT_TARGETS }),
           }}
         />
+        {live ? (
+          patient.dietTargets ? (
+            <TargetsEditor targets={patient.dietTargets} />
+          ) : (
+            <LedgerCard style={styles.targetsCard} testID="targets-pending">
+              <Text style={[styles.programMeta, { color: patient.dietStatus === 'error' ? colors.riskText : colors.subtleText }]}>
+                {patient.dietStatus === 'error' ? 'Couldn’t load your targets right now.' : 'Calculating your targets…'}
+              </Text>
+            </LedgerCard>
+          )
+        ) : (
         <LedgerCard style={styles.targetsCard}>
           <TargetRow
             label="Calories" unit="cal" testID="target-calories"
@@ -259,6 +276,7 @@ export default function PlanScreen() {
             onChange={setTarget('waterOz')}
           />
         </LedgerCard>
+        )}
 
         {/* ── Bloodwork ── */}
         <SectionTitle

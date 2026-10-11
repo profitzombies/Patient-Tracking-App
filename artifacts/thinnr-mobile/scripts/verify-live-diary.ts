@@ -276,6 +276,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   return {
     ok: result.status < 300,
     status: result.status,
+    headers: new Headers(),
     json: async () => result.body,
   } as Response;
 }) as typeof fetch;

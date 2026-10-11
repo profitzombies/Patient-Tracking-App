@@ -386,7 +386,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     await held;
   }
   const result = routeCall(call);
-  return { ok: result.status < 300, status: result.status, json: async () => result.body } as Response;
+  return { ok: result.status < 300, status: result.status, headers: new Headers(), json: async () => result.body } as Response;
 }) as typeof fetch;
 
 const P1: StubSession = { access_token: 'tok-p1', user: { id: 'user-p1' } };

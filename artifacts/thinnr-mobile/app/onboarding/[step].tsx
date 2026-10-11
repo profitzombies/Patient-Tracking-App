@@ -29,7 +29,6 @@ import {
 } from '@/components/onboarding/StepsProfile';
 import {
   CompleteStep,
-  DietsStep,
   HealthAppStep,
   InjectionDayStep,
   NotificationsStep,
@@ -37,6 +36,7 @@ import {
   ReminderEveningStep,
   ReminderMorningStep,
 } from '@/components/onboarding/StepsPrefs';
+import { AllergiesStep, DietStep, DislikesStep, RestrictionsStep } from '@/components/onboarding/StepsDiet';
 
 const REGISTRY: Record<StepKey, React.ComponentType> = {
   welcome: WelcomeStep,
@@ -60,7 +60,10 @@ const REGISTRY: Record<StepKey, React.ComponentType> = {
   'reminder-morning': ReminderMorningStep,
   'reminder-afternoon': ReminderAfternoonStep,
   'reminder-evening': ReminderEveningStep,
-  diets: DietsStep,
+  diet: DietStep,
+  allergies: AllergiesStep,
+  restrictions: RestrictionsStep,
+  dislikes: DislikesStep,
   complete: CompleteStep,
 };
 

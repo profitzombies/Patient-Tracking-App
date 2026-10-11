@@ -45,6 +45,18 @@ export const coachChatBodyLocalDateMax = 10;
 
 
 export const coachChatBodyLocalDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const coachChatBodyDietContextDietSlugMax = 40;
+
+export const coachChatBodyDietContextDietNameMax = 80;
+
+export const coachChatBodyDietContextAvoidItemMax = 60;
+
+export const coachChatBodyDietContextAvoidMax = 40;
+
+export const coachChatBodyDietContextDislikesItemMax = 60;
+
+export const coachChatBodyDietContextDislikesMax = 40;
+
 
 
 export const CoachChatBody = zod.object({
@@ -58,7 +70,13 @@ export const CoachChatBody = zod.object({
 })).min(1).max(coachChatBodyMessagesMax),
   "localTime": zod.string().max(coachChatBodyLocalTimeMax).optional().describe('The patient\'s device-local wall clock when this turn was sent, as 24-hour \"HH:MM\" (for example \"14:05\"). Used only to preselect the diary slot on a recipe or meal card generated this turn when the patient names no meal: the server derives a time-of-day default (around 2 pm that is lunch) for the prompts and the missing-slot fallbacks. Unparseable values are ignored, and when the field is absent (older clients) the server keeps its legacy defaults.'),
   "mealSlot": zod.enum(['breakfast', 'lunch', 'dinner', 'snacks']).optional().describe('Explicit diary slot for any card generated on this turn, sent by entry points that already know which meal is being logged (for example a per-meal camera on a diary row). Wins over both a meal the patient names and the time-of-day default, and flows through to the card payload untouched.'),
-  "localDate": zod.string().max(coachChatBodyLocalDateMax).regex(coachChatBodyLocalDateRegExp).optional().describe('The app\'s own calendar date for this turn as \"YYYY-MM-DD\". Sent only with authenticated (signed-in patient) requests so the server grounds the coach\'s live \"today so far\" context on the same diary day the app is showing. Absent for the demo persona and older clients; invalid values are ignored server-side.')
+  "localDate": zod.string().max(coachChatBodyLocalDateMax).regex(coachChatBodyLocalDateRegExp).optional().describe('The app\'s own calendar date for this turn as \"YYYY-MM-DD\". Sent only with authenticated (signed-in patient) requests so the server grounds the coach\'s live \"today so far\" context on the same diary day the app is showing. Absent for the demo persona and older clients; invalid values are ignored server-side.'),
+  "dietContext": zod.object({
+  "dietSlug": zod.string().max(coachChatBodyDietContextDietSlugMax),
+  "dietName": zod.string().max(coachChatBodyDietContextDietNameMax),
+  "avoid": zod.array(zod.string().max(coachChatBodyDietContextAvoidItemMax)).max(coachChatBodyDietContextAvoidMax).describe('Allergies, sensitivities and restrictions the coach must never suggest.'),
+  "dislikes": zod.array(zod.string().max(coachChatBodyDietContextDislikesItemMax)).max(coachChatBodyDietContextDislikesMax).describe('Foods the patient would rather not see, avoided when reasonable.')
+}).optional().describe('The patient\'s chosen diet and food preference lists as the app holds them, sent only on authenticated turns so recipe and meal-idea answers honor them. Free text is sanitized and clamped server-side; the demo persona never sends it.')
 })
 
 export const CoachChatResponse = zod.unknown()
@@ -7153,6 +7171,25 @@ export const ChoosePatientDietResponse = zod.object({
 export const ClearPatientDietResponse = zod.object({
   "ok": zod.literal(true),
   "previousDietSlug": zod.string().nullable()
+})
+
+
+/**
+ * @summary The patient's protocol episodes and activity-level history, newest first
+ */
+export const GetPatientDietHistoryResponse = zod.object({
+  "episodes": zod.array(zod.object({
+  "id": zod.string(),
+  "episodeNumber": zod.number(),
+  "startedOn": zod.coerce.date(),
+  "endedOn": zod.coerce.date().nullable(),
+  "reason": zod.string()
+})),
+  "activity": zod.array(zod.object({
+  "level": zod.string(),
+  "source": zod.string(),
+  "recordedOn": zod.coerce.date()
+}))
 })
 
 

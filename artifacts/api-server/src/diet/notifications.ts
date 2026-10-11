@@ -112,7 +112,8 @@ export async function notifyPatient(input: NotifyPatientInput): Promise<{ create
     category: copy.category,
     title: copy.title,
     body: copy.body,
-    data: { patientId: input.patientId, route: "/(tabs)/account", day: input.dayKey },
+    // Taps land on the app's Food preferences page (diet + lists + notices).
+    data: { patientId: input.patientId, route: "/food-preferences", day: input.dayKey },
     dedupeKey: `${input.kind}:${input.patientId}:${input.dayKey}`,
     scheduledAt: now,
     expiresAt: new Date(now.getTime() + DIET_ALERT_TTL_MS),

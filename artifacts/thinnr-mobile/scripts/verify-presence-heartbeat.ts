@@ -69,7 +69,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   };
   apiCalls.push(call);
   const respond = (status: number, body: unknown) =>
-    ({ ok: status < 300, status, json: async () => body }) as Response;
+    ({ ok: status < 300, status, headers: new Headers(), json: async () => body }) as Response;
   if (call.path === 'claim/whoami') {
     if (whoamiFails) throw new Error('offline');
     const role = call.token ? tokenRoles.get(call.token) : undefined;

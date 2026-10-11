@@ -119,6 +119,8 @@ export interface PatientProfile {
   email: string | null;
   phone: string | null;
   dateOfBirth: string | null;
+  /** Drives the female-only pregnancy screening question and the target calculator. */
+  gender?: 'male' | 'female' | null;
   heightInches: number | null;
   startingWeight: number | null;
   currentWeight: number | null;
@@ -138,6 +140,7 @@ export type PatientProfileWrite = Partial<
     | 'firstName'
     | 'lastName'
     | 'dateOfBirth'
+    | 'gender'
     | 'heightInches'
     | 'startingWeight'
     | 'currentWeight'
@@ -152,6 +155,7 @@ export interface PatientSetupWrite {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  gender?: 'male' | 'female' | null;
   heightInches: number;
   startingWeight: number;
   currentWeight: number;
@@ -423,6 +427,46 @@ export interface PatientDataApi {
   }): Promise<{ profile: PatientProfile }>;
   /** Consent, data export, and account deletion (lib/patient-privacy.ts). */
   privacy: PrivacyApi;
+  /** Eating plan: diet selection, preference lists, screening, activity, targets (lib/patient-data-api.ts). */
+  diet: PatientDietApi;
+}
+
+/** Outcome of a diet pick as the picker needs it (200 / 202 / 409 / 422 mapped by status). */
+export type DietSelectionOutcome =
+  | { kind: 'active'; previousDietSlug: string | null; oversightRecommended: boolean }
+  | { kind: 'pending_review'; questions: string[]; suggestedSlug: string | null; message: string }
+  | { kind: 'locked'; message: string }
+  | { kind: 'screening_required'; message: string }
+  | { kind: 'rejected'; message: string };
+
+export interface PatientDietApi {
+  fetchDiet(): Promise<unknown>;
+  fetchLibrary(): Promise<unknown>;
+  /** PUT /patient-data/diet; never throws for the known 202 / 409 / 422 answers. */
+  select(
+    input: {
+      dietSlug: string;
+      answers?: Record<string, string>;
+      settings?: Record<string, unknown>;
+      activityLevel?: string | null;
+    },
+    options?: WriteOptions,
+  ): Promise<DietSelectionOutcome>;
+  clear(options?: WriteOptions): Promise<void>;
+  patchSettings(settings: Record<string, unknown>, options?: WriteOptions): Promise<void>;
+  writeScreening(answers: Record<string, string>, options?: WriteOptions): Promise<void>;
+  writeActivity(level: string, source: string, options?: WriteOptions): Promise<void>;
+  /** Resolves the created row's id; a duplicate (409) resolves null (the server names no id). */
+  addPreference(
+    input: { list: string; key?: string; label?: string; severity?: string | null },
+    options?: WriteOptions,
+  ): Promise<{ id: string } | null>;
+  patchPreference(id: string, severity: string, options?: WriteOptions): Promise<void>;
+  removePreference(id: string, options?: WriteOptions): Promise<void>;
+  fetchTargets(): Promise<unknown>;
+  writeTargets(overrides: Record<string, number | null>, options?: WriteOptions): Promise<unknown>;
+  /** GET /patient-data/diet/history: protocol episodes + activity levels, newest first. */
+  fetchHistory(): Promise<unknown>;
 }
 
 export type PatientAccount =

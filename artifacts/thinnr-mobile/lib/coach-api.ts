@@ -93,6 +93,17 @@ export interface CoachChatRequestBody {
    * byte-identical to before accounts existed.
    */
   localDate?: string;
+  /**
+   * The patient's chosen diet and food preference lists, sent only on
+   * authenticated turns so recipe and meal-idea answers honor them. Demo
+   * requests omit it.
+   */
+  dietContext?: {
+    dietSlug: string;
+    dietName: string;
+    avoid: string[];
+    dislikes: string[];
+  };
 }
 
 export interface CoachCardEvent {

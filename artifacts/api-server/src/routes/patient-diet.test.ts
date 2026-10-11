@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 
 const mocks = vi.hoisted(() => ({
   admin: vi.fn(), resolve: vi.fn(), history: vi.fn(), idem: vi.fn(),
-  loadState: vi.fn(), recordActivity: vi.fn(), removePreference: vi.fn(), patientLibrary: vi.fn(), libraryRows: vi.fn(),
+  loadState: vi.fn(), recordActivity: vi.fn(), listEpisodes: vi.fn(), listActivity: vi.fn(), removePreference: vi.fn(), patientLibrary: vi.fn(), libraryRows: vi.fn(),
   chooseDiet: vi.fn(), clearDiet: vi.fn(), saveDietSettings: vi.fn(), recordAnswers: vi.fn(), addPreferenceItem: vi.fn(), changeAllergySeverity: vi.fn(),
   snapshot: vi.fn(),
 }));
@@ -22,7 +22,7 @@ vi.mock("../diet/library", async () => {
 });
 vi.mock("../diet/store", async () => {
   const actual = await vi.importActual<typeof import("../diet/store")>("../diet/store");
-  return { ...actual, loadPatientDietState: mocks.loadState, recordActivityLevel: mocks.recordActivity };
+  return { ...actual, loadPatientDietState: mocks.loadState, recordActivityLevel: mocks.recordActivity, listEpisodes: mocks.listEpisodes, listActivityHistory: mocks.listActivity };
 });
 vi.mock("../diet/targets", async () => {
   const actual = await vi.importActual<typeof import("../diet/targets")>("../diet/targets");
@@ -243,6 +243,40 @@ describe("patient diet routes — screening and activity", () => {
     expect(mocks.recordActivity.mock.calls[1]![2]).toBe("settings");
     await call("/patient-data/diet/activity", "POST", { level: "light" });
     expect(mocks.recordActivity.mock.calls[2]![2]).toBe("settings");
+  });
+});
+
+describe("patient diet routes — history", () => {
+  it("returns the patient's episodes and activity ledger with only patient-facing fields", async () => {
+    mocks.listEpisodes.mockResolvedValue([
+      { id: "ep-2", episodeNumber: 2, startedOn: "2026-10-05", endedOn: null, reason: "restart", startedByRole: "staff", note: "missed doses", createdAt: "x" },
+      { id: "ep-1", episodeNumber: 1, startedOn: "2026-10-01", endedOn: "2026-10-05", reason: "enrollment", startedByRole: "system", note: null, createdAt: "x" },
+    ]);
+    mocks.listActivity.mockResolvedValue([
+      { level: "active", source: "check_in", recordedOn: "2026-10-09", recordedByRole: "patient", recordedBy: USER },
+      { level: "light", source: "diet_selection", recordedOn: "2026-10-02", recordedByRole: "patient", recordedBy: USER },
+    ]);
+    const res = await call("/patient-data/diet/history");
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({
+      episodes: [
+        { id: "ep-2", episodeNumber: 2, startedOn: "2026-10-05", endedOn: null, reason: "restart" },
+        { id: "ep-1", episodeNumber: 1, startedOn: "2026-10-01", endedOn: "2026-10-05", reason: "enrollment" },
+      ],
+      activity: [
+        { level: "active", source: "check_in", recordedOn: "2026-10-09" },
+        { level: "light", source: "diet_selection", recordedOn: "2026-10-02" },
+      ],
+    });
+    expect(mocks.listEpisodes).toHaveBeenCalledWith(PAT);
+    expect(mocks.listActivity).toHaveBeenCalledWith(PAT, 120);
+  });
+
+  it("surfaces a history read failure as 502, never an empty ledger", async () => {
+    mocks.listEpisodes.mockRejectedValue(new Error("rest down"));
+    mocks.listActivity.mockResolvedValue([]);
+    const res = await call("/patient-data/diet/history");
+    expect(res.status).toBe(502);
   });
 });
 

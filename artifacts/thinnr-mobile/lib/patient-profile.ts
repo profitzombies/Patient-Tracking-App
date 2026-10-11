@@ -26,6 +26,7 @@ export function parsePatientProfile(raw: unknown): PatientProfile {
   }
   return {
     ...(p as unknown as PatientProfile),
+    gender: p.gender === 'male' || p.gender === 'female' ? p.gender : null,
     emailVerified: p.emailVerified === true,
     phoneVerified: p.phoneVerified === true,
   };

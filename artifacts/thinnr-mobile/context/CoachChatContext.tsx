@@ -39,6 +39,7 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
+import { coachDietContextFor, type CoachDietContext } from '@/lib/diet-state';
 import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle, demoCoachTitleFromMessage } from '@/lib/coach-title';
 import {
   usePatientAccount,
@@ -731,7 +732,14 @@ export function CoachChatProvider({
     recordNudgeSent,
     markNudgeEngaged,
     setNudgeOptOut,
+    diet,
+    dietStatus,
   } = usePatient();
+  // Diet + food preference lists ride along on signed-in turns so recipes
+  // and meal ideas honor them. Read through a ref: a list edit mid-stream
+  // must not re-create the send callbacks.
+  const dietContextRef = useRef<CoachDietContext | null>(null);
+  dietContextRef.current = dietStatus === 'live' ? coachDietContextFor(diet) : null;
   // Account seam. The demo persona stays session-only; a real account
   // persists the conversation and grounds the coach on its own data.
   // `accountKey` names the thread's owner — any change (sign-in, sign-out, a
@@ -2192,8 +2200,11 @@ export function CoachChatProvider({
       // calendar day so the server grounds "today" on the same day the
       // app is showing.
       const auth = accountRef.current;
+      const dietContext = dietContextRef.current;
       void streamCoachChat(
-        auth.kind === 'demo' ? body : { ...body, localDate: localTodayKey() },
+        auth.kind === 'demo'
+          ? body
+          : { ...body, localDate: localTodayKey(), ...(dietContext ? { dietContext } : {}) },
         {
           onDelta: delta => {
             if (isStale()) return;

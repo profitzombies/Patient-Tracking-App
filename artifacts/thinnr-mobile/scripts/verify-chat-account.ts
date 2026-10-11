@@ -496,7 +496,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   };
   apiCalls.push(call);
   const result = routeCall(call);
-  return { ok: result.status < 300, status: result.status, json: async () => result.body } as Response;
+  return { ok: result.status < 300, status: result.status, headers: new Headers(), json: async () => result.body } as Response;
 }) as typeof fetch;
 
 // ─── Sessions ────────────────────────────────────────────────────────────────

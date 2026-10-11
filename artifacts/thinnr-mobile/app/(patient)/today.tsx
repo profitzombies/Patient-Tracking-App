@@ -55,6 +55,7 @@ import { phaseForDay } from '@/data/program-instructions';
 import { takePendingLogNotice } from '@/lib/pending-log-notice';
 import { patientFirstName, patientInitials, patientWeightFacts } from '@/lib/patient-display';
 import { useLivePatient } from '@/hooks/useLivePatient';
+import { TodayDietCards } from '@/components/diet/TodayDietCards';
 
 // Earliest day the demo history covers — date paging stops here.
 const MIN_KEY = toDateKey(subDays(TODAY, SEED_DAYS));
@@ -490,6 +491,11 @@ export default function TodayScreen() {
 
         {/* ── Content below the hero ── */}
         <View style={styles.body}>
+          {/* ── Diet notices, eating-window timer, Whole30 counter ── */}
+          <TodayDietCards
+            onOpenPreferences={() => router.push('/food-preferences' as Href)}
+            onPickDiet={() => router.push('/diet-picker' as Href)}
+          />
           {/* ── Day at a glance ── */}
           <LedgerCard accentTop testID="today-glance-card">
             <View style={styles.glanceInner}>

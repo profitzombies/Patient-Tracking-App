@@ -29,6 +29,7 @@ import { PatientDataError } from '@/lib/patient-data-error';
 import { parseNutritionSnapshot } from '@/data/food-nutrition';
 import type { DoseLogWrite, LibraryWrite, PatientFlagsWrite } from '@/context/PatientAccountContext';
 import type { DoseLogRecord, MedicationRecord } from '@/lib/medication-schedule';
+import { isDietWrite, type DietQueuedWrite } from '@/lib/diet-state';
 
 // ─── Shapes ─────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,14 @@ export type QueuedWritePayload =
    * server mints the SAME object path for it every time, so a lost
    * finalize response re-uploads onto that object, never a second one.
    */
-  | { kind: 'photoUpload'; photo: ProgressPhoto; uploadedPath?: string; uploadId?: string };
+  | { kind: 'photoUpload'; photo: ProgressPhoto; uploadedPath?: string; uploadId?: string }
+  /**
+   * Eating-plan writes (diet, preference lists, screening, activity, fasting /
+   * Whole30 settings, target overrides). They project onto the separate diet
+   * slice (lib/diet-state.ts), not the diary snapshot, so projectWrite leaves
+   * the base untouched for them.
+   */
+  | DietQueuedWrite;
 
 export type QueuedWriteKind = QueuedWritePayload['kind'];
 
@@ -300,6 +308,15 @@ export function projectWrite<S extends WriteProjectionState>(base: S, item: Queu
       }
       return { ...base, photos: upsertById(base.photos, [photo]) };
     }
+    case 'dietSelection':
+    case 'dietPreferenceAdd':
+    case 'dietPreferenceSeverity':
+    case 'dietPreferenceRemove':
+    case 'dietActivity':
+    case 'dietScreening':
+    case 'dietSettings':
+    case 'dietTargets':
+      return base;
   }
 }
 
@@ -328,7 +345,12 @@ export function reconcileQueue(
   ]);
   const out: QueuedWrite[] = [];
   for (const item of queue) {
-    if (!item.editIds || item.editIds.length === 0) {
+    // Diet writes (selection, list edits, activity, screening, settings,
+    // targets) are never reconciled here: their rows live on the diet ledger,
+    // not in the diary/library truth above, so any editIds they carry would
+    // always read as "missing" and drop a pending edit on restart or refresh.
+    // A server-row edit that no longer applies fails at replay and parks.
+    if (isDietWrite(item.payload) || !item.editIds || item.editIds.length === 0) {
       out.push(item);
       continue;
     }
@@ -380,8 +402,9 @@ function pruneMissingEdits(item: QueuedWrite, missing: Set<string>): QueuedWrite
 /**
  * Keys the UI asks about: `entry:<id>`, `water:<dateKey>`, `checkIn:<dateKey>`,
  * `photo:<id>`, `food:<id>`, `recipe:<id>`, `medication:<id>`,
- * `dose:<medicationId>:<dueDate>:<dueTime>`, plus the singletons `targets`,
- * `prefs`, `flags`.
+ * `dose:<medicationId>:<dueDate>:<dueTime>`, `dietPreference:<id>`, plus the
+ * singletons `targets`, `prefs`, `flags`, `diet`, `dietActivity`,
+ * `dietScreening`, `dietTargets`.
  */
 export function pendingEntityKeys(queue: readonly QueuedWrite[]): Set<string> {
   const keys = new Set<string>();
@@ -425,6 +448,28 @@ export function pendingEntityKeys(queue: readonly QueuedWrite[]): Set<string> {
         break;
       case 'photoUpload':
         keys.add(`photo:${write.photo.id}`);
+        break;
+      case 'dietSelection':
+        keys.add('diet');
+        break;
+      case 'dietPreferenceAdd':
+        keys.add(`dietPreference:${write.item.id}`);
+        break;
+      case 'dietPreferenceSeverity':
+      case 'dietPreferenceRemove':
+        keys.add(`dietPreference:${write.id}`);
+        break;
+      case 'dietActivity':
+        keys.add('dietActivity');
+        break;
+      case 'dietScreening':
+        keys.add('dietScreening');
+        break;
+      case 'dietSettings':
+        keys.add('diet');
+        break;
+      case 'dietTargets':
+        keys.add('dietTargets');
         break;
     }
   }

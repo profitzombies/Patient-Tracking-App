@@ -153,6 +153,7 @@ import type {
   GetOfficeSettingsParams,
   GetPatientCareTeamMessagesParams,
   GetPatientCoachConversationParams,
+  GetPatientDietHistory200,
   HealthStatus,
   HqAuditEventsResult,
   HqConversationEventsResult,
@@ -12554,6 +12555,83 @@ export const useClearPatientDiet = <TError = ErrorType<void>,
       > => {
       return useMutation(getClearPatientDietMutationOptions(options));
     }
+
+export const getGetPatientDietHistoryUrl = () => {
+
+
+
+
+  return `/api/patient-data/diet/history`
+}
+
+/**
+ * @summary The patient's protocol episodes and activity-level history, newest first
+ */
+export const getPatientDietHistory = async ( options?: Parameters<typeof customFetch>[1]): Promise<GetPatientDietHistory200> => {
+
+  return customFetch<GetPatientDietHistory200>(getGetPatientDietHistoryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPatientDietHistoryQueryKey = () => {
+    return [
+    `/api/patient-data/diet/history`
+    ] as const;
+    }
+
+
+export const getGetPatientDietHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getPatientDietHistory>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPatientDietHistoryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientDietHistory>>> = ({ signal }) => getPatientDietHistory({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPatientDietHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPatientDietHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getPatientDietHistory>>>
+export type GetPatientDietHistoryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The patient's protocol episodes and activity-level history, newest first
+ */
+
+export function useGetPatientDietHistory<TData = Awaited<ReturnType<typeof getPatientDietHistory>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPatientDietHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPatientDietHistoryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getUpdatePatientDietSettingsUrl = () => {
 

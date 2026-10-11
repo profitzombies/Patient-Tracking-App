@@ -31,9 +31,11 @@ import type {
   CoachConversation,
   CoachConversationPage,
   CoachConversationSnapshot,
+  DietSelectionOutcome,
   DoseLogWrite,
   LibraryWrite,
   PatientDataApi,
+  PatientDietApi,
   PatientEntryFacts,
   PatientFlags,
   PatientFlagsWrite,
@@ -177,6 +179,105 @@ export async function authedRequest(
   const billingScope = response.headers.get('X-Billing-Scope');
   if (billingScope && json && typeof json === 'object') Object.assign(json, { billing_scope: billingScope });
   return json;
+}
+
+// ── Eating plan ──────────────────────────────────────────────────────────────
+
+const DIET_PATH = '/patient-data/diet';
+
+/**
+ * The diet rail. The picker needs the server's VERDICT, not an exception:
+ * 202 (pending care-team review), 409 (protocol lock / not selectable) and
+ * 422 (screening questions still open) all come back as outcomes, mapped by
+ * HTTP status (the mobile error type only preserves an allow-list of codes).
+ * Everything else — network, sign-out, 5xx — still throws.
+ */
+export function dietApi(): PatientDietApi {
+  return {
+    async fetchDiet() {
+      // The server derives the patient's local day from the profile timezone.
+      return authedRequest('GET', DIET_PATH);
+    },
+    async fetchLibrary() {
+      return authedRequest('GET', `${DIET_PATH}/library`);
+    },
+    async select(input, options): Promise<DietSelectionOutcome> {
+      let json: unknown;
+      try {
+        json = await authedRequest('PUT', DIET_PATH, input, { ...(options ?? {}), acceptStatuses: [202] });
+      } catch (error) {
+        if (error instanceof PatientDataError && error.kind === 'http') {
+          if (error.status === 409) return { kind: 'locked', message: error.message };
+          if (error.status === 422) return { kind: 'screening_required', message: error.message };
+          if (error.status === 400 || error.status === 404) return { kind: 'rejected', message: error.message };
+        }
+        throw error;
+      }
+      const data = (json ?? {}) as Record<string, unknown>;
+      if (data.status === 'pending_review') {
+        return {
+          kind: 'pending_review',
+          questions: Array.isArray(data.questions) ? data.questions.filter((q): q is string => typeof q === 'string') : [],
+          suggestedSlug: typeof data.suggestedSlug === 'string' ? data.suggestedSlug : null,
+          message: typeof data.message === 'string' ? data.message : 'Your care team has been asked to review this choice.',
+        };
+      }
+      return {
+        kind: 'active',
+        previousDietSlug: typeof data.previousDietSlug === 'string' ? data.previousDietSlug : null,
+        oversightRecommended: data.oversightRecommended === true,
+      };
+    },
+    async clear(options) {
+      await authedRequest('DELETE', DIET_PATH, undefined, options);
+    },
+    async patchSettings(settings, options) {
+      await authedRequest('PATCH', `${DIET_PATH}/settings`, settings, options);
+    },
+    async writeScreening(answers, options) {
+      await authedRequest('POST', `${DIET_PATH}/screening`, { answers }, options);
+    },
+    async writeActivity(level, source, options) {
+      await authedRequest('POST', `${DIET_PATH}/activity`, { level, source }, options);
+    },
+    async addPreference(input, options) {
+      try {
+        const body = (await authedRequest('POST', `${DIET_PATH}/preferences`, input, options)) as
+          | { item?: { id?: unknown } }
+          | null
+          | undefined;
+        const id = body?.item?.id;
+        return typeof id === 'string' && id ? { id } : null;
+      } catch (error) {
+        // Already on the list (added from another device, or a replay whose
+        // first answer was lost): the intent is satisfied, not failed. The
+        // server names no id here; callers match the row by list + key.
+        if (error instanceof PatientDataError && error.kind === 'http' && error.status === 409) return null;
+        throw error;
+      }
+    },
+    async patchPreference(id, severity, options) {
+      await authedRequest('PATCH', `${DIET_PATH}/preferences/${encodeURIComponent(id)}`, { severity }, options);
+    },
+    async removePreference(id, options) {
+      try {
+        await authedRequest('DELETE', `${DIET_PATH}/preferences/${encodeURIComponent(id)}`, undefined, options);
+      } catch (error) {
+        // Gone already is the state the patient asked for.
+        if (error instanceof PatientDataError && error.kind === 'http' && error.status === 404) return;
+        throw error;
+      }
+    },
+    async fetchTargets() {
+      return authedRequest('GET', `${DIET_PATH}/targets`);
+    },
+    async writeTargets(overrides, options) {
+      return authedRequest('PUT', `${DIET_PATH}/targets`, overrides, options);
+    },
+    async fetchHistory() {
+      return authedRequest('GET', `${DIET_PATH}/history`);
+    },
+  };
 }
 
 // ── App presence ─────────────────────────────────────────────────────────────
@@ -1356,6 +1457,8 @@ export const patientDataApi: PatientDataApi = {
       await authedRequest('POST', '/patient-data/profile/contact/verify', input),
     );
   },
+
+  diet: dietApi(),
 
   privacy: {
     async fetchPrivacy() {

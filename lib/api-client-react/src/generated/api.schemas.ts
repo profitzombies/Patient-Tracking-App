@@ -5102,6 +5102,28 @@ export const CoachChatInputMealSlot = {
   snacks: 'snacks',
 } as const;
 
+/**
+ * The patient's chosen diet and food preference lists as the app holds them, sent only on authenticated turns so recipe and meal-idea answers honor them. Free text is sanitized and clamped server-side; the demo persona never sends it.
+ */
+export interface CoachDietContext {
+  /** @maxLength 40 */
+  dietSlug: string;
+  /** @maxLength 80 */
+  dietName: string;
+  /**
+     * Allergies, sensitivities and restrictions the coach must never suggest.
+     * @maxItems 40
+     * @items.maxLength 60
+     */
+  avoid: string[];
+  /**
+     * Foods the patient would rather not see, avoided when reasonable.
+     * @maxItems 40
+     * @items.maxLength 60
+     */
+  dislikes: string[];
+}
+
 export interface CoachChatInput {
   /** Optional active Coach conversation. When omitted, the compatibility Coach transcript is used for older clients. */
   conversationId?: string;
@@ -5123,6 +5145,7 @@ export interface CoachChatInput {
      * @pattern ^\d{4}-\d{2}-\d{2}$
      */
   localDate?: string;
+  dietContext?: CoachDietContext;
 }
 
 /**
@@ -6928,6 +6951,25 @@ export const GetHqLegalHoldsStatus = {
   lifted: 'lifted',
   all: 'all',
 } as const;
+
+export type GetPatientDietHistory200EpisodesItem = {
+  id: string;
+  episodeNumber: number;
+  startedOn: string;
+  endedOn: string | null;
+  reason: string;
+};
+
+export type GetPatientDietHistory200ActivityItem = {
+  level: string;
+  source: string;
+  recordedOn: string;
+};
+
+export type GetPatientDietHistory200 = {
+  episodes: GetPatientDietHistory200EpisodesItem[];
+  activity: GetPatientDietHistory200ActivityItem[];
+};
 
 export type UpdatePatientDietSettings200 = {
   selection: DietSelection;

@@ -3027,6 +3027,41 @@ paths:
       responses:
         "200": { description: "Cleared", content: { application/json: { schema: { $ref: "#/components/schemas/DietCleared" } } } }
         "401": { description: "Patient session required" }
+  /patient-data/diet/history:
+    get:
+      operationId: getPatientDietHistory
+      tags: [diet]
+      security: [{ bearerAuth: [] }]
+      summary: The patient's protocol episodes and activity-level history, newest first
+      responses:
+        "200":
+          description: "History"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [episodes, activity]
+                properties:
+                  episodes:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, episodeNumber, startedOn, endedOn, reason]
+                      properties:
+                        id: { type: string }
+                        episodeNumber: { type: number }
+                        startedOn: { type: string, format: date }
+                        endedOn: { type: string, format: date, nullable: true }
+                        reason: { type: string }
+                  activity:
+                    type: array
+                    items:
+                      type: object
+                      required: [level, source, recordedOn]
+                      properties:
+                        level: { type: string }
+                        source: { type: string }
+                        recordedOn: { type: string, format: date }
   /patient-data/diet/settings:
     patch:
       operationId: updatePatientDietSettings
@@ -7248,8 +7283,43 @@ components:
             server grounds the coach's live "today so far" context on the
             same diary day the app is showing. Absent for the demo persona
             and older clients; invalid values are ignored server-side.
+        dietContext:
+          $ref: "#/components/schemas/CoachDietContext"
       required:
         - messages
+    CoachDietContext:
+      type: object
+      description: >-
+        The patient's chosen diet and food preference lists as the app holds
+        them, sent only on authenticated turns so recipe and meal-idea
+        answers honor them. Free text is sanitized and clamped server-side;
+        the demo persona never sends it.
+      properties:
+        dietSlug:
+          type: string
+          maxLength: 40
+        dietName:
+          type: string
+          maxLength: 80
+        avoid:
+          type: array
+          description: Allergies, sensitivities and restrictions the coach must never suggest.
+          maxItems: 40
+          items:
+            type: string
+            maxLength: 60
+        dislikes:
+          type: array
+          description: Foods the patient would rather not see, avoided when reasonable.
+          maxItems: 40
+          items:
+            type: string
+            maxLength: 60
+      required:
+        - dietSlug
+        - dietName
+        - avoid
+        - dislikes
     SupportChatMessage:
       type: object
       properties:

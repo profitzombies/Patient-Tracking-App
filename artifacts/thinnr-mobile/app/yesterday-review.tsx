@@ -21,11 +21,11 @@ import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FitBadge } from '@/components/patient/FitBadge';
+import { useFoodFit } from '@/hooks/useFoodFit';
 import { Divider, EmptyState, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
-import { isApprovedFood } from '@/data/approved-foods';
 import { yesterdaySlotPreview } from '@/data/diary-entries';
 import {
   DIARY_MIN_KEY,
@@ -51,6 +51,7 @@ export default function YesterdayReviewScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const foodFit = useFoodFit();
   const { mode, hydrated: modeHydrated } = useAppMode();
   const params = useLocalSearchParams<{ date?: string; meal?: string }>();
 
@@ -232,8 +233,8 @@ export default function YesterdayReviewScreen() {
                         <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
                           {entry.name}
                         </Text>
-                        {entry.kind === 'food' && entry.refId && isApprovedFood(entry.refId) && (
-                          <ApprovedBadge size="sm" />
+                        {entry.kind === 'food' && entry.refId && (
+                          <FitBadge verdict={foodFit.verdict(entry)} size="sm" />
                         )}
                       </View>
                       <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
@@ -269,7 +270,7 @@ export default function YesterdayReviewScreen() {
                     <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
                       {extra.item.name}
                     </Text>
-                    {extra.item.approved && <ApprovedBadge size="sm" />}
+                    {extra.item.kind === 'food' && <FitBadge verdict={foodFit.verdict(extra.item)} size="sm" />}
                   </View>
                   <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                     {extra.item.kind === 'recipe' ? '1 serving · recipe' : `1 × ${extra.item.serving}`}
@@ -342,7 +343,7 @@ export default function YesterdayReviewScreen() {
                         <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
                           {item.name}
                         </Text>
-                        {item.approved && <ApprovedBadge size="sm" />}
+                        {item.kind === 'food' && <FitBadge verdict={foodFit.verdict(item)} size="sm" />}
                       </View>
                       <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                         {item.sub} · {item.serving} · P {item.protein}g

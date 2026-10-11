@@ -298,6 +298,8 @@ function RootLayoutNav() {
       <Stack.Screen name="recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="ai-recipe/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="approved-foods" options={{ headerShown: false }} />
+      <Stack.Screen name="food-preferences" options={{ headerShown: false }} />
+      <Stack.Screen name="diet-picker" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="restaurant-guide/index" options={{ headerShown: false }} />
       <Stack.Screen name="restaurant-guide/guidance" options={{ headerShown: false }} />
       <Stack.Screen name="restaurant-guide/[id]" options={{ headerShown: false }} />

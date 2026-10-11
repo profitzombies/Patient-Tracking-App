@@ -1,6 +1,7 @@
 /**
  * Patient onboarding preference steps: health app, notifications, medication
- * reminders (morning / afternoon / evening), diets, and completion.
+ * reminders (morning / afternoon / evening) and completion. The diet and
+ * food-preference steps live in StepsDiet.tsx.
  */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -14,8 +15,6 @@ import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useOnboarding, useOnboardingFlow } from '@/context/OnboardingContext';
 import { useDeviceFeatures } from '@/context/DeviceFeaturesContext';
 import {
-  DIET_NONE_KEY,
-  DIET_OPTIONS,
   HEALTH_APP_BENEFITS,
   INJECTION_DAY_OPTIONS,
   injectionTimeOptions,
@@ -28,9 +27,9 @@ import {
   weightUnitFor,
   type ReminderSlot,
 } from '@/data/onboarding-data';
+import { DIET_BY_SLUG } from '@/lib/diet-fit';
 import { OnboardingFrame } from './OnboardingFrame';
 import {
-  CheckRow,
   ChipGrid,
   GhostButton,
   InfoCard,
@@ -235,50 +234,6 @@ export function ReminderEveningStep() {
   return <ReminderStepBase slot="evening" />;
 }
 
-// ─── Diets ───────────────────────────────────────────────────────────────────
-
-export function DietsStep() {
-  const { answers, patch } = useOnboarding();
-
-  const toggle = (key: string) => {
-    if (key === DIET_NONE_KEY) {
-      patch({ diets: answers.diets.includes(DIET_NONE_KEY) ? [] : [DIET_NONE_KEY] });
-      return;
-    }
-    const without = answers.diets.filter(d => d !== DIET_NONE_KEY);
-    patch({
-      diets: without.includes(key) ? without.filter(d => d !== key) : [...without, key],
-    });
-  };
-
-  return (
-    <OnboardingFrame
-      stepKey="diets"
-      title="Any dietary preferences?"
-      coach="Last question — this filters your recipes."
-      nextDisabled={answers.diets.length === 0}
-      nextBlockedHint="Pick at least one preference, or None of the above."
-    >
-      {DIET_OPTIONS.map(opt => (
-        <CheckRow
-          key={opt.key}
-          testID={`ob-diet-${opt.key}`}
-          label={opt.label}
-          checked={answers.diets.includes(opt.key)}
-          onPress={() => toggle(opt.key)}
-        />
-      ))}
-      <CheckRow
-        testID="ob-diet-none"
-        label="None of the above"
-        checked={answers.diets.includes(DIET_NONE_KEY)}
-        onPress={() => toggle(DIET_NONE_KEY)}
-      />
-      <NoteText text="Select all that apply. You can update these anytime." />
-    </OnboardingFrame>
-  );
-}
-
 // ─── Completion ──────────────────────────────────────────────────────────────
 
 export function CompleteStep() {
@@ -338,14 +293,24 @@ export function CompleteStep() {
       value: answers.notifications === 'enabled' ? 'Enabled' : 'Maybe later',
     },
     {
-      label: 'DIETS',
-      value: answers.diets.includes(DIET_NONE_KEY)
+      label: 'DIET',
+      value: answers.dietSlug
+        ? DIET_BY_SLUG.get(answers.dietSlug)?.name ?? answers.dietSlug
+        : answers.program === 'thinnr'
+          ? 'THINNR protocol (picker unlocks after)'
+          : '—',
+    },
+    {
+      label: 'ALLERGIES',
+      value: answers.allergiesNone
         ? 'None'
-        : answers.diets
-            .map(d => DIET_OPTIONS.find(o => o.key === d)?.label ?? d)
-            .join(', ') || '—',
+        : answers.allergies.map(a => a.label).join(', ') || '—',
     },
   );
+  const extras = [...answers.sensitivities, ...answers.restrictions, ...answers.dislikes];
+  if (extras.length > 0) {
+    rows.push({ label: 'ALSO AVOIDING', value: extras.map(e => e.label).join(', ') });
+  }
 
   const finish = async () => {
     const saved = await endRun();

@@ -34,6 +34,14 @@ Keep the ordinary Run-button group limited to managed artifact services. A manua
 
 **The cause is `setValidationCommand` itself (seen 2026-10-07):** every new registration appends a `workflow.run` entry for the suite to the Run-button "Project" group. After registering, check that group and strip the new entries. Direct `.replit` edits are blocked; write the trimmed file to a temp path and apply it with `verifyAndReplaceDotReplit`. The suite's own `isValidation` workflow entry must stay, and the gate still finds it.
 
+## Fake-fetch harnesses must mirror every Response field the API reader touches
+
+When the shared API reader starts reading a new `Response` field (e.g. `headers.get`), every mobile
+script harness whose fake fetch returns a bare `{ ok, status, json }` object breaks the same way: the
+TypeError is caught as "server unreachable", the account resolves as unresolved, and the suite crashes on
+the first `.id` read. Diagnose by checking what the reader touches, then add the field to the fakes
+(`headers: new Headers()`); do not loosen the production reader for the fakes.
+
 ## Missing completion runs
 
 Treat completion `RUN_LOST` separately from failing checks; do not assume any commands actually ran.

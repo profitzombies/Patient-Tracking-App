@@ -163,3 +163,4 @@
 - [HQ Customer health](hq-customer-health.md) — one RPC + one pure scoring module; weekly email: ISO-week run row written last, send-time opt-out re-check, staff mail ignores dev delivery mode.
 - [Diet programs foundation](diet-programs.md) — catalog in the lib generates the seed; phase from the open episode; blocks re-evaluated at activation; pushes carry one generic non-clinical kind, rows keep the specific one.
 - [Coach diet grounding & guard](coach-diet-grounding.md) — real-only diet block; guard deterministic on structured outputs only; spoken list labels resolve to catalog keys before saving.
+- [Patient diet experience](patient-diet-experience.md) — diet slice outside PersistedState; only seeded fd_* ids can be "not approved" (else no badge); in-flight list edits re-point to the server id.

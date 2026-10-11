@@ -19,3 +19,6 @@ directory that holds the full lesson.
 - [expo-multi-artifact-preview.md](expo-multi-artifact-preview.md) — several Expo apps can share a direct domain; confirm the intended artifact by local port and served title.
 - [web-fit-shell.md](web-fit-shell.md) — Expo web lays out on a fixed 393pt canvas transform-scaled to the frame; use the app width hook, ?layoutWidth= to pin or disable.
 - [expo-sdk-upgrade.md](expo-sdk-upgrade.md) — 54→57: absoluteFillObject gone, media-library needs /legacy, TS6 baseUrl bridge, splash→plugin, blank-screenshot hydration race.
+
+## Scroll-boundary inventory
+New mobile screens must scroll through `components/ui/PageScrollView` / `PageFlatList`, never a raw `ScrollView`/`FlatList` from react-native. **Why:** the scroll-boundary suite keeps an exact allowlist of files that import native scrolling; a raw import in a new screen fails it even though typecheck and the screen's own suite stay green. **How to apply:** when a new route or component scrolls vertically, import the Page* wrapper; only horizontal/zoom surfaces earn an allowlist exception.

@@ -13,7 +13,8 @@ import { Feather } from '@expo/vector-icons';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
-import { ApprovedBadge } from '@/components/patient/ApprovedBadge';
+import { FitBadge } from '@/components/patient/FitBadge';
+import { useFoodFit } from '@/hooks/useFoodFit';
 import { FoodSearchSkeleton } from '@/components/patient/FoodSearchSkeleton';
 import { Divider, EmptyState, LedgerCard, PillSelector } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
@@ -98,7 +99,12 @@ export default function LogFoodScreen() {
   const [meal, setMeal] = useState<MealSlot>(initialMeal);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('recent');
-  const [approvedOnly, setApprovedOnly] = useState(false);
+  // "Fits your diet" filter: during the protocol the Approved Foods list is
+  // the fit source (server-side approvedOnly); afterwards the shared
+  // classifier decides per item against the chosen diet and the lists.
+  const [fitOnly, setFitOnly] = useState(false);
+  const foodFit = useFoodFit();
+  const approvedOnly = fitOnly && foodFit.protocol;
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [screenAccountKey, setScreenAccountKey] = useState(accountKey);
@@ -125,7 +131,7 @@ export default function LogFoodScreen() {
     setMeal(initialMeal);
     setQuery('');
     setScope('recent');
-    setApprovedOnly(false);
+    setFitOnly(false);
     setIntent('basic');
     setQuickOpen(false);
     setQuickName('');
@@ -243,9 +249,9 @@ export default function LogFoodScreen() {
       built = [{ key: 'all', title: null, items: allItems }];
     }
     return built
-      .map(group => (approvedOnly ? { ...group, items: group.items.filter(item => item.approved) } : group))
+      .map(group => (fitOnly ? { ...group, items: group.items.filter(item => item.kind !== 'food' || foodFit.verdict(item) === 'fits') } : group))
       .filter(group => group.items.length > 0);
-  }, [query, scope, approvedOnly, allItems, byId, patient.recents, patient.favorites, catalogItems, intent, favoriteLimit]);
+  }, [query, scope, fitOnly, foodFit, allItems, byId, patient.recents, patient.favorites, catalogItems, intent, favoriteLimit]);
 
   const totalVisible = groups.reduce((sum, group) => sum + group.items.length, 0);
   const isCatalogQuery = query.trim().length >= 2 && intent !== 'recipe';
@@ -576,13 +582,15 @@ export default function LogFoodScreen() {
           </>
         )}
 
-        {approvedOnly && (
-          <View style={styles.legendRow}>
-            <ApprovedBadge size="sm" />
+        {fitOnly && (
+          <View style={styles.legendRow} testID="logfood-fit-legend">
+            <FitBadge verdict="fits" size="sm" />
             <Text style={[styles.legendText, { color: colors.subtleText }]}>
-              Showing only foods approved for the THINNR program
+              {foodFit.protocol
+                ? 'Showing only foods on the THINNR Approved Foods list'
+                : 'Showing only foods that fit your diet and lists'}
             </Text>
-            <Pressable onPress={() => setApprovedOnly(false)} hitSlop={8}>
+            <Pressable onPress={() => setFitOnly(false)} hitSlop={8}>
               <Text style={[styles.legendText, { color: colors.cobalt }]}>Remove</Text>
             </Pressable>
           </View>
@@ -767,11 +775,12 @@ export default function LogFoodScreen() {
                 <Pressable onPress={() => router.push('/create-food')}><Text style={[styles.intentLink, { color: colors.cobalt }]}>Create food</Text></Pressable>
                 <Pressable
                   testID="logfood-approved-toggle"
-                  accessibilityLabel="Only show approved foods"
-                  onPress={() => setApprovedOnly(value => !value)}
+                  accessibilityLabel="Only show foods that fit your diet"
+                  accessibilityState={{ selected: fitOnly }}
+                  onPress={() => setFitOnly(value => !value)}
                 >
-                  <Text style={[styles.intentLink, { color: approvedOnly ? colors.activeGreen : colors.cobalt }]}>
-                    {approvedOnly ? '✓ Approved only' : 'Approved only'}
+                  <Text style={[styles.intentLink, { color: fitOnly ? colors.activeGreen : colors.cobalt }]}>
+                    {fitOnly ? '✓ Fits your diet' : 'Fits your diet'}
                   </Text>
                 </Pressable>
               </View>
@@ -910,7 +919,7 @@ export default function LogFoodScreen() {
         {!isSearching && !(searchFailed && totalVisible === 0) && (
           <Text style={[styles.resultCount, { color: colors.labelText }]}>
             {totalVisible} ITEM{totalVisible === 1 ? '' : 'S'}
-            {approvedOnly ? ' · APPROVED' : ''}
+            {fitOnly ? ' · FITS YOUR DIET' : ''}
           </Text>
         )}
         {totalVisible === 0 && !isSearching ? (
@@ -919,8 +928,8 @@ export default function LogFoodScreen() {
             <EmptyState
               icon={<Feather name="search" size={22} color={colors.subtleText} />}
               title={
-                approvedOnly
-                  ? 'No approved foods here'
+                fitOnly
+                  ? 'Nothing here fits your diet'
                   : scope === 'recent' && !query
                     ? 'Nothing logged yet'
                     : scope === 'favorites' && !query
@@ -928,8 +937,8 @@ export default function LogFoodScreen() {
                       : 'No matches'
               }
               body={
-                approvedOnly
-                  ? 'Turn off the filter, or browse Approved Foods in the Library tab.'
+                fitOnly
+                  ? 'Turn off the filter, or browse the Library tab.'
                   : scope === 'recent' && !query
                     ? 'Foods you log will show up here for fast re-adding.'
                     : scope === 'favorites' && !query
@@ -979,7 +988,7 @@ export default function LogFoodScreen() {
                               <Text style={[styles.itemName, { color: colors.navyLight }]} numberOfLines={1}>
                                 {item.name}
                               </Text>
-                              {item.approved && <ApprovedBadge size="sm" />}
+                              {!isRecipe && <FitBadge verdict={foodFit.verdict(item)} size="sm" />}
                             </View>
                             <Text style={[styles.itemSub, { color: colors.subtleText }]} numberOfLines={1}>
                               {item.loggedCount ? `${item.loggedCount}× logged · ` : ''}

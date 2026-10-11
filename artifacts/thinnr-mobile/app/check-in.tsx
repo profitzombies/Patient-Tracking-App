@@ -1,6 +1,8 @@
 /**
- * Daily Check-In — weight, mood, side effects, and a note for the care team.
- * Saving replaces any earlier check-in for the same day.
+ * Daily Check-In — weight, mood, side effects, activity level (weekly), and
+ * a note for the care team. Saving replaces any earlier check-in for the
+ * same day; the activity level is recorded on the diet ledger when it is
+ * new or a week old, so Progress can show how it changes over time.
  * Heritage language: paper header with serif title, radius-7 form controls,
  * cobalt selection states and primary action.
  */
@@ -17,6 +19,9 @@ import { createGuidedPhotoRequest } from '@/lib/guided-photos';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { TodaysMedicationsCard } from '@/components/patient/TodaysMedicationsCard';
+import { ActivityLevelPicker } from '@/components/diet/DietChoiceFields';
+import { activityDueForCheckIn } from '@/lib/diet-state';
+import type { ActivityLevel } from '@/lib/diet-fit';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
 import {
@@ -78,6 +83,12 @@ export default function CheckInScreen() {
   const [mood, setMood] = useState<1 | 2 | 3 | 4 | 5>(existing?.mood ?? 4);
   const [sideEffects, setSideEffects] = useState<string[]>(existing?.sideEffects ?? []);
   const [notes, setNotes] = useState(existing?.notes ?? '');
+  // Activity level: asked on the weekly check-in (and whenever it is unset).
+  // Pre-filled from the diet ledger; saved only when the diet slice is live.
+  const dietLive = patient.dietStatus === 'live';
+  const recordedActivity = patient.diet?.activityLevel ?? null;
+  const activityDue = dietLive && activityDueForCheckIn(recordedActivity, todayKey);
+  const [activityLevel, setActivityLevel] = useState<ActivityLevel | null>(recordedActivity?.level ?? null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -123,6 +134,11 @@ export default function CheckInScreen() {
         sideEffects,
         notes: notes.trim() || undefined,
       });
+      // The activity level rides the diet ledger (offline queue) and must
+      // never hold the check-in hostage; it is written when new or due.
+      if (saved && dietLive && activityLevel && (activityDue || activityLevel !== recordedActivity?.level)) {
+        void patient.saveDietActivity(activityLevel, 'check_in');
+      }
       // A failed account write rolled back (and posted a sync notice):
       // keep the filled-in form on screen so a retry is one tap away.
       if (saved) goBack();
@@ -332,6 +348,23 @@ export default function CheckInScreen() {
             {sideEffects.length === 0 ? 'None selected — feeling good.' : `${sideEffects.length} selected · your care team will see this`}
           </Text>
         </LedgerCard>
+
+        {/* ── Activity level (weekly) ── */}
+        {dietLive && (
+          <LedgerCard testID="checkin-activity-card" style={{ padding: 16, marginBottom: 14 }}>
+            <Text style={[styles.fieldLabel, { color: colors.labelText }]}>
+              {activityDue ? 'YOUR ACTIVITY LEVEL THIS WEEK' : 'ACTIVITY LEVEL'}
+            </Text>
+            <ActivityLevelPicker value={activityLevel} onChange={setActivityLevel} testIDPrefix="checkin-activity" />
+            <Text style={[styles.fieldHint, { color: colors.subtleText }]}>
+              {activityDue
+                ? 'Asked once a week. It feeds your calorie target and shows up on Progress over time.'
+                : recordedActivity
+                  ? `Last recorded ${recordedActivity.recordedOn}. Change it any time; it feeds your calorie target.`
+                  : 'It feeds your calorie target and shows up on Progress over time.'}
+            </Text>
+          </LedgerCard>
+        )}
 
         {/* ── Notes ── */}
         <LedgerCard style={{ padding: 16, marginBottom: 14 }}>

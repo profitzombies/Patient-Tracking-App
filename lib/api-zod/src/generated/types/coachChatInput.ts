@@ -7,6 +7,7 @@
  */
 import type { CoachChatInputMealSlot } from './coachChatInputMealSlot';
 import type { CoachChatMessage } from './coachChatMessage';
+import type { CoachDietContext } from './coachDietContext';
 
 export interface CoachChatInput {
   /** Optional active Coach conversation. When omitted, the compatibility Coach transcript is used for older clients. */
@@ -29,4 +30,5 @@ export interface CoachChatInput {
      * @pattern ^\d{4}-\d{2}-\d{2}$
      */
   localDate?: string;
+  dietContext?: CoachDietContext;
 }

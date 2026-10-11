@@ -87,7 +87,9 @@
     "test:patient-subscriptions": "tsx --tsconfig tsconfig.patient-orders.json scripts/verify-patient-subscriptions.tsx",
     "test:tap-to-pay": "tsx --tsconfig tsconfig.payments.json scripts/verify-tap-to-pay.tsx",
     "test:session-persistence": "tsx --tsconfig tsconfig.session-persistence.json scripts/verify-session-persistence.tsx",
-    "test:diet-parity": "tsx scripts/verify-diet-parity.ts"
+    "test:diet-parity": "tsx scripts/verify-diet-parity.ts",
+    "test:diet-patient": "tsx --tsconfig tsconfig.diet-patient.json scripts/verify-diet-patient.tsx",
+    "test:diet-logic": "tsx --tsconfig tsconfig.diet-patient.json scripts/verify-diet-logic.ts"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

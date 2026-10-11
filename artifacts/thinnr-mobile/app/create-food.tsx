@@ -2,7 +2,7 @@
  * Create Food — build a custom food (name, serving, calories/macros) that is
  * saved to "My Foods" in the library. Opened with an `id` param it becomes
  * Edit Food: the same form pre-filled from the stored food, saving in place.
- * Custom foods are stored on-device and never carry the approved checkmark.
+ * Custom foods are stored on-device; the "Fits your diet" mark appears only when the app can tell what is in them.
  *
  * Creating (not editing) also offers "Scan a label": photograph the
  * Nutrition Facts panel and the same server reader behind the coach chat's
@@ -650,7 +650,7 @@ export default function CreateFoodScreen() {
         <Text style={[styles.footnote, { color: colors.subtleText }]}>
           {isEditing
             ? 'Changes apply to this food in My Foods going forward. Diary entries you already logged keep the values they were logged with.'
-            : 'Custom foods are stored on this device under My Foods in the Library. They never carry the approved checkmark — that badge is reserved for foods on the official THINNR Approved Foods list.'}
+            : 'Custom foods are stored on this device under My Foods in the Library. The "Fits your diet" mark only appears when the app can tell what is in a food, so custom foods usually show no mark.'}
         </Text>
       </KeyboardAwareScrollViewCompat>
     </View>

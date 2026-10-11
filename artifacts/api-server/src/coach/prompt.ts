@@ -23,6 +23,19 @@ export interface PatientDayContext {
   targets: PatientDayTargets;
 }
 
+/**
+ * The patient's chosen diet and food preference lists, as sent by the app on
+ * authenticated turns (client-held state; sanitized before interpolation).
+ */
+export interface PatientDietContext {
+  dietSlug: string;
+  dietName: string;
+  /** Allergies, sensitivities and restrictions: never suggest these. */
+  avoid: string[];
+  /** Dislikes: avoid when reasonable. */
+  dislikes: string[];
+}
+
 export interface PatientContext {
   firstName: string;
   programDay: number;
@@ -38,6 +51,51 @@ export interface PatientContext {
    * canonical block after the today line; the demo persona has none.
    */
   diet?: DietGrounding;
+  /**
+   * The app-held diet + lists a signed-in client sent this turn. Fallback
+   * only: rendered as one line when the account has no server-side `diet`
+   * grounding, so the two sources never contradict each other.
+   */
+  clientDiet?: PatientDietContext;
+}
+
+const DIET_LIST_MAX = 40;
+
+/** Sanitized, de-duplicated, clamped copy of a client-sent diet context (null when nothing usable remains). */
+export function sanitizeDietContext(input: PatientDietContext | undefined): PatientDietContext | null {
+  if (!input) return null;
+  const list = (values: string[]) => {
+    const out: string[] = [];
+    for (const value of values) {
+      const clean = sanitizeInline(value, 60);
+      if (clean && !out.includes(clean)) out.push(clean);
+      if (out.length >= DIET_LIST_MAX) break;
+    }
+    return out;
+  };
+  const dietSlug = sanitizeInline(input.dietSlug, 40);
+  const dietName = sanitizeInline(input.dietName, 80);
+  const avoid = list(input.avoid ?? []);
+  const dislikes = list(input.dislikes ?? []);
+  if (!dietName && avoid.length === 0 && dislikes.length === 0) return null;
+  return { dietSlug, dietName, avoid, dislikes };
+}
+
+/** One line of diet grounding appended to the patient context (empty without a diet context). */
+export function dietContextLine(diet: PatientDietContext | undefined): string {
+  if (!diet) return "";
+  const parts: string[] = [];
+  if (diet.dietName && diet.dietSlug !== "just_tracking") {
+    parts.push(`${diet.dietName} is the patient's chosen eating plan: every recipe, meal idea and swap must fit it.`);
+  }
+  if (diet.avoid.length > 0) {
+    parts.push(`Never suggest or include these (allergies, sensitivities, restrictions): ${diet.avoid.join(", ")}.`);
+  }
+  if (diet.dislikes.length > 0) {
+    parts.push(`The patient dislikes ${diet.dislikes.join(", ")}; leave them out unless asked.`);
+  }
+  return parts.length > 0 ? `
+Diet and food preferences: ${parts.join(" ")}` : "";
 }
 
 /**
@@ -137,7 +195,7 @@ export function patientContextLine(patient: PatientContext): string {
   const firstName = sanitizeInline(patient.firstName, 60) || "the patient";
   const phaseName = sanitizeInline(patient.phaseName, 80) || "current";
   const programDay = Math.max(0, Math.min(2000, Math.round(patient.programDay)));
-  const base = `Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.`;
+  const base = `Patient context: ${firstName} is on day ${programDay} of the THINNR program, currently in the ${phaseName} phase. Answer for this day and phase.${patient.diet ? "" : dietContextLine(patient.clientDiet)}`;
   const today = patient.today;
   if (!today) return base;
   // Real signed-in accounts add one live line: the patient's actual day so

@@ -5,6 +5,7 @@
     "paths": {
       "@/components/KeyboardAwareScrollViewCompat": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/components/patient/ApprovedBadge": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/components/patient/FitBadge": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/components/ui/LedgerPrimitives": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/components/ui/OrdinaryTextInput": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/context/AppModeContext": ["./scripts/log-food-screen-stubs/state.ts"],
@@ -16,6 +17,7 @@
       "@/data/patient-data": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/hooks/useColors": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/hooks/useFoodCatalogSearch": ["./scripts/log-food-screen-stubs/state.ts"],
+      "@/hooks/useFoodFit": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/hooks/useLoggableItems": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/lib/food-catalog": ["./scripts/log-food-screen-stubs/state.ts"],
       "@/lib/title-case": ["./scripts/log-food-screen-stubs/state.ts"],

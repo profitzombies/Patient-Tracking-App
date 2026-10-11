@@ -551,13 +551,13 @@ describe("outbox sender", () => {
         const copy = DIET_PATIENT_ROW_COPY[kind];
         const { row } = await h.enqueue({
           kind, category: copy.category, title: copy.title, body: copy.body,
-          data: { patientId: P1, route: "/(tabs)/account", day: "2026-07-01" }, dedupeKey: `${kind}:${P1}:2026-07-01`,
+          data: { patientId: P1, route: "/food-preferences", day: "2026-07-01" }, dedupeKey: `${kind}:${P1}:2026-07-01`,
         });
         await h.tick();
         expect(h.push.sent).toHaveLength(1);
         const message = h.push.sent[0][0];
         expect(message).toMatchObject({ title: DIET_PATIENT_PUSH.title, body: DIET_PATIENT_PUSH.body });
-        expect(message.data).toEqual({ route: "/(tabs)/account", notificationId: row.id, kind: DIET_PATIENT_PUSH_KIND, category: copy.category });
+        expect(message.data).toEqual({ route: "/food-preferences", notificationId: row.id, kind: DIET_PATIENT_PUSH_KIND, category: copy.category });
         const wire = JSON.stringify(message).toLowerCase();
         for (const fragment of [P1, "diet", "pregnan", "breastfeed", "eating", "plan", "answer"]) expect(wire).not.toContain(fragment);
         expect(h.row(row.id).kind).toBe(kind);

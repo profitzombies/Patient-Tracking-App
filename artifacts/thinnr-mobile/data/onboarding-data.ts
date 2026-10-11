@@ -8,6 +8,14 @@
  */
 import { normalizePhone } from '../lib/phone';
 import { addDays, formatDateKey, toDateKey, TODAY } from './patient-data';
+import {
+  derivePhase,
+  DIET_BY_SLUG,
+  unansweredQuestions,
+  type ActivityLevel,
+  type ScreeningAnswer,
+  type ScreeningQuestion,
+} from '../lib/diet-fit';
 
 // ─── Mock codes ──────────────────────────────────────────────────────────────
 
@@ -55,7 +63,42 @@ export interface OnboardingAnswers {
   /** GLP-1 only: weekly injection day (0 = Sunday … 6 = Saturday) and clock label. */
   injectionDay: number | null;
   injectionTime: string;
-  diets: string[];
+  /** Diet framework picked at the end of onboarding (null = not picked / picker locked). */
+  dietSlug: string | null;
+  /** Safety-screening answers the chosen diet asked for. */
+  dietAnswers: Partial<Record<ScreeningQuestion, ScreeningAnswer>>;
+  /** Intermittent fasting preset id + eating-window start, Whole30 start day. */
+  fastingPreset: string | null;
+  fastingStart: string;
+  whole30StartDate: string;
+  activityLevel: ActivityLevel | null;
+  /** Allergies are required: either at least one item or an explicit "None". */
+  allergiesNone: boolean;
+  allergies: PreferenceAnswer[];
+  sensitivities: PreferenceAnswer[];
+  restrictions: PreferenceAnswer[];
+  dislikes: PreferenceAnswer[];
+}
+
+/** One list item answered during onboarding; custom items carry only a label. */
+export interface PreferenceAnswer {
+  key: string | null;
+  label: string;
+  severity?: 'mild' | 'severe';
+}
+
+export const PREFERENCE_ANSWER_KEYS = ['allergies', 'sensitivities', 'restrictions', 'dislikes'] as const;
+export type PreferenceAnswerKey = (typeof PREFERENCE_ANSWER_KEYS)[number];
+
+/** Custom list entries carry no catalog key; they are tagged as the patient's own words. */
+export function customPreferenceLabel(raw: string): string | null {
+  const label = raw.trim().replace(/\s+/g, ' ');
+  return label.length === 0 ? null : label.slice(0, 80);
+}
+
+export function samePreference(a: PreferenceAnswer, b: PreferenceAnswer): boolean {
+  if (a.key && b.key) return a.key === b.key;
+  return !a.key && !b.key && a.label.trim().toLowerCase() === b.label.trim().toLowerCase();
 }
 
 export const DEFAULT_ANSWERS: OnboardingAnswers = {
@@ -88,7 +131,17 @@ export const DEFAULT_ANSWERS: OnboardingAnswers = {
   reminderEvening: '10:00 PM',
   injectionDay: null,
   injectionTime: '9:00 AM',
-  diets: [],
+  dietSlug: null,
+  dietAnswers: {},
+  fastingPreset: null,
+  fastingStart: '12:00',
+  whole30StartDate: '',
+  activityLevel: null,
+  allergiesNone: false,
+  allergies: [],
+  sensitivities: [],
+  restrictions: [],
+  dislikes: [],
 };
 
 // ─── Step flow ───────────────────────────────────────────────────────────────
@@ -115,7 +168,10 @@ export type StepKey =
   | 'reminder-morning'
   | 'reminder-afternoon'
   | 'reminder-evening'
-  | 'diets'
+  | 'diet'
+  | 'allergies'
+  | 'restrictions'
+  | 'dislikes'
   | 'complete';
 
 const onMedication = (a: OnboardingAnswers): boolean =>
@@ -154,7 +210,12 @@ export const STEP_FLOW: StepDef[] = [
   { key: 'reminder-morning', when: onProtocol },
   { key: 'reminder-afternoon', when: onProtocol },
   { key: 'reminder-evening', when: onProtocol },
-  { key: 'diets' },
+  // Diet, then the four preference lists — in the slot the old single diet
+  // step held, right before completion (owner decision 2026-10-09).
+  { key: 'diet' },
+  { key: 'allergies' },
+  { key: 'restrictions' },
+  { key: 'dislikes' },
   { key: 'complete' },
 ];
 
@@ -460,13 +521,56 @@ export const NOTIFICATION_ITEMS = [
   'Messages from your care team',
 ];
 
-export const DIET_OPTIONS: { key: string; label: string }[] = [
-  { key: 'vegan', label: 'Vegan' },
-  { key: 'vegetarian', label: 'Vegetarian' },
-  { key: 'gluten-free', label: 'Gluten Free' },
-];
+// ─── Diet step rules ─────────────────────────────────────────────────────────
 
-export const DIET_NONE_KEY = 'none';
+/**
+ * Whether the diet picker is locked for these answers on `todayKey`: the
+ * THINNR protocol owns the plan until it finishes (future and day-one start
+ * dates both read as day 1, hence locked). GLP-1 and tracking-only patients
+ * pick right away.
+ */
+export function dietPickerLockedFor(a: OnboardingAnswers, todayKey: string): boolean {
+  if (a.program !== 'thinnr') return false;
+  return derivePhase({ episodeStartedOn: a.programStartDate || null, todayKey, programId: 'thinnr' }).dietPickerLocked;
+}
+
+/** Screening questions the chosen diet still needs before Next may advance. */
+export function openDietQuestions(a: OnboardingAnswers): ScreeningQuestion[] {
+  const entry = a.dietSlug ? DIET_BY_SLUG.get(a.dietSlug) : null;
+  if (!entry) return [];
+  return unansweredQuestions(entry, {
+    phase: 'maintenance',
+    programId: a.program,
+    gender: a.gender,
+    answers: a.dietAnswers,
+    actor: 'patient',
+  });
+}
+
+export type DietStepBlocker = 'diet' | 'questions' | 'activity' | null;
+
+/** What still blocks the diet step's Next (null = may advance). */
+export function dietStepBlocker(a: OnboardingAnswers, locked: boolean): DietStepBlocker {
+  if (!locked) {
+    if (!a.dietSlug) return 'diet';
+    if (openDietQuestions(a).length > 0) return 'questions';
+  }
+  if (!a.activityLevel) return 'activity';
+  return null;
+}
+
+export const DIET_STEP_HINTS: Record<Exclude<DietStepBlocker, null>, string> = {
+  diet: 'Pick a diet, or "No specific diet, just tracking".',
+  questions: 'Answer the short safety question(s) for this diet first.',
+  activity: 'Pick the activity level that fits you best.',
+};
+
+/** Allergies are the one required list: at least one item or an explicit None. */
+export function allergiesStepComplete(a: OnboardingAnswers): boolean {
+  return a.allergiesNone || a.allergies.length > 0;
+}
+
+export const ALLERGIES_STEP_HINT = 'Add at least one allergy, or tap "None".';
 
 export const PROGRAM_OPTIONS: {
   key: ProgramChoice;

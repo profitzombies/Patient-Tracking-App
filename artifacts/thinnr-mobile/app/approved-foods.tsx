@@ -117,8 +117,9 @@ export default function ApprovedFoodsScreen() {
               <Text style={[styles.introTitle, { color: colors.navy }]}>{APPROVED_BADGE_EXPLANATION}</Text>
               <Text style={[styles.introBody, { color: colors.bodyText }]}>
                 Every food below is quoted word-for-word from the official THINNR manual, with its portion
-                guidance. Foods that match this list carry the same checkmark across the app — in the Library,
-                Add Food search, and your diary. Foods you create yourself never show it.
+                guidance. During the protocol this list decides the "Fits your diet" mark across the app — in
+                the Library, Add Food search, and your diary. Once you choose a diet, that mark follows your
+                diet and your food preferences instead.
               </Text>
             </View>
           </View>

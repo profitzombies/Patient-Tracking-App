@@ -1152,6 +1152,111 @@ export interface DietFrameworkCount {
   name: string;
   patients: number;
 }
+
+export type DietRestrictionItemCountSeverity = typeof DietRestrictionItemCountSeverity[keyof typeof DietRestrictionItemCountSeverity] | null;
+
+
+export const DietRestrictionItemCountSeverity = {
+  mild: 'mild',
+  severe: 'severe',
+} as const;
+
+export interface DietRestrictionItemCount {
+  list: PreferenceListName;
+  key: string;
+  label: string;
+  severity: DietRestrictionItemCountSeverity;
+  patients: number;
+}
+
+export interface DietScreeningCount {
+  question: DietScreeningQuestion;
+  yes: number;
+  no: number;
+}
+
+export type DietReportCountsPhases = {
+  protocol: number;
+  maintenance: number;
+};
+
+export type DietReportCountsLists = {
+  allergy: number;
+  sensitivity: number;
+  restriction: number;
+  dislike: number;
+};
+
+/**
+ * Selections started in range by who made them (persisted roles; HQ cannot set diets)
+ */
+export type DietReportCountsChanges = {
+  total: number;
+  byPatient: number;
+  byStaff: number;
+  bySystem: number;
+};
+
+export type DietReportCountsBlocks = {
+  opened: number;
+  pending: number;
+  overridden: number;
+  rejected: number;
+};
+
+export interface DietReportCounts {
+  patients: number;
+  /** Active selection of a real framework; tracking-only is not a diet */
+  onDiet: number;
+  /** Active "just tracking" selection */
+  justTracking: number;
+  /** No active selection yet */
+  noDiet: number;
+  byFramework: DietFrameworkCount[];
+  phases: DietReportCountsPhases;
+  lists: DietReportCountsLists;
+  severeAllergyPatients: number;
+  topItems: DietRestrictionItemCount[];
+  /** Selections started in range by who made them (persisted roles; HQ cannot set diets) */
+  changes: DietReportCountsChanges;
+  blocks: DietReportCountsBlocks;
+  pregnancyConflicts: number;
+  screening: DietScreeningCount[];
+}
+
+export interface DietReportOfficeRow {
+  providerId: string;
+  name: string;
+  patients: number;
+  onDiet: number;
+  protocol: number;
+  maintenance: number;
+  severeAllergy: number;
+  pendingBlocks: number;
+  pregnancyConflicts: number;
+}
+
+/**
+ * The practice the figures are narrowed to, or null network-wide
+ */
+export type DietRestrictionsResultOffice = {
+  id: string;
+  name: string;
+} | null;
+
+export interface DietRestrictionsResult {
+  range: DateRangeKeys;
+  asOf: string;
+  /** The UTC day phases were evaluated on */
+  todayKey: string;
+  /** The practice the figures are narrowed to, or null network-wide */
+  office: DietRestrictionsResultOffice;
+  /** False when no activated patient is in scope; counts are then null, never zero */
+  available: boolean;
+  counts: DietReportCounts | null;
+  offices: DietReportOfficeRow[];
+}
+
 export type CustomerHealthBucket = typeof CustomerHealthBucket[keyof typeof CustomerHealthBucket];
 
 
@@ -3949,6 +4054,49 @@ export interface OfficeChatFlagsResult {
 }
 
 export type OfficeDietAlertKind = typeof OfficeDietAlertKind[keyof typeof OfficeDietAlertKind];
+
+
+export const OfficeDietAlertKind = {
+  diet_change: 'diet_change',
+  diet_safety: 'diet_safety',
+  diet_allergy_severe: 'diet_allergy_severe',
+} as const;
+
+export type OfficeDietAlertRefs = {
+  /** @nullable */
+  selectionId: string | null;
+  /** @nullable */
+  blockId: string | null;
+  /** @nullable */
+  itemId: string | null;
+};
+
+export interface OfficeDietAlert {
+  id: string;
+  kind: OfficeDietAlertKind;
+  kindLabel: string;
+  patientId: string;
+  patientName: string;
+  day: string;
+  createdAt: string;
+  refs: OfficeDietAlertRefs;
+}
+
+export interface OfficePendingDietBlock {
+  patientId: string;
+  patientName: string;
+  blockId: string;
+  /** @nullable */
+  createdAt: string | null;
+}
+
+export interface OfficeDietAlertsResult {
+  asOf: string;
+  pendingBlockCount: number;
+  pendingBlocks: OfficePendingDietBlock[];
+  items: OfficeDietAlert[];
+}
+
 export type OfficeAlertSettingsRecipientMode = typeof OfficeAlertSettingsRecipientMode[keyof typeof OfficeAlertSettingsRecipientMode];
 
 
@@ -4235,6 +4383,33 @@ export type RosterDietFactsDiet = {
   /** @nullable */
   startedAt: string | null;
 } | null;
+
+/**
+ * Newest safety block awaiting provider review; null when none.
+ */
+export type RosterDietFactsPendingBlock = {
+  id: string;
+  /** @nullable */
+  createdAt: string | null;
+} | null;
+
+export interface RosterDietFacts {
+  /** Active diet; null = no diet chosen. */
+  diet: RosterDietFactsDiet;
+  /** Newest safety block awaiting provider review; null when none. */
+  pendingBlock: RosterDietFactsPendingBlock;
+  /** True when any current allergy item is marked severe. */
+  severeAllergy: boolean;
+  /**
+     * Share (0–100) of recent logged foods that fit the diet in force. null = unknown (no diet, or no verdict-bearing entries in the window); never rendered as 0.
+     * @nullable
+     */
+  fitsDietPct: number | null;
+  /** Verdict-bearing entries behind the percentage (0 when unknown). */
+  fitsDietSample: number;
+  fitWindowDays: number;
+}
+
 export interface OfficeRosterPatient {
   id: string;
   name: string;
@@ -6333,6 +6508,7 @@ export type GetOfficeDietAlertsParams = {
  */
 office?: OfficeIdParameter;
 };
+
 export type MarkOfficeChatFlagReviewedParams = {
 /**
  * Required for HQ; ignored for provider staff, who are always own-office scoped
@@ -6836,6 +7012,7 @@ start: string;
 end: string;
 office?: string;
 };
+
 export type ListExportsParams = {
 /**
  * Narrow the list to one patient's record exports (still the caller's own jobs)
@@ -7223,173 +7400,3 @@ export type ListBloodworkCorrectionsParams = {
 office?: OfficeIdParameter;
 };
 
-
-export const OfficeDietAlertKind = {
-  diet_change: 'diet_change',
-  diet_safety: 'diet_safety',
-  diet_allergy_severe: 'diet_allergy_severe',
-} as const;
-
-export interface DietReportOfficeRow {
-  providerId: string;
-  name: string;
-  patients: number;
-  onDiet: number;
-  protocol: number;
-  maintenance: number;
-  severeAllergy: number;
-  pendingBlocks: number;
-  pregnancyConflicts: number;
-}
-
-export type DietRestrictionItemCountSeverity = typeof DietRestrictionItemCountSeverity[keyof typeof DietRestrictionItemCountSeverity] | null;
-
-/**
- * Selections started in range by who made them (persisted roles; HQ cannot set diets)
- */
-export type DietReportCountsChanges = {
-  total: number;
-  byPatient: number;
-  byStaff: number;
-  bySystem: number;
-};
-
-export type DietReportCountsBlocks = {
-  opened: number;
-  pending: number;
-  overridden: number;
-  rejected: number;
-};
-
-export interface DietScreeningCount {
-  question: DietScreeningQuestion;
-  yes: number;
-  no: number;
-}
-
-export type OfficeDietAlertRefs = {
-  /** @nullable */
-  selectionId: string | null;
-  /** @nullable */
-  blockId: string | null;
-  /** @nullable */
-  itemId: string | null;
-};
-
-export interface OfficeDietAlert {
-  id: string;
-  kind: OfficeDietAlertKind;
-  kindLabel: string;
-  patientId: string;
-  patientName: string;
-  day: string;
-  createdAt: string;
-  refs: OfficeDietAlertRefs;
-}
-
-export type DietReportCountsPhases = {
-  protocol: number;
-  maintenance: number;
-};
-
-export interface DietRestrictionItemCount {
-  list: PreferenceListName;
-  key: string;
-  label: string;
-  severity: DietRestrictionItemCountSeverity;
-  patients: number;
-}
-
-/**
- * The practice the figures are narrowed to, or null network-wide
- */
-export type DietRestrictionsResultOffice = {
-  id: string;
-  name: string;
-} | null;
-
-export interface OfficeDietAlertsResult {
-  asOf: string;
-  pendingBlockCount: number;
-  pendingBlocks: OfficePendingDietBlock[];
-  items: OfficeDietAlert[];
-}
-
-/**
- * Newest safety block awaiting provider review; null when none.
- */
-export type RosterDietFactsPendingBlock = {
-  id: string;
-  /** @nullable */
-  createdAt: string | null;
-} | null;
-
-export interface RosterDietFacts {
-  /** Active diet; null = no diet chosen. */
-  diet: RosterDietFactsDiet;
-  /** Newest safety block awaiting provider review; null when none. */
-  pendingBlock: RosterDietFactsPendingBlock;
-  /** True when any current allergy item is marked severe. */
-  severeAllergy: boolean;
-  /**
-     * Share (0–100) of recent logged foods that fit the diet in force. null = unknown (no diet, or no verdict-bearing entries in the window); never rendered as 0.
-     * @nullable
-     */
-  fitsDietPct: number | null;
-  /** Verdict-bearing entries behind the percentage (0 when unknown). */
-  fitsDietSample: number;
-  fitWindowDays: number;
-}
-
-export type DietReportCountsLists = {
-  allergy: number;
-  sensitivity: number;
-  restriction: number;
-  dislike: number;
-};
-
-export interface DietRestrictionsResult {
-  range: DateRangeKeys;
-  asOf: string;
-  /** The UTC day phases were evaluated on */
-  todayKey: string;
-  /** The practice the figures are narrowed to, or null network-wide */
-  office: DietRestrictionsResultOffice;
-  /** False when no activated patient is in scope; counts are then null, never zero */
-  available: boolean;
-  counts: DietReportCounts | null;
-  offices: DietReportOfficeRow[];
-}
-
-export interface DietReportCounts {
-  patients: number;
-  /** Active selection of a real framework; tracking-only is not a diet */
-  onDiet: number;
-  /** Active "just tracking" selection */
-  justTracking: number;
-  /** No active selection yet */
-  noDiet: number;
-  byFramework: DietFrameworkCount[];
-  phases: DietReportCountsPhases;
-  lists: DietReportCountsLists;
-  severeAllergyPatients: number;
-  topItems: DietRestrictionItemCount[];
-  /** Selections started in range by who made them (persisted roles; HQ cannot set diets) */
-  changes: DietReportCountsChanges;
-  blocks: DietReportCountsBlocks;
-  pregnancyConflicts: number;
-  screening: DietScreeningCount[];
-}
-
-export const DietRestrictionItemCountSeverity = {
-  mild: 'mild',
-  severe: 'severe',
-} as const;
-
-export interface OfficePendingDietBlock {
-  patientId: string;
-  patientName: string;
-  blockId: string;
-  /** @nullable */
-  createdAt: string | null;
-}

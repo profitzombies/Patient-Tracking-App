@@ -192,14 +192,32 @@ export const APP_STORE_LABELS: Record<AppStoreKind, { store: string; short: stri
 /** Office-facing wording for a link HQ has not added yet. */
 export const STORE_LINK_MISSING = 'HQ hasn’t added this link yet';
 
-export interface StoreLink { kind: AppStoreKind; url: string | null }
+/** Office-facing caption when a platform still opens the Expo Go page. */
+export const STORE_LINK_EXPO_GO = 'Expo Go page until HQ adds the store link';
 
-/** Both links in display order, from any object carrying the HQ policy fields. */
-export function storeLinksOf(hq: Pick<HqOrganizationSettings, 'appStoreUrl' | 'googlePlayUrl'>): StoreLink[] {
-  return [
-    { kind: 'appStore', url: hq.appStoreUrl?.trim() || null },
-    { kind: 'googlePlay', url: hq.googlePlayUrl?.trim() || null },
-  ];
+export interface StoreLink {
+  kind: AppStoreKind;
+  url: string | null;
+  /** 'store' = HQ's listing (or TestFlight / Play testing) link; 'expo_go' = the Expo Go page fallback. */
+  source: 'store' | 'expo_go' | null;
+}
+
+/**
+ * Both links in display order, from any object carrying the HQ policy fields.
+ * A blank store link falls back to the Expo Go page when the server reports
+ * one (`patientApp.expoGoUrl`), the same answer the invitation email gives.
+ */
+export function storeLinksOf(
+  hq: Pick<HqOrganizationSettings, 'appStoreUrl' | 'googlePlayUrl'>,
+  expoGoUrl: string | null = null,
+): StoreLink[] {
+  const fallback = expoGoUrl?.trim() || null;
+  const link = (kind: AppStoreKind, value: string | null | undefined): StoreLink => {
+    const url = value?.trim() || null;
+    if (url) return { kind, url, source: 'store' };
+    return fallback ? { kind, url: fallback, source: 'expo_go' } : { kind, url: null, source: null };
+  };
+  return [link('appStore', hq.appStoreUrl), link('googlePlay', hq.googlePlayUrl)];
 }
 
 /**
@@ -211,10 +229,10 @@ export function storeLinkProblem(kind: AppStoreKind, value: string): string | nu
   const trimmed = value.trim();
   if (!trimmed) return null;
   const ok = kind === 'appStore'
-    ? /^https:\/\/(apps|itunes)\.apple\.com\//.test(trimmed)
-    : /^https:\/\/play\.google\.com\/store\/apps\/details\?/.test(trimmed);
+    ? /^https:\/\/((apps|itunes)\.apple\.com\/|testflight\.apple\.com\/join\/)/.test(trimmed)
+    : /^https:\/\/play\.google\.com\/(store\/apps\/details\?|apps\/(internaltest|testing)\/)/.test(trimmed);
   if (ok && !/\s/.test(trimmed)) return null;
   return kind === 'appStore'
-    ? 'Paste the listing URL from App Store Connect — it starts with https://apps.apple.com/.'
-    : 'Paste the listing URL from the Play Console — it starts with https://play.google.com/store/apps/details?id=.';
+    ? 'Paste the listing URL from App Store Connect (it starts with https://apps.apple.com/) or, before the listing is live, the TestFlight public link (https://testflight.apple.com/join/…).'
+    : 'Paste the listing URL from the Play Console (it starts with https://play.google.com/store/apps/details?id=) or, before the listing is live, the internal testing opt-in link (https://play.google.com/apps/internaltest/…).';
 }

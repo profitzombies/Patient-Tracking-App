@@ -164,3 +164,4 @@
 - [Diet programs](diet-programs.md) — lib catalog seeds the DB; phase from the open episode; roster diet facts are a nullable family (unknown ≠ no diet, % fits never 0); pushes carry one generic kind; HQ library content-gated.
 - [Coach diet grounding & guard](coach-diet-grounding.md) — real-only diet block; guard deterministic on structured outputs only; spoken list labels resolve to catalog keys before saving.
 - [Patient diet experience](patient-diet-experience.md) — diet slice outside PersistedState; only seeded fd_* ids can be "not approved" (else no badge); in-flight list edits re-point to the server id.
+- [EAS store builds](eas-store-builds.md) — config resolution skips plugin mods; Tap to Pay flag gated natively AND in JS; OTA publishes need build env + a fingerprint-matching build; project id lives in app.json.

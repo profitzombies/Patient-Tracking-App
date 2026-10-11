@@ -29,11 +29,17 @@ import {
 } from "../lib/org-policy";
 import { cleanEmail, cleanQuietHours, hqActorName, settingsDto } from "../lib/org-policy-edit";
 import { supabaseAdmin } from "../lib/supabase-admin";
+import { resolvePatientAppLinks } from "../lib/patient-app-link";
 
 const router: IRouter = Router();
 const enc = encodeURIComponent;
 const SERVER_ERROR = "Office settings are unavailable right now.";
 const CONFLICT = "Someone else saved these settings first. Reload to see the latest values.";
+
+function expoGoPageUrl(): string | null {
+  const resolved = resolvePatientAppLinks(null);
+  return resolved.ok ? resolved.link : null;
+}
 
 function dto(scope: OfficeScope, settingsRow: Record<string, unknown>, overrides: OfficeOverrides) {
   const hq = settingsDto(settingsRow);
@@ -43,6 +49,9 @@ function dto(scope: OfficeScope, settingsRow: Record<string, unknown>, overrides
     hq,
     overrides: { quietHours, escalationEmail, idleTimeoutMinutes, version, updatedAt, updatedBy, updatedByName },
     effective: effectivePolicyFor(policyFromRow(settingsRow), overrides),
+    // Where patients get the app today: the office "Get the app" links / QR
+    // codes show a store link when HQ has one and the Expo Go page otherwise.
+    patientApp: { expoGoUrl: expoGoPageUrl() },
     canEdit: true,
   };
 }

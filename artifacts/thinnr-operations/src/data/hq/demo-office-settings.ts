@@ -56,6 +56,7 @@ export function demoOfficeSettings(): OfficeSettingsDto {
     hq,
     overrides,
     effective: previewEffective(hq, overrides),
+    patientApp: { expoGoUrl: null },
     canEdit: true,
   };
 }

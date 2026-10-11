@@ -274,8 +274,14 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Store listing links must point at the real storefronts (the DB CHECKs
  * mirror these): App Store pages live under apps.apple.com (legacy
  * itunes.apple.com), Play listings under play.google.com/store/apps/details.
+ * Pre-release testing links are accepted as interim values while the store
+ * listings are still in review: TestFlight public links
+ * (testflight.apple.com/join/…) and Play internal/closed testing opt-in pages
+ * (play.google.com/apps/internaltest/… and play.google.com/apps/testing/…).
+ * Patient invitations switch from the Expo Go page to whichever of these is
+ * set (see patient-app-link.ts).
  */
-export const APP_STORE_URL_RE = /^https:\/\/(apps|itunes)\.apple\.com\//;
+export const APP_STORE_URL_RE = /^https:\/\/((apps|itunes)\.apple\.com\/|testflight\.apple\.com\/join\/)/;
 export const SETTINGS_SELECT =
   "organization_name,support_email,support_phone,default_timezone,app_store_url,google_play_url,updated_at,version,coach_available,escalation_email," +
   "default_coach_outreach,default_check_in_reminders,default_office_reminders,default_quiet_start,default_quiet_end," +
@@ -594,7 +600,7 @@ export async function loadAllOfficeOverrides(): Promise<Map<string, OfficeOverri
   return map;
 }
 
-export const GOOGLE_PLAY_URL_RE = /^https:\/\/play\.google\.com\/store\/apps\/details\?/;
+export const GOOGLE_PLAY_URL_RE = /^https:\/\/play\.google\.com\/(store\/apps\/details\?|apps\/(internaltest|testing)\/)/;
 
 export const STORE_URL_MAX = 500;
 

@@ -117,12 +117,12 @@ export function mergePolicyInput(
   }
   if (input.appStoreUrl !== undefined) {
     const url = cleanStoreUrl(input.appStoreUrl, "appStore");
-    if (!url.ok) return fail("The App Store link must be an https://apps.apple.com/… listing URL.");
+    if (!url.ok) return fail("The App Store link must be an https://apps.apple.com/… listing URL or an https://testflight.apple.com/join/… TestFlight link.");
     next.appStoreUrl = url.value;
   }
   if (input.googlePlayUrl !== undefined) {
     const url = cleanStoreUrl(input.googlePlayUrl, "googlePlay");
-    if (!url.ok) return fail("The Google Play link must be an https://play.google.com/store/apps/details?id=… listing URL.");
+    if (!url.ok) return fail("The Google Play link must be an https://play.google.com/store/apps/details?id=… listing URL or a https://play.google.com/apps/internaltest/… or /apps/testing/… testing link.");
     next.googlePlayUrl = url.value;
   }
   if (input.coachAvailable !== undefined) next.coachAvailable = input.coachAvailable;

@@ -32,6 +32,18 @@ args = "artifacts/thinnr-operations: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "store-build-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "store-build-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "store-build-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3168,3 +3180,36 @@ isValidation = true
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:no-demo-copy && pnpm --filter @workspace/thinnr-mobile run test:onboarding-gate && pnpm --filter @workspace/thinnr-mobile run test:onboarding-identity && pnpm --filter @workspace/thinnr-mobile run test:onboarding-hints && pnpm --filter @workspace/thinnr-mobile run test:leaderboard && pnpm --filter @workspace/thinnr-mobile run test:payments-status && pnpm --filter @workspace/thinnr-mobile run test:order-refresh && pnpm --filter @workspace/thinnr-mobile run test:checkout && pnpm --filter @workspace/thinnr-mobile run test:product-page && pnpm --filter @workspace/thinnr-mobile run typecheck && pnpm --filter @workspace/thinnr-mobile run test:provider-training && pnpm --filter @workspace/thinnr-operations run test:parity && pnpm --filter @workspace/thinnr-operations run test:body-measurements"
+
+[[workflows.workflow]]
+name = "store-build-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run check:store-config && pnpm --filter @workspace/thinnr-mobile run test:push-notifications && pnpm --filter @workspace/thinnr-mobile run test:invite-patients && pnpm --filter @workspace/thinnr-mobile run test:patient-auth && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "store-build-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm exec tsc -b lib/email-templates && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/hq-org-policy.test.ts src/routes/office-roster.test.ts src/system/launch-readiness.test.ts src/lib/patient-invite-link.test.ts src/claim src/email && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "store-build-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:app-store-qr && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run test:system-health && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true

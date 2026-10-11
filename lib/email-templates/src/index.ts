@@ -116,7 +116,7 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
   {
     id: "patient-invitation",
     name: "Patient invitation",
-    purpose: "Invites a patient to join THINNR under their provider’s office and walks them through first-time setup: install Expo Go, open the app link, choose Create New Account → I have an invitation, verify the invited phone or email, and create a password.",
+    purpose: "Invites a patient to join THINNR under their provider’s office and walks them through first-time setup: install the app (from the App Store / Google Play once HQ has added those links, otherwise through Expo Go), choose Create New Account → I have an invitation, verify the invited phone or email, and create a password.",
     trigger: "Office staff — or an HQ administrator working inside that office — invites a patient from the patient roster.",
     audience: "A patient invited by a provider office.",
     sampleVariables: {
@@ -126,6 +126,9 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       providerCode: "731942",
       phone: "(555) 014-2890",
       appLink: "https://example.test/thinnr-app",
+      appStoreLink: "",
+      googlePlayLink: "",
+      expoGoLink: "",
     },
     variableLabels: {
       name: "Patient first name",
@@ -133,7 +136,10 @@ export const EMAIL_TEMPLATE_CATALOG: readonly EmailTemplateDefinition[] = [
       officeName: "Office name",
       providerCode: "Provider code",
       phone: "Invited phone number",
-      appLink: "App link",
+      appLink: "App link (button target)",
+      appStoreLink: "App Store link (optional; switches the email to the store steps)",
+      googlePlayLink: "Google Play link (optional; switches the email to the store steps)",
+      expoGoLink: "Expo Go page (optional; used for a platform without a store link)",
     },
   },
   {
@@ -520,32 +526,104 @@ export function renderEmailTemplate(
     const providerCode = requireVariable(variables, "providerCode");
     const phone = requireVariable(variables, "phone");
     const appLink = requireVariable(variables, "appLink");
+    const appStoreLink = variables.appStoreLink?.trim() || null;
+    const googlePlayLink = variables.googlePlayLink?.trim() || null;
+    const expoGoLink = variables.expoGoLink?.trim() || null;
+    const storeMode = Boolean(appStoreLink || googlePlayLink);
     const subject = `${providerName} invited you to THINNR`;
-    const previewText = `${officeName} set up your THINNR access. Install Expo Go, open the app, and choose Create New Account to begin.`;
+    const previewText = storeMode
+      ? `${officeName} set up your THINNR access. Install the app, then choose Create New Account to begin.`
+      : `${officeName} set up your THINNR access. Install Expo Go, open the app, and choose Create New Account to begin.`;
+    const step = (index: number, html: string) =>
+      `<tr><td valign="top" style="padding:0 12px 14px 0;font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:bold;line-height:1.4;color:#315eae;">${index}</td><td valign="top" style="padding:0 0 14px;font-size:16px;line-height:1.6;color:#26364b;">${html}</td></tr>`;
+    const storeLink = (href: string, label: string) =>
+      `<a href="${escapeHtml(href)}" style="color:#315eae;font-weight:bold;">${label}</a>`;
+    const accountSteps = (from: number) => [
+      `${from}. In THINNR, tap “Create New Account”, then “I have an invitation”. Do not tap “Log In”: you do not have a password yet.`,
+      `${from + 1}. Enter your invited phone number, ${phone}, or the email address this message was sent to.`,
+      `${from + 2}. Enter the 6-digit code we send you.`,
+      `${from + 3}. Create your password, then finish the short welcome steps.`,
+    ];
+    const accountStepsHtml = (from: number) => [
+      step(from, "In THINNR, tap <strong>Create New Account</strong>, then <strong>I have an invitation</strong>. Don’t tap Log In: you don’t have a password yet."),
+      step(from + 1, "Enter your invited phone number (below) or the email address this message was sent to."),
+      step(from + 2, "Enter the 6-digit code we send you."),
+      step(from + 3, "Create your password, then finish the short welcome steps."),
+    ].join("\n");
+    const closingText = [
+      "",
+      `Provider code: ${providerCode}`,
+      `Your invitation connects you to ${officeName} automatically, so you should not need to enter the code. Keep it handy in case you are ever asked for it.`,
+      "",
+      "If you were not expecting this invitation, you can safely ignore this email.",
+    ];
+    const closingHtml = `${infoPanel("Your invited phone number", phone)}
+          ${infoPanel("Provider code", providerCode)}
+          ${paragraph(`Your invitation connects you to <strong>${escapeHtml(officeName)}</strong> automatically, so you shouldn’t need to enter the provider code. Keep it handy in case you’re ever asked for it.`)}`;
+    const intro = `${providerName} at ${officeName} invited you to THINNR, the companion app for your program. Setting up takes a few minutes on your phone.`;
+    const introHtml = paragraph(`<strong>${escapeHtml(providerName)}</strong> at <strong>${escapeHtml(officeName)}</strong> invited you to THINNR, the companion app for your program. Setting up takes a few minutes on your phone.`);
+
+    if (storeMode) {
+      // Store flow: THINNR itself from the App Store / Google Play. A platform
+      // HQ has not listed yet keeps the Expo Go page when one is configured.
+      const platformText = (label: string, link: string | null) => {
+        if (link) return `   ${label}: ${link}`;
+        if (expoGoLink) return `   ${label}: install the free Expo Go app, then open ${expoGoLink} on your phone and tap “Open in Expo Go”.`;
+        return `   ${label}: not available yet — ask ${officeName} when it is.`;
+      };
+      const platformHtml = (label: string, link: string | null, store: string) => {
+        if (link) return `<strong>${label}:</strong> ${storeLink(link, `Install from ${store}`)}`;
+        if (expoGoLink) return `<strong>${label}:</strong> install the free <strong>Expo Go</strong> app, then open ${storeLink(expoGoLink, "this page")} on your phone and tap <strong>Open in Expo Go</strong>.`;
+        return `<strong>${label}:</strong> not available yet — ask ${escapeHtml(officeName)} when it is.`;
+      };
+      const text = [
+        `Hello ${name},`,
+        "",
+        intro,
+        "",
+        "1. Install the THINNR app on your phone.",
+        platformText("iPhone", appStoreLink),
+        platformText("Android", googlePlayLink),
+        "2. Open THINNR.",
+        ...accountSteps(3),
+        ...closingText,
+      ].join("\n");
+      return {
+        subject,
+        previewText,
+        text,
+        html: shell({
+          previewText,
+          eyebrow: "Patient invitation",
+          heading: `${providerName} invited you to THINNR`,
+          greeting: name,
+          bodyHtml: `${introHtml}
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 10px;">
+            ${step(1, `Install the <strong>THINNR</strong> app on your phone.<br>${platformHtml("iPhone", appStoreLink, "the App Store")}<br>${platformHtml("Android", googlePlayLink, "Google Play")}`)}
+            ${step(2, "Open THINNR.")}
+            ${accountStepsHtml(3)}
+          </table>
+          ${button(appLink, "Get the THINNR app")}
+          ${paragraph(`If the button doesn’t work, open this link on your phone:<br><a href="${escapeHtml(appLink)}" style="color:#315eae;word-break:break-all;">${escapeHtml(appLink)}</a>`)}
+          ${closingHtml}`,
+          closing: "If you were not expecting this invitation, you can safely ignore this email.",
+        }),
+      };
+    }
+
     const text = [
       `Hello ${name},`,
       "",
-      `${providerName} at ${officeName} invited you to THINNR, the companion app for your program. Setting up takes a few minutes on your phone.`,
+      intro,
       "",
       "1. Install the free Expo Go app on your phone.",
       `   iPhone: ${EXPO_GO_APP_STORE_URL}`,
       `   Android: ${EXPO_GO_PLAY_STORE_URL}`,
       `2. On your phone, open this link and tap “Open in Expo Go”: ${appLink}`,
       "   On a computer, the same page shows a QR code to scan with your phone’s camera.",
-      "3. In THINNR, tap “Create New Account”, then “I have an invitation”. Do not tap “Log In”: you do not have a password yet.",
-      `4. Enter your invited phone number, ${phone}, or the email address this message was sent to.`,
-      "5. Enter the 6-digit code we send you.",
-      "6. Create your password, then finish the short welcome steps.",
-      "",
-      `Provider code: ${providerCode}`,
-      `Your invitation connects you to ${officeName} automatically, so you should not need to enter the code. Keep it handy in case you are ever asked for it.`,
-      "",
-      "If you were not expecting this invitation, you can safely ignore this email.",
+      ...accountSteps(3),
+      ...closingText,
     ].join("\n");
-    const step = (index: number, html: string) =>
-      `<tr><td valign="top" style="padding:0 12px 14px 0;font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:bold;line-height:1.4;color:#315eae;">${index}</td><td valign="top" style="padding:0 0 14px;font-size:16px;line-height:1.6;color:#26364b;">${html}</td></tr>`;
-    const storeLink = (href: string, label: string) =>
-      `<a href="${escapeHtml(href)}" style="color:#315eae;font-weight:bold;">${label}</a>`;
     return {
       subject,
       previewText,
@@ -555,20 +633,15 @@ export function renderEmailTemplate(
         eyebrow: "Patient invitation",
         heading: `${providerName} invited you to THINNR`,
         greeting: name,
-        bodyHtml: `${paragraph(`<strong>${escapeHtml(providerName)}</strong> at <strong>${escapeHtml(officeName)}</strong> invited you to THINNR, the companion app for your program. Setting up takes a few minutes on your phone.`)}
+        bodyHtml: `${introHtml}
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 10px;">
             ${step(1, `Install the free <strong>Expo Go</strong> app: ${storeLink(EXPO_GO_APP_STORE_URL, "App Store (iPhone)")} or ${storeLink(EXPO_GO_PLAY_STORE_URL, "Google Play (Android)")}.`)}
             ${step(2, "On your phone, tap the button below, then tap <strong>Open in Expo Go</strong>. On a computer, the same page shows a QR code to scan with your phone’s camera.")}
-            ${step(3, "In THINNR, tap <strong>Create New Account</strong>, then <strong>I have an invitation</strong>. Don’t tap Log In: you don’t have a password yet.")}
-            ${step(4, "Enter your invited phone number (below) or the email address this message was sent to.")}
-            ${step(5, "Enter the 6-digit code we send you.")}
-            ${step(6, "Create your password, then finish the short welcome steps.")}
+            ${accountStepsHtml(3)}
           </table>
           ${button(appLink, "Open the THINNR app")}
           ${paragraph(`If the button doesn’t work, open this link on your phone:<br><a href="${escapeHtml(appLink)}" style="color:#315eae;word-break:break-all;">${escapeHtml(appLink)}</a>`)}
-          ${infoPanel("Your invited phone number", phone)}
-          ${infoPanel("Provider code", providerCode)}
-          ${paragraph(`Your invitation connects you to <strong>${escapeHtml(officeName)}</strong> automatically, so you shouldn’t need to enter the provider code. Keep it handy in case you’re ever asked for it.`)}`,
+          ${closingHtml}`,
         closing: "If you were not expecting this invitation, you can safely ignore this email.",
       }),
     };

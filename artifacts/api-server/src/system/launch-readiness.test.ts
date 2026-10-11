@@ -63,6 +63,7 @@ function deps(over: Partial<ReadinessDeps> & { endpoints?: Record<"live" | "test
     now: () => new Date("2026-09-25T12:00:00Z"),
     warehouse: () => ({ orderApiBaseUrl: WAREHOUSE, authorization: WAREHOUSE_AUTH }),
     catalogGaps: async () => [],
+    storeLinks: async () => ({ appStoreUrl: null, googlePlayUrl: null }),
   };
   return { deps: { ...base, ...over }, fetchMock, list };
 }
@@ -102,6 +103,34 @@ describe("provider launch readiness", () => {
 
     const badEnv = { ...goodEnv(), PATIENT_INVITE_URL: "http://app.example.test/thinnr-mobile/" };
     expect(byId(await checkLaunchReadiness(deps({ env: badEnv }).deps), "patient_app_url").status).toBe("fail");
+  });
+
+  it("prefers HQ's store links over the Expo Go page once they are entered", async () => {
+    const APP_STORE = "https://apps.apple.com/us/app/thinnr/id6740000001";
+    const PLAY = "https://play.google.com/store/apps/details?id=com.thinnr.app";
+    const both = byId(await checkLaunchReadiness(deps({ storeLinks: async () => ({ appStoreUrl: APP_STORE, googlePlayUrl: PLAY }) }).deps), "patient_app_url");
+    expect(both).toMatchObject({ status: "pass", copyValue: APP_STORE });
+    expect(both.detail).toContain(PLAY);
+    expect(both.detail).not.toContain("testing link");
+
+    // A TestFlight link counts as the interim App Store link; the missing Play
+    // link falls back to the Expo Go page while it is configured.
+    const interim = byId(await checkLaunchReadiness(deps({ storeLinks: async () => ({ appStoreUrl: "https://testflight.apple.com/join/AbCdEf12", googlePlayUrl: null }) }).deps), "patient_app_url");
+    expect(interim.status).toBe("pass");
+    expect(interim.detail).toContain("testing link");
+    expect(interim.detail).toContain(`Expo Go page (${ORIGIN}/thinnr-mobile/)`);
+
+    // Without an Expo Go page the other platform has no install path: a warning, never a dead link.
+    const noExpo: NodeJS.ProcessEnv = { ...goodEnv() };
+    delete noExpo.PATIENT_INVITE_URL;
+    const oneOnly = byId(await checkLaunchReadiness(deps({ env: noExpo, storeLinks: async () => ({ appStoreUrl: APP_STORE, googlePlayUrl: null }) }).deps), "patient_app_url");
+    expect(oneOnly.status).toBe("warn");
+    expect(oneOnly.fix).toContain("Google Play");
+
+    // Unreadable settings keep the Expo Go answer and say so.
+    const unreadable = byId(await checkLaunchReadiness(deps({ storeLinks: async () => { throw new Error("down"); } }).deps), "patient_app_url");
+    expect(unreadable.status).toBe("pass");
+    expect(unreadable.detail).toContain("could not be read");
   });
 
   it("only reads vendor state: webhook lists and GET requests, never writes", async () => {

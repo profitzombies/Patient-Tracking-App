@@ -42,9 +42,12 @@ vi.hoisted(() => {
 import router, { RECORD_NOT_FOUND } from "./office-roster";
 import { ensurePatientAuthUser } from "../auth/session";
 import { resetRecordAccessCache } from "../lib/record-access-audit";
+import { invalidateOrgPolicyCache } from "../lib/org-policy";
 
 type Row = Record<string, unknown>;
 const originalFetch = global.fetch;
+/** HQ store links (Organization settings); null = the settings read fails. */
+let hqStoreLinks: { appStoreUrl: string | null; googlePlayUrl: string | null } | null = null;
 let server: http.Server;
 let baseUrl = "";
 
@@ -196,6 +199,9 @@ beforeEach(() => {
   spendRows = [];
   spendRequests.length = 0;
 
+  hqStoreLinks = null;
+  invalidateOrgPolicyCache();
+
   global.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.hostname === "api.resend.com") {
@@ -209,6 +215,10 @@ beforeEach(() => {
     }
     // Unwaived practices have no completion in the current payment mode.
     if (url.pathname === "/rest/v1/practice_launch_completions") return response([]);
+    if (url.pathname === "/rest/v1/hq_organization_settings") {
+      if (!hqStoreLinks) return response({ message: "settings unavailable" }, 500);
+      return response([{ singleton: true, version: 1, app_store_url: hqStoreLinks.appStoreUrl, google_play_url: hqStoreLinks.googlePlayUrl }]);
+    }
     if (url.pathname === "/rest/v1/practice_launch") {
       const id=url.searchParams.get("provider_id")?.replace("eq.","");
       return response(providers.some(row=>row.provider_id===id) ? [{provider_id:id,required:launchRequired,version:0,details_confirmed:false,products_confirmed:false,completed_at:null,setup_override_at:launchRequired?null:"2026-01-01T00:00:00Z"}] : []);
@@ -1121,6 +1131,30 @@ describe("creating invitations", () => {
       expect(res.status).toBe(201);
       expect(((await res.json()) as { invitation: string }).invitation).toBe("sent");
       expect(JSON.stringify(resendCalls[0].vars)).toContain("https://app.thinnr.test/thinnr-mobile/");
+    });
+
+    it("switches to the store links as soon as HQ has entered them", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.PATIENT_INVITE_URL = "https://app.thinnr.test/thinnr-mobile/";
+      hqStoreLinks = { appStoreUrl: "https://apps.apple.com/us/app/thinnr/id6740000001", googlePlayUrl: "https://play.google.com/store/apps/details?id=com.thinnr.app" };
+      const res = await api("/office/invitations", "provider-token", { method: "POST", body: JSON.stringify(INVITE) });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { invitation: string }).invitation).toBe("sent");
+      const text = String(resendCalls[0].vars.text);
+      expect(text).toContain("https://apps.apple.com/us/app/thinnr/id6740000001");
+      expect(text).toContain("https://play.google.com/store/apps/details?id=com.thinnr.app");
+      expect(text).not.toContain("Expo Go");
+    });
+
+    it("accepts a TestFlight link as the interim App Store link and keeps Expo Go for the platform without one", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.PATIENT_INVITE_URL = "https://app.thinnr.test/thinnr-mobile/";
+      hqStoreLinks = { appStoreUrl: "https://testflight.apple.com/join/AbCdEf12", googlePlayUrl: null };
+      const res = await api("/office/invitations", "provider-token", { method: "POST", body: JSON.stringify(INVITE) });
+      expect(res.status).toBe(201);
+      const text = String(resendCalls[0].vars.text);
+      expect(text).toContain("iPhone: https://testflight.apple.com/join/AbCdEf12");
+      expect(text).toContain("Android: install the free Expo Go app, then open https://app.thinnr.test/thinnr-mobile/");
     });
 
     it("never emails the workspace preview: no live link holds the email as not configured", async () => {

@@ -198,10 +198,17 @@ export async function sendPatientInvitation(
     officeName: string;
     providerCode: string;
     phone: string;
+    /** Button target: the App Store link, else Google Play, else the Expo Go page. */
     appLink: string;
+    /** Store flow when either is present (see lib/email-templates); otherwise the Expo Go steps. */
+    appStoreLink?: string;
+    googlePlayLink?: string;
+    expoGoLink?: string;
   },
 ): Promise<void> {
-  await sendTransactionalEmail(to, "patient-invitation", input);
+  const variables: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) if (typeof value === "string") variables[key] = value;
+  await sendTransactionalEmail(to, "patient-invitation", variables);
 }
 
 /** Post-commit invitation for a new office staff sign-in added by HQ. */

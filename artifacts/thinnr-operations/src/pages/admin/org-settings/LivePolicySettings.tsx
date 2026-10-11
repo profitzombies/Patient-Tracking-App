@@ -274,12 +274,12 @@ const STORE_LINK_FIELDS: Array<{ kind: AppStoreKind; key: 'appStoreUrl' | 'googl
   {
     kind: 'appStore', key: 'appStoreUrl', testId: 'input-setting-live-app-store-url',
     placeholder: 'https://apps.apple.com/us/app/thinnr/id…',
-    help: 'The App Store listing. Offices copy this link from their settings to send to iPhone patients.',
+    help: 'The App Store listing. Once set, patient invitation emails, office QR codes and the roster invite copy point iPhone patients here instead of the Expo Go page. A TestFlight public link works as an interim value.',
   },
   {
     kind: 'googlePlay', key: 'googlePlayUrl', testId: 'input-setting-live-google-play-url',
     placeholder: 'https://play.google.com/store/apps/details?id=…',
-    help: 'The Google Play listing. Offices copy this link from their settings to send to Android patients.',
+    help: 'The Google Play listing. Once set, patient invitation emails, office QR codes and the roster invite copy point Android patients here instead of the Expo Go page. A Play internal-testing link works as an interim value.',
   },
 ];
 

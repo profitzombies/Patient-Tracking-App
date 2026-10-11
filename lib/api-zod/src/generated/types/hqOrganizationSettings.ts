@@ -21,12 +21,12 @@ export interface HqOrganizationSettings {
   supportPhone: string | null;
   defaultTimezone: string;
   /**
-     * App Store listing link offices render as a QR code; null until HQ adds it.
+     * App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.
      * @nullable
      */
   appStoreUrl: string | null;
   /**
-     * Google Play listing link offices render as a QR code; null until HQ adds it.
+     * Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.
      * @nullable
      */
   googlePlayUrl: string | null;

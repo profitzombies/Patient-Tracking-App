@@ -21,6 +21,8 @@ import {
   setPathname,
 } from "./provider-training-stubs/expo-router";
 import { setStaffCardBridgeForTests } from "../lib/staff-card-bridge";
+import { setTapToPayBuildFlagForTests } from "./privacy-controls-stubs/expo-constants";
+import { tapToPayBuildEnabled, tapToPayDeviceSupported } from "../lib/tap-to-pay-device";
 import {
   setTapToPayBridgeForTests,
   type TapConnectParams,
@@ -265,6 +267,32 @@ async function startTap() {
 const byPath = (suffix: string) => requests.filter((r) => r.path.endsWith(suffix));
 
 async function main() {
+  section("Build flag gating (store builds ship without Tap to Pay)");
+  // The expo-constants stand-in defaults to a build compiled WITHOUT the
+  // feature — the shape of every preview / production store build until
+  // Apple grants the entitlement. Even with the office ready, the API saying
+  // available, and a native Terminal client present, the option must not be
+  // offered and no "unavailable" explanation must appear either.
+  check("stub starts as a build without Tap to Pay", !tapToPayBuildEnabled() && !tapToPayDeviceSupported());
+  resetRequests();
+  baseScript();
+  const storeBuild = fakeClient({ collects: [{ ok: true }] });
+  setTapToPayBridgeForTests(storeBuild.client);
+  const productionOff = await atMethod();
+  check(
+    "production build (flag off) never offers Tap to Pay even when the API says available",
+    !one(productionOff.root, "sale-method-tap") &&
+      !one(productionOff.root, "sale-tap-unavailable") &&
+      !!one(productionOff.root, "sale-method-card") &&
+      !!one(productionOff.root, "sale-method-qr"),
+  );
+  check("flag-off build never touches the reader", storeBuild.calls.connect.length === 0);
+  await productionOff.unmount();
+  setTapToPayBuildFlagForTests(true);
+  check("development build (flag on) with a native client is supported", tapToPayBuildEnabled() && tapToPayDeviceSupported());
+  setTapToPayBridgeForTests(null);
+  check("flag on without a native client (web / Expo Go) is still unsupported", !tapToPayDeviceSupported());
+
   section("Offer gating");
   resetRequests();
   baseScript();
@@ -321,7 +349,7 @@ async function main() {
     "tap sale body is exact (no payment method, same cart key, the quoted total the button showed)",
     !!tapPost &&
       JSON.stringify(tapPost.body) ===
-        JSON.stringify({ patient_id: "p1", lines: LINES, shipping_address: ADDRESS, cart_id: (tapPost.body as any).cart_id, expected_total_cents: 5500 }),
+        JSON.stringify({ patient_id: "p1", lines: LINES, shipping_address: ADDRESS, shipping_method: "standard", cart_id: (tapPost.body as any).cart_id, expected_total_cents: 5500 }),
     JSON.stringify(tapPost?.body),
   );
   check(

@@ -47,7 +47,8 @@ import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/ti
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
 import { loadOfficeDietFacts, NO_DIET_FACTS } from "../diet/roster-facts";
-import { resolvePatientInviteLink } from "../lib/patient-invite-link";
+import { patientInvitationLinkVariables, resolvePatientAppLinks } from "../lib/patient-app-link";
+import { loadOrgPolicy } from "../lib/org-policy";
 import type { DoseLogRecord, MedicationRecord } from "../medications/schedule";
 
 const router: IRouter = Router();
@@ -391,14 +392,26 @@ async function authorizedPhotoUrl(patientId: string, path: unknown): Promise<str
 export type OfficePatientDto = ReturnType<typeof patientDto>;
 
 /**
- * The app link for the invitation email (see resolvePatientInviteLink: the
- * published site uses PATIENT_INVITE_URL and never the workspace preview).
- * No usable link means email delivery is not configured — better an honest
- * retry state than a dead button in a patient's inbox.
+ * The app links for the invitation email: HQ's App Store / Google Play links
+ * first (TestFlight and Play testing links included), else the Expo Go page
+ * (see resolvePatientAppLinks; the published site never uses the workspace
+ * preview). No usable link means email delivery is not configured — better
+ * an honest retry state than a dead button in a patient's inbox.
  */
-function patientAppLink(): string {
-  const resolved = resolvePatientInviteLink();
-  if (resolved.ok) return resolved.link;
+async function patientAppLinkVariables(
+  log?: { error: (obj: unknown, msg: string) => void },
+): Promise<ReturnType<typeof patientInvitationLinkVariables>> {
+  let storeLinks: { appStoreUrl: string | null; googlePlayUrl: string | null } | null = null;
+  try {
+    const policy = await loadOrgPolicy();
+    storeLinks = { appStoreUrl: policy.appStoreUrl, googlePlayUrl: policy.googlePlayUrl };
+  } catch (error) {
+    // Settings unreadable: fall back to the Expo Go page rather than hold the
+    // invitation; the next invite re-reads the store links.
+    log?.error({ err: error }, "patient invitation could not read the HQ store links");
+  }
+  const resolved = resolvePatientAppLinks(storeLinks);
+  if (resolved.ok) return patientInvitationLinkVariables(resolved);
   // No app link = the invitation email cannot be composed; surface the same
   // durable "not configured" retry state as missing email credentials.
   throw new DeliveryNotConfiguredError("email");
@@ -427,7 +440,7 @@ async function deliverInvitationEmail(input: {
         effectiveProviderCode(input.scope.onboardingCode, input.scope.providerId) ??
         input.scope.providerId,
       phone: input.phoneDisplay,
-      appLink: patientAppLink(),
+      ...(await patientAppLinkVariables(input.log)),
     });
   } catch (error) {
     outcome = error instanceof DeliveryNotConfiguredError ? "not_configured" : "failed";

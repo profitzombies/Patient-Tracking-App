@@ -9,11 +9,14 @@ import type { HqOrganizationSettings } from './hqOrganizationSettings';
 import type { OfficeEffectivePolicy } from './officeEffectivePolicy';
 import type { OfficeOverrides } from './officeOverrides';
 import type { OfficeSettingsOffice } from './officeSettingsOffice';
+import type { OfficeSettingsPatientApp } from './officeSettingsPatientApp';
 
 export interface OfficeSettings {
   office: OfficeSettingsOffice;
   hq: HqOrganizationSettings;
   overrides: OfficeOverrides;
   effective: OfficeEffectivePolicy;
+  /** Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured. */
+  patientApp?: OfficeSettingsPatientApp;
   canEdit: boolean;
 }

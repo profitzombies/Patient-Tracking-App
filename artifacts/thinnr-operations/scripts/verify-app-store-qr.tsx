@@ -70,6 +70,7 @@ const settle = async (ticks = 10) => { for (let i = 0; i < ticks; i += 1) await 
 
 const APP_STORE = 'https://apps.apple.com/us/app/thinnr/id6740000001';
 const PLAY = 'https://play.google.com/store/apps/details?id=com.thinnr.app';
+const EXPO_GO = 'https://app.thinnr.test/thinnr-mobile/';
 
 // ─── lib/qr ──────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,9 @@ console.log('lib/qr — local encoding');
   check('store-link shape check accepts real listings and blank, rejects other hosts',
     storeLinkProblem('appStore', APP_STORE) === null && storeLinkProblem('googlePlay', PLAY) === null && storeLinkProblem('appStore', '  ') === null
     && storeLinkProblem('appStore', 'https://example.com/app') !== null && storeLinkProblem('googlePlay', 'https://play.google.com/') !== null && storeLinkProblem('appStore', PLAY) !== null);
-  check('storeLinksOf keeps display order and blanks to null', JSON.stringify(storeLinksOf({ appStoreUrl: ` ${APP_STORE} `, googlePlayUrl: '' })) === JSON.stringify([{ kind: 'appStore', url: APP_STORE }, { kind: 'googlePlay', url: null }]));
+  check('storeLinksOf keeps display order and blanks to null', JSON.stringify(storeLinksOf({ appStoreUrl: ` ${APP_STORE} `, googlePlayUrl: '' })) === JSON.stringify([{ kind: 'appStore', url: APP_STORE, source: 'store' }, { kind: 'googlePlay', url: null, source: null }]));
+  check('a blank store link falls back to the Expo Go page when the server reports one', JSON.stringify(storeLinksOf({ appStoreUrl: APP_STORE, googlePlayUrl: null }, EXPO_GO)) === JSON.stringify([{ kind: 'appStore', url: APP_STORE, source: 'store' }, { kind: 'googlePlay', url: EXPO_GO, source: 'expo_go' }]));
+  check('TestFlight and Play testing links pass the shape check as interim store links', storeLinkProblem('appStore', 'https://testflight.apple.com/join/AbCdEf12') === null && storeLinkProblem('googlePlay', 'https://play.google.com/apps/internaltest/4700000000000000001') === null && storeLinkProblem('googlePlay', 'https://play.google.com/apps/testing/com.thinnr.app') === null);
 }
 
 // ─── Panel in isolation ──────────────────────────────────────────────────────
@@ -128,6 +131,15 @@ console.log('panel — one blank link');
   check('only the App Store code renders', svgs.length === 1 && svgs[0].props['data-qr-value'] === APP_STORE);
   check('Google Play shows the not-added notice in place of a code', textOf(oneByTestId(root, 'store-code-missing-googlePlay')) === STORE_LINK_MISSING && byTestId(root, 'store-code-missing-appStore').length === 0);
   check('print stays available for the one code', oneByTestId(root, 'button-print-app-sheet').props.disabled === false);
+}
+
+console.log('panel — Expo Go fallback for a blank link');
+{
+  const { root } = await renderPanel(<GetTheAppPanel practiceName="Riverside Wellness" hq={{ appStoreUrl: APP_STORE, googlePlayUrl: null }} expoGoUrl={EXPO_GO} />);
+  const svgs = qrSvgs(root);
+  check('the Play code encodes the Expo Go page until HQ adds the store link', svgs.length === 2 && svgs[0].props['data-qr-value'] === APP_STORE && svgs[1].props['data-qr-value'] === EXPO_GO && byTestId(root, 'store-code-missing-googlePlay').length === 0);
+  const sheet = buildAppSheetHtml('Riverside Wellness', storeLinksOf({ appStoreUrl: APP_STORE, googlePlayUrl: null }, EXPO_GO));
+  check('the print sheet labels the fallback code', (sheet.match(/<svg /g) ?? []).length === 2 && sheet.includes('Expo Go page until HQ adds the store link') && !sheet.includes(STORE_LINK_MISSING));
 }
 
 console.log('panel — both blank, loading, error');

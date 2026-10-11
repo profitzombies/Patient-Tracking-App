@@ -21,7 +21,9 @@ import {
   accountDefaultApiVersion, evaluateWebhookEndpoint, EXPECTED_STRIPE_API_VERSION,
   recommendedWebhookEvents, requiredWebhookEvents,
 } from "../billing/webhook-endpoints";
-import { resolvePatientInviteLink, suggestedPatientInviteUrl } from "../lib/patient-invite-link";
+import { suggestedPatientInviteUrl } from "../lib/patient-invite-link";
+import { resolvePatientAppLinks, type StoreLinks } from "../lib/patient-app-link";
+import { loadOrgPolicy } from "../lib/org-policy";
 import {
   LIVE_WAREHOUSE_LOGIN, TEST_WAREHOUSE_LOGIN, missingLiveWarehouseLogin, requestedWarehouseTenant, warehouseCraftConfig, warehouseTenantMode,
 } from "../shipping/warehousecraft";
@@ -66,6 +68,8 @@ export interface ReadinessDeps {
   warehouse: (env: NodeJS.ProcessEnv) => { orderApiBaseUrl: string | null; authorization: string | null };
   /** Active catalog products missing what the warehouse needs to ship them. */
   catalogGaps: () => Promise<CatalogGap[]>;
+  /** HQ's App Store / Google Play links (Organization settings); throws when unreadable. */
+  storeLinks: () => Promise<StoreLinks>;
 }
 
 export interface CatalogGap { name: string; missingSku: boolean; missingWeight: boolean }
@@ -91,6 +95,10 @@ const defaultDeps: ReadinessDeps = {
   now: () => new Date(),
   warehouse: warehouseCraftConfig,
   catalogGaps: activeCatalogGaps,
+  storeLinks: async () => {
+    const policy = await loadOrgPolicy();
+    return { appStoreUrl: policy.appStoreUrl, googlePlayUrl: policy.googlePlayUrl };
+  },
 };
 
 /**
@@ -119,7 +127,7 @@ function originOf(value: string): string | null {
   }
 }
 
-function appChecks(deps: ReadinessDeps): ReadinessCheck[] {
+async function appChecks(deps: ReadinessDeps): Promise<ReadinessCheck[]> {
   const checks: ReadinessCheck[] = [];
   const configured = deps.env.OPERATIONS_APP_URL?.trim() ?? "";
   const appOrigin = configured ? originOf(configured) : null;
@@ -159,7 +167,7 @@ function appChecks(deps: ReadinessDeps): ReadinessCheck[] {
     });
   }
 
-  checks.push(patientAppLinkCheck(deps.env));
+  checks.push(await patientAppLinkCheck(deps));
 
   if (billingError || !billingOrigin) {
     checks.push({
@@ -185,36 +193,68 @@ function appChecks(deps: ReadinessDeps): ReadinessCheck[] {
 }
 
 /**
- * The link patient invitation emails carry. Read strictly, the way the
- * published site reads it: the workspace's Expo preview never counts.
+ * The link patient invitation emails carry: HQ's store links first (TestFlight
+ * and Play testing links count as interim values), else the Expo Go page.
+ * Read strictly, the way the published site reads it: the workspace's Expo
+ * preview never counts.
  */
-function patientAppLinkCheck(env: NodeJS.ProcessEnv): ReadinessCheck {
+async function patientAppLinkCheck(deps: ReadinessDeps): Promise<ReadinessCheck> {
+  const env = deps.env;
   const base = { id: "patient_app_url", section: "app" as const, label: "Patient app link" };
   const suggested = suggestedPatientInviteUrl(env);
-  const setIt = `Set PATIENT_INVITE_URL for the published site to the app's Expo Go page${suggested ? ` (${suggested})` : " (the site address followed by /thinnr-mobile/)"} and republish.`;
+  const addStoreLinks = "Add the App Store and Google Play links under Organization settings (TestFlight / Play internal-testing links work until the listings are approved)";
+  const setIt = `${addStoreLinks}, or set PATIENT_INVITE_URL for the published site to the app's Expo Go page${suggested ? ` (${suggested})` : " (the site address followed by /thinnr-mobile/)"} and republish.`;
   const copy = suggested ? { copyValue: suggested } : {};
-  const resolved = resolvePatientInviteLink(env, { strict: true });
+  let storeLinks: StoreLinks | null = null;
+  let storeLinksError = false;
+  try {
+    storeLinks = await deps.storeLinks();
+  } catch {
+    storeLinksError = true;
+  }
+  const resolved = resolvePatientAppLinks(storeLinks, env, { strict: true });
+  if (resolved.ok && resolved.mode === "store") {
+    const platforms = [
+      resolved.appStoreUrl ? `iPhone patients open ${resolved.appStoreUrl}` : null,
+      resolved.googlePlayUrl ? `Android patients open ${resolved.googlePlayUrl}` : null,
+    ].filter((line): line is string => Boolean(line));
+    const missing = !resolved.appStoreUrl ? "App Store" : !resolved.googlePlayUrl ? "Google Play" : null;
+    const interim = resolved.interim ? " One of these is a testing link; replace it with the public listing once the app is approved." : "";
+    if (missing && !resolved.expoGoUrl) {
+      return {
+        ...base, status: "warn", copyValue: resolved.link,
+        detail: `${platforms.join("; ")}. The ${missing} link is blank and no Expo Go page is configured, so patients on the other platform have no install path yet.${interim}`,
+        fix: `Add the ${missing} link under Organization settings, or set PATIENT_INVITE_URL to the Expo Go page as the interim path.`,
+      };
+    }
+    const fallback = missing ? ` Until HQ adds the ${missing} link, patients on that platform get the Expo Go page (${resolved.expoGoUrl}).` : "";
+    return {
+      ...base, status: "pass", fix: null, copyValue: resolved.link,
+      detail: `Patient invitation emails use the store links: ${platforms.join("; ")}.${fallback}${interim}`,
+    };
+  }
+  const unreadable = storeLinksError ? " (HQ store links could not be read; the Expo Go page is used meanwhile.)" : "";
   if (resolved.ok) {
     return {
       ...base, status: "pass", fix: null, copyValue: resolved.link,
-      detail: `Patient invitation emails open ${resolved.link}.`,
+      detail: `Patient invitation emails open the Expo Go page ${resolved.link}. Add the App Store and Google Play links under Organization settings to switch them to the store.${unreadable}`,
     };
   }
   if (resolved.problem === "missing") {
     return {
       ...base, status: "fail", fix: setIt, ...copy,
-      detail: "PATIENT_INVITE_URL is not set, so patient invitation emails have no app link on the live site and are held as not sent.",
+      detail: `No store links are set and PATIENT_INVITE_URL is not set, so patient invitation emails have no app link on the live site and are held as not sent.${unreadable}`,
     };
   }
   if (resolved.problem === "dev_preview") {
     return {
       ...base, status: "fail", fix: setIt, ...copy,
-      detail: `${resolved.setting} points at a development preview address (${resolved.value}), which stops working when the workspace closes.`,
+      detail: `${resolved.setting} points at a development preview address (${resolved.value}), which stops working when the workspace closes.${unreadable}`,
     };
   }
   return {
     ...base, status: "fail", fix: setIt, ...copy,
-    detail: `${resolved.setting} is set but is not a valid https address.`,
+    detail: `${resolved.setting} is set but is not a valid https address.${unreadable}`,
   };
 }
 
@@ -559,6 +599,6 @@ export async function checkLaunchReadiness(overrides: Partial<ReadinessDeps> = {
   return {
     checkedAt: deps.now().toISOString(),
     mode: mode.mode,
-    checks: [...appChecks(deps), mode.check, ...live, ...test, ...warehouse, email, sms],
+    checks: [...(await appChecks(deps)), mode.check, ...live, ...test, ...warehouse, email, sms],
   };
 }

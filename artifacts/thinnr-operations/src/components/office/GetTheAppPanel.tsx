@@ -16,7 +16,7 @@
  */
 import { useMemo } from 'react';
 import { Printer, Smartphone } from 'lucide-react';
-import { APP_STORE_LABELS, STORE_LINK_MISSING, storeLinksOf, type StoreLink } from '@/lib/org-policy';
+import { APP_STORE_LABELS, STORE_LINK_EXPO_GO, STORE_LINK_MISSING, storeLinksOf, type StoreLink } from '@/lib/org-policy';
 import { escapeAttr, qrMatrix, qrPath, qrSvgMarkup, qrViewBox } from '@/lib/qr';
 import { BTN_SECONDARY, PANEL_LABEL } from '@/components/patient/heritage';
 import { useToast } from '@/hooks/use-toast';
@@ -71,8 +71,9 @@ export function buildAppSheetHtml(practiceName: string, links: StoreLink[]): str
       const body = link.url
         ? qrSvgMarkup(link.url, 240, `${labels.store} QR code`)
         : `<p class="missing">${escapeAttr(STORE_LINK_MISSING)}</p>`;
+      const device = link.source === 'expo_go' ? `${labels.device} · ${STORE_LINK_EXPO_GO}` : labels.device;
       return (
-        `<figure>${body}<figcaption><b>${escapeAttr(labels.store)}</b><span>${escapeAttr(labels.device)}</span></figcaption></figure>`
+        `<figure>${body}<figcaption><b>${escapeAttr(labels.store)}</b><span>${escapeAttr(device)}</span></figcaption></figure>`
       );
     })
     .join('');
@@ -127,14 +128,16 @@ function openPrintSheet(html: string): boolean {
 export interface GetTheAppPanelProps {
   practiceName: string;
   hq: Parameters<typeof storeLinksOf>[0] | null;
+  /** The Expo Go page a blank store link falls back to (server `patientApp.expoGoUrl`). */
+  expoGoUrl?: string | null;
   /** Live fetch still pending or failed → an honest placeholder, never demo links. */
   status?: 'ready' | 'loading' | 'error';
   className?: string;
 }
 
-export function GetTheAppPanel({ practiceName, hq, status = 'ready', className = '' }: GetTheAppPanelProps) {
+export function GetTheAppPanel({ practiceName, hq, expoGoUrl = null, status = 'ready', className = '' }: GetTheAppPanelProps) {
   const { toast } = useToast();
-  const links = hq ? storeLinksOf(hq) : null;
+  const links = hq ? storeLinksOf(hq, expoGoUrl) : null;
   const anyCode = Boolean(links?.some((link) => link.url));
 
   const print = () => {

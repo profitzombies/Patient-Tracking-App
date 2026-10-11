@@ -537,6 +537,7 @@ export * from './officeRosterResult';
 export * from './officeSeriesPoint';
 export * from './officeSettings';
 export * from './officeSettingsOffice';
+export * from './officeSettingsPatientApp';
 export * from './officeSummary';
 export * from './okResult';
 export * from './operationalPatient';

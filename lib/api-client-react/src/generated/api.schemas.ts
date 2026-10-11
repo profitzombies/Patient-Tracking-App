@@ -2874,12 +2874,12 @@ export interface HqOrganizationSettings {
   supportPhone: string | null;
   defaultTimezone: string;
   /**
-     * App Store listing link offices render as a QR code; null until HQ adds it.
+     * App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.
      * @nullable
      */
   appStoreUrl: string | null;
   /**
-     * Google Play listing link offices render as a QR code; null until HQ adds it.
+     * Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.
      * @nullable
      */
   googlePlayUrl: string | null;
@@ -3080,11 +3080,21 @@ export type OfficeSettingsOffice = {
   officeName: string;
 };
 
+/**
+ * Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured.
+ */
+export type OfficeSettingsPatientApp = {
+  /** @nullable */
+  expoGoUrl: string | null;
+};
+
 export interface OfficeSettings {
   office: OfficeSettingsOffice;
   hq: HqOrganizationSettings;
   overrides: OfficeOverrides;
   effective: OfficeEffectivePolicy;
+  /** Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured. */
+  patientApp?: OfficeSettingsPatientApp;
   canEdit: boolean;
 }
 

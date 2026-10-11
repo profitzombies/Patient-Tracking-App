@@ -394,9 +394,21 @@ describe("HQ organization policy", () => {
       expect(db.settings.version).toBe(3);
     });
 
+    it("accepts TestFlight and Play testing links as interim store links", async () => {
+      const TESTFLIGHT = "https://testflight.apple.com/join/AbCdEf12";
+      const INTERNAL = "https://play.google.com/apps/internaltest/4700000000000000001";
+      const { status, json } = await putSettings({ expectedVersion: 1, appStoreUrl: TESTFLIGHT, googlePlayUrl: INTERNAL });
+      expect(status).toBe(200);
+      expect(json).toMatchObject({ appStoreUrl: TESTFLIGHT, googlePlayUrl: INTERNAL });
+      const closed = await putSettings({ expectedVersion: 2, googlePlayUrl: "https://play.google.com/apps/testing/com.thinnr.app" });
+      expect(closed.status).toBe(200);
+    });
+
     it.each([
       ["appStoreUrl", "https://example.com/app"],
       ["appStoreUrl", "http://apps.apple.com/us/app/thinnr/id1"],
+      ["appStoreUrl", "https://testflight.apple.com/"],
+      ["googlePlayUrl", "https://play.google.com/apps/"],
       ["appStoreUrl", PLAY],
       ["appStoreUrl", "apps.apple.com/us/app/thinnr/id1"],
       ["appStoreUrl", "https://apps.apple.com/us/app/thinnr id1"],

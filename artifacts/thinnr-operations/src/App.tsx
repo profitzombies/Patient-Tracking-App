@@ -76,6 +76,7 @@ import { findSeededAccount } from '@/data/hq/accounts';
 import { canHq, firstAllowedAdminPath, permissionForAdminPath, type HqRole } from '@/data/hq/team';
 import Escalations from '@/pages/admin/Escalations';
 import SystemHealth from '@/pages/admin/SystemHealth';
+import MobileReleaseGuide from '@/pages/admin/MobileReleaseGuide';
 import Security from '@/pages/Security';
 import SecurityReport from '@/pages/SecurityReport';
 import PublicPayArea from '@/pages/public/pay/PublicPayArea';
@@ -153,6 +154,9 @@ function AdminArea() {
               </Route>
               <Route path="/admin/files" component={Files} />
               <Route path="/admin/exports" component={Exports} />
+              <Route path="/admin/system-health/release-guide">
+                {canViewAudit ? <MobileReleaseGuide /> : <Redirect to="/admin" replace />}
+              </Route>
               <Route path="/admin/system-health">
                 {canViewAudit ? <SystemHealth /> : <Redirect to="/admin" replace />}
               </Route>

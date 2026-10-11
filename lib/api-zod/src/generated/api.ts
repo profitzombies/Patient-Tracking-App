@@ -4518,8 +4518,8 @@ export const GetHqSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
-  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -4800,8 +4800,8 @@ export const UpdateHqSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
-  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -4965,8 +4965,8 @@ export const GetOfficeSettingsResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
-  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -5085,6 +5085,9 @@ export const GetOfficeSettingsResponse = zod.object({
   "idleTimeoutMinutes": zod.enum(['office', 'hq'])
 })
 }),
+  "patientApp": zod.object({
+  "expoGoUrl": zod.string().nullable()
+}).optional().describe('Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured.'),
   "canEdit": zod.boolean()
 })
 
@@ -5304,8 +5307,8 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "supportEmail": zod.string().nullable(),
   "supportPhone": zod.string().nullable(),
   "defaultTimezone": zod.string(),
-  "appStoreUrl": zod.string().nullable().describe('App Store listing link offices render as a QR code; null until HQ adds it.'),
-  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link offices render as a QR code; null until HQ adds it.'),
+  "appStoreUrl": zod.string().nullable().describe('App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.'),
+  "googlePlayUrl": zod.string().nullable().describe('Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.'),
   "coachAvailable": zod.boolean(),
   "escalationEmail": zod.string().nullable(),
   "defaultCategories": zod.object({
@@ -5424,6 +5427,9 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "idleTimeoutMinutes": zod.enum(['office', 'hq'])
 })
 }),
+  "patientApp": zod.object({
+  "expoGoUrl": zod.string().nullable()
+}).optional().describe('Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured.'),
   "canEdit": zod.boolean()
 })
 

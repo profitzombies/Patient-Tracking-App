@@ -192,6 +192,7 @@ function officeFixture(): OfficeSettingsDto {
     hq,
     overrides: { quietHours: { mode: 'inherit' }, escalationEmail: null, idleTimeoutMinutes: null, version: 0, updatedAt: null, updatedBy: null, updatedByName: null },
     effective: { quietHours: hq.defaultQuietHours, escalationEmail: hq.escalationEmail, idleTimeoutMinutes: 15, source: { quietHours: 'hq', escalationEmail: 'hq', idleTimeoutMinutes: 'hq' } },
+    patientApp: { expoGoUrl: 'https://app.thinnr.test/thinnr-mobile/' },
     canEdit: true,
   };
 }
@@ -476,7 +477,7 @@ console.log('office settings — signed-in provider staff (manager)');
   check('title names the office', textOf(root).includes('Riverside Wellness'));
   check('effective quiet hours = HQ default with the HQ chip', textOf(oneByTestId(root, 'effective-quiet-hours')) === '9:00 PM to 8:00 AM' && textOf(root).includes('HQ default: 9:00 PM to 8:00 AM'));
   check('effective escalation = HQ default', textOf(oneByTestId(root, 'effective-escalation-email')) === 'care@hq.example.com');
-  check('HQ store links are echoed for copy/paste: the saved App Store link and the missing Play notice', textOf(oneByTestId(root, 'policy-store-link-appStore')) === 'https://apps.apple.com/us/app/thinnr/id6740000001' && oneByTestId(root, 'policy-store-link-appStore').props.href === 'https://apps.apple.com/us/app/thinnr/id6740000001' && byTestId(root, 'button-copy-store-link-appStore').length === 1 && textOf(oneByTestId(root, 'policy-store-link-googlePlay')) === 'HQ hasn’t added this link yet' && byTestId(root, 'button-copy-store-link-googlePlay').length === 0);
+  check('HQ store links are echoed for copy/paste: the saved App Store link, and the Expo Go page for the missing Play link with the until-HQ-adds-it caption', textOf(oneByTestId(root, 'policy-store-link-appStore')) === 'https://apps.apple.com/us/app/thinnr/id6740000001' && oneByTestId(root, 'policy-store-link-appStore').props.href === 'https://apps.apple.com/us/app/thinnr/id6740000001' && byTestId(root, 'button-copy-store-link-appStore').length === 1 && byTestId(root, 'policy-store-link-fallback-appStore').length === 0 && textOf(oneByTestId(root, 'policy-store-link-googlePlay')) === 'https://app.thinnr.test/thinnr-mobile/' && byTestId(root, 'button-copy-store-link-googlePlay').length === 1 && textOf(oneByTestId(root, 'policy-store-link-fallback-googlePlay')).includes('Expo Go page until HQ adds the store link'));
   check('the rest of HQ policy is read-only text', textOf(oneByTestId(root, 'policy-daily-cap')) === '500 per day' && textOf(oneByTestId(root, 'policy-auto-close')) === '14 days' && textOf(oneByTestId(root, 'policy-retention-audit')) === '2555 days (7 years)' && textOf(oneByTestId(root, 'policy-export-hours')) === '24 hours (1 day)' && textOf(oneByTestId(root, 'policy-default-office')) === 'Off by default');
   check('offices see the clinical record retention window read-only', textOf(oneByTestId(root, 'policy-retention-clinical-record')) === '2555 days (7 years)');
   check('offices see the ledger retention windows read-only', textOf(oneByTestId(root, 'policy-retention-job-runs')) === '90 days (about 3 months)' && textOf(oneByTestId(root, 'policy-retention-sign-ins')) === '180 days (about 6 months)' && textOf(oneByTestId(root, 'policy-retention-webhook-events')) === '365 days (1 year)');

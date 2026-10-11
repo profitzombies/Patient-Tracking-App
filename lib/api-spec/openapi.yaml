@@ -5716,10 +5716,10 @@ components:
         defaultTimezone: { type: string }
         appStoreUrl:
           type: ["string", "null"]
-          description: App Store listing link offices render as a QR code; null until HQ adds it.
+          description: App Store listing link (or an interim TestFlight link) used by patient invitations and office QR codes; null until HQ adds it.
         googlePlayUrl:
           type: ["string", "null"]
-          description: Google Play listing link offices render as a QR code; null until HQ adds it.
+          description: Google Play listing link (or an interim Play testing link) used by patient invitations and office QR codes; null until HQ adds it.
         coachAvailable: { type: boolean }
         escalationEmail: { type: ["string", "null"] }
         defaultCategories: { $ref: "#/components/schemas/NotificationCategoryDefaults" }
@@ -5872,6 +5872,12 @@ components:
         hq: { $ref: "#/components/schemas/HqOrganizationSettings" }
         overrides: { $ref: "#/components/schemas/OfficeOverrides" }
         effective: { $ref: "#/components/schemas/OfficeEffectivePolicy" }
+        patientApp:
+          type: object
+          required: [expoGoUrl]
+          description: Where patients get the app while a store link is blank — the Expo Go page, or null when none is configured.
+          properties:
+            expoGoUrl: { type: ["string", "null"] }
         canEdit: { type: boolean }
     CoachAvailability:
       type: object

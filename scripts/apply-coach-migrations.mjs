@@ -74,6 +74,9 @@ const migrationNames = [
   "20261207000000_diet_roster_facts.sql",
   "20261207100000_diet_restrictions_export_kind.sql",
   "20261207200000_diet_facts_fixes.sql",
+  // Store links accept TestFlight / Play internal-testing links as interim
+  // values; patient invitations switch to them before the listings are live.
+  "20261208000000_app_store_testing_links.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.

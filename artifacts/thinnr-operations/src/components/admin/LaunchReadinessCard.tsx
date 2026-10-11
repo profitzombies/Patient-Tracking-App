@@ -6,7 +6,8 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, Copy, Loader2, RotateCcw, XCircle } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, ClipboardCheck, Copy, Loader2, RotateCcw, XCircle } from 'lucide-react';
+import { Link } from 'wouter';
 import { fetchLaunchReadiness, type ReadinessCheck, type ReadinessSection, type ReadinessStatus } from '@/lib/launch-readiness-api';
 import { useToast } from '@/hooks/use-toast';
 
@@ -92,16 +93,25 @@ export function LaunchReadinessCard({ enabled }: { enabled: boolean }) {
             What a real office needs before its owner can sign in and connect Stripe. This check only reads settings — it never changes Stripe, email or text-message accounts.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs font-semibold text-navy hover:bg-secondary disabled:opacity-60"
-          data-testid="button-rerun-launch-readiness"
-        >
-          {query.isFetching ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <RotateCcw size={13} aria-hidden="true" />}
-          {query.isFetching ? 'Checking…' : 'Re-run check'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin/system-health/release-guide"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs font-semibold text-navy hover:bg-secondary"
+            data-testid="link-mobile-release-guide"
+          >
+            <BookOpen size={13} aria-hidden="true" /> Mobile release guide
+          </Link>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs font-semibold text-navy hover:bg-secondary disabled:opacity-60"
+            data-testid="button-rerun-launch-readiness"
+          >
+            {query.isFetching ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <RotateCcw size={13} aria-hidden="true" />}
+            {query.isFetching ? 'Checking…' : 'Re-run check'}
+          </button>
+        </div>
       </div>
 
       {query.isLoading ? (

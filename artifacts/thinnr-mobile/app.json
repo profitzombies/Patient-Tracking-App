@@ -1,15 +1,26 @@
 {
   "expo": {
-    "name": "Thinnr",
+    "name": "THINNR",
     "slug": "thinnr",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon_2.png",
+    "icon": "./assets/images/store/icon-ios.png",
     "scheme": "thinnr",
     "userInterfaceStyle": "light",
+    "primaryColor": "#203b64",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "ios": {
       "supportsTablet": false,
+      "bundleIdentifier": "com.thinnr.app",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "THINNR uses Face ID only to unlock the signed-in app on this device.",
         "NSHealthShareUsageDescription": "THINNR reads only the weight and step measurements you approve for your patient account.",
         "NSHealthUpdateUsageDescription": "THINNR does not write health data.",
@@ -17,11 +28,39 @@
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.access": [],
         "com.apple.developer.proximity-reader.payment.acceptance": true
       },
-      "bundleIdentifier": "com.thinnr.app"
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyTrackingDomains": [],
+        "NSPrivacyCollectedDataTypes": [],
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategorySystemBootTime",
+            "NSPrivacyAccessedAPITypeReasons": ["35F9.1"]
+          },
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryDiskSpace",
+            "NSPrivacyAccessedAPITypeReasons": ["E174.1"]
+          }
+        ]
+      }
     },
     "android": {
+      "package": "com.thinnr.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/store/adaptive-foreground.png",
+        "backgroundColor": "#203b64"
+      },
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.health.READ_WEIGHT",
@@ -30,18 +69,23 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.thinnr.app"
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VIDEO"
+      ]
     },
     "web": {
-      "favicon": "./assets/images/icon_2.png"
+      "favicon": "./assets/images/store/favicon.png"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon_2.png",
+          "image": "./assets/images/store/splash-icon.png",
+          "imageWidth": 120,
           "resizeMode": "contain",
-          "backgroundColor": "#eef1f6"
+          "backgroundColor": "#203b64"
         }
       ],
       [
@@ -55,14 +99,26 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "THINNR uses the camera to photograph meals, menus, and nutrition labels for the AI coach.",
+          "cameraPermission": "THINNR uses the camera to photograph meals, menus, nutrition labels, lab reports, and guided progress photos for your coach and care team.",
+          "microphonePermission": false,
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "THINNR shows your photo library so you can attach a meal, menu, label, or lab photo for your coach.",
+          "cameraPermission": "THINNR uses the camera to photograph meals, menus, nutrition labels, lab reports, and guided progress photos for your coach and care team.",
+          "microphonePermission": false
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "THINNR shows your recent photos so you can attach one for the AI coach."
+          "photosPermission": "THINNR shows your recent photos so you can attach one for the AI coach.",
+          "savePhotosPermission": false,
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": ["photo"]
         }
       ],
       [
@@ -71,11 +127,20 @@
           "motionPermission": "THINNR reads the phone's tilt so guided progress photos line up at the same angle every week."
         }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
+        }
+      ],
       "expo-asset",
       [
         "expo-notifications",
         {
+          "icon": "./assets/images/store/notification-icon.png",
+          "color": "#203b64",
           "defaultChannel": "medication-reminders"
         }
       ],
@@ -89,6 +154,13 @@
         "expo-secure-store",
         {
           "configureAndroidBackup": true
+        }
+      ],
+      [
+        "react-native-health",
+        {
+          "healthSharePermission": "THINNR reads only the weight and step measurements you approve for your patient account.",
+          "healthUpdatePermission": "THINNR does not write health data."
         }
       ],
       "react-native-health-connect",

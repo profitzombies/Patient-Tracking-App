@@ -389,6 +389,9 @@ console.log('\nsystem health: admin board');
   check('the launch readiness card renders once with its summary', readinessCard.length === 1
     && textOf(byTestId(root, 'text-launch-readiness-summary')[0]).includes('1 to fix · 3 to confirm or review'),
     readinessCard[0] ? textOf(byTestId(root, 'text-launch-readiness-summary')[0]) : 'missing');
+  check('the readiness card links to the mobile release guide page', byTestId(root, 'link-mobile-release-guide').length === 1
+    && byTestId(root, 'link-mobile-release-guide')[0].props.href === '/admin/system-health/release-guide',
+    JSON.stringify(byTestId(root, 'link-mobile-release-guide').map((node) => node.props.href)));
   check('each check shows its status, detail, fix and copyable URL',
     textOf(byTestId(root, 'readiness-status-live_webhook_connect')[0]) === 'Fix needed'
       && textOf(byTestId(root, 'readiness-status-app_url')[0]) === 'Ready'

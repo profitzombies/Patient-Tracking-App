@@ -80,6 +80,10 @@ overrides:
   "@expo/plist>@xmldom/xmldom": "0.8.15"
   "mammoth>@xmldom/xmldom": "0.8.15"
   "plist>@xmldom/xmldom": "0.9.12"
+  # react-native-health pins the SDK-50-era config-plugins, which drags a second
+  # @expo/fingerprint into native builds (expo-doctor duplicate-module check).
+  # Its plugin only uses the stable withInfoPlist/withEntitlements API.
+  "react-native-health>@expo/config-plugins": "~57.0.9"
   brace-expansion: "5.0.9"
   decode-uri-component: "0.5.0"
   fast-uri: "3.1.6"

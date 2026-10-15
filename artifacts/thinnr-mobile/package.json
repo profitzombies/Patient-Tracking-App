@@ -72,6 +72,7 @@
     "test:bloodwork": "tsx scripts/verify-bloodwork.ts && tsx scripts/verify-bloodwork-progress.ts && tsx --tsconfig tsconfig.bloodwork-native-ui.json scripts/verify-bloodwork-native-ui.tsx && tsx --tsconfig tsconfig.bloodwork-detail-ui.json scripts/verify-bloodwork-detail-ui.tsx && tsx --tsconfig tsconfig.bloodwork-upload.json scripts/verify-bloodwork-upload.ts && tsx --tsconfig tsconfig.bloodwork.json scripts/verify-bloodwork-panel.ts && tsx --tsconfig tsconfig.bloodwork-browser.json scripts/verify-bloodwork-final-seams.ts && tsx --tsconfig tsconfig.bloodwork-camera.json scripts/verify-bloodwork-camera.ts && tsx --tsconfig tsconfig.bloodwork-native-media.json scripts/verify-bloodwork-native-pdf-cleanup.ts && tsx --tsconfig tsconfig.bloodwork-recovery.json scripts/verify-bloodwork-recovery.ts && tsx --tsconfig tsconfig.bloodwork-new-screen.json scripts/verify-bloodwork-new-screen.tsx",
     "test:bloodwork-recovery": "tsx --tsconfig tsconfig.bloodwork-recovery.json scripts/verify-bloodwork-recovery.ts",
     "test:office-restricted": "tsx scripts/verify-office-restricted.ts",
+    "test:office-kind": "tsx scripts/verify-office-kind.ts",
     "test:payments-overview": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-overview.tsx",
     "test:office-access": "tsx --tsconfig tsconfig.payments.json scripts/verify-office-access.tsx",
     "test:payments-activity": "tsx --tsconfig tsconfig.payments.json scripts/verify-payments-activity.tsx",

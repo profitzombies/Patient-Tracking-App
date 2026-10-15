@@ -91,6 +91,7 @@ vi.mock("../lib/org-policy", () => ({
       monthlyPriceCents: 20_000, yearlyPriceCents: 200_000,
       includedPeriodDays: 365, gracePeriodDays: 7,
       normalSharePercent: 60, restrictedSharePercent: 100,
+      softwareIncludedPeriodDays: 30,
     },
   }),
 }));
@@ -124,12 +125,15 @@ vi.mock("../lib/staff-auth", () => ({
 
 const providers = [
   { provider_id: "office-1", office_name: "Beacon Hill", provider_name: null, access_disabled: false, offboarding_status: "active" },
-  { provider_id: "office-2", office_name: "Cedar Park", provider_name: null, access_disabled: false, offboarding_status: "active" },
+  { provider_id: "office-2", office_name: "Cedar Park", provider_name: null, access_disabled: false, offboarding_status: "active", office_kind: "software" },
   { provider_id: "office-3", office_name: null, provider_name: "Dr Wells", access_disabled: true, offboarding_status: "active" },
 ];
 vi.mock("../lib/supabase-admin", () => ({
   supabaseAdmin: async (_method: string, path: string) => {
-    if (path.startsWith("/rest/v1/providers")) return { status: 200, json: providers };
+    if (path.startsWith("/rest/v1/providers")) {
+      const one = /provider_id=eq\.([^&]+)/.exec(path);
+      return { status: 200, json: one ? providers.filter((row) => row.provider_id === decodeURIComponent(one[1])) : providers };
+    }
     return { status: 404, json: null };
   },
 }));
@@ -329,7 +333,8 @@ describe("one office", () => {
 
     const { status, body } = await call("GET", "/hq/office-access/office-1", { token: "hq-read" });
     expect(status).toBe(200);
-    expect(body.office).toEqual({ providerId: "office-1", officeName: "Beacon Hill" });
+    expect(body.office).toEqual({ providerId: "office-1", officeName: "Beacon Hill", officeKind: "reseller" });
+    expect(body.policy).toMatchObject({ officeKind: "reseller", includedPeriodDays: 365, resellerIncludedPeriodDays: 365, softwareIncludedPeriodDays: 30 });
     expect(body.subscription.state).toBe("included_period");
     expect(body.subscription.priceCents).toBe(20_000);
     expect(body.attempts[0]).toMatchObject({ status: "failed", failureCode: "card_declined", amountCents: 20_000 });
@@ -347,7 +352,9 @@ describe("one office", () => {
     expect(body.subscription).toBeNull();
     expect(body.setup).toBeNull();
     expect(body.attempts).toEqual([]);
-    expect(body.policy.includedPeriodDays).toBe(365);
+    // office-2 is software-only: the standard window reported is the software default.
+    expect(body.policy.includedPeriodDays).toBe(30);
+    expect(body.policy.resellerIncludedPeriodDays).toBe(365);
   });
 
   it("404s an office that is not on the platform", async () => {
@@ -385,6 +392,22 @@ describe("HQ writes", () => {
     const startedAt = Date.parse(reset.body.subscription.includedPeriodStartedAt);
     expect(Math.abs(startedAt - Date.now())).toBeLessThan(10_000);
     expect(Math.round((Date.parse(reset.body.subscription.includedPeriodEndsAt) - Date.now()) / DAY)).toBe(60);
+  });
+
+  it("describes a software-only office with its own included period and resets its trial to that default", async () => {
+    const detail = await call("GET", "/hq/office-access/office-2", { token: "hq-read" });
+    expect(detail.status).toBe(200);
+    expect(detail.body.office).toEqual({ providerId: "office-2", officeName: "Cedar Park", officeKind: "software" });
+    expect(detail.body.policy).toMatchObject({ officeKind: "software", includedPeriodDays: 30, resellerIncludedPeriodDays: 365 });
+    const board = await call("GET", "/hq/office-access", { token: "hq-read" });
+    expect(board.body.offices.find((item: any) => item.providerId === "office-2").officeKind).toBe("software");
+    expect(board.body.offices.find((item: any) => item.providerId === "office-1").officeKind).toBe("reseller");
+    // Reset without a length: the software default, not the reseller year.
+    const reset = await call("POST", "/hq/office-access/office-2/reset-trial", { token: "hq-manage", body: {} });
+    expect(reset.status).toBe(200);
+    expect(Math.round((Date.parse(reset.body.subscription.includedPeriodEndsAt) - Date.now()) / DAY)).toBe(30);
+    const resellerReset = await call("POST", "/hq/office-access/office-1/reset-trial", { token: "hq-manage", body: {} });
+    expect(Math.round((Date.parse(resellerReset.body.subscription.includedPeriodEndsAt) - Date.now()) / DAY)).toBe(365);
   });
 
   it("overrides the price and restores the list price", async () => {

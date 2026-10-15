@@ -37,13 +37,15 @@ export interface AccessOffice {
   office_name: string | null;
   provider_name: string | null;
   access_disabled?: boolean | null;
+  /** reseller (default) or software; decides which included-period default applies. */
+  office_kind?: string | null;
 }
 
 /** Live offices (an offboarded office no longer owes for access). */
 export async function loadAccessOffices(): Promise<AccessOffice[]> {
   const result = await supabaseAdmin(
     "GET",
-    "/rest/v1/providers?select=provider_id,office_name,provider_name,access_disabled&offboarding_status=neq.offboarded&limit=2000",
+    "/rest/v1/providers?select=provider_id,office_name,provider_name,access_disabled,office_kind&offboarding_status=neq.offboarded&limit=2000",
   );
   if (result.status >= 300 || !Array.isArray(result.json)) throw new Error(`office list failed (${result.status})`);
   return result.json as AccessOffice[];

@@ -72,11 +72,22 @@ const policy = vi.hoisted(() => ({
     monthlyPriceCents: 20_000, yearlyPriceCents: 200_000, includedPeriodDays: 365,
     gracePeriodDays: 7, normalSharePercent: 60, restrictedSharePercent: 100,
     disclosureText: "HQ wording the office must accept.",
+    softwareIncludedPeriodDays: 30,
+    softwareAgreementText: "Software agreement wording a software-only office must accept.",
   },
 }));
 vi.mock("../../lib/org-policy", () => ({ loadOrgPolicy: async () => policy }));
 vi.mock("../../lib/admin-audit", () => ({ recordAdminAuditEvent: async () => undefined, requestIdOf: () => null }));
-vi.mock("../../lib/supabase-admin", () => ({ supabaseAdmin: async () => ({ status: 200, json: null }) }));
+// The providers read answers the office's kind (what accessGateFacts loads
+// when a caller has not resolved it); every other read is irrelevant here.
+const office = vi.hoisted(() => ({ kind: "reseller" as "reseller" | "software" }));
+vi.mock("../../lib/supabase-admin", () => ({
+  supabaseAdmin: async (_method: string, path: string) => (
+    path.startsWith("/rest/v1/providers?")
+      ? { status: 200, json: [{ provider_id: "office-1", office_kind: office.kind }] }
+      : { status: 200, json: null }
+  ),
+}));
 
 const stripe = {
   customers: { create: async () => ({ id: `cus_${++stripeState.customers}` }) },
@@ -122,18 +133,18 @@ async function addInstruments(options: { bankInstant?: boolean } = {}): Promise<
 async function finishSetup(): Promise<void> {
   await addInstruments();
   await selectAccessPlan({ providerId: OFFICE, plan: "yearly", actor: ACTOR });
-  await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, actor: ACTOR });
+  await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, agreementKind: "reseller", actor: ACTOR });
 }
 
 function snapshot(overrides: Partial<Parameters<typeof accessSetupSnapshot>[0]> = {}) {
   return accessSetupSnapshot({
-    providerId: OFFICE, officeName: "Test Office", connect: "ready", sandbox: true,
+    providerId: OFFICE, officeName: "Test Office", officeKind: "reseller", connect: "ready", sandbox: true,
     canManage: true, canChoosePlan: true, ...overrides,
   });
 }
 
 beforeEach(() => {
-  db.tables = {}; db.seq = 0;
+  db.tables = {}; db.seq = 0; office.kind = "reseller";
   stripeState.methods = {}; stripeState.setupIntents = {}; stripeState.customers = 0;
   clearBankVerificationUrlCache();
 });
@@ -165,7 +176,7 @@ describe("the gate verdict", () => {
   it("lets a microdeposit office in on its cards, then puts it back out when the window lapses", async () => {
     await addInstruments({ bankInstant: false });
     await selectAccessPlan({ providerId: OFFICE, plan: "monthly", actor: ACTOR });
-    await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, actor: ACTOR });
+    await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, agreementKind: "reseller", actor: ACTOR });
 
     const pending = await accessGateFacts(OFFICE);
     expect(pending.status.bankVerificationPending).toBe(true);
@@ -271,7 +282,7 @@ describe("plan and disclosure", () => {
     expect(view.plan.selected).toBe("yearly");
     expect(view.steps.find((step) => step.id === "plan")?.status).toBe("done");
     expect(view.complete).toBe(false);
-    const acknowledged = await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, actor: ACTOR });
+    const acknowledged = await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, agreementKind: "reseller", actor: ACTOR });
     view = await snapshot({ row: acknowledged });
     expect(view.disclosure.acknowledgedAt).not.toBeNull();
     expect(view.complete).toBe(true);
@@ -296,6 +307,55 @@ describe("plan and disclosure", () => {
     Object.assign(row, { paid_through: new Date().toISOString() });
     await expect(selectAccessPlan({ providerId: OFFICE, plan: "yearly", actor: ACTOR }))
       .rejects.toMatchObject({ status: 409, code: "plan_locked" });
+  });
+
+  it("shows a software-only office the software agreement and its own included period, and records which it accepted", async () => {
+    await addInstruments();
+    const reseller = await snapshot();
+    expect(reseller.disclosure).toMatchObject({ kind: "reseller", text: policy.accessBilling.disclosureText, version: policy.version });
+    expect(reseller.plan.includedPeriodDays).toBe(365);
+    const software = await snapshot({ officeKind: "software" });
+    expect(software.disclosure).toMatchObject({ kind: "software", text: policy.accessBilling.softwareAgreementText, version: policy.version });
+    expect(software.plan.includedPeriodDays).toBe(30);
+    // Prices, instruments and the steps are the same offer for both kinds.
+    expect(software.plan.monthlyPriceCents).toBe(reseller.plan.monthlyPriceCents);
+    expect(software.steps.map((step) => step.id)).toEqual(reseller.steps.map((step) => step.id));
+    const row = await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, agreementKind: "software", actor: ACTOR });
+    expect(row.disclosure_kind).toBe("software");
+    expect(row.disclosure_version).toBe(policy.version);
+  });
+
+  it("asks for the other agreement after HQ changes the office's kind, both ways", async () => {
+    await finishSetup();
+    expect((await accessGateFacts(OFFICE)).satisfied).toBe(true);
+    // Sold as software after accepting the reseller disclosure: the reseller
+    // acceptance does not cover the software agreement.
+    office.kind = "software";
+    const facts = await accessGateFacts(OFFICE);
+    expect(facts).toMatchObject({ officeKind: "software", disclosureAcknowledged: false, satisfied: false });
+    expect(await accessGateSatisfied(OFFICE)).toBe(false);
+    const view = await snapshot({ officeKind: "software" });
+    expect(view.disclosure).toMatchObject({ kind: "software", acknowledgedAt: null });
+    expect(view.steps.find((step) => step.id === "disclosure")).toMatchObject({ status: "todo", detail: "Read and accept the software agreement." });
+    expect(view.complete).toBe(false);
+    // Accepting the software agreement satisfies the gate again…
+    await acknowledgeAccessDisclosure({ providerId: OFFICE, version: policy.version, agreementKind: "software", actor: ACTOR });
+    expect((await accessGateFacts(OFFICE)).satisfied).toBe(true);
+    expect((await snapshot({ officeKind: "software" })).disclosure.acknowledgedAt).not.toBeNull();
+    // …and a switch back to reseller owes the reseller disclosure once more.
+    office.kind = "reseller";
+    expect((await accessGateFacts(OFFICE)).disclosureAcknowledged).toBe(false);
+    expect((await snapshot()).disclosure.acknowledgedAt).toBeNull();
+  });
+
+  it("treats an acceptance recorded before the kind existed as the reseller disclosure", async () => {
+    await finishSetup();
+    const row = (await accessGateFacts(OFFICE)).row as unknown as Record<string, unknown>;
+    row.disclosure_kind = null;
+    expect((await accessGateFacts(OFFICE)).disclosureAcknowledged).toBe(true);
+    expect((await snapshot()).disclosure.acknowledgedAt).not.toBeNull();
+    office.kind = "software";
+    expect((await accessGateFacts(OFFICE)).disclosureAcknowledged).toBe(false);
   });
 
   it("keeps an acknowledgment valid after HQ rewrites the wording", async () => {

@@ -313,7 +313,7 @@ const EMPTY_COMPLETIONS: TrainingCompletion[] = [];
 
 export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const { authStatus, authRole, authUser, providerAccountCode, roleStatus } = useSession();
+  const { authStatus, authRole, authUser, providerAccountCode, roleStatus, claimedWorkspace } = useSession();
   const canEdit = authStatus === 'signed-in' && authRole === 'hq_admin';
   const canAddStaff =
     authStatus === 'signed-in' && (authRole === 'hq_admin' || authRole === 'provider_staff');
@@ -335,10 +335,14 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   // Signed-out visitors (the course share link) get the catalog alone;
   // learners and completions are staff data.
   const includePeople = authStatus === 'signed-in';
+  // A software-only office has no Training: the database returns it nothing
+  // (row-level security fails closed on the office kind), so staff of such an
+  // office skip the read entirely instead of fetching an empty catalog.
+  const softwareOfficeStaff = authRole !== 'hq_admin' && claimedWorkspace?.officeKind === 'software';
   const query = useQuery({
     queryKey: [...TRAINING_QUERY_KEY, authScopeKey, includePeople ? 'people' : 'catalog'],
     queryFn: () => fetchSnapshot(includePeople),
-    enabled: supabase !== null && scopeSettled,
+    enabled: supabase !== null && scopeSettled && !softwareOfficeStaff,
     staleTime: 30_000,
   });
 
@@ -346,7 +350,7 @@ export function TrainingDataProvider({ children }: { children: ReactNode }) {
   const viewers = query.data?.viewers ?? EMPTY_VIEWERS;
   const completions = query.data?.completions ?? EMPTY_COMPLETIONS;
 
-  const status: TrainingStatus = !supabase ? 'error' : query.isError ? 'error' : query.data ? 'ready' : 'loading';
+  const status: TrainingStatus = !supabase ? 'error' : query.isError ? 'error' : query.data || softwareOfficeStaff ? 'ready' : 'loading';
   const errorMessage = !supabase
     ? 'The database is not configured for this environment.'
     : query.isError

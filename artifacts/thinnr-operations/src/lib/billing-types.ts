@@ -65,7 +65,12 @@ export interface OfficeAccessSnapshot {
     includedPeriodDays: number;
     nextPeriodEndsAt: string | null;
   };
-  disclosure: { text: string; version: number; acknowledgedAt: string | null };
+  /**
+   * The agreement this office accepts in setup: the reseller access disclosure
+   * or, for a software-only office, the software agreement. `kind` is absent
+   * on snapshots from a server that predates office kinds (= reseller).
+   */
+  disclosure: { kind?: 'reseller' | 'software'; text: string; version: number; acknowledgedAt: string | null };
   bank: {
     verificationPending: boolean; deadline: string | null; overdue: boolean; windowHours: number; verificationUrl: string | null;
     replacement?: OfficeAccessBankReplacement | null;
@@ -883,9 +888,14 @@ export interface OfficeAccessTerms {
 }
 
 export interface OfficeAccessPolicy {
+  /** The kind the policy was resolved for (board = reseller). Absent from older servers. */
+  officeKind?: 'reseller' | 'software';
   monthlyPriceCents: number;
   yearlyPriceCents: number;
+  /** The standard included period for THIS office's kind. */
   includedPeriodDays: number;
+  resellerIncludedPeriodDays?: number;
+  softwareIncludedPeriodDays?: number;
   gracePeriodDays: number;
   normalSharePercent: number;
   restrictedSharePercent: number;
@@ -1059,7 +1069,7 @@ export interface OfficeAccessHistoryEntry {
 }
 
 export interface OfficeAccessDetail {
-  office: { providerId: string; officeName: string };
+  office: { providerId: string; officeName: string; officeKind?: 'reseller' | 'software' };
   subscription: OfficeAccessTerms | null;
   setup: {
     complete: boolean;

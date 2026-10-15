@@ -306,6 +306,36 @@ describe("HQ organization policy", () => {
     expect(upper.json.retention).toMatchObject({ auditEventDays: 3650, clinicalRecordDays: 3650 });
   });
 
+  it("carries a separate software-only agreement and included period beside the reseller ones", async () => {
+    const read = await (await fetch(`${base}/hq/settings`, { headers: HQ })).json() as Record<string, any>;
+    expect(read.accessBilling).toMatchObject({ includedPeriodDays: 365, softwareIncludedPeriodDays: 30 });
+    expect(read.accessBilling.softwareAgreementText).toMatch(/software/i);
+    expect(read.accessBilling.softwareAgreementText).not.toBe(read.accessBilling.disclosureText);
+
+    // The section saves whole (the contract requires every reseller field).
+    const section = (overrides: Record<string, unknown>) => ({ ...read.accessBilling, ...overrides });
+    const saved = await putSettings({ accessBilling: section({ softwareIncludedPeriodDays: 45, softwareAgreementText: "  Software-only terms the practice accepts.  " }) });
+    expect(saved.status, JSON.stringify(saved.json)).toBe(200);
+    expect(saved.json.accessBilling).toMatchObject({
+      includedPeriodDays: 365, softwareIncludedPeriodDays: 45, softwareAgreementText: "Software-only terms the practice accepts.",
+    });
+    expect(db.settings).toMatchObject({ access_included_period_days: 365, access_software_included_period_days: 45, access_software_agreement_text: "Software-only terms the practice accepts." });
+    const audited = mocks.audit.mock.calls.map(([input]) => input.metadata);
+    expect(audited).toHaveLength(1);
+    expect(audited[0]).toMatchObject({ section: "accessBilling", field: "accessBilling" });
+    expect(String(audited[0].to)).toContain('"softwareIncludedPeriodDays":45');
+
+    expect((await putSettings({ expectedVersion: 2, accessBilling: section({ softwareIncludedPeriodDays: 1096 }) })).status).toBe(400);
+    expect((await putSettings({ expectedVersion: 2, accessBilling: section({ softwareIncludedPeriodDays: -1 }) })).status).toBe(400);
+    expect((await putSettings({ expectedVersion: 2, accessBilling: section({ softwareAgreementText: "short" }) })).status).toBe(400);
+    const zero = await putSettings({ expectedVersion: 2, accessBilling: section({ softwareIncludedPeriodDays: 0 }) });
+    expect(zero.json, JSON.stringify(zero.json)).toMatchObject({ accessBilling: { softwareIncludedPeriodDays: 0 } });
+    // A client that predates the software fields leaves them untouched.
+    const { softwareIncludedPeriodDays: _d, softwareAgreementText: _t, ...legacy } = read.accessBilling;
+    const old = await putSettings({ expectedVersion: 3, accessBilling: { ...legacy, gracePeriodDays: 9 } });
+    expect(old.json.accessBilling).toMatchObject({ gracePeriodDays: 9, softwareIncludedPeriodDays: 0 });
+  });
+
   it("raises a stored audit window below the 6-year floor on read and writes the floor on the next save", async () => {
     db.settings.retention_audit_days = 365;
     const read = await fetch(`${base}/hq/settings`, { headers: HQ });

@@ -30,7 +30,7 @@ import { BTN_PRIMARY, BTN_SECONDARY, INPUT_CLASS, PANEL_LABEL, SectionCard } fro
 import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, PageHeader } from '@/components/admin/primitives';
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
-import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, type AccountPlan } from '@/data/hq/accounts';
+import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, OFFICE_KINDS, OFFICE_KIND_LABEL, type AccountPlan, type OfficeKind } from '@/data/hq/accounts';
 import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
@@ -39,6 +39,7 @@ import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPo
 const fmt = (value: number) => value.toLocaleString('en-US');
 const PLANS: AccountPlan[] = ['Core', 'Plus', 'Concierge'];
 type StatusFilter = 'active' | 'offboarded' | 'all';
+type KindFilter = OfficeKind | 'all';
 
 const EMPTY_FORM = {
   officeName: '',
@@ -69,6 +70,8 @@ export default function Accounts() {
   const statusFilter: StatusFilter = requestedStatus === 'all' || requestedStatus === 'offboarded'
     ? requestedStatus
     : 'active';
+  const requestedKind = searchParams.get('kind');
+  const kindFilter: KindFilter = requestedKind === 'reseller' || requestedKind === 'software' ? requestedKind : 'all';
   const updateParams = (update: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchString);
     update(params);
@@ -87,6 +90,12 @@ export default function Accounts() {
       else params.set('status', next);
     });
   };
+  const setKindFilter = (next: KindFilter) => {
+    updateParams((params) => {
+      if (next === 'all') params.delete('kind');
+      else params.set('kind', next);
+    });
+  };
 
   // Corpora build once per directory load; matching is per keystroke.
   const searchableAccounts = useMemo(
@@ -100,9 +109,10 @@ export default function Accounts() {
     () => searchableAccounts
       .filter(({ account }) => statusFilter === 'all'
         || (statusFilter === 'offboarded' ? account.status === 'offboarded' : account.status !== 'offboarded'))
+      .filter(({ account }) => kindFilter === 'all' || account.officeKind === kindFilter)
       .filter(({ haystack }) => accountMatchesQuery(haystack, query))
       .map(({ account }) => account),
-    [searchableAccounts, query, statusFilter],
+    [searchableAccounts, query, statusFilter, kindFilter],
   );
 
   const [open, setOpen] = useState(false);
@@ -112,6 +122,8 @@ export default function Accounts() {
   // actually feeds the rest of the demo.
   const defaultPlan = (settingsValues['provider-accounts.default-plan'] as AccountPlan) ?? 'Plus';
   const [plan, setPlan] = useState<AccountPlan>(defaultPlan);
+  // Office type: every new office is a THINNR reseller unless HQ says otherwise.
+  const [officeKind, setOfficeKind] = useState<OfficeKind>('reseller');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const canManageAccounts = authStatus === 'signed-out' || hqRole === 'Super Admin' || hqRole === 'Admin';
@@ -119,6 +131,7 @@ export default function Accounts() {
   const openDialog = () => {
     setForm(EMPTY_FORM);
     setPlan(defaultPlan);
+    setOfficeKind('reseller');
     setFormError(null);
     setOpen(true);
   };
@@ -168,6 +181,7 @@ export default function Accounts() {
         state,
         postalCode,
         plan,
+        officeKind,
         email,
         phone,
       });
@@ -206,7 +220,7 @@ export default function Accounts() {
         sub={
           accountsStatus === 'ready' ? (
             <span aria-live="polite" data-testid="text-accounts-count">
-              {query
+              {query || kindFilter !== 'all'
                 ? `${visibleAccounts.length} of ${accounts.length} offices match`
                 : `${accounts.length} offices under the umbrella`}
             </span>
@@ -226,6 +240,17 @@ export default function Accounts() {
                 <SelectItem value="all">All</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={kindFilter} onValueChange={(value: KindFilter) => setKindFilter(value)}>
+              <SelectTrigger className="h-9 w-[150px] text-xs" aria-label="Filter accounts by office type" data-testid="select-account-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All office types</SelectItem>
+                {OFFICE_KINDS.map((kind) => (
+                  <SelectItem key={kind} value={kind}>{OFFICE_KIND_LABEL[kind]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className="relative w-full sm:w-72">
               <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
@@ -233,7 +258,7 @@ export default function Accounts() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search offices, providers, codes"
-                aria-label="Search accounts by office, provider, role, code, phone, email, address, plan, or status"
+                aria-label="Search accounts by office, provider, role, code, phone, email, address, plan, office type, or status"
                 autoComplete="off"
                 data-testid="input-account-search"
                 className="h-9 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground shadow-xs outline-none placeholder:text-muted-foreground/80 focus:ring-2 focus:ring-ring"
@@ -254,13 +279,14 @@ export default function Accounts() {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-left text-xs">
+          <table className="w-full min-w-[960px] text-left text-xs">
             <thead>
               <tr className="border-b border-border text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">
                 <th className="px-5 py-3 font-bold">Office</th>
                 <th className="px-3 py-3 font-bold">Provider</th>
                 <th className="px-3 py-3 font-bold">Code</th>
                 <th className="px-3 py-3 font-bold">Plan</th>
+                <th className="px-3 py-3 font-bold">Office type</th>
                 <th className="px-3 py-3 font-bold">Status</th>
                 <th className="px-3 py-3 text-right font-bold">Patients</th>
                 <th className="px-3 py-3 text-right font-bold">Monthly revenue</th>
@@ -272,26 +298,32 @@ export default function Accounts() {
             </thead>
             <tbody>
               {accountsStatus !== 'ready' && (
-                <tr><td colSpan={9} className="px-5 py-10 text-center text-xs text-muted-foreground">
+                <tr><td colSpan={10} className="px-5 py-10 text-center text-xs text-muted-foreground">
                   {accountsStatus === 'loading' ? 'Loading live provider accounts…' : accountsStatus === 'unauthorized' ? 'Sign in with a THINNR HQ account to view the live provider directory.' : accountsError ?? 'The live provider directory could not be loaded.'}
                 </td></tr>
               )}
               {accountsStatus === 'ready' && accounts.length === 0 && (
-                <tr><td colSpan={9} className="px-5 py-10 text-center text-xs text-muted-foreground" data-testid="text-accounts-empty">
+                <tr><td colSpan={10} className="px-5 py-10 text-center text-xs text-muted-foreground" data-testid="text-accounts-empty">
                   No provider accounts yet. Add the first provider account to get started.
                 </td></tr>
               )}
               {accountsStatus === 'ready' && accounts.length > 0 && visibleAccounts.length === 0 && (
-                <tr><td colSpan={9} className="px-5 py-10 text-center">
+                <tr><td colSpan={10} className="px-5 py-10 text-center">
                   <p className="text-xs font-semibold text-navy" data-testid="text-accounts-no-match">
-                    No offices match &ldquo;{query}&rdquo;
+                    {query
+                      ? <>No offices match &ldquo;{query}&rdquo;</>
+                      : kindFilter !== 'all'
+                        ? `No ${OFFICE_KIND_LABEL[kindFilter].toLowerCase()} offices${statusFilter === 'offboarded' ? ' have been offboarded' : ''}`
+                        : statusFilter === 'offboarded' ? 'No offices have been offboarded' : 'No current offices'}
                   </p>
                   <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                    Try an office, provider, code, phone, email, address, plan, or status.
+                    {query
+                      ? 'Try an office, provider, code, phone, email, address, plan, office type, or status.'
+                      : kindFilter !== 'all' ? 'Switch the office type or status filter to see the rest.' : 'Switch the status filter to see the rest.'}
                   </p>
                   <button
                     type="button"
-                    onClick={() => setQuery('')}
+                    onClick={() => { setQuery(''); setKindFilter('all'); setStatusFilter('all'); }}
                     className={`${BTN_SECONDARY} mt-3 h-8 px-3 text-[11px]`}
                     data-testid="button-accounts-empty-clear-search"
                   >
@@ -331,6 +363,7 @@ export default function Accounts() {
                   </td>
                    <td className="px-3 py-3 font-mono text-[11px] tracking-[.08em] text-foreground">{account.providerCode ?? '—'}</td>
                    <td className="px-3 py-3 text-foreground">{account.plan ?? '—'}</td>
+                   <td className="px-3 py-3 text-foreground" data-testid={`text-account-kind-${account.id}`}>{OFFICE_KIND_LABEL[account.officeKind]}</td>
                   <td className="px-3 py-3">
                     <span className="inline-flex flex-wrap items-center gap-1.5">
                       <AccountStatusChip status={account.status} />
@@ -453,6 +486,24 @@ export default function Accounts() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Office type</span>
+              <Select value={officeKind} onValueChange={(value) => setOfficeKind(value as OfficeKind)}>
+                <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-account-office-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OFFICE_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind} className="text-xs">{OFFICE_KIND_LABEL[kind]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
+                {officeKind === 'software'
+                  ? 'Same app and setup, without Marketing Assets or Training. The office accepts the software agreement and its free period is the shorter software-only window.'
+                  : 'The office sees Marketing Assets and Training, accepts the reseller access disclosure, and gets the reseller free period.'}
+              </span>
             </div>
             <label className="block">
               <span className={PANEL_LABEL}>Claim email *</span>

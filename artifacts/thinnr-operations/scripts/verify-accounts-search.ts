@@ -47,6 +47,7 @@ function mkAccount(overrides: Partial<ProviderAccount>): ProviderAccount {
     providerCode: '482115',
     status: 'active',
     plan: 'Concierge',
+    officeKind: 'reseller',
     address1: '123 Main St',
     address2: 'Suite 200',
     city: 'Boston',

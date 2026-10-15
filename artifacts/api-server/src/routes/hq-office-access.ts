@@ -41,7 +41,8 @@ import {
   type AccessOffice,
 } from "../billing/office-access/app-payments";
 import { accessSetupStatus, listAccessInstruments } from "../billing/office-access/instruments";
-import { loadAccessBillingSettings, type AccessBillingSettings } from "../billing/office-access/settings";
+import { includedPeriodDaysFor, loadAccessBillingSettings, type AccessBillingSettings } from "../billing/office-access/settings";
+import { officeKindOf, type OfficeKind } from "../lib/office-kind";
 import { accessPriceCents, deriveAccessState } from "../billing/office-access/state";
 import { accessHistory, findAccessSubscription, type AccessActor } from "../billing/office-access/subscription";
 import {
@@ -152,11 +153,19 @@ function terms(row: BillingOfficeAccessSubscriptionRow, settings: AccessBillingS
   };
 }
 
-function policyDto(settings: AccessBillingSettings) {
+/**
+ * The organization defaults as they apply to one office (or, for the board,
+ * to a reseller): `includedPeriodDays` is the standard window for THAT kind
+ * so the reset-trial form and the access card describe the right one.
+ */
+function policyDto(settings: AccessBillingSettings, officeKind: OfficeKind = "reseller") {
   return {
+    officeKind,
     monthlyPriceCents: settings.monthlyPriceCents,
     yearlyPriceCents: settings.yearlyPriceCents,
-    includedPeriodDays: settings.includedPeriodDays,
+    includedPeriodDays: includedPeriodDaysFor(settings, officeKind),
+    resellerIncludedPeriodDays: settings.includedPeriodDays,
+    softwareIncludedPeriodDays: settings.softwareIncludedPeriodDays,
     gracePeriodDays: settings.gracePeriodDays,
     normalSharePercent: settings.normalSharePercent,
     restrictedSharePercent: settings.restrictedSharePercent,
@@ -183,6 +192,7 @@ router.get("/hq/office-access", requireHqPermission("financial_read"), async (re
       return {
         providerId: office.provider_id,
         officeName: officeLabel(office),
+        officeKind: officeKindOf(office.office_kind),
         locked: office.access_disabled === true,
         ...(facts.get(office.provider_id) ?? {
           instruments: [], trialDaysLeft: null, nextChargeCents: null, lastPayment: null, paymentFlags: [],
@@ -317,11 +327,12 @@ router.get("/hq/office-access/:providerId", requireHqPermission("financial_read"
     const office = (await offices()).find((row) => row.provider_id === providerId);
     if (!office) { res.status(404).json({ error: "Office not found." }); return; }
     const [row, settings] = await Promise.all([findAccessSubscription(providerId), loadAccessBillingSettings()]);
+    const officeKind = officeKindOf(office.office_kind);
     if (!row) {
       res.json({
-        office: { providerId, officeName: officeLabel(office) },
+        office: { providerId, officeName: officeLabel(office), officeKind },
         subscription: null, setup: null, instruments: [], attempts: [], history: [],
-        policy: policyDto(settings),
+        policy: policyDto(settings, officeKind),
       });
       return;
     }
@@ -331,7 +342,7 @@ router.get("/hq/office-access/:providerId", requireHqPermission("financial_read"
       accessHistory(providerId, 50),
     ]);
     res.json({
-      office: { providerId, officeName: officeLabel(office) },
+      office: { providerId, officeName: officeLabel(office), officeKind },
       subscription: terms(row, settings, now),
       setup: accessSetupStatus(instruments, now),
       instruments: instruments.map((instrument) => ({
@@ -342,7 +353,7 @@ router.get("/hq/office-access/:providerId", requireHqPermission("financial_read"
       })),
       attempts: attempts.map(attemptDto),
       history: await historyDtos(events),
-      policy: policyDto(settings),
+      policy: policyDto(settings, officeKind),
     });
   } catch (error) { fail(req, res, error); }
 });

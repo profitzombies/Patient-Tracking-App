@@ -6,6 +6,9 @@ import {
   sendHqFileContent,
   sendHqFileDownload,
 } from "../lib/hq-files-read";
+import { officeKindHasResellerContent } from "../lib/office-kind";
+
+export const SOFTWARE_OFFICE_FILES_MESSAGE = "Marketing Assets are not part of this office's plan.";
 
 const router: IRouter = Router();
 
@@ -23,6 +26,13 @@ async function withOfficeScope(
   });
   if (resolved.kind !== "ok") {
     respondOfficeScopeDenied(req, res, resolved);
+    return;
+  }
+  // Marketing Assets are reseller material: a software-only office's staff
+  // never get them, however the client asks. HQ drilling in still reads
+  // (the drive is HQ's own), mirroring the other HQ-managed surfaces.
+  if (!officeKindHasResellerContent(resolved.scope.officeKind) && resolved.scope.actorKind !== "hq") {
+    res.status(404).json({ error: SOFTWARE_OFFICE_FILES_MESSAGE, reason: "office_kind" });
     return;
   }
   await handler(resolved.scope);

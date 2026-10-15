@@ -98,6 +98,14 @@ export function yearlySavings(access: OfficeAccessSnapshot) {
   return { cents, percent: twelve > 0 ? Math.round((cents / twelve) * 100) : 0 };
 }
 
+/**
+ * How the setup screens title the agreement: the reseller access disclosure
+ * or the software agreement, by the kind the server chose for this office.
+ */
+export function agreementTitle(access: OfficeAccessSnapshot): string {
+  return access.disclosure.kind === 'software' ? 'Software agreement' : 'Access terms';
+}
+
 /** "Free access: 365 days. Your first charge of $2,000 is on April 5, 2027." */
 export function freePeriodSentence(access: OfficeAccessSnapshot, plan: 'monthly' | 'yearly', now = new Date()) {
   const charge = firstCharge(access, now);

@@ -1,0 +1,14 @@
+{
+  // tsx config for scripts/verify-office-kind.tsx only.
+  // The suite exercises the office-kind nav/route policy and a wouter Switch
+  // built the way OfficeApp builds it; only the session context is stubbed.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/contexts/session": ["./scripts/a11y-stubs/session.ts"],
+      "@/lib/supabase": ["./scripts/invite-stubs/supabase.ts"],
+      "@/*": ["./src/*"]
+    }
+  }
+}

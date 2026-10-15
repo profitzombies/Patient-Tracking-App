@@ -41,6 +41,7 @@
     "test:account-deletion": "TZ=UTC tsx --tsconfig tsconfig.account-deletion.json scripts/verify-account-deletion.tsx",
     "test:legal-holds": "TZ=UTC tsx --tsconfig tsconfig.legal-holds.json scripts/verify-legal-holds.tsx",
     "test:office-restricted": "TZ=UTC tsx --tsconfig tsconfig.office-restricted.json scripts/verify-office-restricted.tsx",
+    "test:office-kind": "TZ=UTC tsx --tsconfig tsconfig.office-kind.json scripts/verify-office-kind.tsx",
     "test:office-offboarding": "TZ=UTC tsx --tsconfig tsconfig.office-offboarding.json scripts/verify-office-offboarding.tsx",
     "test:office-offboarding-live": "tsx scripts/verify-office-offboarding-live.ts",
     "test:office-reactivation-live": "tsx scripts/verify-office-reactivation-live.ts",
@@ -94,6 +95,7 @@
     "test:email-outbox": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-email-outbox.tsx",
     "test:office-access": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-access.tsx",
     "test:office-access-live": "tsx scripts/verify-office-access-live.ts",
+    "test:office-kind-live": "tsx scripts/verify-office-kind-live.ts",
     "test:first-provider-live": "tsx scripts/verify-first-provider-live.ts",
     "test:patient-invite-live": "tsx scripts/verify-patient-invite-live.ts",
     "test:app-payments": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-app-payments.tsx"

@@ -11,12 +11,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppMode } from '@/context/AppModeContext';
 import { useSupabaseSession } from '@/lib/supabase';
 import { fetchOfficeAccess, payOfficeAccess, type OfficeAccessState } from '@/lib/office-access-api';
+import { officeKindOf, type OfficeKind } from '@/lib/office-restriction';
 
 export interface OfficeRestrictionValue {
   restricted: boolean;
   message: string | null;
   access: OfficeAccessState | undefined;
   loading: boolean;
+  /** The office's kind once the access read lands; null while unknown (never hide on a guess). */
+  officeKind: OfficeKind | null;
 }
 
 const OfficeRestrictionContext = createContext<OfficeRestrictionValue>({
@@ -24,6 +27,7 @@ const OfficeRestrictionContext = createContext<OfficeRestrictionValue>({
   message: null,
   access: undefined,
   loading: false,
+  officeKind: null,
 });
 
 export function officeAccessKey(userId: string | null): readonly unknown[] {
@@ -43,14 +47,16 @@ export function OfficeRestrictionProvider({ children }: { children: ReactNode })
     refetchInterval: enabled ? 60_000 : false,
   });
   const restricted = query.data?.restricted === true;
+  const officeKind = query.data ? officeKindOf(query.data.office_kind) : null;
   const value = useMemo<OfficeRestrictionValue>(
     () => ({
       restricted,
       message: restricted ? query.data?.message ?? null : null,
       access: query.data,
       loading: query.isPending && enabled,
+      officeKind,
     }),
-    [restricted, query.data, query.isPending, enabled],
+    [restricted, query.data, query.isPending, enabled, officeKind],
   );
   return <OfficeRestrictionContext.Provider value={value}>{children}</OfficeRestrictionContext.Provider>;
 }

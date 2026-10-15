@@ -22,7 +22,8 @@ import {
   type AccessSetupStatus,
 } from "./instruments";
 import { getStripe } from "../stripe-client";
-import { loadAccessBillingSettings, BANK_VERIFICATION_WINDOW_HOURS } from "./settings";
+import { agreementFor, includedPeriodDaysFor, loadAccessBillingSettings, BANK_VERIFICATION_WINDOW_HOURS } from "./settings";
+import { loadOfficeKind, officeKindOf, type OfficeKind } from "../../lib/office-kind";
 import { ensureAccessSubscription, recordAccessEvent, refreshAccessState, type AccessActor } from "./subscription";
 import { update, type BillingOfficeAccessInstrumentRow as Instrument, type BillingOfficeAccessSubscriptionRow as Row, type OfficeAccessPlan, type OfficeAccessSlot } from "../store";
 
@@ -42,23 +43,44 @@ export interface AccessGateFacts {
   status: AccessSetupStatus;
   /** The office actively chose monthly or yearly (the column has a default). */
   planSelected: boolean;
+  /** What THINNR sold this office right now; decides which agreement counts. */
+  officeKind: OfficeKind;
+  /**
+   * The office accepted the agreement for its CURRENT kind. An acceptance
+   * recorded under the other agreement (HQ changed the kind afterwards) does
+   * not count, so the office is asked to accept the right one.
+   */
   disclosureAcknowledged: boolean;
   /** True when every requirement the gate owns is satisfied. */
   satisfied: boolean;
 }
 
-export async function accessGateFacts(providerId: string, now = new Date(), known?: Row): Promise<AccessGateFacts> {
-  // A caller that has just written the row passes it back in, which saves a
-  // re-read of what it is already holding.
-  const row = known ?? await ensureAccessSubscription(providerId);
+/**
+ * When the acceptance on the row was made under the office's current kind
+ * it stands; otherwise the office owes the agreement for its new kind. Rows
+ * written before the kind existed carry no `disclosure_kind` and are reseller
+ * acceptances, like every office was then.
+ */
+export function disclosureAcknowledgedAtFor(row: Pick<Row, "disclosure_acknowledged_at" | "disclosure_kind">, officeKind: OfficeKind): string | null {
+  if (!row.disclosure_acknowledged_at) return null;
+  return officeKindOf(row.disclosure_kind) === officeKind ? row.disclosure_acknowledged_at : null;
+}
+
+export async function accessGateFacts(providerId: string, now = new Date(), known?: Row, knownKind?: OfficeKind): Promise<AccessGateFacts> {
+  // A caller that has just written the row (or resolved the office's kind)
+  // passes it back in, which saves a re-read of what it is already holding.
+  const [row, officeKind] = await Promise.all([
+    known ?? ensureAccessSubscription(providerId),
+    knownKind ?? loadOfficeKind(providerId),
+  ]);
   const rows = await listInstrumentRows(row.id);
   const instruments = rows.filter((item) => !item.staged_at);
   const staged = rows.filter((item) => item.staged_at);
   const status = accessSetupStatus(instruments, now);
   const planSelected = Boolean(row.plan_selected_at);
-  const disclosureAcknowledged = Boolean(row.disclosure_acknowledged_at);
+  const disclosureAcknowledged = Boolean(disclosureAcknowledgedAtFor(row, officeKind));
   return {
-    row, instruments, staged, status, planSelected, disclosureAcknowledged,
+    row, instruments, staged, status, planSelected, officeKind, disclosureAcknowledged,
     // A bank account awaiting microdeposits does NOT block the office — until
     // its 48-hour window runs out, at which point the block returns.
     satisfied: status.complete && !status.bankVerificationOverdue && planSelected && disclosureAcknowledged,
@@ -141,7 +163,12 @@ export interface AccessSetupSnapshot {
     /** The period the first charge buys, so the screen can say what follows. */
     nextPeriodEndsAt: string | null;
   };
-  disclosure: { text: string; version: number; acknowledgedAt: string | null };
+  /**
+   * The agreement this office accepts: `kind` says whether it is the reseller
+   * access disclosure or the software agreement, so the screen can title it
+   * and the acknowledgment can record it.
+   */
+  disclosure: { kind: OfficeKind; text: string; version: number; acknowledgedAt: string | null };
   bank: {
     verificationPending: boolean;
     deadline: string | null;
@@ -171,6 +198,8 @@ function stepFor(id: AccessStepId, done: boolean, detail: string | null, status?
 export interface SnapshotInput {
   providerId: string;
   officeName?: string | null;
+  /** Picks the agreement text and the included period the estimate describes. */
+  officeKind: OfficeKind;
   /** Accepted as promises so their reads overlap with the office's own. */
   connect: ConnectState | Promise<ConnectState>;
   sandbox: boolean | Promise<boolean>;
@@ -186,7 +215,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
   // Everything that does not depend on the office's row is read alongside it,
   // so one setup action costs one round of reads rather than several.
   const [facts, policy, settings, connect, sandbox] = await Promise.all([
-    accessGateFacts(input.providerId, now, input.row),
+    accessGateFacts(input.providerId, now, input.row, input.officeKind),
     loadOrgPolicy(),
     loadAccessBillingSettings(),
     input.connect,
@@ -231,7 +260,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
     stepFor("card_primary", bySlot.has("card_primary"), "Add the first backup credit card."),
     stepFor("card_backup", bySlot.has("card_backup"), "Add a second, different credit card."),
     stepFor("plan", facts.planSelected, "Choose monthly or yearly billing."),
-    stepFor("disclosure", facts.disclosureAcknowledged, "Read and accept the access fee terms."),
+    stepFor("disclosure", facts.disclosureAcknowledged, facts.officeKind === "software" ? "Read and accept the software agreement." : "Read and accept the access fee terms."),
   ];
 
   return {
@@ -250,13 +279,14 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
       yearlyPriceCents: settings.yearlyPriceCents,
       priceCents,
       firstChargeAt,
-      includedPeriodDays: settings.includedPeriodDays,
+      includedPeriodDays: includedPeriodDaysFor(settings, input.officeKind),
       nextPeriodEndsAt: firstChargeAt ? iso(periodEnd(row.plan, new Date(firstChargeAt))) : null,
     },
     disclosure: {
-      text: policy.accessBilling.disclosureText,
+      ...agreementFor(policy.accessBilling, input.officeKind),
       version: policy.version,
-      acknowledgedAt: row.disclosure_acknowledged_at,
+      // Only an acceptance of THIS agreement shows as done.
+      acknowledgedAt: disclosureAcknowledgedAtFor(row, input.officeKind),
     },
     bank: {
       verificationPending: facts.status.bankVerificationPending,
@@ -374,10 +404,16 @@ export async function selectAccessPlan(input: {
   return updated ?? row;
 }
 
-/** Record acceptance of the HQ-authored access-fee disclosure. */
+/**
+ * Record acceptance of the HQ-authored agreement: the reseller access
+ * disclosure or the software agreement, whichever the office's kind showed,
+ * together with the settings version it was read from.
+ */
 export async function acknowledgeAccessDisclosure(input: {
   providerId: string;
   version: number;
+  /** Which agreement the office was shown (its office kind). */
+  agreementKind: OfficeKind;
   actor: AccessActor;
   now?: Date;
 }): Promise<Row> {
@@ -387,9 +423,10 @@ export async function acknowledgeAccessDisclosure(input: {
     disclosure_acknowledged_at: now.toISOString(),
     disclosure_acknowledged_by: input.actor.userId ?? null,
     disclosure_version: input.version,
+    disclosure_kind: input.agreementKind,
   });
   await recordAccessEvent({
-    row, event: "disclosure_acknowledged", actor: input.actor, detail: { version: input.version },
+    row, event: "disclosure_acknowledged", actor: input.actor, detail: { version: input.version, agreementKind: input.agreementKind },
   });
   return updated ?? row;
 }

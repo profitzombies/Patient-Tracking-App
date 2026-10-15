@@ -623,6 +623,7 @@ router.get("/office/roster", async (req, res) => {
         officeName: scope.officeName,
         providerCode:
           effectiveProviderCode(scope.onboardingCode, scope.providerId) ?? scope.providerId,
+        officeKind: scope.officeKind,
       },
       patients,
       deletedAccounts,

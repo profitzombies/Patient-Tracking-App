@@ -168,3 +168,4 @@
 - [Legal documents versioning](legal-documents-versioning.md) — one version.json drives web pages, API bundle, app offline copy AND the consent version (bump = re-prompt); consent needs the EXACT required version's text readable.
 - [Twilio Verify codes are per number, per service](twilio-verify-per-purpose.md) — one pending code per phone per Verify service: a destructive purpose (account deletion) needs its OWN service or sign-in texts confirm it.
 - [Store review readiness](store-review-readiness.md) — reviewer fixed codes: prod env var + account must sit in the flagged App Review office (checked at issue AND verify); office excluded via shared office-status predicates; kit in docs/store.
+- [Office kind (reseller vs software-only)](office-kind.md) — unknown = reseller, clients never hide on null; kind rides existing sign-in reads; HQ still reads files; reset-trial stands in for the sign-in clock in live proofs.

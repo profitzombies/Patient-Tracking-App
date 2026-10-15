@@ -9,7 +9,8 @@
  */
 import { getBillingModeStatus } from "../mode-state";
 import { currentBillingIdentity, runWithBillingIdentity } from "../stripe-environment";
-import { loadAccessBillingSettings } from "./settings";
+import { loadOfficeKind } from "../../lib/office-kind";
+import { includedPeriodDaysFor, loadAccessBillingSettings } from "./settings";
 import { applyAccessInput, ensureAccessSubscription } from "./subscription";
 
 export interface OwnerSignIn {
@@ -28,15 +29,18 @@ export interface OwnerSignIn {
 export async function noteOwnerDashboardSignIn(input: OwnerSignIn): Promise<void> {
   if (input.staffClass !== "provider" || !input.providerId) return;
   const at = input.at ?? new Date();
-  const settings = await loadAccessBillingSettings();
-  const row = await ensureAccessSubscription(input.providerId);
+  const [settings, row] = await Promise.all([loadAccessBillingSettings(), ensureAccessSubscription(input.providerId)]);
   if (row.included_period_started_at) return;
+  // The window depends on what THINNR sold the office: a software-only office
+  // gets the (shorter) software default, a reseller the reseller default.
+  const officeKind = await loadOfficeKind(input.providerId);
+  const includedPeriodDays = includedPeriodDaysFor(settings, officeKind);
   await applyAccessInput({
     row,
-    input: { kind: "owner_first_sign_in", at, includedPeriodDays: settings.includedPeriodDays },
+    input: { kind: "owner_first_sign_in", at, includedPeriodDays },
     actor: { kind: "provider", userId: input.authUserId },
     event: "included_period_started",
-    detail: { includedPeriodDays: settings.includedPeriodDays },
+    detail: { includedPeriodDays, officeKind },
   });
 }
 

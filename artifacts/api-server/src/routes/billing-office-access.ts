@@ -67,6 +67,7 @@ async function snapshotFor(scope: OfficeScope, context: ConnectContext = connect
   return accessSetupSnapshot({
     providerId: scope.providerId,
     officeName: scope.officeName,
+    officeKind: scope.officeKind,
     connect: context.connect,
     sandbox: context.sandbox,
     row: row ?? undefined,
@@ -208,7 +209,7 @@ router.post("/billing/office/access/disclosure", async (req, res) => {
     const scope = await scoped(req, res, "owner"); if (!scope) return;
     const { version } = z.object({ version: z.number().int().nonnegative() }).parse(req.body);
     const context = connectContext(scope);
-    const row = await acknowledgeAccessDisclosure({ providerId: scope.providerId, version, actor: actorOf(scope, req) });
+    const row = await acknowledgeAccessDisclosure({ providerId: scope.providerId, version, agreementKind: scope.officeKind, actor: actorOf(scope, req) });
     res.json(await snapshotFor(scope, context, row));
   } catch (error) { answerError(req, res, error); }
 });

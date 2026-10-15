@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { BTN_PRIMARY, BTN_SECONDARY, CHIP_COBALT, INPUT_CLASS, MICRO_LABEL, PANEL_LABEL, SectionCard } from '@/components/patient/heritage';
-import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, PageHeader, copyText } from '@/components/admin/primitives';
+import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, OfficeKindChip, PageHeader, copyText } from '@/components/admin/primitives';
 import { StaffAccessCard } from '@/components/admin/StaffAccessCard';
 import { LegalHoldControls } from '@/components/admin/LegalHold';
 import { OfficeBundleExport } from '@/components/admin/OfficeBundleExport';
@@ -46,7 +46,7 @@ import { US_STATES, normalizeUsState, formatUsPhone, isValidUsPhone, isValidUsPo
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { type AccountPlan, type ProviderAccount } from '@/data/hq/accounts';
+import { OFFICE_KINDS, OFFICE_KIND_LABEL, type AccountPlan, type OfficeKind, type ProviderAccount } from '@/data/hq/accounts';
 import { useMutation } from '@tanstack/react-query';
 import { officeRequest } from '@/lib/office-api';
 
@@ -354,7 +354,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
   const [editOpen, setEditOpen] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const [form, setForm] = useState<UpdateProviderAccountInput>({
-    officeName: '', providerName: '', providerRole: '', address1: '', address2: '', city: '', state: '', postalCode: '', plan: null, email: '', phone: ''
+    officeName: '', providerName: '', providerRole: '', address1: '', address2: '', city: '', state: '', postalCode: '', plan: null, officeKind: 'reseller', email: '', phone: ''
   });
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -484,6 +484,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
       state: account.state,
       postalCode: normalizeUsPostalCode(account.postalCode || ''),
       plan: account.plan,
+      officeKind: account.officeKind,
       email: account.email,
       phone: account.phone ? formatUsPhone(account.phone) : '',
     });
@@ -530,7 +531,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
       await updateAccount(account.id, {
         officeName, providerName,
         providerRole: form.providerRole.trim() || 'Practitioner',
-        address1, address2, city, state, postalCode, plan: form.plan, email, phone,
+        address1, address2, city, state, postalCode, plan: form.plan, officeKind: form.officeKind, email, phone,
       });
       toast({
         variant: 'success',
@@ -567,6 +568,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
             {locked && <AccountLockedChip testId="chip-account-locked" />}
             <AccountStatusChip status={account.status} />
             {account.appReview && <AppReviewChip testId="chip-account-app-review" />}
+            <OfficeKindChip kind={account.officeKind} testId="chip-account-office-kind" />
              <span className={CHIP_COBALT}>{account.plan ? `${account.plan} plan` : 'Plan —'}</span>
           </div>
         }
@@ -703,10 +705,11 @@ function ProviderAccountDetail({ id }: { id: string }) {
                   { label: 'Location', value: [account.city, account.state ? usStateName(account.state) : '', account.postalCode].filter(Boolean).join(', ') || '—' },
                 { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
                  { label: 'Plan', value: account.plan ?? '—' },
+                 { label: 'Office type', value: OFFICE_KIND_LABEL[account.officeKind], testId: 'text-account-office-kind' },
               ].map((row) => (
                 <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3 last:border-b-0">
                   <span className={MICRO_LABEL}>{row.label}</span>
-                  <span className="min-w-0 truncate text-xs text-foreground">{row.value}</span>
+                  <span className="min-w-0 truncate text-xs text-foreground" data-testid={'testId' in row ? row.testId : undefined}>{row.value}</span>
                 </div>
               ))}
             </div>
@@ -906,6 +909,23 @@ function ProviderAccountDetail({ id }: { id: string }) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="block sm:col-span-2">
+              <span className={PANEL_LABEL}>Office type</span>
+              <Select value={form.officeKind ?? 'reseller'} onValueChange={(value) => setForm(c => ({ ...c, officeKind: value as OfficeKind }))}>
+                <SelectTrigger className="mt-1 h-9 text-xs" data-testid="select-edit-office-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OFFICE_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind} className="text-xs">{OFFICE_KIND_LABEL[kind]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">
+                Software-only offices lose Marketing Assets and Training as soon as this saves, accept the software agreement in setup, and get the shorter free period. A free period that has already started is not changed.
+              </span>
             </div>
           </div>
           {formError && <p role="alert" className="text-xs font-semibold text-destructive" data-testid="text-edit-form-error">{formError}</p>}

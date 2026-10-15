@@ -214,6 +214,11 @@ export function AccountAccessBillingCard({ providerId }: { providerId: string })
               <p className="mt-1.5 max-w-[60ch] text-[11px] leading-relaxed text-muted-foreground" data-testid="text-access-state-meaning">
                 {ACCESS_STATE_MEANING[state]}
               </p>
+              <p className="mt-1 max-w-[60ch] text-[11px] leading-relaxed text-muted-foreground" data-testid="text-access-kind-window">
+                {data.office.officeKind === 'software'
+                  ? `Software-only office: ${data.policy.includedPeriodDays} days free from the owner's first sign-in, then the standard price.`
+                  : `THINNR reseller: ${data.policy.includedPeriodDays} days free from the owner's first sign-in, then the standard price.`}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <ActionButton label="Included period" testId="button-access-included" onClick={() => setAction('included-period')} />

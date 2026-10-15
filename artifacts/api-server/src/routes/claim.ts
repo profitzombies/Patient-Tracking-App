@@ -28,6 +28,7 @@ import crypto from "node:crypto";
 import { Router, type IRouter } from "express";
 import { supabaseAdmin, fetchAuthUser } from "../lib/supabase-admin";
 import { loadOfficeOffboardingStatus, PROGRAM_ENDED_MESSAGE } from "../lib/office-status";
+import { officeKindOf, type OfficeKind } from "../lib/office-kind";
 import { requestIdOf } from "../lib/admin-audit";
 import {
   afterRecoveryCompleted,
@@ -814,7 +815,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       ),
       supabaseAdmin(
         "GET",
-        `/rest/v1/providers?auth_user_id=eq.${enc(user.id)}&select=provider_id,provider_name,office_name`,
+        `/rest/v1/providers?auth_user_id=eq.${enc(user.id)}&select=provider_id,provider_name,office_name,office_kind`,
       ),
       supabaseAdmin(
         "GET",
@@ -840,6 +841,9 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
     let name: string | null = null;
     let providerId: string | null = null;
     let officeName: string | null = null;
+    // What THINNR sold the staff member's office; null for everyone else.
+    // Clients derive the Marketing Assets / Training gating from this.
+    let officeKind: OfficeKind | null = null;
     let patientId: string | null = null;
 
     if (profileRow?.role === "hq_admin") {
@@ -850,6 +854,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       name = providerRow.provider_name || providerRow.office_name || null;
       providerId = String(providerRow.provider_id);
       officeName = providerRow.office_name || providerRow.provider_name || null;
+      officeKind = officeKindOf(providerRow.office_kind);
     } else if (teamRow) {
       kind = "team_member";
       name = teamRow.name ?? null;
@@ -881,10 +886,11 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
     if (kind === "team_member" && providerId) {
       const office = await supabaseAdmin(
         "GET",
-        `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=provider_name,office_name`,
+        `/rest/v1/providers?provider_id=eq.${enc(providerId)}&select=provider_name,office_name,office_kind`,
       );
       if (office.status < 300 && Array.isArray(office.json) && office.json.length > 0) {
         officeName = office.json[0].office_name || office.json[0].provider_name || null;
+        officeKind = officeKindOf(office.json[0].office_kind);
       }
     }
 
@@ -893,6 +899,7 @@ router.get(CLAIM_WHOAMI_PATH, async (req, res) => {
       name,
       providerId,
       officeName,
+      officeKind,
       patientId,
       hasPhone: Boolean(user.phone || (kind === "patient" && patientRow?.phone)),
       hasEmail: Boolean(user.email),

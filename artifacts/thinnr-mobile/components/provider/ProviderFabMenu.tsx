@@ -23,7 +23,7 @@ import { Feather } from '@expo/vector-icons';
 import { type Href } from 'expo-router';
 import { FabMenu, type FabMenuItem } from '@/components/ui/FabMenu';
 import { useOfficeRestriction } from '@/context/OfficeRestrictionContext';
-import { OFFICE_ACCESS_ROUTE } from '@/lib/office-restriction';
+import { OFFICE_ACCESS_ROUTE, isResellerOnlyStaffRoute } from '@/lib/office-restriction';
 
 const DESTINATIONS: {
   key: string;
@@ -44,6 +44,11 @@ const ITEMS: FabMenuItem[] = DESTINATIONS.map((destination) => ({
   icon: { family: 'feather', name: destination.icon },
   action: { kind: 'navigate', href: destination.href },
 }));
+
+/** A software-only office has no Training: the reseller-only rows drop out. */
+const SOFTWARE_ITEMS: FabMenuItem[] = ITEMS.filter(
+  (item) => !(item.action.kind === 'navigate' && isResellerOnlyStaffRoute(String(item.action.href))),
+);
 
 /**
  * What the launcher offers while the office is narrowed for nonpayment: the
@@ -73,7 +78,8 @@ const RESTRICTED_ITEMS: FabMenuItem[] = [
 
 export function ProviderFabMenu() {
   const insets = useSafeAreaInsets();
-  const { restricted } = useOfficeRestriction();
+  const { restricted, officeKind } = useOfficeRestriction();
+  const items = restricted ? RESTRICTED_ITEMS : officeKind === 'software' ? SOFTWARE_ITEMS : ITEMS;
   // No staff tab bar: the circle clears the home indicator (or 14 where
   // there is none) plus a 14 gap — the resting spot the menu raises above.
   const fabBottom = Math.max(insets.bottom, 14) + 14;
@@ -83,7 +89,7 @@ export function ProviderFabMenu() {
       idPrefix="provider"
       openAccessibilityLabel="Open navigation menu"
       closeAccessibilityLabel="Close navigation menu"
-      sections={[{ key: 'navigate', label: 'NAVIGATE', items: restricted ? RESTRICTED_ITEMS : ITEMS }]}
+      sections={[{ key: 'navigate', label: 'NAVIGATE', items }]}
       primaryAction={
         restricted
           ? {

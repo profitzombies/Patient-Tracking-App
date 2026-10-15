@@ -53,7 +53,7 @@ async function snapshot(scope:OfficeScope) {
     currentSecondFactorPolicy(),
     scope.actorKind==="hq" ? Promise.resolve(null) : loadStaffSecondFactor(scope.actorKind,scope.teamMemberId??scope.providerId),
     readModeCompletion(scope.providerId,identity),
-    accessGateFacts(scope.providerId),
+    accessGateFacts(scope.providerId, undefined, undefined, scope.officeKind),
   ]);
   if (provider.status >= 300 || receipts.status>=300 || !provider.json?.[0]) throw new Error("Practice details unavailable.");
   const phoneRequired=scope.actorKind!=="hq" && secondFactorRequiredByPolicy(policy,{class:scope.actorKind,officeRole:scope.officeRole});

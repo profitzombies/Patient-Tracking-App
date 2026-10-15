@@ -22,6 +22,7 @@ import {
   useOfficeIdentity,
 } from '@/components/layout/nav-config';
 import { useOfficeRestriction } from '@/contexts/office-restriction';
+import { officeNavItemsForKind } from '@/lib/office-kind';
 import { RestrictedBanner } from '@/components/office/RestrictedAccess';
 import { groupMenuSections, SideMenu, useMenuMode } from '@/components/layout/side-menu';
 import { AttentionBell } from '@/components/office/AttentionBell';
@@ -59,8 +60,9 @@ export function Shell({ children }: { children: ReactNode }) {
 
   // One shared item list drives this menu and the /menu design lab. An office
   // narrowed for nonpayment sees only what it can still use.
-  const { restricted } = useOfficeRestriction();
-  const officeNavItems = restricted ? restrictedOfficeNavItems() : OFFICE_NAV_ITEMS;
+  // A software-only office never had Training or Marketing Assets.
+  const { restricted, officeKind } = useOfficeRestriction();
+  const officeNavItems = officeNavItemsForKind(restricted ? restrictedOfficeNavItems() : OFFICE_NAV_ITEMS, officeKind);
   // The top-level Subscriptions row is the guided demo's seeded plan list;
   // real sign-ins manage plans under Payments › Subscriptions instead.
   const navItems = authStatus === 'signed-in'

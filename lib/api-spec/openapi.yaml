@@ -5787,6 +5787,21 @@ components:
             Plain-language access-fee terms, including the revenue-share change
             if payment lapses, shown to an office during payment setup. The
             setup gate renders this wording and never carries its own copy.
+        softwareIncludedPeriodDays:
+          type: number
+          minimum: 0
+          maximum: 1095
+          description: >-
+            Free access window for software-only offices (officeKind
+            "software"), from the owner's first dashboard sign-in (default 30
+            days). Resellers use includedPeriodDays.
+        softwareAgreementText:
+          type: string
+          minLength: 40
+          maxLength: 4000
+          description: >-
+            The software agreement a software-only office accepts during setup
+            in place of the reseller disclosure.
     HqOrganizationSettingsInput:
       type: object
       additionalProperties: false
@@ -6427,6 +6442,15 @@ components:
       required: [ok]
       properties:
         ok: { type: boolean }
+    OfficeKind:
+      type: string
+      enum: [reseller, software]
+      description: >-
+        What THINNR sold the practice. "reseller" (the default) sees Marketing
+        Assets and Training, accepts the reseller access disclosure and gets
+        the reseller included period; "software" is a software-only practice
+        with neither surface, the software agreement, and the software
+        included period. Independent of the HQ plan classification.
     OfficeSummary:
       type: object
       required: [providerId, officeName, providerCode]
@@ -6434,6 +6458,7 @@ components:
         providerId: { type: string }
         officeName: { type: string }
         providerCode: { type: string }
+        officeKind: { $ref: "#/components/schemas/OfficeKind" }
     PatientProgram:
       type: object
       required: [id, startDate, startingWeight, currentWeight, goalWeight, weightChange, lastLogDate, day, stage, week]

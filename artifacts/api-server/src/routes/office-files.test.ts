@@ -92,6 +92,23 @@ describe("office files", () => {
     expect(mocks.respondDenied).toHaveBeenCalledWith(expect.anything(), expect.anything(), denied);
   });
 
+  it("refuses a software-only office's staff without reading the drive, but lets HQ drill in", async () => {
+    const scope = (await mocks.resolveScope()).scope;
+    mocks.resolveScope.mockResolvedValue({ kind: "ok", scope: { ...scope, officeKind: "software" } });
+    for (const path of ["/office/files", "/office/files/search?q=Play", `/office/files/${fileId}/download-url`, `/office/files/${fileId}/content`]) {
+      const response = await fetch(`${base}${path}`);
+      expect(response.status, path).toBe(404);
+      expect(await response.json()).toMatchObject({ reason: "office_kind" });
+    }
+    expect(mocks.admin).not.toHaveBeenCalled();
+    expect(mocks.audit).not.toHaveBeenCalled();
+    mocks.resolveScope.mockResolvedValue({ kind: "ok", scope: { ...scope, officeKind: "software", actorKind: "hq", actorUserId: "hq-1", teamMemberId: null, officeRole: null } });
+    mocks.admin
+      .mockResolvedValueOnce({ status: 200, json: folders })
+      .mockResolvedValueOnce({ status: 200, json: [file] });
+    expect((await fetch(`${base}/office/files`)).status).toBe(200);
+  });
+
   it("lets staff list root and subfolders with breadcrumbs", async () => {
     mocks.admin
       .mockResolvedValueOnce({ status: 200, json: folders })

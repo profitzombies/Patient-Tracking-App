@@ -1320,6 +1320,25 @@ describe("whoami and add-phone", () => {
     });
     expect(whoProv.json.kind).toBe("provider");
     expect(whoProv.json.officeName).toBe("Rivera Wellness");
+    // Offices created before kinds existed (no column in the fixture) are resellers.
+    expect(whoProv.json.officeKind).toBe("reseller");
+    expect(who.json.officeKind).toBeNull();
+
+    const softId = crypto.randomUUID();
+    backend.authUsers.set(softId, { id: softId, email: "soft@clinic.example" });
+    backend.tables.providers.push({
+      provider_id: "20003",
+      provider_name: "Dr. Soft",
+      office_name: "Soft Practice",
+      email: "soft@clinic.example",
+      access_disabled: false,
+      auth_user_id: softId,
+      office_kind: "software",
+    });
+    const whoSoft = await api("GET", "/api/claim/whoami", undefined, {
+      Authorization: `Bearer ${backend.addSession(softId)}`,
+    });
+    expect(whoSoft.json).toMatchObject({ kind: "provider", officeKind: "software" });
 
     const anon = await api("GET", "/api/claim/whoami", undefined, {
       Authorization: "Bearer session-not-real",

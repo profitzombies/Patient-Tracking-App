@@ -80,15 +80,15 @@ export function OfficeAccessContent({ snapshot, refresh, management = false }: {
       </div>
     </SectionCard></div>}
 
-    {!management && <div id={setupSectionId('disclosure')} className="scroll-mt-6"><SectionCard title={`Disclosure · ${snapshot.disclosure.acknowledgedAt ? 'Done' : 'To do'}`}>
+    {!management && <div id={setupSectionId('disclosure')} className="scroll-mt-6"><SectionCard title={`${snapshot.disclosure.kind === 'software' ? 'Software agreement' : 'Disclosure'} · ${snapshot.disclosure.acknowledgedAt ? 'Done' : 'To do'}`}>
       <div className="space-y-4 p-5 text-sm"><p className="whitespace-pre-wrap">{snapshot.disclosure.text}</p>
         {snapshot.disclosure.acknowledgedAt
           ? <p className="flex flex-wrap items-center gap-2 font-semibold text-emerald-700" data-testid="access-disclosure-acknowledged">
             <Check size={16} aria-hidden="true" />Acknowledged {date(snapshot.disclosure.acknowledgedAt)}.
             {writes.disclosure.isPending && <span className="font-normal text-muted-foreground"><BusyLabel busy label="" busyLabel="Saving…" /></span>}
           </p>
-          : snapshot.canChoosePlan ? <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={writes.disclosure.isPending} onClick={() => writes.acknowledge(snapshot.disclosure.version)}>Acknowledge disclosure</button>
-            : <p className="text-muted-foreground">Only the practice owner may acknowledge this disclosure.</p>}
+          : snapshot.canChoosePlan ? <button className={`${BTN_PRIMARY} h-10 px-4`} disabled={writes.disclosure.isPending} onClick={() => writes.acknowledge(snapshot.disclosure.version)}>{snapshot.disclosure.kind === 'software' ? 'Accept the software agreement' : 'Acknowledge disclosure'}</button>
+            : <p className="text-muted-foreground">Only the practice owner may {snapshot.disclosure.kind === 'software' ? 'accept this agreement' : 'acknowledge this disclosure'}.</p>}
         {writes.disclosure.isError && <InlineError prefix="Your acceptance was not saved." error={writes.disclosure.error} retry={refresh} />}
       </div>
     </SectionCard></div>}

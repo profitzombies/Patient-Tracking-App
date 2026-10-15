@@ -50,4 +50,16 @@ export interface OfficeAccessBillingPolicy {
      * @maxLength 4000
      */
   disclosureText: string;
+  /**
+     * Free access window for software-only offices (officeKind "software"), from the owner's first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.
+     * @minimum 0
+     * @maximum 1095
+     */
+  softwareIncludedPeriodDays?: number;
+  /**
+     * The software agreement a software-only office accepts during setup in place of the reseller disclosure.
+     * @minLength 40
+     * @maxLength 4000
+     */
+  softwareAgreementText?: string;
 }

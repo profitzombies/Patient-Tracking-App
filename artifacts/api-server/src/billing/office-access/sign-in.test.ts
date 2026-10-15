@@ -12,10 +12,21 @@ const mocks = vi.hoisted(() => ({
   selected: vi.fn(),
   seen: [] as Array<{ step: string; identity: unknown }>,
   started: null as string | null,
+  officeKind: "reseller" as string,
+  starts: [] as Array<{ includedPeriodDays: number; officeKind: string }>,
 }));
 
 vi.mock("../mode-state", () => ({ getBillingModeStatus: mocks.selected }));
-vi.mock("./settings", () => ({ loadAccessBillingSettings: async () => ({ includedPeriodDays: 365 }) }));
+vi.mock("./settings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./settings")>()),
+  loadAccessBillingSettings: async () => ({ includedPeriodDays: 365, softwareIncludedPeriodDays: 30 }),
+}));
+vi.mock("../../lib/supabase-admin", () => ({
+  supabaseAdmin: async (_method: string, path: string) => ({
+    status: 200,
+    json: path.startsWith("/rest/v1/providers") ? [{ provider_id: "office-1", office_kind: mocks.officeKind }] : [],
+  }),
+}));
 vi.mock("./subscription", async () => {
   const environment = await import("../stripe-environment");
   return {
@@ -23,8 +34,9 @@ vi.mock("./subscription", async () => {
       mocks.seen.push({ step: "ensure", identity: environment.currentBillingIdentity() });
       return { id: "sub-1", provider_id: providerId, included_period_started_at: mocks.started };
     },
-    applyAccessInput: async (input: { input: { kind: string } }) => {
+    applyAccessInput: async (input: { input: { kind: string; includedPeriodDays: number }; detail: { officeKind: string } }) => {
       mocks.seen.push({ step: input.input.kind, identity: environment.currentBillingIdentity() });
+      mocks.starts.push({ includedPeriodDays: input.input.includedPeriodDays, officeKind: input.detail.officeKind });
     },
   };
 });
@@ -38,7 +50,9 @@ beforeEach(() => {
   mocks.selected.mockReset();
   mocks.selected.mockResolvedValue({ ...LIVE, version: 3 });
   mocks.seen = [];
+  mocks.starts = [];
   mocks.started = null;
+  mocks.officeKind = "reseller";
 });
 
 describe("starting the included period from a staff sign-in", () => {
@@ -59,6 +73,15 @@ describe("starting the included period from a staff sign-in", () => {
       noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" }));
     expect(mocks.selected).not.toHaveBeenCalled();
     expect(mocks.seen.map((entry) => entry.identity)).toEqual([TEST, TEST]);
+  });
+
+  it("gives a software-only office the software included period, a reseller the reseller one", async () => {
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 365, officeKind: "reseller" }]);
+    mocks.starts = [];
+    mocks.officeKind = "software";
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 30, officeKind: "software" }]);
   });
 
   it("does not restart a period that already started", async () => {

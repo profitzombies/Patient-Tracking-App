@@ -64,6 +64,18 @@ args = "app-review-api"
 task = "workflow.run"
 args = "app-review-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-kind-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-kind-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "office-kind-mobile"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3287,6 +3299,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm exec tsc -b lib/api-client-react lib/api-zod && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "office-kind-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/routes/office-kind.sql.test.ts src/routes/provider-accounts-office-kind.test.ts src/routes/office-files.test.ts src/billing/office-access/sign-in.test.ts src/billing/office-access/setup.test.ts src/routes/practice-launch.test.ts src/routes/hq-office-access.test.ts src/routes/hq-org-policy.test.ts src/routes/claim.test.ts src/routes/office-access.test.ts src/routes/billing-office-access.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "office-kind-web"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:office-kind && pnpm --filter @workspace/thinnr-operations run test:office-restricted && pnpm --filter @workspace/thinnr-operations run test:org-policies && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[[workflows.workflow]]
+name = "office-kind-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:office-kind && pnpm --filter @workspace/thinnr-mobile run test:office-restricted && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -28,6 +28,8 @@ export interface OfficeAccessState {
   grace_ends_at: string | null;
   restricted_at: string | null;
   setup_completed_at: string | null;
+  /** What THINNR sold the office; absent from a server that predates kinds (= reseller). */
+  office_kind?: 'reseller' | 'software';
 }
 
 export interface OfficeAccessPayment extends OfficeAccessState {

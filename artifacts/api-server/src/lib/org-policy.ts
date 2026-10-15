@@ -88,6 +88,14 @@ export interface AccessBillingPolicy {
    * never carries its own copy of it.
    */
   disclosureText: string;
+  /**
+   * Software-only offices (providers.office_kind = 'software') get their own
+   * free window and accept the software agreement instead of the reseller
+   * disclosure. Same bounds as the reseller values; everything else (prices,
+   * instruments, grace, shares) is shared.
+   */
+  softwareIncludedPeriodDays: number;
+  softwareAgreementText: string;
 }
 export interface OrgPolicy {
   organizationName: string;
@@ -203,6 +211,7 @@ export const POLICY_BOUNDS = {
   accessYearlyPriceCents: { min: 0, max: 100_000_000 },
   /** Up to three years of included access; 0 means paid from the first day. */
   accessIncludedPeriodDays: { min: 0, max: 1095 },
+  accessSoftwareIncludedPeriodDays: { min: 0, max: 1095 },
   accessGracePeriodDays: { min: 1, max: 30 },
   accessNormalSharePercent: { min: 0, max: 100 },
   accessRestrictedSharePercent: { min: 0, max: 100 },
@@ -224,6 +233,17 @@ export const DEFAULT_ACCESS_DISCLOSURE =
   "Your included period is free — the first access charge lands the day it ends, at the price shown above. " +
   "If an access payment lapses and stays unpaid through the recovery window, your practice keeps operating but THINNR's share of each patient payment increases until the balance is settled. " +
   "You can change cards, re-verify your bank account, or pay a balance at any time from Payment methods.";
+/**
+ * The agreement a software-only office is shown instead. Must stay in step
+ * with the schema default in supabase/migrations/20261210000000_office_kind.sql.
+ */
+export const DEFAULT_SOFTWARE_AGREEMENT =
+  "THINNR provides your practice with the provider dashboard, the provider mobile app and the patient app under this software agreement, and charges your practice an access fee for them. " +
+  "We keep a bank account and two credit cards on file and charge the bank account first; if it fails we try your cards. " +
+  "Your included period is free — the first access charge lands the day it ends, at the price shown above. " +
+  "If an access payment lapses and stays unpaid through the recovery window, your practice keeps operating but THINNR's share of each patient payment increases until the balance is settled. " +
+  "You can change cards, re-verify your bank account, or pay a balance at any time from Payment methods. " +
+  "THINNR marketing assets and reseller training are not part of this agreement.";
 
 export const DEFAULT_ORG_POLICY: OrgPolicy = {
   organizationName: "THINNR",
@@ -262,6 +282,8 @@ export const DEFAULT_ORG_POLICY: OrgPolicy = {
     normalSharePercent: 60,
     restrictedSharePercent: 80,
     disclosureText: DEFAULT_ACCESS_DISCLOSURE,
+    softwareIncludedPeriodDays: 30,
+    softwareAgreementText: DEFAULT_SOFTWARE_AGREEMENT,
   },
   version: 1,
   updatedAt: "1970-01-01T00:00:00.000Z",
@@ -290,7 +312,8 @@ export const SETTINGS_SELECT =
   "retention_clinical_record_days,export_link_hours,staff_idle_timeout_minutes,hq_idle_timeout_minutes,cold_archive_enabled," +
   "second_factor_hq_users,second_factor_office_managers,second_factor_all_staff,section_changes," +
   "access_monthly_price_cents,access_yearly_price_cents,access_included_period_days,access_grace_period_days," +
-  "access_share_normal_percent,access_share_restricted_percent,access_disclosure_text";
+  "access_share_normal_percent,access_share_restricted_percent,access_disclosure_text," +
+  "access_software_included_period_days,access_software_agreement_text";
 
 function int(value: unknown, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -356,6 +379,8 @@ export function policyFromRow(row: Record<string, unknown>): OrgPolicy {
       normalSharePercent: int(row.access_share_normal_percent, d.accessBilling.normalSharePercent),
       restrictedSharePercent: int(row.access_share_restricted_percent, d.accessBilling.restrictedSharePercent),
       disclosureText: text(row.access_disclosure_text) ?? d.accessBilling.disclosureText,
+      softwareIncludedPeriodDays: int(row.access_software_included_period_days, d.accessBilling.softwareIncludedPeriodDays),
+      softwareAgreementText: text(row.access_software_agreement_text) ?? d.accessBilling.softwareAgreementText,
     },
     version: int(row.version, 1),
     updatedAt: text(row.updated_at) ?? d.updatedAt,
@@ -422,6 +447,8 @@ export function policyToColumns(policy: OrgPolicy): Record<string, unknown> {
     access_share_normal_percent: policy.accessBilling.normalSharePercent,
     access_share_restricted_percent: policy.accessBilling.restrictedSharePercent,
     access_disclosure_text: policy.accessBilling.disclosureText,
+    access_software_included_period_days: policy.accessBilling.softwareIncludedPeriodDays,
+    access_software_agreement_text: policy.accessBilling.softwareAgreementText,
   };
 }
 

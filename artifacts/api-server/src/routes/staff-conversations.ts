@@ -1423,6 +1423,7 @@ export function createStaffConversationsRouter(store: NotificationStore = supaba
         officeRole: "owner",
         teamMemberId: null,
         restricted: false,
+        officeKind: "reseller",
       });
       const note = body.data.note?.trim() || null;
       const patched = await supabaseAdmin(

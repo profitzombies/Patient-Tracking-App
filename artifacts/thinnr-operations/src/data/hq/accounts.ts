@@ -12,6 +12,21 @@ import { usStateName } from '../../lib/us-contact';
 
 export type AccountStatus = 'active' | 'needs_setup' | 'locked' | 'offboarding' | 'offboarded';
 export type AccountPlan = 'Core' | 'Plus' | 'Concierge';
+/**
+ * What THINNR sold the practice. Resellers (every office created before kinds
+ * existed) see Marketing Assets and Training and accept the reseller access
+ * disclosure; software-only offices get the same app without those two areas,
+ * accept the software agreement, and get the shorter included period.
+ * Independent of the Core/Plus/Concierge plan, which controls nothing.
+ */
+export type OfficeKind = 'reseller' | 'software';
+export const OFFICE_KINDS: OfficeKind[] = ['reseller', 'software'];
+export const OFFICE_KIND_LABEL: Record<OfficeKind, string> = {
+  reseller: 'THINNR reseller',
+  software: 'Software only',
+};
+/** Unknown reads as reseller, like the server. */
+export const officeKindOf = (value: unknown): OfficeKind => (value === 'software' ? 'software' : 'reseller');
 
 export interface ProviderAccount {
   id: string;
@@ -22,6 +37,7 @@ export interface ProviderAccount {
   providerCode: string | null;
   status: AccountStatus;
   plan: AccountPlan | null;
+  officeKind: OfficeKind;
   address1: string | null;
   address2: string | null;
   city: string;
@@ -120,6 +136,7 @@ export function accountSearchHaystack(
     account.providerRole,
     account.providerCode,
     account.plan,
+    OFFICE_KIND_LABEL[account.officeKind],
     ACCOUNT_STATUS_LABEL[account.status],
     // Accounts locked through the HQ kill switch wear an extra "Locked"
     // chip in the table (separate from the persisted status, whose locked

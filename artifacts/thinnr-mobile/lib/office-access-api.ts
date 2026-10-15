@@ -22,6 +22,8 @@ export interface OfficeAccessState {
   grace_ends_at: string | null;
   restricted_at: string | null;
   setup_completed_at: string | null;
+  /** 'software' offices have no Training; absent (older servers) reads as reseller. */
+  office_kind?: 'reseller' | 'software';
 }
 
 export interface OfficeAccessPayment extends OfficeAccessState {

@@ -84,6 +84,12 @@ const migrationNames = [
   "20261209000000_app_review_office.sql",
   // The review office also stays out of HQ app-usage Insights totals + bounds.
   "20261209100000_app_review_event_insights.sql",
+  // Software-only offices: providers.office_kind, the HQ account RPCs carry it,
+  // the software agreement + 30-day included period settings, the accepted
+  // agreement kind, and training failing closed for software-office staff.
+  "20261210000000_office_kind.sql",
+  // …and the self-serve training roster RPC refuses software-office staff too.
+  "20261211000000_office_kind_training_staff.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -372,6 +378,36 @@ await query(`
           where conrelid = 'public.claim_verifications'::regclass
             and conname = 'claim_verifications_delivery_check'
             and pg_get_constraintdef(oid) like '%app_review%'
+       )
+       -- Office kind: the column + CHECK, both HQ account RPCs at their new
+       -- arity, the software settings columns, the accepted-agreement kind, and
+       -- training's caller helpers consulting the software predicate.
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.providers'::regclass
+            and conname = 'providers_office_kind_check'
+            and pg_get_constraintdef(oid) like '%software%'
+       )
+       or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text)') is null
+       or to_regprocedure('public.hq_update_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text,text)') is null
+       or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text)') is not null
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'hq_organization_settings'
+            and column_name in ('access_software_included_period_days', 'access_software_agreement_text')
+         having count(*) = 2
+       )
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'billing_office_access_subscriptions' and column_name = 'disclosure_kind'
+       )
+       or to_regprocedure('private.caller_office_is_software()') is null
+       or position('caller_office_is_software' in pg_get_functiondef('private.caller_provider_account()'::regprocedure)) = 0
+       or position('caller_office_is_software' in pg_get_functiondef('private.caller_is_staff()'::regprocedure)) = 0
+       or not exists (
+         select 1 from pg_policies
+          where schemaname = 'public' and tablename = 'training_courses'
+            and policyname = 'Training courses are readable outside software offices'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

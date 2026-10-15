@@ -10,14 +10,21 @@
  * Those keep their own screens and their own meanings.
  */
 import { createContext, useContext, type ReactNode } from 'react';
+import type { OfficeKind } from '@/data/hq/accounts';
 
 export interface OfficeRestriction {
   restricted: boolean;
   /** The non-punitive explanation the server sends with the refusal. */
   message: string | null;
+  /**
+   * What THINNR sold this office — reseller or software-only — as the server
+   * reported it (whoami, the office access payload, or the HQ account being
+   * drilled into). Null until known; readers treat null as reseller.
+   */
+  officeKind: OfficeKind | null;
 }
 
-const OfficeRestrictionContext = createContext<OfficeRestriction>({ restricted: false, message: null });
+const OfficeRestrictionContext = createContext<OfficeRestriction>({ restricted: false, message: null, officeKind: null });
 
 export function OfficeRestrictionProvider(
   { value, children }: { value: OfficeRestriction; children: ReactNode },

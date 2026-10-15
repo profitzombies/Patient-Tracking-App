@@ -13,6 +13,7 @@ import { supabaseAdmin } from "../lib/supabase-admin";
 import { sendProviderClaimInvitation } from "../claim/delivery";
 import { recordAdminAuditEvent } from "../lib/admin-audit";
 import { offboardingStatusOf } from "../lib/office-status";
+import { OfficeKindInput, officeKindOf } from "../lib/office-kind";
 import { appBaseUrl } from "../security/alerts";
 import { createLimiter } from "../coach/limits";
 import { greetingName } from "../lib/greeting-name";
@@ -112,10 +113,14 @@ export const AccountInput = z.object({
   state: StateInput,
   postalCode: PostalCodeInput,
   plan: z.enum(["Core", "Plus", "Concierge"]).nullable(),
+  // THINNR reseller (default) or software-only practice. Independent of
+  // `plan`, which stays an HQ classification. Optional on PATCH so older
+  // clients leave the kind alone.
+  officeKind: OfficeKindInput.optional(),
 });
 
 const PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at,app_review";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at,app_review,office_kind";
 const SUPPORT_PROVIDER_SELECT =
   "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at,offboarding_status,offboarding_started_at,offboarded_at,app_review";
 
@@ -202,6 +207,7 @@ async function loadAccounts(supportOnly = false) {
       },
       // The dedicated App Review office: staff must know it is not a customer.
       appReview: row.app_review === true,
+      officeKind: officeKindOf(row.office_kind),
       plan: row.plan ? String(row.plan) : null,
       address1: row.address_line_1 ? String(row.address_line_1) : "",
       address2: row.address_line_2 ? String(row.address_line_2) : "",
@@ -374,6 +380,7 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
       p_state: parsed.data.state,
       p_postal_code: parsed.data.postalCode,
       p_plan: parsed.data.plan,
+      p_office_kind: parsed.data.officeKind ?? "reseller",
     });
     if (result.status === 409 || result.status === 400 || result.status === 422) {
       res.status(409).json({ error: errorMessage(result.json) });
@@ -398,6 +405,8 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
         providerRole: row.provider_role ? String(row.provider_role) : "—",
         providerCode: row.onboarding_code ? String(row.onboarding_code) : null,
         status: "needs_setup",
+        appReview: row.app_review === true,
+        officeKind: officeKindOf(row.office_kind),
         plan: row.plan ? String(row.plan) : null,
         address1: row.address_line_1 ? String(row.address_line_1) : "",
         address2: row.address_line_2 ? String(row.address_line_2) : "",
@@ -533,6 +542,7 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
       p_state: parsed.data.state,
       p_postal_code: parsed.data.postalCode,
       p_plan: parsed.data.plan,
+      p_office_kind: parsed.data.officeKind ?? null,
     });
     if (result.status === 404) {
       res.status(404).json({ error: "Provider account not found." });

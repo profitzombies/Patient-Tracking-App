@@ -5,7 +5,7 @@ import { useOfficeAccessMutations } from '@/hooks/use-office-access';
 import { LINK_ACTION } from '@/components/patient/heritage';
 import type { OfficeAccessSnapshot } from '@/lib/billing-types';
 import { missingSetupItems, type SetupTarget } from '@/lib/setup-checklist';
-import { connectSubmitted, firstCharge, instrumentFor, longDate, money, planPriceCents, type WizardStepId } from './steps';
+import { agreementTitle, connectSubmitted, firstCharge, instrumentFor, longDate, money, planPriceCents, type WizardStepId } from './steps';
 import { InlineError, StepFrame, WizardFooter, readable } from './ui';
 
 export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivated }: {
@@ -71,7 +71,7 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
       </div>)}
     </dl>
     <div className="rounded-lg border border-card-border bg-card shadow-soft">
-      <p className="border-b border-border px-5 py-3 text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">Access terms</p>
+      <p className="border-b border-border px-5 py-3 text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground" data-testid="wizard-disclosure-title">{agreementTitle(access)}</p>
       <div className="max-h-64 overflow-y-auto whitespace-pre-wrap px-5 py-4 text-sm leading-relaxed text-foreground" data-testid="wizard-disclosure" tabIndex={0}>{access.disclosure.text}</div>
     </div>
     <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3.5 text-sm">

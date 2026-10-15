@@ -140,6 +140,13 @@ export function mergePolicyInput(
     }
     next.accessBilling.disclosureText = disclosure;
   }
+  if (input.accessBilling?.softwareAgreementText !== undefined) {
+    const agreement = input.accessBilling.softwareAgreementText.trim();
+    if (agreement.length < ACCESS_DISCLOSURE_BOUNDS.min || agreement.length > ACCESS_DISCLOSURE_BOUNDS.max) {
+      return fail(`The software agreement must be between ${ACCESS_DISCLOSURE_BOUNDS.min} and ${ACCESS_DISCLOSURE_BOUNDS.max} characters.`);
+    }
+    next.accessBilling.softwareAgreementText = agreement;
+  }
   if (input.coldArchiveEnabled !== undefined) {
     // Turning the archive on needs somewhere to write: the storage prefix is
     // an environment knob, so the toggle refuses until it is set. Turning it
@@ -171,6 +178,7 @@ export function mergePolicyInput(
     ["accessMonthlyPriceCents", input.accessBilling?.monthlyPriceCents, v => { next.accessBilling.monthlyPriceCents = v; }, "Monthly access price"],
     ["accessYearlyPriceCents", input.accessBilling?.yearlyPriceCents, v => { next.accessBilling.yearlyPriceCents = v; }, "Yearly access price"],
     ["accessIncludedPeriodDays", input.accessBilling?.includedPeriodDays, v => { next.accessBilling.includedPeriodDays = v; }, "Included access period"],
+    ["accessSoftwareIncludedPeriodDays", input.accessBilling?.softwareIncludedPeriodDays, v => { next.accessBilling.softwareIncludedPeriodDays = v; }, "Software-only included access period"],
     ["accessGracePeriodDays", input.accessBilling?.gracePeriodDays, v => { next.accessBilling.gracePeriodDays = v; }, "Access grace period"],
     ["accessNormalSharePercent", input.accessBilling?.normalSharePercent, v => { next.accessBilling.normalSharePercent = v; }, "Standard revenue share"],
     ["accessRestrictedSharePercent", input.accessBilling?.restrictedSharePercent, v => { next.accessBilling.restrictedSharePercent = v; }, "Restricted revenue share"],

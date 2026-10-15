@@ -38,7 +38,11 @@ import OfficeAccess from '@/pages/OfficeAccess';
 import { RestrictedRoutes } from '@/components/office/RestrictedAccess';
 import { PracticeLaunchGuard } from '@/pages/PracticeLaunch';
 import { useOfficeAccess } from '@/hooks/use-office-access';
-import { OfficeRestrictionProvider } from '@/contexts/office-restriction';
+import { OfficeRestrictionProvider, useOfficeRestriction } from '@/contexts/office-restriction';
+import { useProviderScope } from '@/contexts/provider-scope';
+import { useSession } from '@/contexts/session';
+import { officeKindOf } from '@/data/hq/accounts';
+import { officeKindHasResellerContent } from '@/lib/office-kind';
 
 export function OfficeApp() {
   return (
@@ -50,31 +54,7 @@ export function OfficeApp() {
             <Shell>
               <PatientRouteScrollBehavior />
               <RestrictedRoutes>
-              <Switch>
-                <Route path="/" component={Overview} />
-                <Route path="/patients" component={Patients} />
-                <Route path="/patients/:id" component={PatientDetail} />
-                <Route path="/alerts" component={OfficeAlerts} />
-                <Route path="/conversations" component={OfficeConversations} />
-                <Route path="/analytics" component={Analytics} />
-                <Route path="/leaderboard" component={Leaderboard} />
-                <Route path="/subscriptions" component={Subscriptions} />
-                {/* Payments (Stripe Connect) owns its sub-routes. */}
-                <Route path="/payments" nest component={OfficePaymentsArea} />
-                <Route path="/training" component={OfficeTraining} />
-                <Route path="/files" component={OfficeFiles} />
-                {/* Literal /training/team must outrank the :courseId catch-all. */}
-                <Route path="/training/team/:viewerId" component={OfficeTeammate} />
-                <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
-                <Route path="/training/:courseId" component={OfficeTrainingCourse} />
-                <Route path="/ai-support" component={OfficeAiSupport} />
-                <Route path="/settings" component={OfficeSettings} />
-                <Route path="/team" component={OfficeTeam} />
-                <Route path="/audit" component={OfficeAudit} />
-                <Route path="/security" component={Security} />
-                <Route path="/account" component={OfficeAccess} />
-                <Route component={NotFound} />
-              </Switch>
+                <OfficeRoutes />
               </RestrictedRoutes>
             </Shell>
           </Route>
@@ -94,13 +74,61 @@ export function OfficeApp() {
  */
 function OfficeRestrictionGate({ children }: { children: ReactNode }) {
   const access = useOfficeAccess();
+  const scope = useProviderScope();
+  const { claimedWorkspace } = useSession();
   const restricted = access.data?.restricted === true;
+  // The kind arrives with whatever the client already reads at sign-in: the
+  // HQ account for a drill-in, the office access payload for the office's own
+  // staff, and whoami for a claimed login — no extra poll.
+  const officeKind = scope
+    ? officeKindOf(scope.officeKind)
+    : access.data?.office_kind !== undefined
+      ? officeKindOf(access.data.office_kind)
+      : claimedWorkspace?.officeKind ?? null;
   return (
     <OfficeRestrictionProvider
-      value={{ restricted, message: restricted ? access.data?.message ?? null : null }}
+      value={{ restricted, message: restricted ? access.data?.message ?? null : null, officeKind }}
     >
       {children}
     </OfficeRestrictionProvider>
+  );
+}
+
+/** The office screens. wouter's Switch flattens fragments and skips `false`. */
+function OfficeRoutes() {
+  const { officeKind } = useOfficeRestriction();
+  return (
+    <Switch>
+      <Route path="/" component={Overview} />
+      <Route path="/patients" component={Patients} />
+      <Route path="/patients/:id" component={PatientDetail} />
+      <Route path="/alerts" component={OfficeAlerts} />
+      <Route path="/conversations" component={OfficeConversations} />
+      <Route path="/analytics" component={Analytics} />
+      <Route path="/leaderboard" component={Leaderboard} />
+      <Route path="/subscriptions" component={Subscriptions} />
+      {/* Payments (Stripe Connect) owns its sub-routes. */}
+      <Route path="/payments" nest component={OfficePaymentsArea} />
+      {/* Reseller-only material. A software-only office has no such
+          pages: the fragment is left out, so these URLs fall through
+          to the in-app not-found page below (the server refuses the
+          data regardless). */}
+      {officeKindHasResellerContent(officeKind) && <>
+        <Route path="/training" component={OfficeTraining} />
+        <Route path="/files" component={OfficeFiles} />
+        {/* Literal /training/team must outrank the :courseId catch-all. */}
+        <Route path="/training/team/:viewerId" component={OfficeTeammate} />
+        <Route path="/training/:courseId/videos/:videoId" component={OfficeTrainingLesson} />
+        <Route path="/training/:courseId" component={OfficeTrainingCourse} />
+      </>}
+      <Route path="/ai-support" component={OfficeAiSupport} />
+      <Route path="/settings" component={OfficeSettings} />
+      <Route path="/team" component={OfficeTeam} />
+      <Route path="/audit" component={OfficeAudit} />
+      <Route path="/security" component={Security} />
+      <Route path="/account" component={OfficeAccess} />
+      <Route component={NotFound} />
+    </Switch>
   );
 }
 

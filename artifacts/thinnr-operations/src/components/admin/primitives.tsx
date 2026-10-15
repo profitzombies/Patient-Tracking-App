@@ -11,6 +11,7 @@
 import type { ReactNode } from 'react';
 import { Eye, Lock } from 'lucide-react';
 import { CHIP_COBALT, CHIP_RISK, CHIP_WARM } from '@/components/patient/heritage';
+import { OFFICE_KIND_LABEL, type OfficeKind } from '@/data/hq/accounts';
 
 /**
  * Standard admin page container — spans the full content column, keeping only
@@ -111,6 +112,20 @@ export function AppReviewChip({ testId }: { testId?: string }) {
   return (
     <span className={CHIP_WARM} data-testid={testId} title="Apple and Google reviewers sign in to this office. It is not a customer and is left out of health, retention and counts.">
       App Review
+    </span>
+  );
+}
+
+/**
+ * The office kind. Resellers are the default and wear no chip; a software-only
+ * office is called out wherever HQ reads the account so the missing Marketing
+ * Assets / Training and the shorter included period are never a surprise.
+ */
+export function OfficeKindChip({ kind, testId }: { kind: OfficeKind; testId?: string }) {
+  if (kind !== 'software') return null;
+  return (
+    <span className={CHIP_COBALT} data-testid={testId} title="Software-only practice: no Marketing Assets or Training, the software agreement, and the shorter free period.">
+      {OFFICE_KIND_LABEL.software}
     </span>
   );
 }

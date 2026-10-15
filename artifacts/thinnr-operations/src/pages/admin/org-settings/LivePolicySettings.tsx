@@ -715,9 +715,12 @@ export function LivePolicySettings() {
             draft.gracePeriodDays,
             draft.normalSharePercent,
             draft.restrictedSharePercent,
+            draft.softwareIncludedPeriodDays,
           ]) ?? (draft.disclosureText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
             ? `The disclosure needs at least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
-            : null)
+            : draft.softwareAgreementText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
+              ? `The software agreement needs at least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
+              : null)
         }
       >
         {(draft, setDraft) => (
@@ -742,14 +745,24 @@ export function LivePolicySettings() {
                 onChange={(yearlyPriceDollars) => setDraft({ yearlyPriceDollars })}
               />
             </FieldRow>
-            <FieldRow label="Included period" help="How long a new office pays nothing for access, counted from its owner's first dashboard sign-in. Up to three years. Offices already inside an included period keep the length they were given.">
+            <FieldRow label="Included period, THINNR resellers" help="How long a new reseller office pays nothing for access, counted from its owner's first dashboard sign-in. Up to three years. Offices already inside an included period keep the length they were given.">
               <NumberField
                 id="input-policy-access-included-days"
-                label="Included period days"
+                label="Included period days for THINNR reseller offices"
                 value={draft.includedPeriodDays}
                 bounds={POLICY_BOUNDS.accessIncludedPeriodDays}
                 unit="days"
                 onChange={(includedPeriodDays) => setDraft({ includedPeriodDays })}
+              />
+            </FieldRow>
+            <FieldRow label="Included period, software only" help="The same clock for a software-only office (an office that is not a THINNR reseller). The price, payment methods and recovery rules are the same; only the free window differs.">
+              <NumberField
+                id="input-policy-access-software-included-days"
+                label="Included period days for software-only offices"
+                value={draft.softwareIncludedPeriodDays}
+                bounds={POLICY_BOUNDS.accessIncludedPeriodDays}
+                unit="days"
+                onChange={(softwareIncludedPeriodDays) => setDraft({ softwareIncludedPeriodDays })}
               />
             </FieldRow>
             <FieldRow label="Recovery window" help="How long an office keeps normal access after a charge fails, while the cards on file are retried, before it is restricted.">
@@ -782,7 +795,7 @@ export function LivePolicySettings() {
                 onChange={(restrictedSharePercent) => setDraft({ restrictedSharePercent })}
               />
             </FieldRow>
-            <FieldRow label="Access fee disclosure" help="The plain-language terms an office reads and acknowledges while it puts its payment methods in place. The setup screen shows this wording exactly; it carries no copy of its own." last>
+            <FieldRow label="Access fee disclosure, THINNR resellers" help="The plain-language terms a reseller office reads and acknowledges while it puts its payment methods in place. The setup screen shows this wording exactly; it carries no copy of its own.">
               <div className="w-full">
                 <textarea
                   id="input-policy-access-disclosure"
@@ -797,6 +810,24 @@ export function LivePolicySettings() {
                   {draft.disclosureText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
                     ? `At least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
                     : `${draft.disclosureText.trim().length} of ${POLICY_BOUNDS.accessDisclosureText.max} characters.`}
+                </p>
+              </div>
+            </FieldRow>
+            <FieldRow label="Software agreement, software only" help="What a software-only office reads and accepts in the setup wizard instead of the reseller disclosure. The acknowledgment records which agreement, and which version, the office accepted." last>
+              <div className="w-full">
+                <textarea
+                  id="input-policy-access-software-agreement"
+                  aria-label="Software agreement shown to software-only offices during setup"
+                  data-testid="input-policy-access-software-agreement"
+                  className={`${INPUT_CLASS} min-h-[9rem] w-full resize-y leading-relaxed`}
+                  value={draft.softwareAgreementText}
+                  maxLength={POLICY_BOUNDS.accessDisclosureText.max}
+                  onChange={(event) => setDraft({ softwareAgreementText: event.target.value })}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {draft.softwareAgreementText.trim().length < POLICY_BOUNDS.accessDisclosureText.min
+                    ? `At least ${POLICY_BOUNDS.accessDisclosureText.min} characters.`
+                    : `${draft.softwareAgreementText.trim().length} of ${POLICY_BOUNDS.accessDisclosureText.max} characters.`}
                 </p>
               </div>
             </FieldRow>
@@ -862,6 +893,9 @@ interface AccessBillingDraft {
   normalSharePercent: number;
   restrictedSharePercent: number;
   disclosureText: string;
+  /** Software-only offices: their own free window and agreement text. */
+  softwareIncludedPeriodDays: number;
+  softwareAgreementText: string;
 }
 
 const accessBillingFrom = (s: HqOrganizationSettings): AccessBillingDraft => ({
@@ -872,6 +906,9 @@ const accessBillingFrom = (s: HqOrganizationSettings): AccessBillingDraft => ({
   normalSharePercent: s.accessBilling.normalSharePercent,
   restrictedSharePercent: s.accessBilling.restrictedSharePercent,
   disclosureText: s.accessBilling.disclosureText,
+  // Older servers answer without the software fields; the server-side defaults are 30 days and its built-in text.
+  softwareIncludedPeriodDays: s.accessBilling.softwareIncludedPeriodDays ?? 30,
+  softwareAgreementText: s.accessBilling.softwareAgreementText ?? '',
 });
 
 const accessBillingPayload = (d: AccessBillingDraft): HqOrganizationSettingsInput => ({
@@ -883,5 +920,7 @@ const accessBillingPayload = (d: AccessBillingDraft): HqOrganizationSettingsInpu
     normalSharePercent: d.normalSharePercent,
     restrictedSharePercent: d.restrictedSharePercent,
     disclosureText: d.disclosureText.trim(),
+    softwareIncludedPeriodDays: d.softwareIncludedPeriodDays,
+    softwareAgreementText: d.softwareAgreementText.trim(),
   },
 });

@@ -1,8 +1,10 @@
 import { supabase } from '@/lib/supabase';
-import type {
-  AccountPlan,
-  ProviderAccount,
-  ProviderAccountDetail,
+import {
+  officeKindOf,
+  type AccountPlan,
+  type OfficeKind,
+  type ProviderAccount,
+  type ProviderAccountDetail,
 } from '@/data/hq/accounts';
 import { greetingName } from '@/lib/greeting-name';
 
@@ -24,6 +26,8 @@ export interface NewProviderAccountInput {
   state: string;
   postalCode: string;
   plan: AccountPlan | null;
+  /** Omitted = THINNR reseller. */
+  officeKind?: OfficeKind;
   email: string;
   phone: string;
 }
@@ -38,6 +42,8 @@ export interface UpdateProviderAccountInput {
   state: string;
   postalCode: string;
   plan: AccountPlan | null;
+  /** Omitted = leave the kind as it is. */
+  officeKind?: OfficeKind;
   email: string;
   phone: string;
 }
@@ -112,6 +118,7 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
     postalCode: account.postalCode ?? null,
     providerCode: account.providerCode ?? null,
     plan: account.plan ?? null,
+    officeKind: officeKindOf(account.officeKind),
     greetingName: greetingName(account.providerName) ?? account.greetingName ?? 'Provider',
     activePatientCount: account.activePatientCount ?? null,
     newEnrollments: account.newEnrollments ?? null,

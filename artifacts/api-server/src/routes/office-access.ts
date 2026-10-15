@@ -15,6 +15,7 @@
  */
 import { Router, type IRouter, type Request, type Response } from "express";
 import { resolveOfficeScope, respondOfficeScopeDenied } from "../auth/office-scope";
+import type { OfficeKind } from "../lib/office-kind";
 import { accessSummary } from "../billing/office-access/admin";
 import { chargeOfficeAccess } from "../billing/office-access/charge";
 import { getBillingModeStatus } from "../billing/mode-state";
@@ -57,10 +58,14 @@ async function scoped(req: Request, res: Response) {
   return resolved.scope;
 }
 
-async function dto(providerId: string, restricted: boolean) {
+async function dto(scope: { providerId: string; restricted: boolean; officeKind: OfficeKind }) {
+  const { providerId, restricted } = scope;
   const [summary, settings] = await Promise.all([accessSummary(providerId), loadAccessBillingSettings()]);
   return {
     restricted,
+    // Both apps read this at sign-in: a software-only office hides Marketing
+    // Assets and Training from here without another poll.
+    office_kind: scope.officeKind,
     message: restricted ? OFFICE_RESTRICTED_STAFF_MESSAGE : null,
     allowed_capabilities: restricted ? [...OFFICE_RESTRICTED_CAPABILITIES] : null,
     share_percent: revenueSharePercent(settings, restricted),
@@ -81,7 +86,7 @@ router.get("/office/access", async (req, res) => {
     const scope = await scoped(req, res);
     if (!scope) return;
     res.setHeader("Cache-Control", "private, no-store");
-    res.json(await dto(scope.providerId, scope.restricted));
+    res.json(await dto(scope));
   } catch (error) {
     req.log?.error({ err: error }, "office access read failed");
     res.status(502).json({ error: SERVER_ERROR });
@@ -106,7 +111,7 @@ router.post("/office/access/pay", async (req, res) => {
     if (outcome.status === "failed") {
       res.status(402).json({
         error: "That payment did not go through. Update the card on file and try again.",
-        ...(await dto(scope.providerId, true)),
+        ...(await dto({ ...scope, restricted: true })),
       });
       return;
     }
@@ -117,7 +122,7 @@ router.post("/office/access/pay", async (req, res) => {
     res.json({
       paid: outcome.status === "succeeded",
       pending: outcome.status === "processing",
-      ...(await dto(scope.providerId, outcome.status === "processing" ? await restrictedNow(scope.providerId) : false)),
+      ...(await dto({ ...scope, restricted: outcome.status === "processing" ? await restrictedNow(scope.providerId) : false })),
     });
   } catch (error) {
     req.log?.error({ err: error }, "office access payment failed");

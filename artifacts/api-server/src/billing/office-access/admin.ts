@@ -7,7 +7,8 @@
  * can quietly change what an office owes.
  */
 import { selectOne, type BillingOfficeAccessSubscriptionRow as Row, type OfficeAccessPlan, type PaidThroughSource } from "../store";
-import { loadAccessBillingSettings } from "./settings";
+import { loadOfficeKind } from "../../lib/office-kind";
+import { includedPeriodDaysFor, loadAccessBillingSettings } from "./settings";
 import { accessPriceCents, deriveAccessState } from "./state";
 import { applyAccessInput, ensureAccessSubscription, type AccessActor } from "./subscription";
 
@@ -60,10 +61,11 @@ export async function setIncludedPeriod(input: {
 export async function resetTrial(input: {
   providerId: string; actor: AccessActor; days?: number; now?: Date;
 }): Promise<Row> {
-  const settings = await loadAccessBillingSettings();
+  // The standard length follows the office's kind (reseller vs software-only).
+  const days = input.days ?? includedPeriodDaysFor(await loadAccessBillingSettings(), await loadOfficeKind(input.providerId));
   return setIncludedPeriod({
     providerId: input.providerId, actor: input.actor, now: input.now, restart: true, lifetime: false,
-    days: input.days ?? settings.includedPeriodDays,
+    days,
   });
 }
 

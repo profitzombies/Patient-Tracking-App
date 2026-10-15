@@ -471,6 +471,7 @@ export * from './officeEffectivePolicySourceEscalationEmail';
 export * from './officeEffectivePolicySourceIdleTimeoutMinutes';
 export * from './officeEffectivePolicySourceQuietHours';
 export * from './officeIdParameter';
+export * from './officeKind';
 export * from './officeLeaderboardResult';
 export * from './officeLeaderboardResultDefinitions';
 export * from './officeLeaderboardResultNotRankable';

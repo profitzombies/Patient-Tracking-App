@@ -2864,6 +2864,18 @@ export interface OfficeAccessBillingPolicy {
      * @maxLength 4000
      */
   disclosureText: string;
+  /**
+     * Free access window for software-only offices (officeKind "software"), from the owner's first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.
+     * @minimum 0
+     * @maximum 1095
+     */
+  softwareIncludedPeriodDays?: number;
+  /**
+     * The software agreement a software-only office accepts during setup in place of the reseller disclosure.
+     * @minLength 40
+     * @maxLength 4000
+     */
+  softwareAgreementText?: string;
 }
 
 export interface HqOrganizationSettings {
@@ -3921,10 +3933,22 @@ export interface HqFileDeleteResult {
   ok: boolean;
 }
 
+/**
+ * What THINNR sold the practice. "reseller" (the default) sees Marketing Assets and Training, accepts the reseller access disclosure and gets the reseller included period; "software" is a software-only practice with neither surface, the software agreement, and the software included period. Independent of the HQ plan classification.
+ */
+export type OfficeKind = typeof OfficeKind[keyof typeof OfficeKind];
+
+
+export const OfficeKind = {
+  reseller: 'reseller',
+  software: 'software',
+} as const;
+
 export interface OfficeSummary {
   providerId: string;
   officeName: string;
   providerCode: string;
+  officeKind?: OfficeKind;
 }
 
 /**

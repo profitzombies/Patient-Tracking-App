@@ -18,6 +18,7 @@ import {
 import type { Session } from '@supabase/supabase-js';
 import { describeAuthError, supabase, supabaseConfigured } from '@/lib/supabase';
 import type { HqRole } from '@/data/hq/team';
+import type { OfficeKind } from '@/data/hq/accounts';
 import { useIdleTimeout, type IdleState } from '@/hooks/useIdleTimeout';
 
 export type Persona = 'hq-admin' | 'office';
@@ -139,6 +140,8 @@ export interface ClaimedWorkspaceInfo {
   name: string | null;
   officeName: string | null;
   providerId: string | null;
+  /** What THINNR sold the office (whoami); null when the server did not say. */
+  officeKind: OfficeKind | null;
 }
 
 export interface StaffSessionInfo {
@@ -303,6 +306,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               name: typeof body.name === 'string' ? body.name : null,
               officeName: typeof body.officeName === 'string' ? body.officeName : null,
               providerId: typeof body.providerId === 'string' ? body.providerId : null,
+              officeKind: body.officeKind === 'software' ? 'software' : body.officeKind === 'reseller' ? 'reseller' : null,
             });
             setRoleStatus('ready');
             return;

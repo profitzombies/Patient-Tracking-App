@@ -1582,7 +1582,8 @@ export const GetOfficeRosterResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
   "officeName": zod.string(),
-  "providerCode": zod.string()
+  "providerCode": zod.string(),
+  "officeKind": zod.enum(['reseller', 'software']).optional().describe('What THINNR sold the practice. \"reseller\" (the default) sees Marketing Assets and Training, accepts the reseller access disclosure and gets the reseller included period; \"software\" is a software-only practice with neither surface, the software agreement, and the software included period. Independent of the HQ plan classification.')
 }),
   "patients": zod.array(zod.object({
   "id": zod.string(),
@@ -1718,7 +1719,8 @@ export const ListOfficePatientGroupsResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
   "officeName": zod.string(),
-  "providerCode": zod.string()
+  "providerCode": zod.string(),
+  "officeKind": zod.enum(['reseller', 'software']).optional().describe('What THINNR sold the practice. \"reseller\" (the default) sees Marketing Assets and Training, accepts the reseller access disclosure and gets the reseller included period; \"software\" is a software-only practice with neither surface, the software agreement, and the software included period. Independent of the HQ plan classification.')
 }),
   "canEdit": zod.boolean().describe('False for HQ drill-in, which may read groups but never change them.'),
   "groups": zod.array(zod.object({
@@ -2154,7 +2156,8 @@ export const GetOfficePatientRecordResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
   "officeName": zod.string(),
-  "providerCode": zod.string()
+  "providerCode": zod.string(),
+  "officeKind": zod.enum(['reseller', 'software']).optional().describe('What THINNR sold the practice. \"reseller\" (the default) sees Marketing Assets and Training, accepts the reseller access disclosure and gets the reseller included period; \"software\" is a software-only practice with neither surface, the software agreement, and the software included period. Independent of the HQ plan classification.')
 }),
   "engagement": zod.object({
   "asOfDate": zod.coerce.date(),
@@ -2360,7 +2363,8 @@ export const GetOfficeEngagementTrendsResponse = zod.object({
   "office": zod.object({
   "providerId": zod.string(),
   "officeName": zod.string(),
-  "providerCode": zod.string()
+  "providerCode": zod.string(),
+  "officeKind": zod.enum(['reseller', 'software']).optional().describe('What THINNR sold the practice. \"reseller\" (the default) sees Marketing Assets and Training, accepts the reseller access disclosure and gets the reseller included period; \"software\" is a software-only practice with neither surface, the software agreement, and the software included period. Independent of the HQ plan classification.')
 }),
   "range": zod.object({
   "start": zod.coerce.date(),
@@ -4511,6 +4515,12 @@ export const getHqSettingsResponseAccessBillingRestrictedSharePercentMax = 100;
 export const getHqSettingsResponseAccessBillingDisclosureTextMin = 40;
 export const getHqSettingsResponseAccessBillingDisclosureTextMax = 4000;
 
+export const getHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMin = 0;
+export const getHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMax = 1095;
+
+export const getHqSettingsResponseAccessBillingSoftwareAgreementTextMin = 40;
+export const getHqSettingsResponseAccessBillingSoftwareAgreementTextMax = 4000;
+
 
 
 export const GetHqSettingsResponse = zod.object({
@@ -4560,7 +4570,9 @@ export const GetHqSettingsResponse = zod.object({
   "gracePeriodDays": zod.number().min(1).max(getHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(getHqSettingsResponseAccessBillingNormalSharePercentMin).max(getHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
   "restrictedSharePercent": zod.number().min(getHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(getHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
-  "disclosureText": zod.string().min(getHqSettingsResponseAccessBillingDisclosureTextMin).max(getHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
+  "disclosureText": zod.string().min(getHqSettingsResponseAccessBillingDisclosureTextMin).max(getHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.'),
+  "softwareIncludedPeriodDays": zod.number().min(getHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMin).max(getHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMax).optional().describe('Free access window for software-only offices (officeKind \"software\"), from the owner\'s first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.'),
+  "softwareAgreementText": zod.string().min(getHqSettingsResponseAccessBillingSoftwareAgreementTextMin).max(getHqSettingsResponseAccessBillingSoftwareAgreementTextMax).optional().describe('The software agreement a software-only office accepts during setup in place of the reseller disclosure.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -4693,6 +4705,12 @@ export const updateHqSettingsBodyAccessBillingRestrictedSharePercentMax = 100;
 export const updateHqSettingsBodyAccessBillingDisclosureTextMin = 40;
 export const updateHqSettingsBodyAccessBillingDisclosureTextMax = 4000;
 
+export const updateHqSettingsBodyAccessBillingSoftwareIncludedPeriodDaysMin = 0;
+export const updateHqSettingsBodyAccessBillingSoftwareIncludedPeriodDaysMax = 1095;
+
+export const updateHqSettingsBodyAccessBillingSoftwareAgreementTextMin = 40;
+export const updateHqSettingsBodyAccessBillingSoftwareAgreementTextMax = 4000;
+
 
 
 export const UpdateHqSettingsBody = zod.object({
@@ -4743,7 +4761,9 @@ export const UpdateHqSettingsBody = zod.object({
   "gracePeriodDays": zod.number().min(1).max(updateHqSettingsBodyAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingNormalSharePercentMin).max(updateHqSettingsBodyAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
   "restrictedSharePercent": zod.number().min(updateHqSettingsBodyAccessBillingRestrictedSharePercentMin).max(updateHqSettingsBodyAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
-  "disclosureText": zod.string().min(updateHqSettingsBodyAccessBillingDisclosureTextMin).max(updateHqSettingsBodyAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
+  "disclosureText": zod.string().min(updateHqSettingsBodyAccessBillingDisclosureTextMin).max(updateHqSettingsBodyAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.'),
+  "softwareIncludedPeriodDays": zod.number().min(updateHqSettingsBodyAccessBillingSoftwareIncludedPeriodDaysMin).max(updateHqSettingsBodyAccessBillingSoftwareIncludedPeriodDaysMax).optional().describe('Free access window for software-only offices (officeKind \"software\"), from the owner\'s first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.'),
+  "softwareAgreementText": zod.string().min(updateHqSettingsBodyAccessBillingSoftwareAgreementTextMin).max(updateHqSettingsBodyAccessBillingSoftwareAgreementTextMax).optional().describe('The software agreement a software-only office accepts during setup in place of the reseller disclosure.')
 }).optional().describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.')
 })
 
@@ -4792,6 +4812,12 @@ export const updateHqSettingsResponseAccessBillingRestrictedSharePercentMax = 10
 
 export const updateHqSettingsResponseAccessBillingDisclosureTextMin = 40;
 export const updateHqSettingsResponseAccessBillingDisclosureTextMax = 4000;
+
+export const updateHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMin = 0;
+export const updateHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMax = 1095;
+
+export const updateHqSettingsResponseAccessBillingSoftwareAgreementTextMin = 40;
+export const updateHqSettingsResponseAccessBillingSoftwareAgreementTextMax = 4000;
 
 
 
@@ -4842,7 +4868,9 @@ export const UpdateHqSettingsResponse = zod.object({
   "gracePeriodDays": zod.number().min(1).max(updateHqSettingsResponseAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingNormalSharePercentMin).max(updateHqSettingsResponseAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
   "restrictedSharePercent": zod.number().min(updateHqSettingsResponseAccessBillingRestrictedSharePercentMin).max(updateHqSettingsResponseAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
-  "disclosureText": zod.string().min(updateHqSettingsResponseAccessBillingDisclosureTextMin).max(updateHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
+  "disclosureText": zod.string().min(updateHqSettingsResponseAccessBillingDisclosureTextMin).max(updateHqSettingsResponseAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.'),
+  "softwareIncludedPeriodDays": zod.number().min(updateHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMin).max(updateHqSettingsResponseAccessBillingSoftwareIncludedPeriodDaysMax).optional().describe('Free access window for software-only offices (officeKind \"software\"), from the owner\'s first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.'),
+  "softwareAgreementText": zod.string().min(updateHqSettingsResponseAccessBillingSoftwareAgreementTextMin).max(updateHqSettingsResponseAccessBillingSoftwareAgreementTextMax).optional().describe('The software agreement a software-only office accepts during setup in place of the reseller disclosure.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -4949,6 +4977,12 @@ export const getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax =
 export const getOfficeSettingsResponseHqAccessBillingDisclosureTextMin = 40;
 export const getOfficeSettingsResponseHqAccessBillingDisclosureTextMax = 4000;
 
+export const getOfficeSettingsResponseHqAccessBillingSoftwareIncludedPeriodDaysMin = 0;
+export const getOfficeSettingsResponseHqAccessBillingSoftwareIncludedPeriodDaysMax = 1095;
+
+export const getOfficeSettingsResponseHqAccessBillingSoftwareAgreementTextMin = 40;
+export const getOfficeSettingsResponseHqAccessBillingSoftwareAgreementTextMax = 4000;
+
 export const getOfficeSettingsResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const getOfficeSettingsResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -5007,7 +5041,9 @@ export const GetOfficeSettingsResponse = zod.object({
   "gracePeriodDays": zod.number().min(1).max(getOfficeSettingsResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
   "restrictedSharePercent": zod.number().min(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMin).max(getOfficeSettingsResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
-  "disclosureText": zod.string().min(getOfficeSettingsResponseHqAccessBillingDisclosureTextMin).max(getOfficeSettingsResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
+  "disclosureText": zod.string().min(getOfficeSettingsResponseHqAccessBillingDisclosureTextMin).max(getOfficeSettingsResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.'),
+  "softwareIncludedPeriodDays": zod.number().min(getOfficeSettingsResponseHqAccessBillingSoftwareIncludedPeriodDaysMin).max(getOfficeSettingsResponseHqAccessBillingSoftwareIncludedPeriodDaysMax).optional().describe('Free access window for software-only offices (officeKind \"software\"), from the owner\'s first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.'),
+  "softwareAgreementText": zod.string().min(getOfficeSettingsResponseHqAccessBillingSoftwareAgreementTextMin).max(getOfficeSettingsResponseHqAccessBillingSoftwareAgreementTextMax).optional().describe('The software agreement a software-only office accepts during setup in place of the reseller disclosure.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),
@@ -5291,6 +5327,12 @@ export const updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedShare
 export const updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMin = 40;
 export const updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMax = 4000;
 
+export const updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareIncludedPeriodDaysMin = 0;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareIncludedPeriodDaysMax = 1095;
+
+export const updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareAgreementTextMin = 40;
+export const updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareAgreementTextMax = 4000;
+
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseOverridesQuietHoursEndRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
 export const updateOfficeSettingsOverridesResponseEffectiveQuietHoursOneStartRegExp = new RegExp('^([01][0-9]|2[0-3]):[0-5][0-9]$');
@@ -5349,7 +5391,9 @@ export const UpdateOfficeSettingsOverridesResponse = zod.object({
   "gracePeriodDays": zod.number().min(1).max(updateOfficeSettingsOverridesResponseHqAccessBillingGracePeriodDaysMax).describe('Recovery window after every stored instrument fails before the office is restricted.'),
   "normalSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingNormalSharePercentMax).describe('THINNR\'s share of a patient payment while the office\'s access is in good standing.'),
   "restrictedSharePercent": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingRestrictedSharePercentMax).describe('THINNR\'s share of a patient payment while the office is restricted for nonpayment.'),
-  "disclosureText": zod.string().min(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.')
+  "disclosureText": zod.string().min(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingDisclosureTextMax).describe('Plain-language access-fee terms, including the revenue-share change if payment lapses, shown to an office during payment setup. The setup gate renders this wording and never carries its own copy.'),
+  "softwareIncludedPeriodDays": zod.number().min(updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareIncludedPeriodDaysMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareIncludedPeriodDaysMax).optional().describe('Free access window for software-only offices (officeKind \"software\"), from the owner\'s first dashboard sign-in (default 30 days). Resellers use includedPeriodDays.'),
+  "softwareAgreementText": zod.string().min(updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareAgreementTextMin).max(updateOfficeSettingsOverridesResponseHqAccessBillingSoftwareAgreementTextMax).optional().describe('The software agreement a software-only office accepts during setup in place of the reseller disclosure.')
 }).describe('What an office pays THINNR for dashboard and provider-app access, billed on THINNR\'s own platform Stripe account. Prices are the standard list; HQ may override an individual office.'),
   "version": zod.number(),
   "updatedAt": zod.string(),

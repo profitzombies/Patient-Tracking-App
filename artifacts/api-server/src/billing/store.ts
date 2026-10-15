@@ -291,6 +291,8 @@ export interface BillingOfficeAccessSubscriptionRow extends TimestampedRow {
   plan_selected_at: string | null;
   disclosure_acknowledged_at: string | null; disclosure_acknowledged_by: string | null;
   disclosure_version: number | null;
+  /** Which agreement was accepted: reseller disclosure or software agreement (null before kinds existed). */
+  disclosure_kind?: "reseller" | "software" | null;
 }
 export interface BillingOfficeAccessInstrumentRow extends TimestampedRow {
   id: string; subscription_id: string; provider_id: string; slot: OfficeAccessSlot; kind: "bank" | "card";

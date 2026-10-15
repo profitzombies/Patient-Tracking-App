@@ -76,7 +76,7 @@ async function renderAt(location: string, restricted: boolean) {
     renderer = create(
       <QueryClientProvider client={client}>
         <Router hook={hook}>
-          <OfficeRestrictionProvider value={{ restricted, message: restricted ? MESSAGE : null }}>
+          <OfficeRestrictionProvider value={{ restricted, message: restricted ? MESSAGE : null, officeKind: null }}>
             <RestrictedBanner />
             <RestrictedRoutes>
               <div data-testid="page-content">the real page</div>

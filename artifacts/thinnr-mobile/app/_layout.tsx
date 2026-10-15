@@ -35,7 +35,8 @@ import { useColors } from '@/hooks/useColors';
 import { AppModeProvider } from '@/context/AppModeContext';
 import { OfficeRestrictionProvider, useOfficeRestriction } from '@/context/OfficeRestrictionContext';
 import { RestrictedStaffNotice } from '@/components/provider/RestrictedStaffNotice';
-import { staffRouteBlocked } from '@/lib/office-restriction';
+import { staffRouteBlocked, staffRouteHiddenForKind } from '@/lib/office-restriction';
+import { NotFoundCard } from '@/components/NotFoundCard';
 import { CoachChatProvider } from '@/context/CoachChatContext';
 import { CareTeamChatProvider } from '@/context/CareTeamChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
@@ -353,8 +354,13 @@ function RootLayoutNav() {
 function StaffRestrictionGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { mode, hydrated } = useAppMode();
-  const { restricted } = useOfficeRestriction();
-  const blocked = hydrated && staffRouteBlocked({ mode, restricted, pathname });
+  const { restricted, officeKind } = useOfficeRestriction();
+  const narrowed = hydrated && staffRouteBlocked({ mode, restricted, pathname });
+  // A software-only office has no Training: a deep link into it reads as a
+  // missing screen, independently of the setup and nonpayment gates. An
+  // unknown kind never hides anything.
+  const hidden = hydrated && !narrowed && staffRouteHiddenForKind({ mode, officeKind, pathname });
+  const blocked = narrowed || hidden;
   const gatedNavigatorProps = {
     accessibilityElementsHidden: blocked,
     importantForAccessibility: blocked ? 'no-hide-descendants' : 'auto',
@@ -370,7 +376,7 @@ function StaffRestrictionGuard({ children }: { children: React.ReactNode }) {
       </View>
       {blocked ? (
         <View style={[StyleSheet.absoluteFill, { zIndex: 900 }]} pointerEvents="auto" accessibilityViewIsModal>
-          <RestrictedStaffNotice />
+          {hidden ? <NotFoundCard testID="office-kind-not-found" /> : <RestrictedStaffNotice />}
         </View>
       ) : null}
     </>

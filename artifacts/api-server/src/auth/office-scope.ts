@@ -22,6 +22,7 @@ import { recordAccessDenied } from "../lib/admin-audit";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { providerLocked } from "./directory";
 import { OFFICE_OFFBOARDED_STAFF_MESSAGE, offboardingStatusOf } from "../lib/office-status";
+import { officeKindOf, type OfficeKind } from "../lib/office-kind";
 import {
   isRestrictedAllowedPath,
   officeRestrictedForNonpayment,
@@ -62,6 +63,11 @@ export interface OfficeScope {
    * than refuse one) read this to stay coherent with it.
    */
   restricted: boolean;
+  /**
+   * What THINNR sold this office. Software-only offices have no Marketing
+   * Assets or Training; routes serving those refuse non-HQ callers.
+   */
+  officeKind: OfficeKind;
 }
 
 export type OfficeRole = "owner" | "admin" | "staff";
@@ -114,9 +120,10 @@ interface OfficeRow {
   onboarding_code: string | null;
   access_disabled: boolean | null;
   offboarding_status?: string | null;
+  office_kind?: string | null;
 }
 
-const OFFICE_SELECT = "provider_id,provider_name,office_name,onboarding_code,access_disabled,offboarding_status";
+const OFFICE_SELECT = "provider_id,provider_name,office_name,onboarding_code,access_disabled,offboarding_status,office_kind";
 
 /** Staff of an office whose program is ending or ended fail closed; HQ still reads. */
 function officeEndedForStaff(row: OfficeRow): boolean {
@@ -150,6 +157,7 @@ function officeScopeFrom(
     actorKind,
     officeRole: member ? member.officeRole : "owner",
     teamMemberId: member ? member.id : null,
+    officeKind: officeKindOf(row.office_kind),
   };
 }
 

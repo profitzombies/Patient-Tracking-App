@@ -137,7 +137,7 @@ function ResetTrialForm({ policy, run, pending, mutations }: FormProps & { mutat
   const ends = valid ? formatDate(new Date(Date.now() + days * 86_400_000).toISOString()) : '—';
   return (
     <div className="space-y-4">
-      <Field label="Fresh period" help={`The standard included period is ${policy.includedPeriodDays} days.`}>
+      <Field label="Fresh period" help={`The standard included period for ${policy.officeKind === 'software' ? 'a software-only office' : 'a THINNR reseller'} is ${policy.includedPeriodDays} days.`}>
         <div className="flex items-center gap-2">
           <input
             type="number"

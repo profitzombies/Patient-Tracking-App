@@ -63,3 +63,39 @@ export function staffRouteBlocked(input: StaffRestrictionInput): boolean {
   if (input.mode !== 'staff' || !input.restricted) return false;
   return !isRestrictedAllowedStaffRoute(input.pathname);
 }
+
+// ── Office kind ──────────────────────────────────────────────────────────────
+
+export type OfficeKind = 'reseller' | 'software';
+
+/** Unknown or missing reads as reseller — existing offices predate the kind. */
+export function officeKindOf(value: unknown): OfficeKind {
+  return value === 'software' ? 'software' : 'reseller';
+}
+
+/**
+ * Staff routes that exist only for THINNR resellers. A software-only office
+ * bought the platform without the reseller material, so Training is not part
+ * of its product: the launcher omits it and a deep link lands on not-found.
+ * The server fails these reads closed on its own; this is the client's copy.
+ */
+const RESELLER_ONLY_STAFF_ROUTES = ['/training', '/training-course', '/training-lesson', '/training-teammate'];
+
+export function isResellerOnlyStaffRoute(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  return RESELLER_ONLY_STAFF_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+}
+
+/**
+ * True when a software-only office's staffer opened a reseller-only route.
+ * Independent of the setup and nonpayment gates: an unknown kind (still
+ * loading, or the read failed) never hides anything.
+ */
+export function staffRouteHiddenForKind(input: {
+  mode: 'patient' | 'staff' | null;
+  officeKind: OfficeKind | null;
+  pathname: string;
+}): boolean {
+  if (input.mode !== 'staff' || input.officeKind !== 'software') return false;
+  return isResellerOnlyStaffRoute(input.pathname);
+}

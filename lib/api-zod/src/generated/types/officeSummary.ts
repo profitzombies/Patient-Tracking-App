@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OfficeKind } from './officeKind';
 
 export interface OfficeSummary {
   providerId: string;
   officeName: string;
   providerCode: string;
+  officeKind?: OfficeKind;
 }

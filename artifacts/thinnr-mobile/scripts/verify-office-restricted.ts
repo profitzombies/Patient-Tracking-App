@@ -118,7 +118,7 @@ check('the shared message says what still works',
   /Patient subscriptions, payments and patient data export stay open\./.test(OFFICE_RESTRICTED_STAFF_MESSAGE));
 
 const launcher = read('components/provider/ProviderFabMenu.tsx');
-check('the launcher narrows its destinations', launcher.includes('restricted ? RESTRICTED_ITEMS : ITEMS'));
+check('the launcher narrows its destinations', launcher.includes('restricted ? RESTRICTED_ITEMS : '));
 check('the launcher offers the payment first while restricted', /label: 'Pay now'/.test(launcher));
 
 console.log(' parity with the operations app');

@@ -1,0 +1,279 @@
+Notes
+
+Transcript
+
+Hold on.
+
+Matt, how much time do you have?
+
+Thank.
+
+Zero, apparently.
+
+So Andrew, like, so for example on that, like, Mediterranean.
+
+We don't need the 27 diets right now. I already have it all uploaded. I don't care about it right now. That's the least of my concern. I don't think that that's something that's super important at this moment in time that we need to be concerned about. I already have the core. The AI knows what the Mediterranean diet is because AI made the report.
+
+Okay.
+
+10:04.
+
+You know?
+
+Matt.
+
+Can you hear us?
+
+I can hear you now.
+
+Okay, how much time do you have?
+
+Yes.
+
+20 minutes, 25 minutes. Okay.
+
+Okay.
+
+So what we should do is
+
+30 minutes.
+
+I want you to outline anything that we don't currently have right now.
+
+That you would like to have for someone that's a software.
+
+Thank.
+
+Assume the app the way that we have it currently structured right now.
+
+What things do we not have?
+
+That we need to add specifically for only software people.
+
+And I'll just start off and just say, obviously they're going to have the account, right?
+
+Okay.
+
+And we just need to hide the— with that account type.
+
+The, um,
+
+The marketing materials, the files, and the training.
+
+However, this is where it gets tricky, right? Because aren't we going to have a training portal on how to use the platform anyway?
+
+Yes.
+
+Like within it?
+
+Uh, what do you mean? Like a, like a walkthrough? Like
+
+Like a, yeah, like a knowledge base or a guide, set of guides.
+
+For how to use it, probably.
+
+Maybe that could come down the road. Why don't you just go ahead and outline, um, like other features that we currently do not have that we need to have for
+
+Software-only people.
+
+For that.
+
+I guess this is what I'm saying.
+
+I don't know, besides like gating those 2 things, like what is it?
+
+Adding, adding.
+
+I don't know.
+
+I mean, if the app's the exact way that you want it for somebody that's software right now, that's fine. I don't care. I'm not going to overcomplicate it if you don't want it to be overcomplicated. I just think that you're massively undercomplicating.
+
+Okay.
+
+I don't want it to be overcomplicated. I want it to be super easy.
+
+I know. Well, I think, I think that— I think the concept of super easy is great. However, you're not asking for super easy. You're asking for something specific, which is fine.
+
+But something specific is in fact not simple.
+
+However,
+
+What is the specific thing though?
+
+I don't know. For example, we don't have the ability to add one-off products and charge people one-off for one-off product. That's what I'm saying. So I mean, we just give them access and the only difference is going to be that— the only difference realistically is going to be that they're just not going to be able to access the training, the training and the marketing files. So for onboarding, we are going to need a separate agreement.
+
+So that's something, right?
+
+I don't know either.
+
+Yeah.
+
+Please.
+
+But he.
+
+Because they're not a thinner office.
+
+Yes, separate agreement.
+
+Okay.
+
+Separate, separate.
+
+And, and we'll have to have like the pricing.
+
+Separate pricing structure.
+
+The pricing module.
+
+Right. Separate pricing.
+
+And then are there going to be 3 tiers for that? And do we have a list of all the features for the pricing?
+
+Because what I'm going to do is I'm going to, I'm going to say, and like the different rates, because what I'm going to do is I'm going to say to the AI, I'm going to say we're going to need to make a new type of provider and this type of provider is going to be called a software provider. We're going to have several different types of software providers, and these each are going to have different pricing structures and pricing tiers.
+
+Uh,
+
+Do we want these to be able to be customized per person, like when we're doing this? So like we'll have a default price. Do you want it to be customized though?
+
+I need to print my tags for the bags.
+
+What?
+
+I have 3 tiers that I built at $200, I think it's like $350, and $500.
+
+You're cutting out.
+
+Features based on each tier. I was, I was doing
+
+You're cutting out. I can't hear you.
+
+Getting done.
+
+Is he cutting out for you too, Dad?
+
+Yeah.
+
+You want to try again?
+
+Okay.
+
+Yeah.
+
+Happy, what are you doing?
+
+You lost him.
+
+Okay.
+
+He was in fighting KitKat.
+
+Are you back?
+
+That he?
+
+He's trying to call me on, on the phone.
+
+you.
+
+What's up, Matt? Hey, I'm about to go through security here. Do you guys want to do like a 3-way call? Yeah. Andrew, can you still hear me?
+
+All right, so Matt says he's getting ready to go through security. He wants to know if we just want to do a 3-way phone call or I can just put it here if you can hear what he's saying.
+
+All right, I'll, uh, I'll add you in. Are we gonna be able to record it though? Like, part of this was so you could record it.
+
+Can you join in the group?
+
+I can try to join via phone call or something like that. Give me a second. All right.
+
+Right, right, right.
+
+Yes, I did.
+
+Hey, can you hear me? Oh yeah, that's way better.
+
+All right, cool. Yeah, it's just like joining into the Google Meet. Okay, so yeah, what I was saying is I sent— I don't know if I sent it to you. I sent you that deck. I think there's pricing tiers in it. There's 3 tiers and the tiers are based on the amount of users that they have. So it's predicated on patients. Not so much gating different features. The only thing that changes throughout the tiers is their processing fees.
+
+Okay.
+
+Um,
+
+Oh.
+
+Um, I don't know.
+
+I.
+
+Okay.
+
+Um.
+
+I mean, I guess the more flexibility you have over it, the better, for sure.
+
+Like, I don't— right now offhand, I don't know what it would be, but I think, I guess, like, it would be nice to be able to delay someone's billing by 2 months, 3 months, 4 months, give them a 50% discount for 3 months.
+
+Thank.
+
+Okay.
+
+Hi.
+
+I just need somebody to open the United app because you got to change.
+
+That's it. Kristen Harris.
+
+Christ, it's opening United app.
+
+Um, nothing over here.
+
+You doing it? Yeah, yeah, do it.
+
+You don't want anything sauce?
+
+Or.
+
+Okay.
+
+Okay.
+
+Okay.
+
+No.
+
+Oh, it's not it.
+
+It.
+
+I.
+
+Technology.
+
+Yeah, I mean, do you want to just like talk through it right now?
+
+All.
+
+Thank.
+
+Wait a second.
+
+No, it would be— so I guess in a perfect scenario, It would be initial sign-up would be picked by the sales rep.
+
+And then they'd send the agreement for that tier, which gives them a certain amount of licenses or patients, I guess. But then I would love a version where If they— let's say the upper limit of one tier is 100 patients. As soon as they add patient 101, it automatically updates their billing to the next tier.
+
+Yeah.
+
+I mean,
+
+That's what's true. You don't have to touch this.
+
+Hmm.
+
+That's good.
+
+Okay.
+
+Did it even do anything?
+
+Yeah.
+
+Okay.

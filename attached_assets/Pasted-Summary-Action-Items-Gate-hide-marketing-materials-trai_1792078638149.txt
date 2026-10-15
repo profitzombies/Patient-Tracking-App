@@ -1,0 +1,790 @@
+Summary
+
+### Action Items
+
+- [ ]  Gate/hide marketing materials, training, and marketing files for software-only provider accounts
+- [ ]  Create a separate agreement for software-only providers (distinct from the thinner reseller agreement)
+- [ ]  Define and implement 3-tier pricing structure for software providers based on patient volume, with varying processing fees per tier
+- [ ]  Implement automatic tier upgrade when a provider's patient count exceeds the upper limit of their current tier (e.g., auto-upgrade at patient 101)
+- [ ]  Confirm readiness to deliver the minimum viable software account type (gated marketing + training) by end of next week
+- [ ]  Share the pricing deck (with tier details) with all participants
+
+### Software-Only Provider Account Type
+
+- The core question was: what features need to change for "software-only" providers vs. thinner resellers
+- Consensus reached: the onboarding flow is **the same** for both provider types — the distinction is billing timing and access, not a different flow
+- Software-only providers will have the same app experience **except**:
+    - No access to marketing materials, training, and files (hidden/gated on the dashboard)
+    - Billing starts **immediately** upon sign-up
+- Thinner resellers by contrast:
+    - Retain access to marketing, sales, and training materials
+    - Billing starts **12 months** after their reseller agreement is signed
+- The goal for a minimum viable launch: lock those 2 dashboard sections and ship — described as the "iPhone version"
+
+### Pricing Structure
+
+- Matt outlined **3 pricing tiers** at approximately $200, $350, and $500/month
+- Tiers are based on **number of patients/users**, not feature gating
+- The **only variable between tiers is processing fees**
+- Desired billing flexibility includes:
+    - Ability to delay billing start by 2–4 months
+    - Ability to apply percentage discounts for a defined period (e.g., 50% off for 3 months)
+- Ideal automated behavior: when a provider adds a patient that exceeds their tier's limit, **billing automatically upgrades** to the next tier without manual intervention
+- Initial tier selection would be handled by the **sales rep**, who then sends the corresponding agreement
+
+### Patient Program Routing
+
+- Patients select their program (e.g., thinner, GLP, carnivore, Mediterranean) upon setup, and the app routes accordingly
+- There is **no difference in patient-side logic or onboarding paths** between programs — same flow regardless
+- The AI already has diet/program knowledge baked in; uploading individual diet content is not a current priority
+
+### Knowledge Base / Training Portal
+
+- Brief discussion about adding a knowledge base or guide set for how to use the platform
+- Deferred — noted as something that could come later
+
+Notes
+
+Transcript
+
+Hold on.
+
+Matt, how much time do you have?
+
+Thank.
+
+Zero, apparently.
+
+So Andrew, like, so for example on that, like, Mediterranean.
+
+We don't need the 27 diets right now. I already have it all uploaded. I don't care about it right now. That's the least of my concern. I don't think that that's something that's super important at this moment in time that we need to be concerned about. I already have the core. The AI knows what the Mediterranean diet is because AI made the report.
+
+Okay.
+
+10:04.
+
+You know?
+
+Matt.
+
+Can you hear us?
+
+I can hear you now.
+
+Okay, how much time do you have?
+
+Yes.
+
+20 minutes, 25 minutes. Okay.
+
+Okay.
+
+So what we should do is
+
+30 minutes.
+
+I want you to outline anything that we don't currently have right now.
+
+That you would like to have for someone that's a software.
+
+Thank.
+
+Assume the app the way that we have it currently structured right now.
+
+What things do we not have?
+
+That we need to add specifically for only software people.
+
+And I'll just start off and just say, obviously they're going to have the account, right?
+
+Okay.
+
+And we just need to hide the— with that account type.
+
+The, um,
+
+The marketing materials, the files, and the training.
+
+However, this is where it gets tricky, right? Because aren't we going to have a training portal on how to use the platform anyway?
+
+Yes.
+
+Like within it?
+
+Uh, what do you mean? Like a, like a walkthrough? Like
+
+Like a, yeah, like a knowledge base or a guide, set of guides.
+
+For how to use it, probably.
+
+Maybe that could come down the road. Why don't you just go ahead and outline, um, like other features that we currently do not have that we need to have for
+
+Software-only people.
+
+For that.
+
+I guess this is what I'm saying.
+
+I don't know, besides like gating those 2 things, like what is it?
+
+Adding, adding.
+
+I don't know.
+
+I mean, if the app's the exact way that you want it for somebody that's software right now, that's fine. I don't care. I'm not going to overcomplicate it if you don't want it to be overcomplicated. I just think that you're massively undercomplicating.
+
+Okay.
+
+I don't want it to be overcomplicated. I want it to be super easy.
+
+I know. Well, I think, I think that— I think the concept of super easy is great. However, you're not asking for super easy. You're asking for something specific, which is fine.
+
+But something specific is in fact not simple.
+
+However,
+
+What is the specific thing though?
+
+I don't know. For example, we don't have the ability to add one-off products and charge people one-off for one-off product. That's what I'm saying. So I mean, we just give them access and the only difference is going to be that— the only difference realistically is going to be that they're just not going to be able to access the training, the training and the marketing files. So for onboarding, we are going to need a separate agreement.
+
+So that's something, right?
+
+I don't know either.
+
+Yeah.
+
+Please.
+
+But he.
+
+Because they're not a thinner office.
+
+Yes, separate agreement.
+
+Okay.
+
+Separate, separate.
+
+And, and we'll have to have like the pricing.
+
+Separate pricing structure.
+
+The pricing module.
+
+Right. Separate pricing.
+
+And then are there going to be 3 tiers for that? And do we have a list of all the features for the pricing?
+
+Because what I'm going to do is I'm going to, I'm going to say, and like the different rates, because what I'm going to do is I'm going to say to the AI, I'm going to say we're going to need to make a new type of provider and this type of provider is going to be called a software provider. We're going to have several different types of software providers, and these each are going to have different pricing structures and pricing tiers.
+
+Uh,
+
+Do we want these to be able to be customized per person, like when we're doing this? So like we'll have a default price. Do you want it to be customized though?
+
+I need to print my tags for the bags.
+
+What?
+
+I have 3 tiers that I built at $200, I think it's like $350, and $500.
+
+You're cutting out.
+
+Features based on each tier. I was, I was doing
+
+You're cutting out. I can't hear you.
+
+Getting done.
+
+Is he cutting out for you too, Dad?
+
+Yeah.
+
+You want to try again?
+
+Okay.
+
+Yeah.
+
+Happy, what are you doing?
+
+You lost him.
+
+Okay.
+
+He was in fighting KitKat.
+
+Are you back?
+
+That he?
+
+He's trying to call me on, on the phone.
+
+you.
+
+What's up, Matt? Hey, I'm about to go through security here. Do you guys want to do like a 3-way call? Yeah. Andrew, can you still hear me?
+
+All right, so Matt says he's getting ready to go through security. He wants to know if we just want to do a 3-way phone call or I can just put it here if you can hear what he's saying.
+
+All right, I'll, uh, I'll add you in. Are we gonna be able to record it though? Like, part of this was so you could record it.
+
+Can you join in the group?
+
+I can try to join via phone call or something like that. Give me a second. All right.
+
+Right, right, right.
+
+Yes, I did.
+
+Hey, can you hear me? Oh yeah, that's way better.
+
+All right, cool. Yeah, it's just like joining into the Google Meet. Okay, so yeah, what I was saying is I sent— I don't know if I sent it to you. I sent you that deck. I think there's pricing tiers in it. There's 3 tiers and the tiers are based on the amount of users that they have. So it's predicated on patients. Not so much gating different features. The only thing that changes throughout the tiers is their processing fees.
+
+Okay.
+
+Um,
+
+Oh.
+
+Um, I don't know.
+
+I.
+
+Okay.
+
+Um.
+
+I mean, I guess the more flexibility you have over it, the better, for sure.
+
+Like, I don't— right now offhand, I don't know what it would be, but I think, I guess, like, it would be nice to be able to delay someone's billing by 2 months, 3 months, 4 months, give them a 50% discount for 3 months.
+
+Thank.
+
+Okay.
+
+Hi.
+
+I just need somebody to open the United app because you got to change.
+
+That's it. Kristen Harris.
+
+Christ, it's opening United app.
+
+Um, nothing over here.
+
+You doing it? Yeah, yeah, do it.
+
+You don't want anything sauce?
+
+Or.
+
+Okay.
+
+Okay.
+
+Okay.
+
+No.
+
+Oh, it's not it.
+
+It.
+
+I.
+
+Technology.
+
+Yeah, I mean, do you want to just like talk through it right now?
+
+All.
+
+Thank.
+
+Wait a second.
+
+No, it would be— so I guess in a perfect scenario, It would be initial sign-up would be picked by the sales rep.
+
+And then they'd send the agreement for that tier, which gives them a certain amount of licenses or patients, I guess. But then I would love a version where If they— let's say the upper limit of one tier is 100 patients. As soon as they add patient 101, it automatically updates their billing to the next tier.
+
+Yeah.
+
+I mean,
+
+That's what's true. You don't have to touch this.
+
+Hmm.
+
+That's good.
+
+Okay.
+
+Did it even do anything?
+
+Yeah.
+
+Okay.
+
+And like, once, once this is done, I think this is something we need to use this for everybody. To Jason's point, like, they should sign the resale agreement and then they should sign this agreement on the bottom and their billing should just start 12 months out from when they sign the resale agreement.
+
+Thank.
+
+I guess so.
+
+Yeah, not thinking about everything that we just discussed. You know, you had that conversation with Luke on Tuesday. Are we minimally ready to get people who are using the app today to have the same experience by the end of the week next week?
+
+Okay.
+
+So everything that you're talking about is like adding new features.
+
+And you take, you know, So I guess what I was originally saying is regardless of the new features, I think just taking what we have today, locking marketing, locking provider onboarding, That would be what we would sell as like the iPhone version.
+
+Wow.
+
+He said why?
+
+Like, I think that would be awesome.
+
+Um, so they would pay the— they're paying to use the tool to manage the patient, have the AI coach make recommendations that are like all the things that exist today.
+
+Thanks.
+
+Okay.
+
+How? I guess I'm just like not understanding how, how is it different at all?
+
+But why is it, why is it different besides them just having those 2 things on the left-hand side of the dashboard block?
+
+Okay.
+
+I'm saying don't do that. Don't, don't do that. Don't, don't like none of the custom packages. That's not a feature.
+
+Thanks.
+
+I think that's like the future vision, but I'm saying minimally they would pay $200 a month to use a tool to track their GOT patients.
+
+Business analytics, flagging when patients aren't doing it.
+
+Jason, like, what am I not— what am I missing?
+
+Why would they have a separate onboarding flow though?
+
+Okay.
+
+Okay you.
+
+Right.
+
+All.
+
+Okay
+
+What's it for?
+
+That's.
+
+But what I'm saying is
+
+But that's not going to be different. Like, just, I guess maybe, I don't know if we're like not catching each other on this. I'm saying There's not going to be a difference between a thinner person and a non-thinner person. Like, there's not different paths, different onboarding, different logic. It's the same.
+
+So what you're saying, so what you— so what, so what you're saying, Matt, if I'm, if I'm hearing you right, What you're thinking is a person comes in and they go, oh, I'm doing thinner if that's an option, or hey, I'm doing GLPs, or hey, I'm doing carnivore, and they pick it and it just routes. That's like the, you know, like, okay, here's the app, right? That's top one. Top 2 is they set up their account, and then under that is pick which program they're using, and then that's the program that they run it.
+
+Yes, the only difference from like a provider perspective is If you are a thinner reseller, your billing starts 12 months out from when your reseller agreement starts and you have access to the marketing, sales, and training. If you are not a thinner reseller, your billing starts immediately. And you don't have access to the training, you don't have access to any marketing material.
+
+Yes.
+
+What do you mean inside the chart?
+
+So the onboarding flow is exactly the same, just the difference in the amount of time before they get billed. That's a billing thing, not an onboarding thing.
+
+I think it would.
+
+Okay.
+
+Thanks.
+
+Yeah one.
+
+So hold on, when, when you're saying onboard— Andrew, when you're saying onboarding, are you talking about getting the office set up or teaching the person how to use the app?
+
+No.
+
+Yeah.
+
+So
+
+Everything's the same.
+
+Yeah.
+
+Okay.
+
+Yes.
+
+Well, yeah, I mean, we should do them as soon as we can, but like, those are going to be the same regardless of who is the customer.
+
+There absolutely.
+
+Okay.
+
+So if they're, if they're taught— oh, hold on, I'll, I'll be right back in like 5-10 minutes.
+
+All right.
+
+Okay.
+
+Notes
+
+Transcript
+
+A reseller who churned and saying, hey, we're going to give you 6 months of no billing.
+
+Okay.
+
+So that would be totally unrelated to this, but like an additional renewal of a trial on a preexisting account.
+
+Or a thinner provider.
+
+Which is another flag. However, so the whole separate account type is probably like a week's worth of work. Okay, not a whole new product. The $200 a month, the 2 locked menu items, and The iPhone version of the app, that's exactly what we would build. The 3 tiers and the patient
+
+Like ideas are good, but they— we need to have the deck pricing settled first before we build all of this out.
+
+Because it sits on top of it, not inside of it. Like it's going to run what it is.
+
+So
+
+Right now as well, just so you know, when a thinner provider signs in for the first time, That's when it, when it renews from, not from when they sign the reseller agreement because the reseller agreement sent off platform. Just a quick mental note on that.
+
+Okay.
+
+So software customers, do we want them paying from day 1 or do we want a 30-day trial?
+
+Well, I think I— are you talking about— we were just saying like offices or the paid office or paid?
+
+The office is all for the office.
+
+Yeah, like the office, the office would, they would pay their onboarding fee, which would be collected by the salesperson at point of sale, and then they would get 30 days before their first invoice.
+
+Okay, so it'd be 30 days before their first, first monthly charge.
+
+2.
+
+Do they still connect their own Stripe and charge patients through the app, or are they purely paying us $200 to use the tool with no patient payments?
+
+Yeah, correct.
+
+Okay.
+
+They probably are correct connecting their own Stripe.
+
+Well, is the Stripe thing going to exist for subscriptions?
+
+Yeah, because we need that for subscriptions. The only thing we won't have is custom subscriptions, right? Like they'd be able to do like the $15 a month for the app.
+
+Are you sure?
+
+Yes, I mean, I don't have that built out, that feature built out, because that was just kind of up in the air. But yeah, yeah, we can do that, like gating the features on the app.
+
+Thank.
+
+Right. How long do we want each patient to have for gating the features on the app, by the way?
+
+For that?
+
+Before we gate.
+
+Say that— ask that question again.
+
+When the patient starts with Thinner and we want to start gating the app, so we want to have the office to be able to sell ungating of the AI chat.
+
+Yep.
+
+Essentially, right?
+
+How long do we want to give them free access to it for?
+
+Before we take them to a screen that gates the feature.
+
+And then takes them to an outside page outside of the app.
+
+Which is a stylized page.
+
+That they could then subscribe to the app as the office.
+
+And then it would essentially ungate that feature when that subscription is renewed.
+
+How long do we want to give the patient?
+
+To use it for free when they sign in.
+
+I would say by default 2 weeks, but isn't that what we kind of talked about that? Like, I don't even know. Do we even want to do that? Do we want to get the features?
+
+What would they be paying for then?
+
+'all.
+
+I think it would, I think it would definitely enforce that.
+
+All.
+
+But then we run the risk of having the AI be lost, which is a big pusher of revenue.
+
+I wish it was.
+
+Maybe I guess his question— I guess his question was, is because the, the AI coaching— all right, so I'm just gonna pull yours.
+
+Potentially, right?
+
+To generate revenue. No, he's got it.
+
+Why would we take a chance of having an office that can't sell the subscription or anything like that?
+
+And then that caused us to lose the ability to— for us to deliver marketing.
+
+To that person. I think that was, I think that was more the question. Like, do we, do we worry about us making $200 a month in app subscriptions and an individual office making $150, or is the ability to deliver
+
+Hype, hyperfocus sales messaging to that person about products. Are we going to far exceed that because we get 40% of that money instead of $3 off of an app subscription? Yeah, like realistically, we want everybody to use the AI coach, but giving the practice the ability to either charge for it or not charge for it.
+
+Like nothing changes if they don't charge for it.
+
+Okay, so, so
+
+Yeah.
+
+So realistically, we would— so let me ask you this.
+
+Mm-hmm.
+
+So what happens or what should happen? Let's say an office says, yes, I want to charge patients for access to the app, right?
+
+It should let them create their entire account as a patient.
+
+And then they get put onto the page that says you need to pay for the app.
+
+Right?
+
+And then it would link them to an external page.
+
+My question to you is, is what happens if they don't pay?
+
+Yeah, I don't know. That's what I said to you. I don't know, like, should we turn something off? Should they get like a I don't know. I don't know what that answer is. So if the patient doesn't pay, not if the office doesn't pay.
+
+And they just
+
+Yeah, correct. Like if the patient chooses not to pay.
+
+Correct.
+
+Then there's no app.
+
+If we're gating the entire app behind a payment.
+
+I don't think we should gate the entire app. I think— yeah, I agree. I think the only way a person finds out is if the AI turns off as if they paid for it and then they don't pay for it.
+
+Like at the end of the day, I think, I think there's a benefit to being able to have that story of can you charge for it? Sure. If the person stops paying for it, is anything gonna change? No. And the reason— yeah, and the reason behind that is
+
+Well, then we're never going to have a chance for them to upgrade back to paying.
+
+Yeah.
+
+For the patient, the patient. So like, I guess what we'd have to do is we'd have to give them the ability to charge for it. And if they do charge for it and the patient stops paying, it needs to flag that on their dashboard and then they would need to go in and disable that patient.
+
+But we don't want that though, because we don't want it to. Yeah, I mean, we don't want to because we— I think we all recognize the fact that the way this is set up, we, we are all suspecting it's going to drive in-app product purchases. Correct. But there, I do think there's I just I agree. Practices, especially high-volume practices, get juiced about that. Like, I'm talking to a guy right now that, like, that's one of his main things that he likes about what we do because he's got 4,000 people.
+
+He's like, even if I get 25% of them, I can make him $20 grand a month.
+
+So why don't we just not do a subscription for the app features at all, or for charging for the app?
+
+Thank you.
+
+Okay.
+
+Yeah, I don't know.
+
+Um,
+
+But you're also losing 75% of people that could be in the app engaging.
+
+Yeah.
+
+You know?
+
+Well, not necessarily. That goes back to like, what do we gate? Like giving them the ability to use the app, but just like gating certain features. Like maybe there's got to be something that we could just like turn off and be like, oh, you're not a paid subscriber, so you don't get this.
+
+Or technically, you're not, you know, it maybe it turns off thinner specific AI coaching.
+
+Because once the person's through the 42 days, like if they pay for another cycle, then the office can go toggle back on the AI coach.
+
+But once somebody's
+
+How about instead of the AI coach, how about we just disable food logging?
+
+Okay.
+
+Yeah, I mean, I don't know what the answer is, but I think we should disable something other than the AI. I think food logging, I think a lot of people like to log food. That seems like a core functionality. I think after 42 days or after whatever it is, if it's after 6 weeks or 8 weeks, you know, 2 weeks of AI coaching into the normalization phase, Then at that point, it turns off the AI coach because technically they don't necessarily need the AI coach.
+
+Here's what you need to do because you haven't taken a shit in 3 days.
+
+Yeah.
+
+Right?
+
+They don't need that piece of it, but I think they should still be able to log their food. They should still be able to, you know, get marketing messages, buy products, do this, do that. Like, if it— and then if that person comes back in and does another cycle of thinner at any point in the future, the office goes into their admin dashboard because they've now collected money for it and turns it back, turns the Thinner-specific AI coaching model back on for that person.
+
+And then that person now has another 42 days or 6 weeks or 8 weeks. Yeah, they just like reset their calendar of the AI code. So while you're actively doing the Thinner losing phase in the first 2 or 3 weeks of transition or normalization.
+
+Okay, great. You get the Thinner app. That's one of the things that you're paying for access for is this AI coaching feature so that you can get all of your questions answered, blah, blah, blah, blah, blah.
+
+What about, what about like gating like the barcode scanner or the food picture taker in the menu item too?
+
+Which is fantastic.
+
+You step into your zone.
+
+100% stupid stuff like that.
+
+You know, like you don't want it to prevent them from doing anything, but you want it to be
+
+So basically, like, if you're, if you're not paid, you get
+
+You don't want to prevent them from doing something, but like, once again, that's kind of like a very like shyster approach that we're taking. Well, if they don't pay, we're going to give it to them anyway after. Okay, well then.
+
+Yeah.
+
+What, what about this? What about this? What if it— once, you know, we notify them that the AI feature, some of the AI features are turning off? And then, you know, they can subscribe to it, or if they don't subscribe to it and they go to, like, touch it, you know, they go to click it, it says, oh, hey, you need to upgrade in order— you know, you need to upgrade to $5 a month in order to have these following features added back in.
+
+Yeah, I mean, once again, this is all just extra stuff that has to be fully planned out and thought through.
+
+So.
+
+Back to square one.
+
+Well, I mean, let's just make a list of things so they, they lose at— how long do we want them? How long do we want to— because like, in my mind, if I was a patient and I just paid an office, and I just paid an office $1,000 or $1,500 to do a 6-week program.
+
+Does
+
+And now 2 weeks into it, I gotta subscribe for $7 a month to be able to have this AI, this AI health coach.
+
+Like, I'm gonna be like, what the fuck?
+
+Right, so I think in my mind the person should have it.
+
+For minimally the 42 days.
+
+That's how I feel. I think that's doing the right thing by, by people, right?
+
+I think after that we go, okay, do we want it for just the losing phase or do we want it for the losing phase in the first 2 weeks of the thinner transition phase? And then, so this is like, you know, What, what do you guys think? Let's just take these one at a time. What do you guys— what are your guys' thoughts on that?
+
+Yeah, I think that's fine. And do you want it to be just the losing phase or you want it to be like 2 weeks of the transition phase as well?
+
+I think just the 40, 42 days. Okay, so app.
+
+Or that's AI Coach.
+
+For 42 days.
+
+Okay, now, now what about a patient that isn't on thinner?
+
+I think it'd be cool to give them a 2-week trial by default, but I think giving the practice the ability to choose.
+
+That's more features. That's fine, right? But like, now you're seeing the different layers of complexity.
+
+Like the practice could either like charge or they could not charge.
+
+Okay.
+
+So we could definitely do that. Just
+
+But that's exactly how it exists today. Like the practice goes in, they either toggle it on or they toggle it off.
+
+I don't know. I can't use the dashboard. The dashboard that we have right now is horrible. So it exists, but
+
+Looks like a dumpster fire, acts like one. You know, if it looks like it, acts like it, and smells like it, must be it, you know.
+
+What's the monthly— what are we proposing? Like, what's our idea of what the non-thinner person would pay?
+
+On a monthly basis, how much are we thinking?
+
+I think like 4 and a half.
+
+It gives them the ability to customize it today, but I think $5, $10, $15, $20 would be like good default recommendations.
+
+I think like 6. $6.99 every 2 weeks.
+
+Would be sick.
+
+Yeah, like giving them the ability to like pick whatever they want.
+
+$6.99 every 2 weeks. Okay, what if we— okay, so here's a crazy idea.
+
+Yeah, $14 a month.
+
+How about it like— and I don't know, this may be the dumbest idea ever, or it may be a freaking stroke of genius.
+
+What if you let them try it for the first month for $2.99?
+
+Instead of giving it to them for free for 2 weeks.
+
+Nah, too long of a trial. Too long of a trial, like 3 days.
+
+Yeah, it's a long try. Yeah, I think like 1 to 2 weeks.
+
+3 days.
+
+Free.
+
+No, 3 days, like real short trial.
+
+Good morning, ladies and gentlemen. Welcome aboard flight number 379 with services to Fort Lauderdale. I mean, I'm just thinking instead of giving it to them for free for 2 weeks, why not bang them $99? Why not charge them $1.99 for 2 weeks?
+
+Right? Like, try it for 3 days. Now I got to remember to do it. I got to set it up. I got to learn it. Like, I don't think 3 days is long enough.
+
+No free trial. Every app that you look at is like a free trial for, for like 3 days or 7 days.
+
+This is a fairly full flight.
+
+I think 7 days would be good to let them use the food log and stuff like that. They need time to be able to see the value of wanting to continue with it.
+
+And then, Andrew, you said you think like $599 or $699 every 2 weeks?
+
+I think that would be ideal, but I think we should also let them charge. Like, let me give you an example. I went and on Wednesday I met with one of our customers who like Doesn't buy anything. He doesn't, he doesn't use Fender anymore, but he wants to use the app. Like I talked to you about the future state of the app. He's like going all in on longevity at his practice. So he's got these memberships.
+
+That he charges anywhere from $2,000 up to like $40,000 a year to like work with him.
+
+Correct.
+
+So he wants to use the app as like his baseline membership, like his lowest membership, and he wants to charge like $100 a month. So it's like you get the app and you get access to him through the app. He would like, he would want to override the pricing and make it $100.
+
+I guess like I say that just because I think we should give them the ability to set whatever price they want.
+
+So I guess that would be, Andrew, that would be maybe what, similar to what we did in Patient Pipeline where like Jacob will enter like whatever their monthly amount is?
+
+We wouldn't enter it. We wouldn't enter it on our end. It would be entered from the office's end. But yeah, it would be a setting.
+
+Yeah.
+
+Right. And the office could go— but I'm saying is if an office wanted to charge $19, they would put $19. An office wants to charge $100, they'd put $100 in. And then
+
+And then we would need to link them out of the mobile app to the website, like a version of our website that we would be going to, and then they would subscribe through that page, and that would subscribe them to the office's Stripe account through Connect, and then we would receive a percentage of that transaction.
+
+Which I believe at this moment in time for the app subscriptions, like 30% or something like that, right? 30%? Okay, cool.
+
+Yes.
+
+Yes.
+
+Now, Question I have for you is if they're running other transactions through— let's circle back to the other stuff because I think we got off track because I was just talking about how long Like once they're in the app, right?
+
+It would be 30 days from the day of their onboarding or from the day that they first log in and complete it. And then we would collect their card, 2 cards and a bank account on file.
+
+For the renewal, it would try and charge the bank account by default.
+
+And then if the bank account, you know, is pending, it's fine. And then if it failed, it would end up withdrawing it.
+
+And then charging the card as a backup.
+
+My question is,
+
+Okay it.
+
+I guess, is that it for the time being?
+
+I think so.

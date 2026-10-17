@@ -98,6 +98,10 @@ const migrationNames = [
   // features — product kind, office settings, the per-identity Stripe price
   // mirror, the subscription kind and the 'not_required' fulfillment status.
   "20261210000000_app_access_subscriptions.sql",
+  // Security audit hardening: browser roles lose grants that RLS already made
+  // unusable (service-role-only tables, HQ-only tables, learner tables behind
+  // DEFINER RPCs) and the three food-catalog helpers get a pinned search_path.
+  "20261213000000_browser_role_grant_hardening.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -147,6 +151,29 @@ const launchPostconditions = `
       or not exists(select 1 from pg_constraint where conrelid='public.practice_launch_completions'::regclass
         and contype='p' and pg_get_constraintdef(oid)='PRIMARY KEY (provider_id, stripe_mode, platform_account_id)')
     then raise exception 'Practice launch state/identity contract missing'; end if;
+    -- Browser-role grant hardening: service-role-only tables carry no browser
+    -- privilege at all, and the advisor-flagged food helpers keep a pinned path.
+    foreach relation in array array[
+      'public.barcode_nutrition_facts'::regclass, 'public.billing_carts'::regclass,
+      'public.billing_prebuilt_carts'::regclass, 'public.billing_shipments'::regclass
+    ] loop
+      foreach role_name in array array['anon','authenticated'] loop
+        if has_table_privilege(role_name,relation,'SELECT,INSERT,UPDATE,DELETE') then
+          raise exception 'Service-role-only table reachable by browser role: %', relation;
+        end if;
+      end loop;
+    end loop;
+    if has_table_privilege('anon','public.knowledge_documents','SELECT,INSERT,UPDATE,DELETE')
+      or has_table_privilege('anon','public.training_video_transcripts','SELECT,INSERT,UPDATE,DELETE')
+      or has_table_privilege('authenticated','public.training_video_transcripts','INSERT,UPDATE,DELETE')
+      or has_table_privilege('anon','public.training_viewers','SELECT')
+    then raise exception 'HQ-only or learner table reachable by a browser role'; end if;
+    if exists(select 1 from pg_proc where oid in (
+        to_regprocedure('public.food_catalog_identity_query(text)'),
+        to_regprocedure('public.food_catalog_variant_form_matches(text,jsonb)'),
+        to_regprocedure('public.food_catalog_variant_explicit_constraints_match(text,jsonb,text)'))
+      and (proconfig is null or not exists(select 1 from unnest(proconfig) c where c like 'search_path=%')))
+    then raise exception 'Food catalog helper lost its pinned search_path'; end if;
   end $launch_proof$;
 `;
 // Targets the workspace project (development) unless a ref is named

@@ -6,6 +6,13 @@
  * caller has passed the HQ staff guard.
  */
 import { queueOfficeStripeIdentitySync } from "../billing/office-access/customer-identity";
+import {
+  agreementAnchorRecordedForSelectedMode,
+  anchorIncludedPeriodToAgreementForSelectedMode,
+  loadOfficeAgreementFacts,
+  type OfficeAgreementFacts,
+} from "../billing/office-access/agreement";
+import { agreementDateAt } from "../billing/office-access/state";
 import { Router, type IRouter, type Request } from "express";
 import { z } from "zod";
 import { requireHqPermission, type StaffIdentity } from "../lib/staff-auth";
@@ -99,6 +106,17 @@ const PostalCodeInput = z.string().trim().min(1, "ZIP code is required.").max(10
   return postalCode;
 });
 
+const ResellerAgreementDateInput = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the agreement date as a calendar date.")
+  .refine((value) => agreementDateAt(value) !== null, "Enter a real calendar date for the agreement.")
+  .refine((value) => {
+    const at = agreementDateAt(value);
+    // Checked separately above; a day of slack covers the HQ user's own calendar day.
+    return at === null || at.getTime() <= Date.now() + 86_400_000;
+  }, "The agreement date cannot be in the future.");
+
 export const AccountInput = z.object({
   officeName: z.string().trim().min(1).max(200),
   providerName: z.string().trim().min(1).max(160),
@@ -117,10 +135,33 @@ export const AccountInput = z.object({
   // `plan`, which stays an HQ classification. Optional on PATCH so older
   // clients leave the kind alone.
   officeKind: OfficeKindInput.optional(),
+  // Day the office signed its THINNR reseller agreement (`YYYY-MM-DD`). When
+  // set, a reseller's included access period runs from it instead of from the
+  // owner's first sign-in. Omitted = leave alone; null = clear.
+  resellerAgreementSignedOn: ResellerAgreementDateInput.nullable().optional(),
 });
 
+/** The office's agreement date as the route sends it back: `YYYY-MM-DD` or null. */
+export function resellerAgreementSignedOnOf(value: unknown): string | null {
+  return typeof value === "string" && agreementDateAt(value) ? value : null;
+}
+
+/**
+ * Re-anchor the office's included period after its agreement date (or its
+ * kind, with a date on file) changed. Any failure here is reported to the
+ * caller: the account row is already saved, and the owner's next sign-in only
+ * anchors a period that has not started, so a silent miss could leave a
+ * started period on the old clock.
+ */
+async function anchorAgreementPeriod(req: Request, callerId: string, providerId: string, facts: OfficeAgreementFacts): Promise<void> {
+  await anchorIncludedPeriodToAgreementForSelectedMode({
+    providerId, facts,
+    actor: { kind: "hq", userId: callerId, requestId: req.headers["x-request-id"]?.toString() ?? null },
+  });
+}
+
 const PROVIDER_SELECT =
-  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at,app_review,office_kind";
+  "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,plan,onboarding_code,access_disabled,auth_user_id,claimed_at,created_at,provider_location,offboarding_status,offboarding_started_at,offboarded_at,app_review,office_kind,reseller_agreement_signed_on";
 const SUPPORT_PROVIDER_SELECT =
   "provider_id,provider_name,office_name,email,phone,address_line_1,address_line_2,city,state,postal_code,provider_role,access_disabled,auth_user_id,created_at,offboarding_status,offboarding_started_at,offboarded_at,app_review";
 
@@ -208,6 +249,7 @@ async function loadAccounts(supportOnly = false) {
       // The dedicated App Review office: staff must know it is not a customer.
       appReview: row.app_review === true,
       officeKind: officeKindOf(row.office_kind),
+      resellerAgreementSignedOn: resellerAgreementSignedOnOf(row.reseller_agreement_signed_on),
       plan: row.plan ? String(row.plan) : null,
       address1: row.address_line_1 ? String(row.address_line_1) : "",
       address2: row.address_line_2 ? String(row.address_line_2) : "",
@@ -381,6 +423,7 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
       p_postal_code: parsed.data.postalCode,
       p_plan: parsed.data.plan,
       p_office_kind: parsed.data.officeKind ?? "reseller",
+      p_reseller_agreement_signed_on: parsed.data.resellerAgreementSignedOn ?? null,
     });
     if (result.status === 409 || result.status === 400 || result.status === 422) {
       res.status(409).json({ error: errorMessage(result.json) });
@@ -390,6 +433,17 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
 
     const row = Array.isArray(result.json) ? result.json[0] : result.json;
     const accountId = String(row.provider_id);
+    const facts: OfficeAgreementFacts = { officeKind: officeKindOf(row.office_kind), resellerAgreementSignedOn: resellerAgreementSignedOnOf(row.reseller_agreement_signed_on) };
+    // A reseller created with its agreement date starts its included period
+    // now, so HQ's access card and the owner's setup wizard already show the
+    // real first-charge date. (Without a date the owner's first sign-in
+    // starts the clock, as before.) The account exists either way, so a miss
+    // here is logged rather than failing the creation: the owner's first
+    // sign-in anchors a period that has not started from the same date.
+    if (facts.officeKind === "reseller" && facts.resellerAgreementSignedOn) {
+      await anchorAgreementPeriod(req, callerId, accountId, facts)
+        .catch((error) => req.log?.error({ err: error, providerId: accountId }, "reseller agreement period anchor failed at create"));
+    }
     const invitation = await deliverProviderWelcome(req, parsed.data.email.toLowerCase(), {
       officeName: parsed.data.officeName,
       providerName: parsed.data.providerName,
@@ -406,7 +460,8 @@ router.post("/provider-accounts", requireHqPermission("provider_manage"), async 
         providerCode: row.onboarding_code ? String(row.onboarding_code) : null,
         status: "needs_setup",
         appReview: row.app_review === true,
-        officeKind: officeKindOf(row.office_kind),
+        officeKind: facts.officeKind,
+        resellerAgreementSignedOn: facts.resellerAgreementSignedOn,
         plan: row.plan ? String(row.plan) : null,
         address1: row.address_line_1 ? String(row.address_line_1) : "",
         address2: row.address_line_2 ? String(row.address_line_2) : "",
@@ -528,6 +583,11 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
   }
   try {
     const callerId = (res.locals.staff as StaffIdentity).userId;
+    const setAgreement = parsed.data.resellerAgreementSignedOn !== undefined;
+    // What the office was before the edit decides whether the included period
+    // has to move afterwards (see below); an edit that does not touch the date
+    // or the kind never re-anchors a period HQ may have adjusted by hand.
+    const before = setAgreement || parsed.data.officeKind !== undefined ? await loadOfficeAgreementFacts(String(req.params.id)) : null;
     const result = await supabaseAdmin("POST", "/rest/v1/rpc/hq_update_provider_account", {
       p_updated_by: callerId,
       p_provider_id: req.params.id,
@@ -543,6 +603,8 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
       p_postal_code: parsed.data.postalCode,
       p_plan: parsed.data.plan,
       p_office_kind: parsed.data.officeKind ?? null,
+      p_reseller_agreement_signed_on: parsed.data.resellerAgreementSignedOn ?? null,
+      p_set_reseller_agreement: setAgreement,
     });
     if (result.status === 404) {
       res.status(404).json({ error: "Provider account not found." });
@@ -554,6 +616,38 @@ router.patch("/provider-accounts/:id", requireHqPermission("provider_manage"), a
     }
     if (result.status >= 300 || !result.json) {
       throw new Error(`provider update failed (${result.status})`);
+    }
+    const updated = Array.isArray(result.json) ? result.json[0] : result.json;
+    const after: OfficeAgreementFacts = { officeKind: officeKindOf(updated?.office_kind), resellerAgreementSignedOn: resellerAgreementSignedOnOf(updated?.reseller_agreement_signed_on) };
+    // The included period follows the agreement date: a changed or cleared
+    // date re-anchors it, and so does an office becoming a reseller with a
+    // date already on file. Becoming software-only leaves the period alone.
+    const dateChanged = before !== null && before.resellerAgreementSignedOn !== after.resellerAgreementSignedOn;
+    const becameReseller = before !== null && before.officeKind !== "reseller" && after.officeKind === "reseller" && after.resellerAgreementSignedOn !== null;
+    // Saving the same date again is the retry path when an earlier anchoring
+    // never landed (lost race, store outage at create or edit): it re-anchors
+    // only if no anchoring for this exact date is on record, so HQ's manual
+    // period edits after a successful anchoring survive unrelated saves.
+    const sameDateSent = !dateChanged && !becameReseller && parsed.data.resellerAgreementSignedOn !== undefined
+      && after.officeKind === "reseller" && after.resellerAgreementSignedOn !== null;
+    let neverAnchored = false;
+    if (sameDateSent) {
+      try {
+        neverAnchored = !(await agreementAnchorRecordedForSelectedMode({ providerId: String(req.params.id), resellerAgreementSignedOn: after.resellerAgreementSignedOn! }));
+      } catch (error) {
+        req.log?.error({ err: error, providerId: req.params.id }, "reseller agreement anchor history read failed");
+        res.status(502).json({ error: "The account was saved, but its included period could not be checked against the agreement date. Save again to retry." });
+        return;
+      }
+    }
+    if (after.officeKind === "reseller" && (dateChanged || becameReseller || neverAnchored)) {
+      try {
+        await anchorAgreementPeriod(req, callerId, String(req.params.id), after);
+      } catch (error) {
+        req.log?.error({ err: error, providerId: req.params.id }, "reseller agreement period anchor failed at update");
+        res.status(502).json({ error: "The account was saved, but its included period could not be moved to the new agreement date. Save the date again to retry." });
+        return;
+      }
     }
 
     const snapshot = await loadAccounts(false);

@@ -20,6 +20,8 @@ const STEP_LABELS: Record<string, string> = {
 };
 const money = (cents: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(cents / 100);
 const date = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date(value));
+/** Billing boundaries are UTC instants (an agreement-anchored period ends at UTC midnight): name the UTC day, as HQ and the charger do. */
+const chargeDay = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(value));
 
 export function OfficeAccessSetup({ management = false }: { management?: boolean }) {
   const query = useOfficeAccessSetup();
@@ -74,7 +76,9 @@ export function OfficeAccessContent({ snapshot, refresh, management = false }: {
             <b className="capitalize"><BusyLabel busy={writes.plan.isPending && writes.plan.variables === plan} label={plan} /></b><span className="block">{money(plan === 'monthly' ? snapshot.plan.monthlyPriceCents : snapshot.plan.yearlyPriceCents)} after the included period</span>
           </button>)}
         </div>
-        {snapshot.plan.firstChargeAt && <p>First charge: <strong>{date(snapshot.plan.firstChargeAt)}</strong>. Your office price is {money(snapshot.plan.priceCents)}.</p>}
+        {snapshot.plan.firstChargeAt && (Date.parse(snapshot.plan.firstChargeAt) <= Date.now()
+          ? <p>Your included period ended <strong>{chargeDay(snapshot.plan.firstChargeAt)}</strong>; your first charge of {money(snapshot.plan.priceCents)} runs at the next billing pass once setup is complete.</p>
+          : <p>First charge: <strong>{chargeDay(snapshot.plan.firstChargeAt)}</strong>. Your office price is {money(snapshot.plan.priceCents)}.</p>)}
         {!snapshot.canChoosePlan && <p className="text-muted-foreground">Only the practice owner may choose the plan. You can review the current selection.</p>}
         {writes.plan.isError && <InlineError prefix="Your plan choice was not saved." error={writes.plan.error} retry={refresh} />}
       </div>

@@ -234,6 +234,56 @@ console.log('the account page card');
   await act(async () => { renderer.unmount(); });
 }
 
+console.log('the reseller agreement date on the card');
+{
+  persona('hq');
+  on('GET', DETAIL_PATH, () => ({ status: 200, body: detail({ office: { providerId: 'office-1', officeName: 'Beacon Hill', officeKind: 'reseller' } }) }));
+  const { root, renderer } = await mount(<AccountAccessBillingCard providerId="office-1" />);
+  check('a reseller without a recorded agreement counts from first sign-in and says where to record one',
+    text(one(root, 'text-access-kind-window')).includes("from the owner's first sign-in")
+    && text(one(root, 'text-access-kind-window')).includes('Record the reseller agreement date'));
+  await act(async () => { renderer.unmount(); });
+}
+{
+  persona('hq');
+  on('GET', DETAIL_PATH, () => ({ status: 200, body: detail({
+    office: { providerId: 'office-1', officeName: 'Beacon Hill', officeKind: 'reseller', resellerAgreementSignedOn: '2026-01-15', agreementBillingStartsAt: '2027-01-15T00:00:00.000Z' },
+    history: [{ id: 'event-9', event: 'agreement_anchored', fromState: null, toState: null, actorKind: 'hq', actorUserId: 'hq-1', actorName: 'Dana Reeve', detail: {}, createdAt: iso(-1) }],
+  }) }));
+  const { root, renderer } = await mount(<AccountAccessBillingCard providerId="office-1" />);
+  check('a recorded agreement date anchors the free period and names the day billing starts',
+    text(one(root, 'text-access-kind-window')).includes('reseller agreement signed Jan 15, 2026')
+    && text(one(root, 'text-access-kind-window')).includes('billing starts Jan 15, 2027')
+    && !text(one(root, 'text-access-kind-window')).includes('already passed'));
+  check('the anchoring event reads as a sentence in the history',
+    text(one(root, 'row-access-history-event-9')).includes('anchored to the reseller agreement'));
+  await act(async () => { renderer.unmount(); });
+}
+{
+  persona('hq');
+  on('GET', DETAIL_PATH, () => ({ status: 200, body: detail({
+    office: { providerId: 'office-1', officeName: 'Beacon Hill', officeKind: 'reseller', resellerAgreementSignedOn: '2024-03-01', agreementBillingStartsAt: '2025-03-01T00:00:00.000Z' },
+  }) }));
+  const { root, renderer } = await mount(<AccountAccessBillingCard providerId="office-1" />);
+  check('an agreement whose free period has already run out says the first charge runs at the next pass',
+    text(one(root, 'text-access-kind-window')).includes('billing starts Mar 1, 2025')
+    && text(one(root, 'text-access-kind-window')).includes('already passed')
+    && text(one(root, 'text-access-kind-window')).includes('next billing pass'));
+  await act(async () => { renderer.unmount(); });
+}
+{
+  persona('hq');
+  on('GET', DETAIL_PATH, () => ({ status: 200, body: detail({
+    office: { providerId: 'office-1', officeName: 'Beacon Hill', officeKind: 'software', resellerAgreementSignedOn: '2026-01-15', agreementBillingStartsAt: null },
+    policy: { ...POLICY, officeKind: 'software', includedPeriodDays: 30 },
+  }) }));
+  const { root, renderer } = await mount(<AccountAccessBillingCard providerId="office-1" />);
+  check('a software-only office ignores any agreement date and keeps its first-sign-in window',
+    text(one(root, 'text-access-kind-window')).startsWith('Software-only office: 30 days free from the owner\'s first sign-in')
+    && !text(one(root, 'text-access-kind-window')).includes('agreement'));
+  await act(async () => { renderer.unmount(); });
+}
+
 {
   persona('provider');
   const { root, renderer } = await mount(<AccountAccessBillingCard providerId="office-1" />);

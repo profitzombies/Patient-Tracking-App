@@ -31,6 +31,7 @@ import { AccountLockedChip, AccountStatusChip, AdminPage, AppReviewChip, PageHea
 import { useAccountLocks } from '@/contexts/account-locks';
 import { useHqData } from '@/contexts/hq-data';
 import { accountMatchesQuery, accountSearchHaystack, monthlyRevenueOf, OFFICE_KINDS, OFFICE_KIND_LABEL, type AccountPlan, type OfficeKind } from '@/data/hq/accounts';
+import { agreementDateAt, describeBillingStart, todayIsoDate, useResellerIncludedPeriodDays } from '@/lib/reseller-agreement';
 import { ProviderAccountError } from '@/lib/provider-accounts';
 import { formatDateKey } from '@/data/nutrition-data';
 import { useSession } from '@/contexts/session';
@@ -124,6 +125,10 @@ export default function Accounts() {
   const [plan, setPlan] = useState<AccountPlan>(defaultPlan);
   // Office type: every new office is a THINNR reseller unless HQ says otherwise.
   const [officeKind, setOfficeKind] = useState<OfficeKind>('reseller');
+  // Reseller only: the day the office signed its reseller agreement. Billing
+  // then starts one reseller period after it instead of after the first sign-in.
+  const [agreementSignedOn, setAgreementSignedOn] = useState('');
+  const resellerPeriod = useResellerIncludedPeriodDays();
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const canManageAccounts = authStatus === 'signed-out' || hqRole === 'Super Admin' || hqRole === 'Admin';
@@ -132,6 +137,7 @@ export default function Accounts() {
     setForm(EMPTY_FORM);
     setPlan(defaultPlan);
     setOfficeKind('reseller');
+    setAgreementSignedOn('');
     setFormError(null);
     setOpen(true);
   };
@@ -168,6 +174,11 @@ export default function Accounts() {
       setFormError('Please enter a valid 10-digit phone number.');
       return;
     }
+    const resellerAgreementSignedOn = officeKind === 'reseller' && agreementSignedOn ? agreementSignedOn : null;
+    if (resellerAgreementSignedOn && !agreementDateAt(resellerAgreementSignedOn)) {
+      setFormError('Enter the reseller agreement date as a calendar date.');
+      return;
+    }
 
     setSubmitting(true);
     setFormError(null);
@@ -182,6 +193,7 @@ export default function Accounts() {
         postalCode,
         plan,
         officeKind,
+        resellerAgreementSignedOn,
         email,
         phone,
       });
@@ -505,6 +517,23 @@ export default function Accounts() {
                   : 'The office sees Marketing Assets and Training, accepts the reseller access disclosure, and gets the reseller free period.'}
               </span>
             </div>
+            {officeKind === 'reseller' && (
+              <label className="block sm:col-span-2">
+                <span className={PANEL_LABEL}>Reseller agreement signed</span>
+                <input
+                  type="date"
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={agreementSignedOn}
+                  max={todayIsoDate()}
+                  onChange={(event) => setAgreementSignedOn(event.target.value)}
+                  data-testid="input-account-agreement-date"
+                />
+                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground" data-testid="text-account-agreement-billing-start">
+                  {describeBillingStart(agreementSignedOn, resellerPeriod.days)
+                    ?? `Optional. With a date, the ${resellerPeriod.days}-day free period counts from the agreement; without one it counts from the owner's first sign-in.`}
+                </span>
+              </label>
+            )}
             <label className="block">
               <span className={PANEL_LABEL}>Claim email *</span>
               <input type="email" required className={`${INPUT_CLASS} mt-1 h-9 w-full`} value={form.email} onChange={setField('email')} placeholder="frontdesk@office.example.com" data-testid="input-account-email" />

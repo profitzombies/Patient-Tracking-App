@@ -90,6 +90,10 @@ const migrationNames = [
   "20261210000000_office_kind.sql",
   // …and the self-serve training roster RPC refuses software-office staff too.
   "20261211000000_office_kind_training_staff.sql",
+  // Reseller agreement date: providers.reseller_agreement_signed_on, the HQ
+  // account RPCs carry it, and the owner's first sign-in kept on the access
+  // subscription so the included period can anchor to the agreement.
+  "20261212000000_reseller_agreement_date.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -388,8 +392,6 @@ await query(`
             and conname = 'providers_office_kind_check'
             and pg_get_constraintdef(oid) like '%software%'
        )
-       or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text)') is null
-       or to_regprocedure('public.hq_update_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text,text)') is null
        or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text)') is not null
        or not exists (
          select 1 from information_schema.columns
@@ -408,6 +410,20 @@ await query(`
          select 1 from pg_policies
           where schemaname = 'public' and tablename = 'training_courses'
             and policyname = 'Training courses are readable outside software offices'
+       )
+       -- Reseller agreement date: the column, both HQ account RPCs at their
+       -- new arity (old arities gone), and the owner first sign-in column.
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'providers' and column_name = 'reseller_agreement_signed_on'
+       )
+       or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text,date)') is null
+       or to_regprocedure('public.hq_update_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,date,boolean)') is null
+       or to_regprocedure('public.hq_create_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text)') is not null
+       or to_regprocedure('public.hq_update_provider_account(uuid,text,text,text,text,text,text,text,text,text,text,text,text,text)') is not null
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'billing_office_access_subscriptions' and column_name = 'owner_first_sign_in_at'
        )
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;

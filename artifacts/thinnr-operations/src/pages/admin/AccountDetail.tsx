@@ -47,6 +47,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { OFFICE_KINDS, OFFICE_KIND_LABEL, type AccountPlan, type OfficeKind, type ProviderAccount } from '@/data/hq/accounts';
+import { agreementDateAt, describeBillingStart, formatCalendarDate, todayIsoDate, useResellerIncludedPeriodDays } from '@/lib/reseller-agreement';
 import { useMutation } from '@tanstack/react-query';
 import { officeRequest } from '@/lib/office-api';
 
@@ -354,9 +355,10 @@ function ProviderAccountDetail({ id }: { id: string }) {
   const [editOpen, setEditOpen] = useState(false);
   const [stateOpen, setStateOpen] = useState(false);
   const [form, setForm] = useState<UpdateProviderAccountInput>({
-    officeName: '', providerName: '', providerRole: '', address1: '', address2: '', city: '', state: '', postalCode: '', plan: null, officeKind: 'reseller', email: '', phone: ''
+    officeName: '', providerName: '', providerRole: '', address1: '', address2: '', city: '', state: '', postalCode: '', plan: null, officeKind: 'reseller', resellerAgreementSignedOn: null, email: '', phone: ''
   });
   const [formError, setFormError] = useState<string | null>(null);
+  const resellerPeriod = useResellerIncludedPeriodDays();
 
   const detailQuery = useQuery({
     queryKey: ['provider-account-detail', id],
@@ -485,6 +487,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
       postalCode: normalizeUsPostalCode(account.postalCode || ''),
       plan: account.plan,
       officeKind: account.officeKind,
+      resellerAgreementSignedOn: account.resellerAgreementSignedOn,
       email: account.email,
       phone: account.phone ? formatUsPhone(account.phone) : '',
     });
@@ -524,6 +527,13 @@ function ProviderAccountDetail({ id }: { id: string }) {
       setFormError('Please enter a valid 10-digit phone number.');
       return;
     }
+    // The date is sent whenever the form is a reseller's (null clears it); a
+    // software-only office's form leaves whatever is on file alone.
+    const resellerAgreementSignedOn = form.officeKind === 'software' ? undefined : (form.resellerAgreementSignedOn || null);
+    if (resellerAgreementSignedOn && !agreementDateAt(resellerAgreementSignedOn)) {
+      setFormError('Enter the reseller agreement date as a calendar date.');
+      return;
+    }
 
     setSaving(true);
     setFormError(null);
@@ -531,7 +541,7 @@ function ProviderAccountDetail({ id }: { id: string }) {
       await updateAccount(account.id, {
         officeName, providerName,
         providerRole: form.providerRole.trim() || 'Practitioner',
-        address1, address2, city, state, postalCode, plan: form.plan, officeKind: form.officeKind, email, phone,
+        address1, address2, city, state, postalCode, plan: form.plan, officeKind: form.officeKind, resellerAgreementSignedOn, email, phone,
       });
       toast({
         variant: 'success',
@@ -706,6 +716,13 @@ function ProviderAccountDetail({ id }: { id: string }) {
                 { label: 'Joined', value: formatDateKey(account.joinedKey, true) },
                  { label: 'Plan', value: account.plan ?? '—' },
                  { label: 'Office type', value: OFFICE_KIND_LABEL[account.officeKind], testId: 'text-account-office-kind' },
+                 ...(account.officeKind === 'reseller'
+                   ? [{
+                       label: 'Reseller agreement signed',
+                       value: account.resellerAgreementSignedOn ? formatCalendarDate(account.resellerAgreementSignedOn) : 'Not recorded',
+                       testId: 'text-account-agreement-date',
+                     }]
+                   : []),
               ].map((row) => (
                 <div key={row.label} className="flex items-baseline justify-between gap-4 border-b border-border px-5 py-3 last:border-b-0">
                   <span className={MICRO_LABEL}>{row.label}</span>
@@ -927,6 +944,23 @@ function ProviderAccountDetail({ id }: { id: string }) {
                 Software-only offices lose Marketing Assets and Training as soon as this saves, accept the software agreement in setup, and get the shorter free period. A free period that has already started is not changed.
               </span>
             </div>
+            {form.officeKind !== 'software' && (
+              <label className="block sm:col-span-2">
+                <span className={PANEL_LABEL}>Reseller agreement signed</span>
+                <input
+                  type="date"
+                  className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+                  value={form.resellerAgreementSignedOn ?? ''}
+                  max={todayIsoDate()}
+                  onChange={(event) => setForm((c) => ({ ...c, resellerAgreementSignedOn: event.target.value || null }))}
+                  data-testid="input-edit-agreement-date"
+                />
+                <span className="mt-1 block text-[10px] leading-relaxed text-muted-foreground" data-testid="text-edit-agreement-billing-start">
+                  {describeBillingStart(form.resellerAgreementSignedOn, resellerPeriod.days)
+                    ?? `Optional. With a date, the ${resellerPeriod.days}-day free period counts from the agreement and moves with any correction; cleared, it counts from the owner's first sign-in. Access the office has already paid for is never shortened.`}
+                </span>
+              </label>
+            )}
           </div>
           {formError && <p role="alert" className="text-xs font-semibold text-destructive" data-testid="text-edit-form-error">{formError}</p>}
           <DialogFooter>

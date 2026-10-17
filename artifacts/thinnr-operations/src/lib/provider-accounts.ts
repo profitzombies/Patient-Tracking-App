@@ -28,6 +28,8 @@ export interface NewProviderAccountInput {
   plan: AccountPlan | null;
   /** Omitted = THINNR reseller. */
   officeKind?: OfficeKind;
+  /** `YYYY-MM-DD` the reseller agreement was signed; anchors the reseller's included period. */
+  resellerAgreementSignedOn?: string | null;
   email: string;
   phone: string;
 }
@@ -44,6 +46,8 @@ export interface UpdateProviderAccountInput {
   plan: AccountPlan | null;
   /** Omitted = leave the kind as it is. */
   officeKind?: OfficeKind;
+  /** Omitted = leave the date alone; null = clear it. */
+  resellerAgreementSignedOn?: string | null;
   email: string;
   phone: string;
 }
@@ -119,6 +123,7 @@ function normalizeProviderAccount(account: ProviderAccountDto): ProviderAccount 
     providerCode: account.providerCode ?? null,
     plan: account.plan ?? null,
     officeKind: officeKindOf(account.officeKind),
+    resellerAgreementSignedOn: typeof account.resellerAgreementSignedOn === 'string' ? account.resellerAgreementSignedOn : null,
     greetingName: greetingName(account.providerName) ?? account.greetingName ?? 'Provider',
     activePatientCount: account.activePatientCount ?? null,
     newEnrollments: account.newEnrollments ?? null,

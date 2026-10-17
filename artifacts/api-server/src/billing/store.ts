@@ -293,6 +293,11 @@ export interface BillingOfficeAccessSubscriptionRow extends TimestampedRow {
   disclosure_version: number | null;
   /** Which agreement was accepted: reseller disclosure or software agreement (null before kinds existed). */
   disclosure_kind?: "reseller" | "software" | null;
+  /**
+   * When the owner first opened the dashboard, recorded once. The included
+   * period falls back to it when no reseller agreement date is on the account.
+   */
+  owner_first_sign_in_at?: string | null;
 }
 export interface BillingOfficeAccessInstrumentRow extends TimestampedRow {
   id: string; subscription_id: string; provider_id: string; slot: OfficeAccessSlot; kind: "bank" | "card";

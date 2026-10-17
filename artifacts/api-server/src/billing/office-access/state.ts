@@ -97,8 +97,20 @@ export function accessIsRestricted(row: Parameters<typeof deriveAccessState>[0],
 export type AccessInput =
   /** Bank account and both cards are stored; the office is billable. */
   | { kind: "setup_completed"; at: Date }
-  /** The office owner signed in to the provider dashboard for the first time. */
-  | { kind: "owner_first_sign_in"; at: Date; includedPeriodDays: number }
+  /**
+   * The office owner signed in to the provider dashboard for the first time.
+   * `anchor` is where the included period runs from when it is not the
+   * sign-in itself — a reseller's agreement date — see `includedPeriodAnchor`.
+   */
+  | { kind: "owner_first_sign_in"; at: Date; includedPeriodDays: number; anchor?: Date }
+  /**
+   * HQ recorded, changed or cleared the reseller agreement date: the included
+   * period is re-anchored to `period` (agreement date, else the owner's first
+   * sign-in), or cleared when neither is known so the next owner sign-in
+   * starts it. Paid-through coverage is untouched, so it never shortens
+   * anything already paid for.
+   */
+  | { kind: "agreement_anchor"; at: Date; period: { startedAt: Date; endsAt: Date } | null }
   /** Re-check only: the included period or the paid-through date may have lapsed. */
   | { kind: "period_expiry"; at: Date }
   /** A charge for `periodStart..periodEnd` was confirmed. */
@@ -153,11 +165,29 @@ export function nextAccessState(row: Row, input: AccessInput, now = input.at): A
       break;
     case "owner_first_sign_in":
       // Exactly once: a second owner sign-in never restarts or extends it.
+      if (!row.owner_first_sign_in_at) set("owner_first_sign_in_at", iso(input.at));
       if (!row.included_period_started_at) {
-        set("included_period_started_at", iso(input.at));
-        set("included_period_ends_at", iso(new Date(input.at.getTime() + input.includedPeriodDays * DAY_MS)));
+        const period = includedPeriodFrom(input.anchor ?? input.at, input.includedPeriodDays);
+        set("included_period_started_at", iso(period.startedAt));
+        set("included_period_ends_at", iso(period.endsAt));
       }
       break;
+    case "agreement_anchor": {
+      // A complimentary office has no period to anchor.
+      if (row.lifetime) break;
+      const startedAt = input.period ? iso(input.period.startedAt) : null;
+      const endsAt = input.period ? iso(input.period.endsAt) : null;
+      if (row.included_period_started_at !== startedAt) set("included_period_started_at", startedAt);
+      if (row.included_period_ends_at !== endsAt) set("included_period_ends_at", endsAt);
+      // A period that now runs into the future is access again, like any HQ
+      // grant; one that already elapsed leaves a recovery clock alone.
+      if (input.period && input.period.endsAt.getTime() > input.at.getTime() && (row.grace_started_at || row.restricted_at)) {
+        set("grace_started_at", null);
+        set("grace_ends_at", null);
+        set("restricted_at", null);
+      }
+      break;
+    }
     case "period_expiry":
       break;
     case "charge_succeeded":
@@ -233,6 +263,37 @@ export function nextAccessState(row: Row, input: AccessInput, now = input.at): A
 
 // ── Periods and pricing ─────────────────────────────────────────────────────
 
+/** The included period that runs from `anchor` for `days` days. */
+export function includedPeriodFrom(anchor: Date, days: number): { startedAt: Date; endsAt: Date } {
+  return { startedAt: anchor, endsAt: new Date(anchor.getTime() + days * DAY_MS) };
+}
+
+/** A calendar date (`YYYY-MM-DD`) as the UTC midnight that starts it; null for anything else. */
+export function agreementDateAt(signedOn: string | null | undefined): Date | null {
+  if (!signedOn || !/^\d{4}-\d{2}-\d{2}$/.test(signedOn)) return null;
+  const at = new Date(`${signedOn}T00:00:00.000Z`);
+  return Number.isFinite(at.getTime()) && at.toISOString().slice(0, 10) === signedOn ? at : null;
+}
+
+/**
+ * Where an office's included period runs from. A THINNR reseller's period is
+ * anchored to the day it signed its reseller agreement when HQ recorded one
+ * (leadership expects billing 12 months after the agreement, however long the
+ * owner takes to first sign in); otherwise, and for every software-only
+ * office, it runs from the owner's first dashboard sign-in. Null until either
+ * is known — the next owner sign-in then starts it.
+ */
+export function includedPeriodAnchor(input: {
+  officeKind: "reseller" | "software";
+  resellerAgreementSignedOn: string | null | undefined;
+  ownerFirstSignInAt: string | null | undefined;
+}): Date | null {
+  const agreement = input.officeKind === "reseller" ? agreementDateAt(input.resellerAgreementSignedOn) : null;
+  if (agreement) return agreement;
+  const signedIn = ms(input.ownerFirstSignInAt ?? null);
+  return signedIn === null ? null : new Date(signedIn);
+}
+
 /** The end of a billing period that starts at `from`. */
 export function periodEnd(plan: OfficeAccessPlan, from: Date): Date {
   const end = new Date(from.getTime());
@@ -242,13 +303,28 @@ export function periodEnd(plan: OfficeAccessPlan, from: Date): Date {
 }
 
 /**
- * The period a billing run should collect for: it starts where paid access
- * currently ends (the paid-through date, else the included period's end).
- * Null when the office is not billable yet.
+ * Where the office's current coverage runs out: the LATER of the paid-through
+ * date and the included period's end. The two can disagree — HQ (or a
+ * corrected reseller agreement date) may extend the included period past a
+ * period that was already paid for — and charging must wait for both, exactly
+ * as `deriveAccessState` treats either future date as access. Null when no
+ * clock has started.
+ */
+export function coverageEndsAt(row: Pick<Row, "paid_through" | "included_period_ends_at">): Date | null {
+  const paid = ms(row.paid_through);
+  const included = ms(row.included_period_ends_at);
+  if (paid === null && included === null) return null;
+  return new Date(Math.max(paid ?? Number.NEGATIVE_INFINITY, included ?? Number.NEGATIVE_INFINITY));
+}
+
+/**
+ * The period a billing run should collect for: it starts where the office's
+ * coverage currently ends (`coverageEndsAt`). Null when the office is not
+ * billable yet.
  */
 export function dueBillingPeriod(row: Row, now: Date): { start: Date; end: Date } | null {
   if (isLifetime(row) || !row.setup_completed_at) return null;
-  const startMs = ms(row.paid_through) ?? ms(row.included_period_ends_at);
+  const startMs = coverageEndsAt(row)?.getTime() ?? null;
   if (startMs === null) return null;
   if (startMs > now.getTime()) return null;
   const start = new Date(startMs);

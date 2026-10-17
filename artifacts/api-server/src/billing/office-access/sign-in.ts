@@ -6,11 +6,18 @@
  * signs up or signs in. That is why this lives on the staff sign-in path and
  * takes a staff identity: there is no argument shape here that a patient
  * session could produce.
+ *
+ * A THINNR reseller whose agreement date HQ recorded is the one exception to
+ * "from the sign-in": its period runs from the agreement date (agreement.ts),
+ * so the first sign-in only starts a period that was not already anchored, and
+ * may start one that has already elapsed — the office is then billed at the
+ * next pass once setup completes, never restricted on day one.
  */
 import { getBillingModeStatus } from "../mode-state";
 import { currentBillingIdentity, runWithBillingIdentity } from "../stripe-environment";
-import { loadOfficeKind } from "../../lib/office-kind";
+import { loadOfficeAgreementFacts } from "./agreement";
 import { includedPeriodDaysFor, loadAccessBillingSettings } from "./settings";
+import { includedPeriodAnchor } from "./state";
 import { applyAccessInput, ensureAccessSubscription } from "./subscription";
 
 export interface OwnerSignIn {
@@ -23,24 +30,31 @@ export interface OwnerSignIn {
 }
 
 /**
- * Stamp the start of the included period, exactly once. Later owner sign-ins
- * are no-ops, so the period can never be restarted by signing out and in.
+ * Stamp the owner's first sign-in and the start of the included period,
+ * exactly once each. Later owner sign-ins are no-ops, so the period can never
+ * be restarted by signing out and in.
  */
 export async function noteOwnerDashboardSignIn(input: OwnerSignIn): Promise<void> {
   if (input.staffClass !== "provider" || !input.providerId) return;
   const at = input.at ?? new Date();
   const [settings, row] = await Promise.all([loadAccessBillingSettings(), ensureAccessSubscription(input.providerId)]);
-  if (row.included_period_started_at) return;
+  if (row.included_period_started_at && row.owner_first_sign_in_at) return;
   // The window depends on what THINNR sold the office: a software-only office
-  // gets the (shorter) software default, a reseller the reseller default.
-  const officeKind = await loadOfficeKind(input.providerId);
-  const includedPeriodDays = includedPeriodDaysFor(settings, officeKind);
+  // gets the (shorter) software default, a reseller the reseller default —
+  // and a reseller with a recorded agreement date counts from that day.
+  const facts = await loadOfficeAgreementFacts(input.providerId);
+  const includedPeriodDays = includedPeriodDaysFor(settings, facts.officeKind);
+  const anchor = includedPeriodAnchor({ officeKind: facts.officeKind, resellerAgreementSignedOn: facts.resellerAgreementSignedOn, ownerFirstSignInAt: null });
+  const startsPeriod = !row.included_period_started_at;
   await applyAccessInput({
     row,
-    input: { kind: "owner_first_sign_in", at, includedPeriodDays },
+    input: { kind: "owner_first_sign_in", at, includedPeriodDays, ...(anchor ? { anchor } : {}) },
     actor: { kind: "provider", userId: input.authUserId },
-    event: "included_period_started",
-    detail: { includedPeriodDays, officeKind },
+    event: startsPeriod ? "included_period_started" : "owner_first_sign_in",
+    detail: {
+      includedPeriodDays, officeKind: facts.officeKind,
+      ...(startsPeriod ? { anchor: anchor ? "agreement" : "owner_first_sign_in", resellerAgreementSignedOn: facts.resellerAgreementSignedOn } : {}),
+    },
   });
 }
 

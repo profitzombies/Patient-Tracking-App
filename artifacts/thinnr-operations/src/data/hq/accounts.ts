@@ -38,6 +38,8 @@ export interface ProviderAccount {
   status: AccountStatus;
   plan: AccountPlan | null;
   officeKind: OfficeKind;
+  /** `YYYY-MM-DD` HQ recorded as the reseller agreement date; null when none (or software-only). */
+  resellerAgreementSignedOn: string | null;
   address1: string | null;
   address2: string | null;
   city: string;

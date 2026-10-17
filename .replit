@@ -76,6 +76,14 @@ args = "office-kind-web"
 task = "workflow.run"
 args = "office-kind-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "reseller-agreement-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "reseller-agreement-web"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3331,6 +3339,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:office-kind && pnpm --filter @workspace/thinnr-mobile run test:office-restricted && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "reseller-agreement-api"
+author = "agent"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/office-access src/routes/provider-accounts-agreement.test.ts src/routes/provider-accounts-office-kind.test.ts src/routes/reseller-agreement.sql.test.ts src/routes/hq-office-access.test.ts src/routes/office-access.test.ts src/routes/billing-office-access.test.ts src/routes/practice-launch.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[[workflows.workflow]]
+name = "reseller-agreement-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:reseller-agreement && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:office-kind && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

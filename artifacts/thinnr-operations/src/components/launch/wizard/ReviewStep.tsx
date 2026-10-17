@@ -5,7 +5,7 @@ import { useOfficeAccessMutations } from '@/hooks/use-office-access';
 import { LINK_ACTION } from '@/components/patient/heritage';
 import type { OfficeAccessSnapshot } from '@/lib/billing-types';
 import { missingSetupItems, type SetupTarget } from '@/lib/setup-checklist';
-import { agreementTitle, connectSubmitted, firstCharge, instrumentFor, longDate, money, planPriceCents, type WizardStepId } from './steps';
+import { agreementTitle, chargeDay, connectSubmitted, firstCharge, instrumentFor, money, planPriceCents, type WizardStepId } from './steps';
 import { InlineError, StepFrame, WizardFooter, readable } from './ui';
 
 export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivated }: {
@@ -52,7 +52,13 @@ export function ReviewStep({ launch, access, readOnly, onBack, onEdit, onActivat
   const rows: Array<{ label: string; value: string; step: WizardStepId }> = [
     { label: 'Plan', value: plan ? `${plan === 'monthly' ? 'Monthly' : 'Yearly'} · ${money(planPriceCents(access, plan))} ${plan === 'monthly' ? 'a month' : 'a year'}` : 'Not chosen', step: 'plan' },
     { label: 'Free access', value: `${access.plan.includedPeriodDays} days`, step: 'plan' },
-    { label: 'First charge', value: `${longDate(charge.at)}${charge.estimated ? ' (if you activate today)' : ''}`, step: 'plan' },
+    {
+      label: 'First charge',
+      value: charge.elapsed
+        ? `After activation (free access ended ${chargeDay(charge.at)})`
+        : `${chargeDay(charge.at)}${charge.estimated ? ' (if you activate today)' : ''}`,
+      step: 'plan',
+    },
     { label: 'Bank account', value: bank ? `${bank.bankName || 'Bank'} ending in ${bank.last4}` : 'Not added', step: 'payment' },
     { label: 'First card', value: primary ? `${cardName(primary.brand)} ending in ${primary.last4}` : 'Not added', step: 'payment' },
     { label: 'Backup card', value: backup ? `${cardName(backup.brand)} ending in ${backup.last4}` : 'Not added', step: 'payment' },

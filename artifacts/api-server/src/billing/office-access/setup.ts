@@ -11,7 +11,7 @@
  * module free of a cycle with `practice-launch/state`.
  */
 import { loadOrgPolicy } from "../../lib/org-policy";
-import { accessPriceCents, periodEnd } from "./state";
+import { accessPriceCents, coverageEndsAt, periodEnd } from "./state";
 import {
   accessSetupStatus,
   expireStagedReplacements,
@@ -236,7 +236,7 @@ export async function accessSetupSnapshot(input: SnapshotInput): Promise<AccessS
     staged ? bankVerificationUrl(staged) : Promise.resolve(null),
   ]);
 
-  const firstChargeAt = row.paid_through ?? row.included_period_ends_at ?? null;
+  const firstChargeAt = coverageEndsAt(row)?.toISOString() ?? null;
   const priceCents = accessPriceCents(row, settings);
   const connectDone = connect === "ready";
   // Once Stripe's form is submitted, Stripe reviewing it (or asking for more

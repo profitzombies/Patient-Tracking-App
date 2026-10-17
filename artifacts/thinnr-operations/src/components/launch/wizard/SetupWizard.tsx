@@ -14,7 +14,7 @@ import { PaymentStep } from './PaymentStep';
 import { PlanStep } from './PlanStep';
 import { ReviewStep } from './ReviewStep';
 import { SecurityStep } from './SecurityStep';
-import { WIZARD_STEPS, firstCharge, firstUnfinishedStep, longDate, money, nextStep, planPriceCents, previousStep, stepDone, type WizardFacts, type WizardStepId } from './steps';
+import { WIZARD_STEPS, chargeDay, firstCharge, firstUnfinishedStep, money, nextStep, planPriceCents, previousStep, stepDone, type WizardFacts, type WizardStepId } from './steps';
 import { BrandedLoader, DoneMark, InlineError, ReadOnlyNote, readable } from './ui';
 
 /**
@@ -176,7 +176,9 @@ function DoneScreen({ launch, facts, onFinished }: { launch: LaunchState; facts:
     </div>
     <div className="mx-auto max-w-md space-y-2 rounded-lg border border-card-border bg-card px-5 py-4 text-left text-sm shadow-soft">
       <p className="flex items-center gap-2"><DoneMark size={18} />Suggested prices are saved. Adjust them any time from Products.</p>
-      {plan && <p className="flex items-center gap-2"><DoneMark size={18} />Your first charge of {money(planPriceCents(facts.access, plan))} is on {longDate(charge.at)}.</p>}
+      {plan && <p className="flex items-center gap-2"><DoneMark size={18} />{charge.elapsed
+        ? `Your free access ended on ${chargeDay(charge.at)}, so your first charge of ${money(planPriceCents(facts.access, plan))} runs at the next billing pass.`
+        : `Your first charge of ${money(planPriceCents(facts.access, plan))} is on ${chargeDay(charge.at)}.`}</p>}
     </div>
     <button type="button" className={`${BTN_PRIMARY} h-12 px-6 text-sm`} data-testid="wizard-enter-app" onClick={onFinished}>Go to your dashboard</button>
   </section>;

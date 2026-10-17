@@ -12,8 +12,10 @@ const mocks = vi.hoisted(() => ({
   selected: vi.fn(),
   seen: [] as Array<{ step: string; identity: unknown }>,
   started: null as string | null,
+  signedIn: null as string | null,
   officeKind: "reseller" as string,
-  starts: [] as Array<{ includedPeriodDays: number; officeKind: string }>,
+  agreement: null as string | null,
+  starts: [] as Array<{ includedPeriodDays: number; officeKind: string; anchor?: string; event: string }>,
 }));
 
 vi.mock("../mode-state", () => ({ getBillingModeStatus: mocks.selected }));
@@ -24,7 +26,9 @@ vi.mock("./settings", async (importOriginal) => ({
 vi.mock("../../lib/supabase-admin", () => ({
   supabaseAdmin: async (_method: string, path: string) => ({
     status: 200,
-    json: path.startsWith("/rest/v1/providers") ? [{ provider_id: "office-1", office_kind: mocks.officeKind }] : [],
+    json: path.startsWith("/rest/v1/providers")
+      ? [{ provider_id: "office-1", office_kind: mocks.officeKind, reseller_agreement_signed_on: mocks.agreement }]
+      : [],
   }),
 }));
 vi.mock("./subscription", async () => {
@@ -32,11 +36,14 @@ vi.mock("./subscription", async () => {
   return {
     ensureAccessSubscription: async (providerId: string) => {
       mocks.seen.push({ step: "ensure", identity: environment.currentBillingIdentity() });
-      return { id: "sub-1", provider_id: providerId, included_period_started_at: mocks.started };
+      return { id: "sub-1", provider_id: providerId, included_period_started_at: mocks.started, owner_first_sign_in_at: mocks.signedIn };
     },
-    applyAccessInput: async (input: { input: { kind: string; includedPeriodDays: number }; detail: { officeKind: string } }) => {
+    applyAccessInput: async (input: { input: { kind: string; includedPeriodDays: number; anchor?: Date }; event: string; detail: { officeKind: string } }) => {
       mocks.seen.push({ step: input.input.kind, identity: environment.currentBillingIdentity() });
-      mocks.starts.push({ includedPeriodDays: input.input.includedPeriodDays, officeKind: input.detail.officeKind });
+      mocks.starts.push({
+        includedPeriodDays: input.input.includedPeriodDays, officeKind: input.detail.officeKind, event: input.event,
+        ...(input.input.anchor ? { anchor: input.input.anchor.toISOString() } : {}),
+      });
     },
   };
 });
@@ -52,7 +59,9 @@ beforeEach(() => {
   mocks.seen = [];
   mocks.starts = [];
   mocks.started = null;
+  mocks.signedIn = null;
   mocks.officeKind = "reseller";
+  mocks.agreement = null;
 });
 
 describe("starting the included period from a staff sign-in", () => {
@@ -77,17 +86,37 @@ describe("starting the included period from a staff sign-in", () => {
 
   it("gives a software-only office the software included period, a reseller the reseller one", async () => {
     await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
-    expect(mocks.starts).toEqual([{ includedPeriodDays: 365, officeKind: "reseller" }]);
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 365, officeKind: "reseller", event: "included_period_started" }]);
     mocks.starts = [];
     mocks.officeKind = "software";
     await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
-    expect(mocks.starts).toEqual([{ includedPeriodDays: 30, officeKind: "software" }]);
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 30, officeKind: "software", event: "included_period_started" }]);
+  });
+
+  it("anchors a reseller's period to its recorded agreement date, not to the sign-in", async () => {
+    mocks.agreement = "2026-01-15";
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 365, officeKind: "reseller", event: "included_period_started", anchor: "2026-01-15T00:00:00.000Z" }]);
+    // A software-only office's clock is the sign-in even with a date on the row.
+    mocks.starts = [];
+    mocks.officeKind = "software";
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
+    expect(mocks.starts).toEqual([{ includedPeriodDays: 30, officeKind: "software", event: "included_period_started" }]);
   });
 
   it("does not restart a period that already started", async () => {
     mocks.started = "2026-01-10T08:00:00.000Z";
+    mocks.signedIn = "2026-01-10T08:00:00.000Z";
     await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
     expect(mocks.seen.map((entry) => entry.step)).toEqual(["ensure"]);
+  });
+
+  it("only records the sign-in when HQ anchored the period before the owner ever signed in", async () => {
+    mocks.started = "2026-01-15T00:00:00.000Z";
+    mocks.agreement = "2026-01-15";
+    await noteOwnerDashboardSignInForSelectedMode({ providerId: "office-1", staffClass: "provider", authUserId: "owner-1" });
+    expect(mocks.seen.map((entry) => entry.step)).toEqual(["ensure", "owner_first_sign_in"]);
+    expect(mocks.starts[0].event).toBe("owner_first_sign_in");
   });
 
   it("never reads the payments mode for anyone but the office owner", async () => {

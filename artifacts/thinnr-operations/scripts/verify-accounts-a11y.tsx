@@ -27,6 +27,7 @@ import { act } from 'react';
 import { create } from 'react-test-renderer';
 import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { Router } from 'wouter';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { memoryLocation } from 'wouter/memory-location';
 import type { ProviderAccount } from '../src/data/hq/accounts';
 import { __setHqData } from './a11y-stubs/hq-data';
@@ -65,6 +66,7 @@ function mkAccount(overrides: Partial<ProviderAccount>): ProviderAccount {
     status: 'active',
     plan: 'Concierge',
     officeKind: 'reseller',
+    resellerAgreementSignedOn: null,
     address1: '123 Main St',
     address2: null,
     city: 'Boston',
@@ -122,11 +124,16 @@ interface Rendered {
 async function renderAt(path: string): Promise<Rendered> {
   const loc = memoryLocation({ path, record: true });
   let renderer: ReactTestRenderer | undefined;
+  // The page reads the organization's reseller period through react-query
+  // (for the "Billing starts" line); the app's root provider is stood in for here.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     renderer = create(
-      <Router hook={loc.hook}>
-        <Accounts />
-      </Router>,
+      <QueryClientProvider client={client}>
+        <Router hook={loc.hook}>
+          <Accounts />
+        </Router>
+      </QueryClientProvider>,
     );
   });
   return { renderer: renderer!, root: renderer!.root, loc };

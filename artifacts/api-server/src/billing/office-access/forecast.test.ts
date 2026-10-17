@@ -19,10 +19,11 @@ import {
   paymentFlagsAt,
   projectOffice,
   summarizeLedger,
+  nextChargeDate,
   trialDaysLeft,
   type OfficeInput,
 } from "./forecast";
-import { accessPriceCents, dueBillingPeriod, nextAccessState } from "./state";
+import { accessPriceCents, coverageEndsAt, dueBillingPeriod, nextAccessState } from "./state";
 
 const DAY = 86_400_000;
 const NOW = new Date("2026-03-01T12:00:00.000Z");
@@ -68,7 +69,7 @@ function chargerSchedule(start: Row, until: Date): Array<{ date: string; amountC
   const out: Array<{ date: string; amountCents: number }> = [];
   let r = start;
   for (let i = 0; i < 100; i += 1) {
-    const anchor = Date.parse(r.paid_through ?? r.included_period_ends_at ?? "");
+    const anchor = coverageEndsAt(r)?.getTime() ?? Number.NaN;
     if (anchor > until.getTime()) break;
     const due = dueBillingPeriod(r, new Date(anchor));
     if (!due) break;
@@ -111,6 +112,22 @@ describe("projectOffice matches the charger", () => {
     expect(projected.slice(1).every((c) => c.type === "renewal")).toBe(true);
     expect(projected.map(({ date, amountCents }) => ({ date, amountCents }))).toEqual(chargerSchedule(r, YEAR.end));
     expect(trialDaysLeft(r, NOW)).toBe(14);
+  });
+
+  it("holds the next charge until an included period that outlasts the paid-through date ends", () => {
+    // Paid through next month, then HQ corrected the reseller agreement date
+    // and the included period now runs for most of the year.
+    const r = row({ state: "included_period", paid_through: at(30), included_period_started_at: at(-65), included_period_ends_at: at(300) });
+    expect(nextChargeDate(r)?.toISOString()).toBe(at(300));
+    expect(trialDaysLeft(r, NOW)).toBe(300);
+    const projected = projectOffice(office(r), PRICES, YEAR, NOW);
+    expect(projected.outstanding).toBeNull();
+    expect(projected.charges[0]).toMatchObject({ date: at(300), type: "trial_conversion" });
+    expect(projected.charges.every((c) => Date.parse(c.date) >= Date.parse(at(300)))).toBe(true);
+    expect(projected.charges.map(({ date, amountCents }) => ({ date, amountCents }))).toEqual(chargerSchedule(r, YEAR.end));
+    // Paid coverage that already reaches past the included period is the normal case: no free window left.
+    expect(trialDaysLeft(row({ paid_through: at(40), included_period_ends_at: at(10) }), NOW)).toBeNull();
+    expect(nextChargeDate(row({ paid_through: at(40), included_period_ends_at: at(10) }))?.toISOString()).toBe(at(40));
   });
 
   it("reports a lapsed period as outstanding, never as future revenue", () => {

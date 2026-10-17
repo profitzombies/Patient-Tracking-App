@@ -127,6 +127,7 @@ const providers = [
   { provider_id: "office-1", office_name: "Beacon Hill", provider_name: null, access_disabled: false, offboarding_status: "active" },
   { provider_id: "office-2", office_name: "Cedar Park", provider_name: null, access_disabled: false, offboarding_status: "active", office_kind: "software" },
   { provider_id: "office-3", office_name: null, provider_name: "Dr Wells", access_disabled: true, offboarding_status: "active" },
+  { provider_id: "office-4", office_name: "Dated Reseller", provider_name: null, access_disabled: false, offboarding_status: "active", reseller_agreement_signed_on: "2026-01-15" },
 ];
 vi.mock("../lib/supabase-admin", () => ({
   supabaseAdmin: async (_method: string, path: string) => {
@@ -199,7 +200,7 @@ describe("the board", () => {
 
     const { status, body } = await call("GET", "/hq/office-access", { token: "hq-read" });
     expect(status).toBe(200);
-    expect(body.offices).toHaveLength(3);
+    expect(body.offices).toHaveLength(4);
     const byId = Object.fromEntries(body.offices.map((row: any) => [row.providerId, row]));
     expect(byId["office-1"].state).toBe("included_period");
     expect(byId["office-2"].state).toBe("restricted");
@@ -209,7 +210,7 @@ describe("the board", () => {
     expect(byId["office-3"].officeName).toBe("Dr Wells");
     expect(byId["office-3"].locked).toBe(true);
 
-    expect(body.counts).toMatchObject({ total: 3, notStarted: 1, includedPeriod: 1, restricted: 1 });
+    expect(body.counts).toMatchObject({ total: 4, notStarted: 2, includedPeriod: 1, restricted: 1 });
     // The 20-day included period is inside the "ending soon" window.
     expect(body.counts.trialsEndingSoon).toBe(1);
     expect(body.policy).toMatchObject({ monthlyPriceCents: 20_000, gracePeriodDays: 7, maxIncludedPeriodDays: 1095 });
@@ -333,7 +334,7 @@ describe("one office", () => {
 
     const { status, body } = await call("GET", "/hq/office-access/office-1", { token: "hq-read" });
     expect(status).toBe(200);
-    expect(body.office).toEqual({ providerId: "office-1", officeName: "Beacon Hill", officeKind: "reseller" });
+    expect(body.office).toEqual({ providerId: "office-1", officeName: "Beacon Hill", officeKind: "reseller", resellerAgreementSignedOn: null, agreementBillingStartsAt: null });
     expect(body.policy).toMatchObject({ officeKind: "reseller", includedPeriodDays: 365, resellerIncludedPeriodDays: 365, softwareIncludedPeriodDays: 30 });
     expect(body.subscription.state).toBe("included_period");
     expect(body.subscription.priceCents).toBe(20_000);
@@ -394,10 +395,20 @@ describe("HQ writes", () => {
     expect(Math.round((Date.parse(reset.body.subscription.includedPeriodEndsAt) - Date.now()) / DAY)).toBe(60);
   });
 
+  it("tells HQ where a reseller's agreement date puts the start of billing, before any subscription exists", async () => {
+    const detail = await call("GET", "/hq/office-access/office-4", { token: "hq-read" });
+    expect(detail.status).toBe(200);
+    expect(detail.body.office).toEqual({
+      providerId: "office-4", officeName: "Dated Reseller", officeKind: "reseller",
+      resellerAgreementSignedOn: "2026-01-15", agreementBillingStartsAt: "2027-01-15T00:00:00.000Z",
+    });
+    expect(detail.body.subscription).toBeNull();
+  });
+
   it("describes a software-only office with its own included period and resets its trial to that default", async () => {
     const detail = await call("GET", "/hq/office-access/office-2", { token: "hq-read" });
     expect(detail.status).toBe(200);
-    expect(detail.body.office).toEqual({ providerId: "office-2", officeName: "Cedar Park", officeKind: "software" });
+    expect(detail.body.office).toEqual({ providerId: "office-2", officeName: "Cedar Park", officeKind: "software", resellerAgreementSignedOn: null, agreementBillingStartsAt: null });
     expect(detail.body.policy).toMatchObject({ officeKind: "software", includedPeriodDays: 30, resellerIncludedPeriodDays: 365 });
     const board = await call("GET", "/hq/office-access", { token: "hq-read" });
     expect(board.body.offices.find((item: any) => item.providerId === "office-2").officeKind).toBe("software");
@@ -433,6 +444,14 @@ describe("HQ writes", () => {
     expect(body.subscription.state).toBe("paid_current");
     // The migrated office still has to add its own bank account and cards.
     expect(body.subscription.setupCompletedAt).toBeNull();
+    expect(body.subscription.nextChargeAt?.slice(0, 10)).toBe(paidThrough);
+
+    // An included period HQ then extends past the paid-through date is where
+    // the next charge really lands: the card shows the later of the two.
+    const extended = await call("POST", "/hq/office-access/office-1/included-period", { token: "hq-manage", body: { days: 400 } });
+    expect(extended.status).toBe(200);
+    expect(extended.body.subscription.paidThrough?.slice(0, 10)).toBe(paidThrough);
+    expect(extended.body.subscription.nextChargeAt).toBe(extended.body.subscription.includedPeriodEndsAt);
   });
 
   it("rejects a paid-through date that is not a date", async () => {

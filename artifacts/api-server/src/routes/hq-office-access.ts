@@ -43,7 +43,8 @@ import {
 import { accessSetupStatus, listAccessInstruments } from "../billing/office-access/instruments";
 import { includedPeriodDaysFor, loadAccessBillingSettings, type AccessBillingSettings } from "../billing/office-access/settings";
 import { officeKindOf, type OfficeKind } from "../lib/office-kind";
-import { accessPriceCents, deriveAccessState } from "../billing/office-access/state";
+import { accessPriceCents, agreementDateAt, coverageEndsAt, deriveAccessState } from "../billing/office-access/state";
+import { agreementIncludedPeriod } from "../billing/office-access/agreement";
 import { accessHistory, findAccessSubscription, type AccessActor } from "../billing/office-access/subscription";
 import {
   selectMany,
@@ -126,7 +127,7 @@ function daysLeft(until: string | null, now: Date): number | null {
  */
 function nextChargeAt(row: BillingOfficeAccessSubscriptionRow): string | null {
   if (row.lifetime) return null;
-  return row.paid_through ?? row.included_period_ends_at;
+  return coverageEndsAt(row)?.toISOString() ?? null;
 }
 
 function terms(row: BillingOfficeAccessSubscriptionRow, settings: AccessBillingSettings, now: Date) {
@@ -151,6 +152,18 @@ function terms(row: BillingOfficeAccessSubscriptionRow, settings: AccessBillingS
     nextChargeAt: nextChargeAt(row),
     version: row.version,
   };
+}
+
+/**
+ * The reseller agreement date HQ recorded and where it puts the start of
+ * billing (agreement date + the organization's reseller period). Null for a
+ * software-only office or when no date is on file — the owner's first sign-in
+ * starts the clock then.
+ */
+function agreementDto(office: AccessOffice, officeKind: OfficeKind, settings: AccessBillingSettings) {
+  const signedOn = officeKind === "reseller" && agreementDateAt(office.reseller_agreement_signed_on) ? office.reseller_agreement_signed_on ?? null : null;
+  const period = signedOn ? agreementIncludedPeriod({ officeKind, resellerAgreementSignedOn: signedOn }, includedPeriodDaysFor(settings, officeKind)) : null;
+  return { resellerAgreementSignedOn: signedOn, agreementBillingStartsAt: period ? period.endsAt.toISOString() : null };
 }
 
 /**
@@ -328,9 +341,10 @@ router.get("/hq/office-access/:providerId", requireHqPermission("financial_read"
     if (!office) { res.status(404).json({ error: "Office not found." }); return; }
     const [row, settings] = await Promise.all([findAccessSubscription(providerId), loadAccessBillingSettings()]);
     const officeKind = officeKindOf(office.office_kind);
+    const officeDto = { providerId, officeName: officeLabel(office), officeKind, ...agreementDto(office, officeKind, settings) };
     if (!row) {
       res.json({
-        office: { providerId, officeName: officeLabel(office), officeKind },
+        office: officeDto,
         subscription: null, setup: null, instruments: [], attempts: [], history: [],
         policy: policyDto(settings, officeKind),
       });
@@ -342,7 +356,7 @@ router.get("/hq/office-access/:providerId", requireHqPermission("financial_read"
       accessHistory(providerId, 50),
     ]);
     res.json({
-      office: { providerId, officeName: officeLabel(office), officeKind },
+      office: officeDto,
       subscription: terms(row, settings, now),
       setup: accessSetupStatus(instruments, now),
       instruments: instruments.map((instrument) => ({

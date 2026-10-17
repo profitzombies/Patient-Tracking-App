@@ -183,6 +183,7 @@ import { chargeAccessPeriod } from "./charge";
 import { runDunningStep, runOfficeAccessBilling } from "./dunning";
 import { DUPLICATE_CARD_MESSAGE, accessSetupStatus, attachAccessInstrument, listAccessInstruments } from "./instruments";
 import { recordOfflinePayment, resetTrial, setIncludedPeriod } from "./admin";
+import { anchorIncludedPeriodToAgreement } from "./agreement";
 import { noteOwnerDashboardSignIn } from "./sign-in";
 import { accessHistory, findAccessSubscription } from "./subscription";
 import { registerOfficeAccessWebhookHandlers } from "./webhooks";
@@ -518,6 +519,46 @@ describe("the included period", () => {
 
 describe("HQ overrides", () => {
   const actor = { kind: "hq" as const, userId: "hq-1" };
+
+  it("does not charge during an included period that a corrected agreement date extended past the paid-through date", async () => {
+    // Paid through 2026-05-30 after a first charge (the period starts where
+    // the lapsed included period ended, 04-30); then HQ corrects the reseller
+    // agreement date so the included period runs to 2027-02-01.
+    const firstCharge = new Date("2026-05-01T00:00:00.000Z");
+    await dueOffice(firstCharge);
+    expect((await chargeAccessPeriod({ row: (await findAccessSubscription(OFFICE))!, now: firstCharge })).status).toBe("succeeded");
+    const paid = (await findAccessSubscription(OFFICE))!;
+    expect(paid.paid_through).toBe("2026-05-30T00:00:00.000Z");
+
+    const corrected = await anchorIncludedPeriodToAgreement({
+      providerId: OFFICE, actor, now: new Date("2026-05-15T00:00:00.000Z"),
+      facts: { officeKind: "reseller", resellerAgreementSignedOn: "2026-02-01" },
+    });
+    expect(corrected.included_period_ends_at).toBe("2027-02-01T00:00:00.000Z");
+    expect(corrected.paid_through).toBe("2026-05-30T00:00:00.000Z");
+
+    // The billing run passes the old paid-through date: nothing is due.
+    const counts: Record<string, number> = {};
+    const intentsBefore = stripeState.intents.length;
+    const tick = {
+      tally: (key: string) => { counts[key] = (counts[key] ?? 0) + 1; },
+      failItem: () => undefined, checkpoint: () => undefined,
+    };
+    await runOfficeAccessBilling({ now: new Date("2026-06-02T00:00:00.000Z"), dryRun: true, ...tick });
+    expect(counts.wouldCharge).toBeUndefined();
+    await runOfficeAccessBilling({ now: new Date("2026-06-02T00:00:00.000Z"), dryRun: false, ...tick });
+    expect(stripeState.intents).toHaveLength(intentsBefore);
+    const untouched = (await findAccessSubscription(OFFICE))!;
+    expect(untouched.state).toBe("included_period");
+    expect(untouched.paid_through).toBe("2026-05-30T00:00:00.000Z");
+
+    // Once the extended included period ends, the next charge collects from there.
+    await runOfficeAccessBilling({ now: new Date("2027-02-01T00:00:00.000Z"), dryRun: false, ...tick });
+    expect(stripeState.intents).toHaveLength(intentsBefore + 1);
+    const charged = (await findAccessSubscription(OFFICE))!;
+    expect(charged.state).toBe("paid_current");
+    expect(charged.paid_through).toBe("2027-03-01T00:00:00.000Z");
+  });
 
   it("makes an office complimentary for life", async () => {
     await setUpOffice();

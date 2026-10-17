@@ -33,6 +33,12 @@ import type {
   OfficeAccessInstrumentRow,
 } from '@/lib/billing-types';
 import { AccessActionDialog, type AccessActionKind } from './AccessActions';
+import { formatCalendarDate, formatUtcDay } from '@/lib/reseller-agreement';
+
+/** Whether the agreement-anchored billing start is already behind us. */
+function agreementStartPassed(at: string | null | undefined): boolean {
+  return typeof at === 'string' && Number.isFinite(Date.parse(at)) && Date.parse(at) <= Date.now();
+}
 
 /** The history events worth a sentence of their own; anything else reads as itself. */
 const EVENT_LABELS: Record<string, string> = {
@@ -40,6 +46,9 @@ const EVENT_LABELS: Record<string, string> = {
   setup_completed: 'Payment setup completed',
   included_period_set: 'Included period changed',
   included_period_reset: 'Trial reset',
+  included_period_started: 'Included period started',
+  owner_first_sign_in: 'Owner first signed in',
+  agreement_anchored: 'Included period anchored to the reseller agreement',
   terms_changed: 'Plan or price changed',
   paid_through_recorded: 'Paid-through recorded',
   offline_payment: 'Offline payment recorded',
@@ -217,7 +226,9 @@ export function AccountAccessBillingCard({ providerId }: { providerId: string })
               <p className="mt-1 max-w-[60ch] text-[11px] leading-relaxed text-muted-foreground" data-testid="text-access-kind-window">
                 {data.office.officeKind === 'software'
                   ? `Software-only office: ${data.policy.includedPeriodDays} days free from the owner's first sign-in, then the standard price.`
-                  : `THINNR reseller: ${data.policy.includedPeriodDays} days free from the owner's first sign-in, then the standard price.`}
+                  : data.office.resellerAgreementSignedOn
+                    ? `THINNR reseller: ${data.policy.includedPeriodDays} days free from the reseller agreement signed ${formatCalendarDate(data.office.resellerAgreementSignedOn)}, so billing starts ${formatUtcDay(data.office.agreementBillingStartsAt)}${agreementStartPassed(data.office.agreementBillingStartsAt) ? ' — already passed, so the first charge runs at the next billing pass once payment setup is complete' : ''}.`
+                    : `THINNR reseller: ${data.policy.includedPeriodDays} days free from the owner's first sign-in, then the standard price. Record the reseller agreement date on the office details to count from the agreement instead.`}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

@@ -1069,7 +1069,15 @@ export interface OfficeAccessHistoryEntry {
 }
 
 export interface OfficeAccessDetail {
-  office: { providerId: string; officeName: string; officeKind?: 'reseller' | 'software' };
+  office: {
+    providerId: string;
+    officeName: string;
+    officeKind?: 'reseller' | 'software';
+    /** `YYYY-MM-DD` HQ recorded as the reseller agreement date (resellers only). */
+    resellerAgreementSignedOn?: string | null;
+    /** Where that date puts the start of billing: agreement date + the reseller period. */
+    agreementBillingStartsAt?: string | null;
+  };
   subscription: OfficeAccessTerms | null;
   setup: {
     complete: boolean;

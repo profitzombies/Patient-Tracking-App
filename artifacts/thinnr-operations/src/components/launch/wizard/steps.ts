@@ -75,15 +75,36 @@ export function previousStep(id: WizardStepId): WizardStepId | null {
 
 export const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: cents % 100 === 0 ? 0 : 2 }).format(cents / 100);
 export const longDate = (value: string | Date) => new Intl.DateTimeFormat('en-US', { dateStyle: 'long' }).format(new Date(value));
+/**
+ * A billing boundary as the calendar day billing uses. Included periods and
+ * charge dates are UTC instants (an agreement-anchored period ends at UTC
+ * midnight), so the day is read in UTC: a Pacific browser must name the same
+ * day as the HQ card and the charger, not the evening before.
+ */
+export const chargeDay = (value: string | Date) => new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(value));
 
 /**
- * The free period starts when setup is activated, so until then the server has
- * no first-charge date. Before activation we state what today's activation
- * would give; afterwards, the server's own date.
+ * When the first charge lands. The server states the date once the included
+ * period is anchored — at the owner's first sign-in, or earlier for a THINNR
+ * reseller whose agreement date HQ recorded; until then we state what today
+ * would give. `elapsed` is the server's date already behind us (a reseller
+ * agreement signed more than a period ago): the first charge then runs at the
+ * next billing pass once payment setup is complete, not on a future day.
  */
 export function firstCharge(access: OfficeAccessSnapshot, now = new Date()) {
-  if (access.plan.firstChargeAt) return { at: access.plan.firstChargeAt, estimated: false };
-  return { at: new Date(now.getTime() + access.plan.includedPeriodDays * 86_400_000).toISOString(), estimated: true };
+  if (access.plan.firstChargeAt) {
+    const at = Date.parse(access.plan.firstChargeAt);
+    return { at: access.plan.firstChargeAt, estimated: false, elapsed: Number.isFinite(at) && at <= now.getTime() };
+  }
+  return { at: new Date(now.getTime() + access.plan.includedPeriodDays * 86_400_000).toISOString(), estimated: true, elapsed: false };
+}
+
+/** "Your first charge of $200 is on April 5, 2027." — or, for an elapsed period, when it actually runs. */
+export function firstChargeSentence(access: OfficeAccessSnapshot, plan: 'monthly' | 'yearly', now = new Date()) {
+  const charge = firstCharge(access, now);
+  const amount = money(planPriceCents(access, plan));
+  if (charge.elapsed) return `Your free access ended on ${chargeDay(charge.at)}, so your first charge of ${amount} runs as soon as your payment setup is complete.`;
+  return `Your first charge of ${amount} ${charge.estimated ? 'would be' : 'is'} on ${chargeDay(charge.at)}${charge.estimated ? ' if you activate today' : ''}.`;
 }
 
 export function planPriceCents(access: OfficeAccessSnapshot, plan: 'monthly' | 'yearly') {
@@ -108,7 +129,6 @@ export function agreementTitle(access: OfficeAccessSnapshot): string {
 
 /** "Free access: 365 days. Your first charge of $2,000 is on April 5, 2027." */
 export function freePeriodSentence(access: OfficeAccessSnapshot, plan: 'monthly' | 'yearly', now = new Date()) {
-  const charge = firstCharge(access, now);
   const days = access.plan.includedPeriodDays;
-  return `Free access: ${days} ${days === 1 ? 'day' : 'days'}. Your first charge of ${money(planPriceCents(access, plan))} ${charge.estimated ? 'would be' : 'is'} on ${longDate(charge.at)}${charge.estimated ? ' if you activate today' : ''}.`;
+  return `Free access: ${days} ${days === 1 ? 'day' : 'days'}. ${firstChargeSentence(access, plan, now)}`;
 }

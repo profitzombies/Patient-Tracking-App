@@ -231,6 +231,14 @@ describe("the setup snapshot", () => {
     expect(view.plan.firstChargeAt).toBe(ends);
     // A yearly plan buys the year that follows the first charge.
     expect(Date.parse(view.plan.nextPeriodEndsAt!) - Date.parse(ends)).toBeGreaterThan(300 * 24 * HOUR);
+
+    // Paid coverage that ends BEFORE the included period (a corrected reseller
+    // agreement extended it) does not pull the first charge forward.
+    Object.assign(row, { paid_through: new Date(Date.now() + 10 * 24 * HOUR).toISOString() });
+    expect((await snapshot()).plan.firstChargeAt).toBe(ends);
+    const paidLonger = new Date(Date.now() + 60 * 24 * HOUR).toISOString();
+    Object.assign(row, { paid_through: paidLonger });
+    expect((await snapshot()).plan.firstChargeAt).toBe(paidLonger);
   });
 
   it("hands back Stripe's own microdeposit page rather than asking for the amounts", async () => {

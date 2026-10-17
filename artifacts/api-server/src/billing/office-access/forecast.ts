@@ -4,8 +4,9 @@
  *
  * Everything here is pure: callers load the office-access rows and hand them
  * in. The projection walks the SAME rules the charger walks — the period
- * starts where paid access ends (`paid_through`, else the included period's
- * end), each period is `periodEnd(plan, start)` long, and the amount is
+ * starts where coverage ends (`coverageEndsAt`: the later of `paid_through`
+ * and the included period's end), each period is `periodEnd(plan, start)`
+ * long, and the amount is
  * `accessPriceCents` (the office override, else the HQ list price) — so a
  * forecast date is the date `dueBillingPeriod` will pick up, never a guess.
  *
@@ -24,7 +25,7 @@ import type {
   OfficeAccessState,
 } from "../store";
 import { chargeableInstruments } from "./instruments";
-import { accessPriceCents, deriveAccessState, periodEnd } from "./state";
+import { accessPriceCents, coverageEndsAt, deriveAccessState, periodEnd } from "./state";
 
 const DAY_MS = 86_400_000;
 
@@ -126,14 +127,17 @@ function ms(value: string | null | undefined): number | null {
 /** When the next charge is due, per the charger's own anchor. Null for lifetime / free / no clock. */
 export function nextChargeDate(row: Row): Date | null {
   if (row.lifetime) return null;
-  const anchor = ms(row.paid_through) ?? ms(row.included_period_ends_at);
-  return anchor === null ? null : new Date(anchor);
+  return coverageEndsAt(row);
 }
 
 export function trialDaysLeft(row: Row, now: Date): number | null {
-  if (row.lifetime || row.paid_through) return null;
+  if (row.lifetime) return null;
   const end = ms(row.included_period_ends_at);
   if (end === null || end <= now.getTime()) return null;
+  // Paid coverage that already reaches past the included period makes the
+  // period moot; an included period extended beyond what was paid for is a
+  // real free window again.
+  if ((ms(row.paid_through) ?? Number.NEGATIVE_INFINITY) >= end) return null;
   return Math.ceil((end - now.getTime()) / DAY_MS);
 }
 
@@ -208,7 +212,7 @@ export function projectOffice(
       charges.push({
         providerId: office.providerId, officeName: office.officeName,
         date: cursor.toISOString(),
-        type: !row.paid_through && trialEnd === cursor.getTime() ? "trial_conversion" : "renewal",
+        type: trialEnd === cursor.getTime() && (ms(row.paid_through) ?? Number.NEGATIVE_INFINITY) < trialEnd ? "trial_conversion" : "renewal",
         plan: row.plan, amountCents, atRisk: reasons.length > 0, riskReasons: reasons,
       });
     }

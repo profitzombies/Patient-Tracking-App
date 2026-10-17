@@ -94,8 +94,10 @@
     "test:customer-emails": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-customer-emails.tsx",
     "test:email-outbox": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-email-outbox.tsx",
     "test:office-access": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-office-access.tsx",
+    "test:reseller-agreement": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-reseller-agreement.tsx && TZ=America/Los_Angeles tsx --tsconfig tsconfig.billing.json scripts/verify-reseller-agreement.tsx",
     "test:office-access-live": "tsx scripts/verify-office-access-live.ts",
     "test:office-kind-live": "tsx scripts/verify-office-kind-live.ts",
+    "test:reseller-agreement-live": "tsx scripts/verify-reseller-agreement-live.ts",
     "test:first-provider-live": "tsx scripts/verify-first-provider-live.ts",
     "test:patient-invite-live": "tsx scripts/verify-patient-invite-live.ts",
     "test:app-payments": "TZ=UTC tsx --tsconfig tsconfig.billing.json scripts/verify-app-payments.tsx"

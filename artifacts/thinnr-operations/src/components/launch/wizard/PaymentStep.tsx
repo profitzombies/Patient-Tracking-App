@@ -8,7 +8,7 @@ import { BillingApiError } from '@/lib/billing-api';
 import type { OfficeAccessInstrument, OfficeAccessSlot, OfficeAccessSnapshot } from '@/lib/billing-types';
 import { BusyLabel } from '@/components/ui/busy-label';
 import { THINNR_CARD_STYLE, THINNR_ELEMENTS_APPEARANCE, THINNR_ELEMENTS_FONTS, loadBrandedStripe } from '@/lib/stripe-branding';
-import { firstCharge, instrumentFor, longDate, paymentDetailsDone } from './steps';
+import { chargeDay, firstCharge, instrumentFor, longDate, paymentDetailsDone } from './steps';
 import { DoneMark, InlineError, StepFrame, WizardFooter, readable } from './ui';
 import { HolderDetailsFields, holderBillingDetails, holderProblem, useHolderDetails } from '@/components/billing/HolderDetails';
 
@@ -31,7 +31,7 @@ export function PaymentStep({ access, readOnly, onBack, onNext }: {
   const canManage = !readOnly && access.canManage;
   return <StepFrame testId="wizard-step-payment" eyebrow="Step 5" title="Add your payment details"
     sub="Your THINNR plan is paid from your bank account, with your cards as backups if a bank payment doesn't go through.">
-    <Reassurance days={days} at={charge.at} estimated={charge.estimated} />
+    <Reassurance days={days} at={charge.at} estimated={charge.estimated} elapsed={charge.elapsed} />
     <div className="overflow-hidden rounded-lg border border-card-border bg-card shadow-soft">
       <SlotSection slot="bank" icon={<Landmark size={18} aria-hidden="true" />} title="Bank account"
         sub="Log in to your bank for instant confirmation, or type your routing and account numbers instead (Stripe then sends two small test deposits to confirm it)."
@@ -53,11 +53,20 @@ export function PaymentStep({ access, readOnly, onBack, onNext }: {
   </StepFrame>;
 }
 
-function Reassurance({ days, at, estimated }: { days: number; at: string; estimated: boolean }) {
+function Reassurance({ days, at, estimated, elapsed }: { days: number; at: string; estimated: boolean; elapsed: boolean }) {
+  // A reseller whose agreement date put the end of free access behind us is
+  // told plainly: the first charge follows activation, it is not a surprise later.
+  if (elapsed) {
+    return <div className="flex items-start gap-3 rounded-lg border border-accent-border bg-accent px-4 py-3.5 text-sm" data-testid="wizard-no-charge">
+      <ShieldCheck size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+      <p><span className="font-semibold text-navy">Your free access ended on {chargeDay(at)}.</span>{' '}
+        <span className="text-muted-foreground">Nothing is charged until your payment details are complete and your practice is activated; your first charge then runs at the next billing pass.</span></p>
+    </div>;
+  }
   return <div className="flex items-start gap-3 rounded-lg border border-accent-border bg-accent px-4 py-3.5 text-sm" data-testid="wizard-no-charge">
     <ShieldCheck size={18} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
     <p><span className="font-semibold text-navy">Nothing is charged until your free access ends.</span>{' '}
-      <span className="text-muted-foreground">You get {days} {days === 1 ? 'day' : 'days'} free; your first charge {estimated ? 'would be' : 'is'} on {longDate(at)}{estimated ? ' if you activate today' : ''}.</span></p>
+      <span className="text-muted-foreground">You get {days} {days === 1 ? 'day' : 'days'} free; your first charge {estimated ? 'would be' : 'is'} on {chargeDay(at)}{estimated ? ' if you activate today' : ''}.</span></p>
   </div>;
 }
 

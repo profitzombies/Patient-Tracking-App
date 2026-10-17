@@ -11,6 +11,7 @@ import type { OperationalPatient } from './operationalPatient';
 import type { PatientAttention } from './patientAttention';
 import type { PatientProgram } from './patientProgram';
 import type { PatientSpend } from './patientSpend';
+import type { RosterAppAccess } from './rosterAppAccess';
 import type { RosterDietFacts } from './rosterDietFacts';
 
 export interface OfficeRosterPatient {
@@ -43,4 +44,6 @@ export interface OfficeRosterPatient {
   spend?: null | PatientSpend;
   /** Diet facts for the row (active diet, pending safety block, severe allergy, "% fits diet"). null when the diet facts could not be read or the chart is sealed (unknown family, never "no diet"). */
   diet?: null | RosterDietFacts;
+  /** The patient's access to the app's premium AI features under the office's app-access rule (free window, subscribed, lapsed, trial ended …). null when the billing side could not be read or the chart is sealed — unknown, never "locked". */
+  appAccess?: null | RosterAppAccess;
 }

@@ -46,6 +46,18 @@ export interface RosterDietFacts {
   fitWindowDays: number;
 }
 
+/** Staff-facing app-access state (server-computed by the shared entitlement rule). */
+export type RosterAppAccessState =
+  | 'free_protocol' | 'free_trial' | 'not_charged' | 'subscribed' | 'canceling' | 'past_due' | 'lapsed' | 'trial_ended' | 'locked';
+export interface RosterAppAccess {
+  state: RosterAppAccessState;
+  available: boolean;
+  /** Last free local day of the protocol or trial window; null when none applies. */
+  freeUntil: string | null;
+  subscriptionState: 'none' | 'active' | 'past_due' | 'canceled';
+  currentPeriodEnd: string | null;
+}
+
 export interface OfficePatient {
   id: string;
   name: string;
@@ -58,6 +70,8 @@ export interface OfficePatient {
   closure?: { closedAt: string; recordRetainUntil: string } | null;
   program?: { stage?: 'protocol' | 'maintenance' | null; week?: number } | null;
   diet?: RosterDietFacts | null;
+  /** Null/absent = could not be computed (unknown), never "locked". */
+  appAccess?: RosterAppAccess | null;
   invitation: {
     state: 'pending' | 'verified';
     invitedAt: string;

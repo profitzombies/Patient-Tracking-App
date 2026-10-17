@@ -1,10 +1,10 @@
 import React from 'react';
 import { openedUrls } from 'react-native';
-import { all, check, finish, isBlocked, mount, one, paths, press, release, requests, resetRequests, section, setScript, settle, STAFF, text, textOf, writes } from './payments-stubs/harness';
+import { all, check, finish, isBlocked, mount, one, paths, press, release, requests, resetRequests, section, setScript, settle, STAFF, text, textOf, type, writes } from './payments-stubs/harness';
 import { setPathname, setSearchParams } from './provider-training-stubs/expo-router';
 import GetPaidScreen from '../app/(tabs)/payments/get-paid';
 import SettingsScreen from '../app/(tabs)/payments/settings';
-import type { OfficeBillingStatus } from '../lib/office-billing-types';
+import type { OfficeAppAccessSettings, OfficeBillingStatus } from '../lib/office-billing-types';
 
 const ACCOUNT = {
   provider_id: 'prov-1', stripe_account_id: 'acct_1', origin: 'oauth', dashboard_type: 'full',
@@ -20,9 +20,20 @@ const STATUS: OfficeBillingStatus = {
   viewer: { office_role: 'owner', can_manage: true }, office: { provider_id: 'prov-1', office_name: 'Maple Med Spa' },
 };
 
+const APP_ACCESS_OFF: OfficeAppAccessSettings = { enabled: false, price_cents: null, cadence: 'monthly', trial_days: 7, version: 1, updated_at: null, thinnr_share_percent: 30 };
+let appAccess: OfficeAppAccessSettings = APP_ACCESS_OFF;
+let appAccessPutStatus = 200;
+
 function script(status: OfficeBillingStatus = STATUS, fail?: string) {
   setScript((req) => {
     if (req.path === '/api/billing/office/status') return { status: 200, body: status };
+    if (req.path === '/api/billing/office/app-access' && req.method === 'GET') return { status: 200, body: appAccess };
+    if (req.path === '/api/billing/office/app-access' && req.method === 'PUT') {
+      if (appAccessPutStatus === 409) return { status: 409, body: { error: 'Settings changed' } };
+      const body = req.body as { enabled: boolean; price_cents: number | null; cadence: 'monthly' | '2_weeks'; trial_days: number };
+      appAccess = { ...appAccess, enabled: body.enabled, price_cents: body.price_cents, cadence: body.cadence, trial_days: body.trial_days, version: appAccess.version + 1 };
+      return { status: 200, body: appAccess };
+    }
     if (req.path === '/api/billing/office/connect/oauth/start') return fail === 'oauth' ? { status: 400, body: { error: 'OAuth unavailable' } } : { status: 200, body: { url: 'https://connect.stripe.test/start' } };
     if (req.path === '/api/billing/office/connect/sync') return fail === 'sync' ? { status: 409, body: { error: 'Sync blocked' } } : { status: 200, body: { account: ACCOUNT } };
     return undefined;
@@ -98,6 +109,38 @@ async function main() {
   const pressables = settings.root.findAll((n) => n.type === 'Pressable' && typeof n.props.onPress === 'function');
   check('every pressable has role and name', pressables.every((n) => n.props.accessibilityRole && (n.props.accessibilityLabel || textOf(n).trim())));
   await settings.unmount();
+
+  section('AI feature pricing (app access)');
+  appAccess = APP_ACCESS_OFF; appAccessPutStatus = 200;
+  resetRequests(); script();
+  const access = await mount(<SettingsScreen />, STAFF);
+  const accessGet = requests.find((r) => r.path === '/api/billing/office/app-access');
+  check('settings read the office app-access settings with the staff bearer', accessGet?.method === 'GET' && accessGet.auth === 'Bearer staff-token', paths().join(' | '));
+  check('off by default: toggle off, save blocked, nothing locks', !!one(access.root, 'office-app-access-settings') && text(access.root, 'text-app-access-summary').includes('Right now nothing locks') && text(access.root, 'text-app-access-summary').includes('7 free days') && isBlocked(access.root, 'button-save-app-access'));
+  await press(access.root, 'toggle-app-access-enabled');
+  await press(access.root, 'button-save-app-access');
+  check('charging without a price is refused locally (no write)', text(access.root, 'text-app-access-error').includes('Set a price') && writes().length === 0);
+  await type(access.root, 'input-app-access-price', '0.25');
+  await press(access.root, 'button-save-app-access');
+  check('prices under 50¢ are refused locally', text(access.root, 'text-app-access-error').includes('at least $0.50') && writes().length === 0);
+  await type(access.root, 'input-app-access-price', '6.99');
+  await press(access.root, 'app-access-cadence-2_weeks');
+  await type(access.root, 'input-app-access-trial-days', '400');
+  await press(access.root, 'button-save-app-access');
+  check('trial days outside 0–365 are refused locally', text(access.root, 'text-app-access-error').includes('between 0 and 365') && writes().length === 0);
+  await type(access.root, 'input-app-access-trial-days', '14');
+  check('summary previews the price, cadence and THINNR share before saving', text(access.root, 'text-app-access-summary').includes('$6.99 every 2 weeks') && text(access.root, 'text-app-access-summary').includes('14 free days') && text(access.root, 'text-app-access-summary').includes('30%'));
+  await press(access.root, 'button-save-app-access');
+  const put = writes()[0];
+  check('save sends the exact versioned PUT', put?.method === 'PUT' && put.path === '/api/billing/office/app-access' && put.auth === 'Bearer staff-token'
+    && JSON.stringify(put.body) === JSON.stringify({ enabled: true, price_cents: 699, cadence: '2_weeks', trial_days: 14, expected_version: 1 }), JSON.stringify(put?.body));
+  check('save success notice and the form settles on the saved values', text(access.root, 'text-app-access-saved').includes('AI feature pricing saved') && isBlocked(access.root, 'button-save-app-access'));
+  appAccessPutStatus = 409;
+  await press(access.root, 'toggle-app-access-enabled');
+  await press(access.root, 'button-save-app-access');
+  check('a stale version (409) reloads and explains', text(access.root, 'text-app-access-error').includes('Someone else changed these settings') && requests.filter((r) => r.path === '/api/billing/office/app-access' && r.method === 'GET').length >= 2);
+  await access.unmount();
+  appAccessPutStatus = 200; appAccess = APP_ACCESS_OFF;
   finish('payments-status');
 }
 main().catch((error) => { console.error(error); process.exit(1); });

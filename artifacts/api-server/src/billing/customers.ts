@@ -13,15 +13,17 @@ type Payer = Awaited<ReturnType<typeof resolvePayer>>;
  * Stripe answers `resource_missing`, so a fresh customer is created there and
  * the payer row is repointed. Any other Stripe failure is surfaced.
  */
-export async function ensureCustomer(payer: Payer, address: ShippingAddress, account: BillingConnectedAccountRow): Promise<string> {
+export async function ensureCustomer(payer: Payer, address: ShippingAddress | null, account: BillingConnectedAccountRow): Promise<string> {
   const stripe = await getStripe();
   const acct = account.stripe_account_id;
+  // App-access subscriptions ship nothing: the customer carries no shipping
+  // profile (and never overwrites one a product purchase recorded).
   const profile = {
     name: payer.name, email: payer.email ?? undefined, phone: payer.phone ?? undefined,
-    shipping: { name: address.name, phone: address.phone ?? undefined, address: {
+    ...(address ? { shipping: { name: address.name, phone: address.phone ?? undefined, address: {
       line1: address.line1, line2: address.line2 ?? undefined, city: address.city, state: address.state,
       postal_code: address.postal_code, country: address.country,
-    } },
+    } } } : {}),
   };
   if (payer.stripe_customer_id) {
     try {

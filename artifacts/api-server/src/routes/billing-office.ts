@@ -9,6 +9,7 @@ import { requireOfficeBillingScope, viewerOfficeRole } from "../billing/auth";
 import { BillingLinkError, createLink, deactivateLink, listLinks, searchPatients, updateLink } from "../billing/links";
 import { BillingPriceError, listOfficePrices, setOfficePrice } from "../billing/prices";
 import { BillingCatalogError, getOfficeShippingSettings, updateOfficeShippingSettings } from "../billing/catalog";
+import { AppAccessPriceError, getOfficeAppAccessSettings, updateOfficeAppAccessSettings } from "../billing/app-access/settings";
 import { getConnectClientId, isSandbox, stripeRejection } from "../billing/stripe-client";
 import { selectMany, selectOne } from "../billing/store";
 import { recordAdminAuditEvent, requestIdOf, type AuditMetadata } from "../lib/admin-audit";
@@ -26,7 +27,7 @@ function audit(req: Request, scope: BillingOfficeScope, action: string, targetKi
 }
 function answerError(req: Request, res: Response, error: unknown): void {
   req.log?.error({ err: error }, "billing office request failed");
-  if (error instanceof ConnectGuardError || error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError || error instanceof BillingCatalogError) {
+  if (error instanceof ConnectGuardError || error instanceof BillingAccountError || error instanceof BillingPriceError || error instanceof BillingLinkError || error instanceof BillingCatalogError || error instanceof AppAccessPriceError) {
     const field = "field" in error ? error.field : undefined;
     res.status(error.status).json({ error: error.message, ...(field ? { field } : {}),
       ...(error instanceof BillingAccountError && error.unsupported ? { unsupported: error.unsupported } : {}) });
@@ -141,6 +142,31 @@ router.put("/billing/office/settings", async (req, res) => {
     const settings = await updateOfficeShippingSettings(scope.providerId, parsed.data, scope.actorUserId);
     await audit(req, scope, "billing_office_settings_updated", "billing_office_settings", scope.providerId, {
       pick_pack_pass_through: parsed.data.pick_pack_pass_through,
+    });
+    res.json(settings);
+  } catch (error) { answerError(req, res, error); }
+});
+/**
+ * Office app-access settings: whether patients are charged for the app's
+ * premium AI features, the price + cadence, and the non-THINNR trial length.
+ * Same owner/admin matrix as prices; saving mirrors the recurring price on
+ * the office's connected Stripe account.
+ */
+router.get("/billing/office/app-access", async (req, res) => {
+  try { const scope = await scoped(req, res, false); if (!scope) return; res.json(await getOfficeAppAccessSettings(scope.providerId)); }
+  catch (error) { answerError(req, res, error); }
+});
+const AppAccessSettingsSchema = z.object({
+  enabled: z.boolean(), price_cents: z.number().int().nonnegative().nullable(), cadence: z.enum(["2_weeks", "monthly"]),
+  trial_days: z.number().int().nonnegative(), expected_version: z.number().int().nonnegative(),
+});
+router.put("/billing/office/app-access", async (req, res) => {
+  try { const scope = await scoped(req, res, true); if (!scope) return;
+    const parsed = AppAccessSettingsSchema.safeParse(req.body);
+    if (!parsed.success) { const issue = parsed.error.issues[0]; res.status(400).json({ error: issue.message, field: String(issue.path[0] ?? "") }); return; }
+    const settings = await updateOfficeAppAccessSettings(scope.providerId, parsed.data, scope.actorUserId);
+    await audit(req, scope, "billing_office_app_access_updated", "billing_office_settings", scope.providerId, {
+      enabled: parsed.data.enabled, price_cents: parsed.data.price_cents, cadence: parsed.data.cadence, trial_days: parsed.data.trial_days,
     });
     res.json(settings);
   } catch (error) { answerError(req, res, error); }

@@ -1508,6 +1508,7 @@ export interface CartQuote {
   total_due_cents: number | null;
 }
 
+export type AppAccessCadence = '2_weeks' | 'monthly';
 /** Per-office shipping settings; null fields inherit HQ's default. */
 export interface OfficeShippingSettings {
   pick_pack_pass_through: boolean | null;
@@ -1976,4 +1977,59 @@ export interface NotificationContactsResponse {
 export interface NotificationContactChange {
   contact: NotificationContact;
   contacts: NotificationContact[];
+}
+
+export interface PublicAppAccessOrderStatus {
+  status: 'pending' | 'paid' | 'failed' | string;
+  subscription_status: string | null;
+}
+
+export interface OfficeAppAccessSettingsInput {
+  enabled: boolean;
+  price_cents: number | null;
+  cadence: AppAccessCadence;
+  trial_days: number;
+  expected_version: number;
+}
+
+/**
+ * Per-office app-access settings: whether patients are charged for the app's
+ * premium AI features, the price + cadence, and the non-THINNR trial length.
+ */
+export interface OfficeAppAccessSettings {
+  enabled: boolean;
+  price_cents: number | null;
+  cadence: AppAccessCadence;
+  trial_days: number;
+  version: number;
+  updated_at: string | null;
+  /** THINNR's flat share of every app-access charge (percent). */
+  thinnr_share_percent: number;
+}
+
+export interface PublicAppAccessCheckout {
+  order_id: string;
+  order_number: string;
+  client_secret: string;
+  stripe_account_id: string;
+  publishable_key: string;
+  sandbox: boolean;
+  price_cents: number;
+  cadence: AppAccessCadence;
+  cadence_label: string;
+  renews_on: string;
+  office_name: string;
+}
+
+/** What the public /pay/app-access/<token> page shows before the patient pays. */
+export interface PublicAppAccessPreview {
+  office_name: string;
+  price_cents: number;
+  cadence: AppAccessCadence;
+  cadence_label: string;
+  /** The patient already has an open app subscription: nothing to buy. */
+  already_subscribed: boolean;
+  sandbox: boolean;
+  /** Billing scope the page loaded with (echoed on the checkout write). */
+  billing_scope?: string;
 }

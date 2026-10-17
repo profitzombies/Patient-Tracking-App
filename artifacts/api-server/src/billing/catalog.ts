@@ -1,3 +1,4 @@
+import { isAppAccessProduct } from "./app-access/catalog";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { detectThumbnailContentType, objectStorage, ObjectNotFoundError, THUMBNAIL_CONTENT_TYPES, UPLOAD_URL_TTL_SEC } from "../lib/objectStorage";
@@ -294,12 +295,14 @@ export async function listCatalog(): Promise<HqCatalogResponse> {
     selectMany("billing_product_images", "order=sort_order.asc"),
     weeklyPaidOrders().catch(() => 0),
   ]);
-  const mapped = products.map((product) => productDto(product, settings, prices, images.filter((image) => image.product_id === product.id)));
+  // The app-access row is not a catalog product (no price list, no offering): HQ edits it nowhere.
+  const mapped = products.filter((product) => !isAppAccessProduct(product))
+    .map((product) => productDto(product, settings, prices, images.filter((image) => image.product_id === product.id)));
   return { products: mapped, settings: settingsDto(settings, weekly), offices_below_minimum: mapped.reduce((sum, product) => sum + product.offices_below_minimum, 0) };
 }
 async function requireProduct(id: string): Promise<BillingProductRow> {
   const row = await selectOne("billing_products", `id=eq.${enc(id)}`);
-  if (!row) throw new BillingCatalogError("Product not found.", 404);
+  if (!row || isAppAccessProduct(row)) throw new BillingCatalogError("Product not found.", 404);
   return row;
 }
 export async function getProduct(id: string): Promise<CatalogProductDetail> {
@@ -365,7 +368,7 @@ export async function setProductActive(id: string, active: boolean, actor: strin
 }
 /** Re-number every product by the given order; ids not listed keep their relative order after them. */
 export async function reorderProducts(ids: string[], actor: string): Promise<CatalogProduct[]> {
-  const products = await selectMany("billing_products", "order=sort_order.asc,name.asc");
+  const products = (await selectMany("billing_products", "order=sort_order.asc,name.asc")).filter((product) => !isAppAccessProduct(product));
   const known = new Set(products.map((product) => product.id));
   const listed = ids.filter((id, index) => known.has(id) && ids.indexOf(id) === index);
   if (listed.length !== ids.length) throw new BillingCatalogError("The product list is out of date. Refresh and try again.", 409);

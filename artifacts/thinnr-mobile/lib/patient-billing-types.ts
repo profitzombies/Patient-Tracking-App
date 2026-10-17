@@ -92,6 +92,12 @@ export interface PatientBillingOrder {
 
 export interface PatientBillingSubscription {
   id: string;
+  /**
+   * `product` = a physical replenishment that ships; `app_access` = the
+   * office's recurring charge for the app's premium AI features (nothing
+   * ships, so shipment, address and plan controls do not apply).
+   */
+  kind: 'product' | 'app_access';
   product_name: string;
   unit_price_cents: number;
   shipping_charge_cents: number;

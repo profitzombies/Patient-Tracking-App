@@ -23,6 +23,7 @@ export function shippingChoice(row: Parameters<typeof shipmentTerms>[0]): Patien
 export function subscriptionDto(row: BillingSubscriptionRow, productName: string): PatientBillingSubscription {
   return {
     id: row.id,
+    kind: row.kind === "app_access" ? "app_access" : "product",
     product_name: productName,
     unit_price_cents: row.unit_price_cents,
     shipping_charge_cents: row.shipping_charge_cents,

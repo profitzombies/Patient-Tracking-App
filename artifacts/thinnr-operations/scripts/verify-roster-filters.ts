@@ -246,7 +246,7 @@ section('legacy arriving links translate into conditions and are dropped on rewr
 
 section('built-in quick sets and active detection', () => {
   const sets = builtInQuickSets(TODAY);
-  assert.deepEqual(sets.map((set) => set.label), ['All', 'Active', 'Needs attention', 'Inactive / lapsed', 'Invited', 'Paused', 'Archived', 'Maintenance phase', 'New this month', 'Active subscription', 'Top spenders']);
+  assert.deepEqual(sets.map((set) => set.label), ['All', 'Active', 'Needs attention', 'Inactive / lapsed', 'Invited', 'Paused', 'Archived', 'Maintenance phase', 'New this month', 'Active subscription', 'App subscription lapsed', 'Top spenders']);
   const newThisMonth = sets.find((set) => set.id === 'new-this-month')!;
   assert.deepEqual(newThisMonth.conditions, [c('join_date', 'between', '2026-09-01..2026-09-18')]);
   assert.equal(matchesAllConditions(invited, newThisMonth.conditions, TODAY), true, 'joined Sep 16');
@@ -260,6 +260,20 @@ section('built-in quick sets and active detection', () => {
   assert.equal(activeQuickSet(sets, parseRosterView('?logging=lapsed'))?.id, 'inactive-lapsed', 'legacy lapsed link lights the quick set');
   assert.equal(activeQuickSet(sets, parseRosterView('?f=spent:gt:0'))?.id ?? null, null, 'top spenders needs its sort');
   assert.equal(activeQuickSet(sets, parseRosterView('?f=spent:gt:0&sort=spent.desc'))?.id, 'top-spenders');
+  // App subscription lapsed: only a patient whose paid app access ran out; unknown and free-window states match nothing.
+  const lapsedSet = sets.find((set) => set.id === 'app-subscription-lapsed')!;
+  assert.deepEqual(lapsedSet.conditions, [c('app_access', 'is', 'lapsed')]);
+  assert.equal(matchesAllConditions({ ...base, appAccess: 'lapsed' }, lapsedSet.conditions, TODAY), true);
+  for (const state of ['trial_ended', 'locked', 'subscribed', 'free_protocol', 'free_trial', 'not_charged', 'canceling', 'past_due'] as const) {
+    assert.equal(matchesAllConditions({ ...base, appAccess: state }, lapsedSet.conditions, TODAY), false, `${state} is not lapsed`);
+  }
+  assert.equal(matchesAllConditions({ ...base, appAccess: null }, lapsedSet.conditions, TODAY), false, 'unknown app access matches nothing');
+  assert.equal(matchesAllConditions({ ...base, appAccess: null }, [c('app_access', 'is_not', 'lapsed')], TODAY), false, 'unknown is excluded from is_not too');
+  for (const state of ['lapsed', 'trial_ended', 'locked'] as const) {
+    assert.equal(matchesAllConditions({ ...base, appAccess: state }, [c('app_access', 'is', 'any_locked')], TODAY), true, `${state} counts as locked`);
+  }
+  assert.equal(matchesAllConditions({ ...base, appAccess: 'subscribed' }, [c('app_access', 'is', 'any_locked')], TODAY), false);
+  assert.equal(activeQuickSet(sets, parseRosterView('?f=app_access:is:lapsed'))?.id, 'app-subscription-lapsed');
   assert.equal(activeQuickSet(sets, parseRosterView('?status=active&sort=name.asc'))?.id, 'active', 'sets without a sort ignore the sort');
   assert.equal(activeQuickSet(sets, parseRosterView('?f=status:is:active&f=spent:gt:500')), null, 'a stacked view is custom');
   assert.equal(describeCondition(c('spent', 'gt', '500')), 'Total spent ($) more than $500');

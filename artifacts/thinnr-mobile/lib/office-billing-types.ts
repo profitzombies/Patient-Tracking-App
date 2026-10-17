@@ -244,6 +244,30 @@ export interface CatalogChange {
   created_at: string;
 }
 
+export type AppAccessCadence = '2_weeks' | 'monthly';
+/**
+ * Per-office app-access settings (mirrors the web `OfficeAppAccessSettings`):
+ * whether patients are charged for the app's premium AI features, the price
+ * and cadence, and the non-THINNR free-trial length in days.
+ */
+export interface OfficeAppAccessSettings {
+  enabled: boolean;
+  price_cents: number | null;
+  cadence: AppAccessCadence;
+  trial_days: number;
+  version: number;
+  updated_at: string | null;
+  /** THINNR's flat share of every app-access charge (percent). */
+  thinnr_share_percent: number;
+}
+export interface OfficeAppAccessSettingsInput {
+  enabled: boolean;
+  price_cents: number | null;
+  cadence: AppAccessCadence;
+  trial_days: number;
+  expected_version: number;
+}
+
 export interface OfficePrice extends ProductCadences {
   product_id: string;
   slug: string;

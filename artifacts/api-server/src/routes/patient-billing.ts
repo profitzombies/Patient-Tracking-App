@@ -7,6 +7,10 @@ import { connectedOpts, getStripe, isStripeMissing } from "../billing/stripe-cli
 import { shipmentsForOrders } from "../billing/shipments";
 import { selectMany, selectOne, type BillingOrderItemRow, type BillingOrderRow, type BillingRefundRow } from "../billing/store";
 import { cancelSubscription, BillingSubscriptionError } from "../billing/subscriptions";
+import { publicOrigin } from "../billing/app-origin";
+import { mintAppAccessCheckoutToken } from "../billing/app-access/checkout-token";
+import { patientAppAccess } from "../billing/app-access/service";
+import type { PatientAppAccessResponse } from "../billing/app-access/types";
 import type { PatientBillingOrder, PatientBillingOverview, PatientReceipt } from "../billing/types";
 import { resolvePatient } from "../lib/patient-auth";
 import { supabaseAdmin } from "../lib/supabase-admin";
@@ -92,6 +96,34 @@ router.get("/patient-data/billing/overview", async (req, res) => {
   try {
     const ctx = await patientContext(req, res);
     if (ctx) res.json(await loadOverview(ctx.patientId, ctx.providerId));
+  } catch (error) { fail(req, res, error); }
+});
+
+/**
+ * The signed-in patient's app-access entitlement: available or locked, why,
+ * when the free window ends, the office's price and cadence, and (when the
+ * office charges and no subscription covers today) a short-lived checkout
+ * link for the public pay page. The lock itself is enforced on every premium
+ * route; this read is what the app's gate and upgrade screen render.
+ */
+router.get("/patient-data/billing/app-access", async (req, res) => {
+  try {
+    const ctx = await patientContext(req, res);
+    if (!ctx) return;
+    const result = await patientAppAccess(ctx.patientId);
+    if (!result) { res.status(404).json({ error: "Patient not found." }); return; }
+    const { entitlement, subscription } = result;
+    // An upgrade is only worth offering when the office charges and no open
+    // subscription exists (a cancelled one still covering today is "open"
+    // only until its period ends; then the offer returns).
+    const open = subscription !== null && ["active", "past_due", "unpaid"].includes(subscription.status);
+    const offerUpgrade = entitlement.office_charges && !open;
+    const body: PatientAppAccessResponse = {
+      ...entitlement,
+      subscription_id: subscription && subscription.status !== "incomplete" ? subscription.id : null,
+      checkout_url: offerUpgrade ? `${publicOrigin()}/pay/app-access/${mintAppAccessCheckoutToken(ctx.patientId, ctx.providerId)}` : null,
+    };
+    res.json(body);
   } catch (error) { fail(req, res, error); }
 });
 

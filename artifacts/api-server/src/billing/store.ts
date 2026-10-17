@@ -13,7 +13,8 @@ export type BillingTable =
   | "billing_prebuilt_carts" | "billing_office_settings" | "billing_warehouse_submissions" | "billing_warehouse_sync_polls"
   | "billing_notification_contacts" | "billing_customer_email_events"
   | "billing_office_access_subscriptions" | "billing_office_access_instruments"
-  | "billing_office_access_attempts" | "billing_office_access_events";
+  | "billing_office_access_attempts" | "billing_office_access_events"
+  | "billing_app_access_prices";
 
 export interface BillingIdentityColumns {
   stripe_mode?: "test" | "live" | null;
@@ -30,9 +31,20 @@ export interface BillingSettingsRow extends TimestampedRow {
   /** HQ kill switch for automatic WarehouseCraft submission (intents keep queueing while off). */
   warehouse_auto_submit?: boolean;
 }
-/** Per-office shipping overrides; null = inherit HQ. */
+
+export type AppAccessCadence = "2_weeks" | "monthly";
+/** Per-office shipping overrides (null = inherit HQ) and the app-access charge settings. */
 export interface BillingOfficeSettingsRow extends TimestampedRow {
   provider_id: string; pick_pack_pass_through: boolean | null; version: number; updated_by: string | null;
+  /** Charge patients for the app's premium AI features (off by default). */
+  app_access_enabled?: boolean; app_access_price_cents?: number | null;
+  app_access_cadence?: AppAccessCadence; app_access_trial_days?: number;
+}
+
+/** The office's app-access price as mirrored on its connected Stripe account (one row per payment identity). */
+export interface BillingAppAccessPriceRow extends TimestampedRow {
+  id: string; provider_id: string; price_cents: number; cadence: AppAccessCadence;
+  stripe_product_id: string | null; stripe_price_id: string | null;
 }
 /** The row columns a shipment quote locks onto an order/subscription. */
 export function shipmentColumns(quote: ShipmentQuote): ShipmentColumns {
@@ -66,6 +78,8 @@ export interface ShipmentColumns {
 export type BillingProductStatus = "draft" | "active" | "retired" | "archived";
 export interface BillingProductRow extends TimestampedRow {
   id: string; slug: string; name: string; description: string; floor_price_cents: number; hard_cost_cents: number;
+  /** Physical products ship; the single app-access product is a subscription to the app's premium features. */
+  kind?: "physical" | "app_access";
   /** Mirrors `status === "active"` (enforced by a DB check); checkout and pricing read this boolean. */
   active: boolean; status: BillingProductStatus; retired_at: string | null; archived_at: string | null;
   sort_order: number; stripe_tax_code: string | null;
@@ -200,6 +214,8 @@ export interface BillingSubscriptionRow extends TimestampedRow, Partial<Shipment
   /** Plan the patient chose (in-app shop); legacy link subscriptions are 4 weeks × 1. */
   cadence_weeks?: number; quantity?: number; next_shipment_at?: string | null;
   stripe_price_id?: string | null; stripe_shipping_price_id?: string | null;
+  /** 'app_access' rows bill the app's premium features: nothing ships, flat 30% share. */
+  kind?: "product" | "app_access";
 }
 export type BillingShipmentStatus = "processing" | "shipped" | "delivered" | "canceled";
 export interface BillingCartRow extends TimestampedRow {
@@ -347,6 +363,7 @@ export type BillingRows = {
   billing_office_access_instruments: BillingOfficeAccessInstrumentRow;
   billing_office_access_attempts: BillingOfficeAccessAttemptRow;
   billing_office_access_events: BillingOfficeAccessEventRow;
+  billing_app_access_prices: BillingAppAccessPriceRow;
 };
 
 export class BillingStoreError extends Error {

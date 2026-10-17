@@ -67,6 +67,7 @@ import billingHqOrdersRouter from "./billing-hq-orders";
 import billingCustomerEmailsRouter from "./billing-customer-emails";
 import billingPublicRouter from "./billing-public";
 import billingPublicCartsRouter from "./billing-public-carts";
+import billingPublicAppAccessRouter from "./billing-public-app-access";
 import officeAlertsRouter from "./office-alerts";
 import staffNotificationsRouter from "./staff-notifications";
 import hqStaffAlertsRouter from "./hq-staff-alerts";
@@ -156,5 +157,6 @@ router.use(billingHqOrdersRouter);
 router.use(billingCustomerEmailsRouter);
 router.use(billingPublicRouter);
 router.use(billingPublicCartsRouter);
+router.use(billingPublicAppAccessRouter);
 
 export default router;

@@ -9,14 +9,13 @@ import { Feather } from '@expo/vector-icons';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useColors } from '@/hooks/useColors';
 import {
-  cadenceLabel,
   money,
   ORDER_STATUS_LABEL,
   orderKindLabel,
   orderStatusTone,
-  quantityLabel,
   shipmentPanel,
   shortDate,
+  subscriptionCadenceLine,
   subscriptionStatus,
   type BadgeTone,
   type ShipmentPanel as ShipmentPanelModel,
@@ -119,17 +118,19 @@ export function SubscriptionCard({ subscription, onPress }: { subscription: Pati
         <View style={styles.between}>
           <View style={styles.grow}>
             <Text style={[styles.itemTitle, { color: colors.navy }]}>{subscription.product_name}</Text>
-            <Text style={[styles.hint, { color: colors.subtleText }]}>{cadenceLabel(subscription.cadence_weeks)} · {quantityLabel(subscription.quantity)}</Text>
+            <Text style={[styles.hint, { color: colors.subtleText }]}>{subscriptionCadenceLine(subscription)}</Text>
           </View>
           <ToneBadge testID={`card-subscription-${subscription.id}-status`} label={status.label} tone={status.tone} />
         </View>
         <View style={[styles.between, styles.gapSm]}>
-          <Text style={[styles.price, { color: colors.navy }]}>{money(perShipment)} per shipment</Text>
+          <Text style={[styles.price, { color: colors.navy }]}>{money(perShipment)} {subscription.kind === 'app_access' ? 'per renewal' : 'per shipment'}</Text>
           <Feather name="chevron-right" size={18} color={colors.cobalt} />
         </View>
         {subscription.status !== 'canceled' && subscription.next_shipment_at ? (
           <Text style={[styles.hint, { color: colors.subtleText }]}>
-            {subscription.cancel_at_period_end ? 'Last shipment' : subscription.paused ? 'Resumes for' : 'Next shipment'} {shortDate(subscription.next_shipment_at)}
+            {subscription.kind === 'app_access'
+              ? `${subscription.cancel_at_period_end ? 'Access ends' : 'Renews'} ${shortDate(subscription.next_shipment_at)}`
+              : `${subscription.cancel_at_period_end ? 'Last shipment' : subscription.paused ? 'Resumes for' : 'Next shipment'} ${shortDate(subscription.next_shipment_at)}`}
           </Text>
         ) : null}
         {subscription.last_failure_message && (subscription.status === 'past_due' || subscription.status === 'unpaid') ? (

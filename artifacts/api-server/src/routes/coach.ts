@@ -51,6 +51,7 @@ import { memoryPrompt, type RecallMemory } from "../coach/memory";
 import { recallHistoricalExcerpts } from "../coach/historical-excerpts";
 import { modelFor } from "../ai/models";
 import { attributeModelUsage } from "../ai-usage/context";
+import { requireAppAccess } from "../billing/app-access/gate";
 import { screenCoachMessage } from "../coach/safety-screen";
 import { recordCoachChatFlag } from "../alerts/coach-chat-flags";
 import { dietChangeAckLine, markDietChangeAcknowledged } from "../coach/diet-grounding";
@@ -289,6 +290,10 @@ router.post("/coach/chat", express.json({ limit: PHOTO_BODY_LIMIT }), async (req
         res.status(503).json({ error: COACH_PAUSED_MESSAGE, retryable: false, coachPaused: true });
         return;
       }
+      // Office app-access rule: after the free window, a charging office's
+      // patient needs an active app subscription. Distinct 402 payload the
+      // app renders as its upgrade screen; the paused state above wins.
+      if (!(await requireAppAccess(req, res, signedIn.patientId))) return;
       try {
         patientContext = await realPatientContext(signedIn.patientId, parsed.data.localDate);
         // The app's own diet + food preference lists ride along on signed-in

@@ -139,6 +139,12 @@ export function subscriptionStatus(subscription: PatientBillingSubscription): Su
   return { label: 'Pending', tone: 'watch' };
 }
 
+/** Headline cadence line for a subscription card ("Every 2 weeks · 1 box", or the app-access wording). */
+export function subscriptionCadenceLine(subscription: PatientBillingSubscription): string {
+  if (subscription.kind === 'app_access') return subscription.cadence_weeks === 2 ? 'Billed every 2 weeks' : 'Billed monthly';
+  return `${cadenceLabel(subscription.cadence_weeks)} · ${quantityLabel(subscription.quantity)}`;
+}
+
 export function cadenceLabel(weeks: number): string {
   if (weeks === 4) return 'Every 4 weeks';
   if (weeks === 1) return 'Every week';
@@ -167,14 +173,17 @@ export function subscriptionActions(subscription: PatientBillingSubscription): S
   const ended = subscription.status === 'canceled';
   const ending = subscription.cancel_at_period_end;
   const failed = subscription.status === 'past_due' || subscription.status === 'unpaid';
-  const scheduling = !ended && !ending && !subscription.paused && subscription.status === 'active';
+  // App access ships nothing: only the card and cancel-at-period-end apply
+  // (the server refuses every shipment action for this kind as well).
+  const ships = subscription.kind !== 'app_access';
+  const scheduling = ships && !ended && !ending && !subscription.paused && subscription.status === 'active';
   return {
     moveNext: scheduling,
     skipNext: scheduling,
     pause: scheduling,
-    resume: !ended && !ending && subscription.paused,
+    resume: ships && !ended && !ending && subscription.paused,
     cancel: !ended && !ending,
-    address: !ended,
+    address: ships && !ended,
     plan: scheduling,
     card: !ended,
     retryPayment: failed && !ended,

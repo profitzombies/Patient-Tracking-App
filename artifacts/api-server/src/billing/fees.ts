@@ -22,6 +22,19 @@ export function thinnrSharePerUnit(floorCents: number, sharePercent: number = NO
   return Math.floor(floorCents * sharePercent / 100);
 }
 
+/**
+ * THINNR's share of an app-access charge (the office's recurring fee for the
+ * app's premium AI features). Unlike products there is no floor price: the
+ * share is a flat percentage of whatever the office charges, snapshotted on
+ * each order like the product share percent. There is no shipment to
+ * recover, so the platform fee is exactly this share.
+ */
+export const APP_ACCESS_THINNR_SHARE_PERCENT = 30;
+
+export function appAccessThinnrShare(priceCents: number, sharePercent: number = APP_ACCESS_THINNR_SHARE_PERCENT): number {
+  return Math.floor(priceCents * sharePercent / 100);
+}
+
 export function estimateStripeFee(totalCents: number, settings: Pick<FeeSettings, "card_fee_bps" | "card_fee_fixed_cents">): number {
   return Math.round(totalCents * settings.card_fee_bps / 10_000) + settings.card_fee_fixed_cents;
 }

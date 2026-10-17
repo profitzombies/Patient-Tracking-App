@@ -57,7 +57,16 @@ export interface RosterFilterRow {
    * chosen; `fitsDietPct` null = unknown (no scored foods), never 0.
    */
   diet?: RosterDietFacts | null;
+  /** App-access state; `undefined`/`null` = unknown (matches no app-access condition). */
+  appAccess?: RosterAppAccessState | null;
 }
+
+export type RosterAppAccessState =
+  | 'free_protocol' | 'free_trial' | 'not_charged' | 'subscribed' | 'canceling' | 'past_due' | 'lapsed' | 'trial_ended' | 'locked';
+
+/** Filter value grouping every "premium AI features are locked" state. */
+export const APP_ACCESS_LOCKED_VALUE = 'any_locked';
+const APP_ACCESS_LOCKED_STATES: readonly RosterAppAccessState[] = ['lapsed', 'trial_ended', 'locked'];
 
 export interface RosterDietFacts {
   slug: string | null;
@@ -76,7 +85,8 @@ export type FilterField =
   | 'spent' | 'last_purchase' | 'active_subscription'
   | 'last_activity' | 'last_log' | 'logging_lapsed'
   | 'reason' | 'group'
-  | 'diet' | 'fits_diet' | 'severe_allergy' | 'pending_block';
+  | 'diet' | 'fits_diet' | 'severe_allergy' | 'pending_block'
+  | 'app_access';
 
 export type FilterOperator =
   | 'is' | 'is_not'
@@ -166,6 +176,18 @@ export const REASON_OPTIONS: readonly FieldOption[] = [
   { value: 'no_activity_14d', label: 'Inactive (14 days)' },
 ];
 
+export const APP_ACCESS_OPTIONS: readonly FieldOption[] = [
+  { value: 'lapsed', label: 'App subscription lapsed' },
+  { value: 'trial_ended', label: 'Free trial ended' },
+  { value: APP_ACCESS_LOCKED_VALUE, label: 'Locked (any reason)' },
+  { value: 'subscribed', label: 'Subscribed' },
+  { value: 'canceling', label: 'Cancelling at period end' },
+  { value: 'past_due', label: 'Payment past due' },
+  { value: 'free_protocol', label: 'Free (THINNR protocol)' },
+  { value: 'free_trial', label: 'Free (trial)' },
+  { value: 'not_charged', label: 'Office does not charge' },
+];
+
 export const YES_NO_OPTIONS: readonly FieldOption[] = [
   { value: 'yes', label: 'Yes' },
   { value: 'no', label: 'No' },
@@ -211,6 +233,7 @@ export const FILTER_FIELDS: readonly FieldDefinition[] = [
   { key: 'fits_diet', label: 'Fits diet (%)', kind: 'number', operators: NUMBER_OPERATORS, unit: '%' },
   { key: 'severe_allergy', label: 'Severe allergy on file', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
   { key: 'pending_block', label: 'Safety block awaiting review', kind: 'boolean', operators: ['is'], options: YES_NO_OPTIONS },
+  { key: 'app_access', label: 'App access', kind: 'enum', operators: ['is', 'is_not'], options: APP_ACCESS_OPTIONS },
 ];
 
 const FIELD_BY_KEY = new Map(FILTER_FIELDS.map((field) => [field.key, field]));
@@ -414,6 +437,12 @@ export function matchesCondition(row: RosterFilterRow, condition: FilterConditio
     }
     case 'active_subscription':
       return row.activeSubscription != null && row.activeSubscription === (value === 'yes');
+    case 'app_access': {
+      // Unknown (billing side unreadable / sealed chart) matches nothing either way.
+      if (row.appAccess == null) return false;
+      const hit = value === APP_ACCESS_LOCKED_VALUE ? APP_ACCESS_LOCKED_STATES.includes(row.appAccess) : row.appAccess === value;
+      return operator === 'is_not' ? !hit : hit;
+    }
     case 'logging_lapsed':
       return row.loggingLapsed != null && row.loggingLapsed === (value === 'yes');
     case 'diet': {
@@ -678,6 +707,7 @@ export function builtInQuickSets(today: string): QuickSet[] {
     { id: 'maintenance', label: 'Maintenance phase', conditions: [{ field: 'stage', operator: 'is', value: 'maintenance' }], builtIn: true },
     { id: 'new-this-month', label: 'New this month', conditions: [{ field: 'join_date', operator: 'between', value: `${monthStart}..${today}` }], builtIn: true },
     { id: 'active-subscription', label: 'Active subscription', conditions: [{ field: 'active_subscription', operator: 'is', value: 'yes' }], builtIn: true },
+    { id: 'app-subscription-lapsed', label: 'App subscription lapsed', conditions: [{ field: 'app_access', operator: 'is', value: 'lapsed' }], builtIn: true },
     { id: 'top-spenders', label: 'Top spenders', conditions: [{ field: 'spent', operator: 'gt', value: '0' }], sort: { field: 'spent', order: 'desc' }, builtIn: true },
   ];
 }

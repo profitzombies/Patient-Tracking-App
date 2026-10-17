@@ -44,6 +44,7 @@ import {
   shortDate,
   shippingChoiceLabel,
   subscriptionActions,
+  subscriptionCadenceLine,
   subscriptionStatus,
 } from '@/lib/patient-billing-core';
 import type {
@@ -72,6 +73,7 @@ export default function SubscriptionDetailScreen() {
   const row = subscription.data;
   const actions = row ? subscriptionActions(row) : null;
   const status = row ? subscriptionStatus(row) : null;
+  const appAccess = row?.kind === 'app_access';
 
   useEffect(() => {
     if (panel !== 'card' && panel !== 'retry-card') return;
@@ -134,7 +136,9 @@ export default function SubscriptionDetailScreen() {
     if (!row) return;
     confirmDestructive({
       title: 'Cancel at the end of this period?',
-      message: `You keep your ${row.product_name} shipments through ${shortDate(row.current_period_end)}. Nothing renews after that.`,
+      message: appAccess
+        ? `You keep the AI features through ${shortDate(row.current_period_end)}. After that they lock until you subscribe again.`
+        : `You keep your ${row.product_name} shipments through ${shortDate(row.current_period_end)}. Nothing renews after that.`,
       confirmLabel: 'Cancel subscription',
       keepLabel: 'Keep subscription',
     }, () => mutate('cancel', () => cancelSubscription(row.id), updated => `Subscription ends ${shortDate(updated.current_period_end)}.`));
@@ -161,30 +165,48 @@ export default function SubscriptionDetailScreen() {
             <View style={styles.between}>
               <View style={styles.grow}>
                 <Text style={[styles.cardTitle, { color: colors.navy }]}>{row.product_name}</Text>
-                <Text style={[styles.hint, { color: colors.subtleText }]}>{cadenceLabel(row.cadence_weeks)} · {quantityLabel(row.quantity)}</Text>
+                <Text style={[styles.hint, { color: colors.subtleText }]}>{subscriptionCadenceLine(row)}</Text>
               </View>
               <ToneBadge testID="badge-subscription-status" label={status.label} tone={status.tone} />
             </View>
-            <View style={[styles.totals, { borderTopColor: colors.border }]}>
-              <KeyValue label={`${quantityLabel(row.quantity)} × ${money(row.unit_price_cents)}`} value={money(row.unit_price_cents * row.quantity)} />
-              <KeyValue label="Shipping" value={money(row.shipping_charge_cents)} />
-              <KeyValue label="Per shipment" value={money(row.unit_price_cents * row.quantity + row.shipping_charge_cents)} testID="text-subscription-total" emphasis />
-            </View>
-            <Text testID="text-subscription-shipping-method" style={[styles.hint, { color: colors.subtleText }]}>
-              {shippingChoiceLabel(row.shipping)}
-              {row.shipping.source === 'live' && arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)
-                ? ` · ${arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)}`
-                : ''}
-            </Text>
+            {appAccess ? (
+              <View style={[styles.totals, { borderTopColor: colors.border }]}>
+                <KeyValue label="Per renewal" value={money(row.unit_price_cents)} testID="text-subscription-total" emphasis />
+              </View>
+            ) : (
+              <View style={[styles.totals, { borderTopColor: colors.border }]}>
+                <KeyValue label={`${quantityLabel(row.quantity)} × ${money(row.unit_price_cents)}`} value={money(row.unit_price_cents * row.quantity)} />
+                <KeyValue label="Shipping" value={money(row.shipping_charge_cents)} />
+                <KeyValue label="Per shipment" value={money(row.unit_price_cents * row.quantity + row.shipping_charge_cents)} testID="text-subscription-total" emphasis />
+              </View>
+            )}
+            {appAccess ? (
+              <Text testID="text-app-access-covers" style={[styles.hint, { color: colors.subtleText }]}>
+                Covers the AI coach, photo and menu reads, and barcode lookup. Food logging, your shop and care-team chat are always included.
+              </Text>
+            ) : (
+              <Text testID="text-subscription-shipping-method" style={[styles.hint, { color: colors.subtleText }]}>
+                {shippingChoiceLabel(row.shipping)}
+                {row.shipping.source === 'live' && arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)
+                  ? ` · ${arrivalWindow(row.shipping.delivery_window_start, row.shipping.delivery_window_end)}`
+                  : ''}
+              </Text>
+            )}
             {row.status !== 'canceled' ? (
               <Text testID="text-next-shipment" style={[styles.body, styles.gapSm, { color: colors.bodyText }]}>
-                {row.cancel_at_period_end
-                  ? `Last shipment ${shortDate(row.next_shipment_at)}. Nothing renews after that.`
-                  : row.paused
-                    ? `Paused. When you resume, the next shipment is ${shortDate(row.next_shipment_at)}.`
+                {appAccess
+                  ? row.cancel_at_period_end
+                    ? `Access continues through ${shortDate(row.next_shipment_at)}. Nothing renews after that.`
                     : actions.retryPayment
-                      ? `The renewal due ${shortDate(row.next_shipment_at)} is unpaid. It ships once payment clears.`
-                      : `Next shipment ${shortDate(row.next_shipment_at)}.`}
+                      ? `The renewal due ${shortDate(row.next_shipment_at)} is unpaid. Your AI features stay locked until payment clears.`
+                      : `Renews ${shortDate(row.next_shipment_at)}.`
+                  : row.cancel_at_period_end
+                    ? `Last shipment ${shortDate(row.next_shipment_at)}. Nothing renews after that.`
+                    : row.paused
+                      ? `Paused. When you resume, the next shipment is ${shortDate(row.next_shipment_at)}.`
+                      : actions.retryPayment
+                        ? `The renewal due ${shortDate(row.next_shipment_at)} is unpaid. It ships once payment clears.`
+                        : `Next shipment ${shortDate(row.next_shipment_at)}.`}
               </Text>
             ) : (
               <Text style={[styles.body, styles.gapSm, { color: colors.bodyText }]}>This subscription has ended.</Text>
@@ -248,7 +270,7 @@ export default function SubscriptionDetailScreen() {
             </LedgerCard>
           ) : null}
 
-          {row.status !== 'canceled' ? (
+          {row.status !== 'canceled' && !appAccess ? (
             <>
               <SectionLabel text="Shipments" />
               <LedgerCard testID="card-shipment-controls" style={styles.card}>
@@ -325,6 +347,11 @@ export default function SubscriptionDetailScreen() {
                 ) : null}
               </LedgerCard>
 
+            </>
+          ) : null}
+
+          {row.status !== 'canceled' ? (
+            <>
               <SectionLabel text="Payment" />
               <LedgerCard testID="card-payment" style={styles.card}>
                 <Text style={[styles.body, { color: colors.bodyText }]}>{row.card ? cardLabel(row.card) : 'No card saved for renewals yet.'}</Text>
@@ -348,9 +375,9 @@ export default function SubscriptionDetailScreen() {
                 ) : null}
               </LedgerCard>
 
-              <SectionLabel text="Pause or cancel" />
+              <SectionLabel text={appAccess ? 'Cancel' : 'Pause or cancel'} />
               <View style={styles.buttonRow}>
-                {actions.resume ? (
+                {appAccess ? null : actions.resume ? (
                   <PrimaryButton testID="button-resume" label={busy === 'resume' ? 'Resuming…' : 'Resume subscription'} disabled={busy !== null} onPress={resume} style={styles.buttonGrow} />
                 ) : (
                   <GhostButton testID="button-pause" label={busy === 'pause' ? 'Pausing…' : 'Pause'} disabled={!actions.pause || busy !== null} onPress={pause} style={styles.buttonGrow} />
@@ -361,7 +388,9 @@ export default function SubscriptionDetailScreen() {
               </View>
               {row.cancel_at_period_end ? (
                 <Text testID="text-cancel-scheduled" style={[styles.hint, styles.gapSm, { color: colors.subtleText }]}>
-                  Cancellation is scheduled for {shortDate(row.current_period_end)}.
+                  {appAccess
+                    ? `Cancellation is scheduled for ${shortDate(row.current_period_end)}. Your AI features stay on until then.`
+                    : `Cancellation is scheduled for ${shortDate(row.current_period_end)}.`}
                 </Text>
               ) : null}
             </>

@@ -92,6 +92,18 @@ export interface RosterDietFacts {
   fitWindowDays: number;
 }
 
+/** The staff-facing app-access state (shared entitlement rule, server-computed). */
+export type RosterAppAccessState =
+  | 'free_protocol' | 'free_trial' | 'not_charged' | 'subscribed' | 'canceling' | 'past_due' | 'lapsed' | 'trial_ended' | 'locked';
+export interface RosterAppAccess {
+  state: RosterAppAccessState;
+  available: boolean;
+  /** Last free local day of the protocol or trial window; null when none applies. */
+  freeUntil: string | null;
+  subscriptionState: 'none' | 'active' | 'past_due' | 'canceled';
+  currentPeriodEnd: string | null;
+}
+
 export interface OfficePatient {
   id: string;
 
@@ -158,6 +170,13 @@ export interface OfficePatient {
    * the chart is sealed (unknown — never rendered as "no diet").
    */
   diet?: RosterDietFacts | null;
+
+  /**
+   * Access to the app's premium AI features under the office's app-access
+   * rule; null when the billing side could not be read or the chart is
+   * sealed (unknown — never rendered as "locked").
+   */
+  appAccess?: RosterAppAccess | null;
 
   program?: {
     id: string | null;
@@ -374,6 +393,8 @@ export interface OfficePatientDetail {
     closure: { closedAt: string; recordRetainUntil: string } | null;
     /** Office-defined patient group ids this patient belongs to (empty when none). */
     groupIds?: string[];
+    /** App-access state (same shape as the roster row); null when unknown or the chart is sealed. */
+    appAccess?: RosterAppAccess | null;
   };
   diary: {
     entries: OfficeDiaryEntry[];

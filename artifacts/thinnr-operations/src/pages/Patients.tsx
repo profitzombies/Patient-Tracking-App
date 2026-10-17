@@ -107,6 +107,32 @@ function SubscriptionChip({ patientId }: { patientId: string }) {
   );
 }
 
+/**
+ * App-access state chip: only the states staff act on (a lapsed app
+ * subscription, a trial that ran out, a past-due renewal). Free windows,
+ * paid access and non-charging offices render nothing in the roster; the
+ * patient record spells every state out. Null (unknown) renders nothing.
+ */
+const APP_ACCESS_CHIP: Partial<Record<NonNullable<OfficePatient['appAccess']>['state'], { label: string; title: string; className: string }>> = {
+  lapsed: { label: 'App lapsed', title: 'The app subscription lapsed; premium AI features are locked', className: 'border-[#e3b5b5] bg-[#fbeeee] text-[#8f2b2b]' },
+  trial_ended: { label: 'Trial ended', title: 'The free trial ended; premium AI features are locked until the patient subscribes', className: 'border-[#e3b5b5] bg-[#fbeeee] text-[#8f2b2b]' },
+  locked: { label: 'App locked', title: 'Premium AI features are locked until the patient subscribes', className: 'border-[#e3b5b5] bg-[#fbeeee] text-[#8f2b2b]' },
+  past_due: { label: 'App past due', title: 'The app subscription renewal failed; Stripe is retrying', className: 'border-[#e8d3a8] bg-[#fdf6e8] text-[#8a5a12]' },
+};
+function AppAccessChip({ patientId, appAccess }: { patientId: string; appAccess: OfficePatient['appAccess'] }) {
+  const chip = appAccess ? APP_ACCESS_CHIP[appAccess.state] : undefined;
+  if (!chip) return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] ${chip.className}`}
+      title={chip.title}
+      data-testid={`chip-app-access-${patientId}`}
+    >
+      {chip.label}
+    </span>
+  );
+}
+
 const FOLLOW_UP_LABEL: Record<PatientOperationalFollowUpReason, string> = {
   check_in_overdue: 'Overdue',
   logging_lapsed: 'Lapsed',
@@ -188,6 +214,7 @@ function StatusCell({ patient, office, align = 'left' }: {
       {patient.closure && <span className="inline-flex rounded-sm border border-border bg-secondary px-2 py-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">Archived</span>}
       {!patient.showResend && <StatusChip status={patient.status} />}
       {patient.activeSubscription === true && <SubscriptionChip patientId={patient.id} />}
+      {patient.rawLive && !patient.closure && <AppAccessChip patientId={patient.id} appAccess={patient.rawLive.appAccess} />}
       {patient.rawLive?.deletion && <DeletionChip deletion={patient.rawLive.deletion} testId={`chip-deletion-${patient.id}`} />}
       {patient.rawLive?.legalHold && <LegalHoldBadge testId={`chip-legal-hold-${patient.id}`} />}
       {reasons.length > 0 && (
@@ -415,6 +442,7 @@ export default function Patients() {
             severeAllergy: p.diet.severeAllergy,
             fitsDietPct: p.diet.fitsDietPct,
           },
+          appAccess: p.appAccess?.state ?? null,
         };
 
         return {

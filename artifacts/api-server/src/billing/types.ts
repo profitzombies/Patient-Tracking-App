@@ -126,7 +126,7 @@ export interface BillingSettings extends ShippingRules {
 export type CadenceWeeks = 2 | 4 | 6 | 8 | 10 | 12;
 export const CADENCE_WEEKS: readonly CadenceWeeks[] = [2, 4, 6, 8, 10, 12];
 
-export type ProductCategory = 'drops' | 'supplement' | 'bundle';
+export type ProductCategory = 'drops' | 'supplement' | 'bundle' | 'app_access';
 
 /** One supplement-facts / ingredients row. */
 export interface ProductFactRow {
@@ -263,6 +263,7 @@ export interface CatalogProduct extends ProductPageContent, ProductCadences, Pro
 
 export type CatalogChangeKind =
   | 'office_shipping_settings_updated'
+  | 'office_app_access_settings_updated'
   | 'product_created'
   | 'product_updated'
   | 'product_retired'
@@ -941,6 +942,8 @@ export interface PatientBillingOrder {
 
 export interface PatientBillingSubscription {
   id: string;
+  /** 'app_access' bills the app's premium features: nothing ships, no plan changes, cancel only. */
+  kind: 'product' | 'app_access';
   product_name: string;
   unit_price_cents: number;
   shipping_charge_cents: number;

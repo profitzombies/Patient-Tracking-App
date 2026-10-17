@@ -50,6 +50,8 @@ import {
   useOfficePayouts,
   useOfficePrices,
   useOfficeShippingSettings,
+  useOfficeAppAccessSettings,
+  useUpdateOfficeAppAccessSettings,
   useOfficeSubscriptions,
   useUpdateOfficePrice,
   useUpdateOfficeShippingSettings,
@@ -76,7 +78,7 @@ import {
   subscriptionTone,
   cadenceSummary,
 } from '@/lib/billing-format';
-import type { OfficeBillingStatus, OfficePrice, OfficeShippingSettings, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
+import type { AppAccessCadence, OfficeAppAccessSettings, OfficeBillingStatus, OfficePrice, OfficeShippingSettings, OrderDetail, OrderSummary, PaymentLink, PaymentLinkInput, PaymentLinkUpdate, SubscriptionChangeQuote, SubscriptionRow } from '@/lib/billing-types';
 import { DEMO_DASHBOARD, DEMO_LINKS, DEMO_ORDER_DETAILS, DEMO_ORDERS, DEMO_PRICES, DEMO_SUBSCRIPTIONS } from './demo-data';
 import NotFound from '@/pages/not-found';
 import PaymentMethods from '@/pages/PaymentMethods';
@@ -1525,12 +1527,16 @@ function SettingsPage() {
     version: 1,
     updated_at: null,
   };
+  const demoAppAccess: OfficeAppAccessSettings = {
+    enabled: false, price_cents: null, cadence: 'monthly', trial_days: 7, version: 0, updated_at: null, thinnr_share_percent: 30,
+  };
   return (
     <Boundary
       allowReadOnly
       demo={demoPage(
         'Payment settings',
         <div className="space-y-5">
+          <AppAccessSettingsCard settings={demoAppAccess} canWrite={false} demo />
           <PickPackSettingsCard settings={demoSettings} canWrite={false} demo />
           <p className="text-xs text-muted-foreground">Secure Stripe settings are available after sign in.</p>
         </div>,
@@ -1542,6 +1548,7 @@ function SettingsPage() {
 }
 function SettingsView({ status }: { status: OfficeBillingStatus }) {
   const settings = useOfficeShippingSettings();
+  const appAccess = useOfficeAppAccessSettings();
   const { office } = useOfficeBillingScope();
   const search = new URLSearchParams(useSearch());
   const [, navigate] = useLocation();
@@ -1557,6 +1564,17 @@ function SettingsView({ status }: { status: OfficeBillingStatus }) {
         sub="Manage sensitive payment details securely through Stripe."
         sandbox={status.sandbox}
       />
+      {appAccess.isPending ? (
+        <Skeleton className="h-40" />
+      ) : appAccess.isError || !appAccess.data ? (
+        <ErrorBox error={appAccess.error} retry={() => void appAccess.refetch()} />
+      ) : (
+        <AppAccessSettingsCard
+          settings={appAccess.data}
+          canWrite={status.viewer.can_manage}
+          onReload={() => appAccess.refetch()}
+        />
+      )}
       {settings.isPending ? (
         <Skeleton className="h-40" />
       ) : settings.isError || !settings.data ? (
@@ -1632,6 +1650,169 @@ function SettingsView({ status }: { status: OfficeBillingStatus }) {
         </div>
       </SectionCard>
     </div>
+  );
+}
+
+const APP_ACCESS_CADENCES: ReadonlyArray<{ value: AppAccessCadence; label: string }> = [
+  { value: '2_weeks', label: 'Every 2 weeks' },
+  { value: 'monthly', label: 'Monthly' },
+];
+
+/**
+ * "Charge patients for AI features": off by default. Every patient gets the
+ * premium AI features free first (the whole 42-day THINNR protocol, or the
+ * trial below on any other program); after that, when this is on, the coach,
+ * photo reads and barcode lookup lock until the patient subscribes at the
+ * price set here. Food logging, the shop and care-team chat never lock.
+ */
+export function AppAccessSettingsCard({
+  settings,
+  canWrite,
+  demo = false,
+  onReload,
+}: {
+  settings: OfficeAppAccessSettings;
+  canWrite: boolean;
+  demo?: boolean;
+  onReload?: () => Promise<unknown>;
+}) {
+  const mutation = useUpdateOfficeAppAccessSettings();
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState(settings.enabled);
+  const [price, setPrice] = useState(centsToDollarsInput(settings.price_cents));
+  const [cadence, setCadence] = useState<AppAccessCadence>(settings.cadence);
+  const [trialDays, setTrialDays] = useState(String(settings.trial_days));
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setEnabled(settings.enabled);
+    setPrice(centsToDollarsInput(settings.price_cents));
+    setCadence(settings.cadence);
+    setTrialDays(String(settings.trial_days));
+    setError('');
+  }, [settings.version, settings.enabled, settings.price_cents, settings.cadence, settings.trial_days]);
+  const trial = Number(trialDays);
+  const trialValid = trialDays.trim() !== '' && Number.isInteger(trial) && trial >= 0 && trial <= 365;
+  const dirty =
+    enabled !== settings.enabled
+    || price !== centsToDollarsInput(settings.price_cents)
+    || cadence !== settings.cadence
+    || trialDays !== String(settings.trial_days);
+  const save = () => {
+    if (demo) return;
+    let cents: number | null = null;
+    if (price.trim()) {
+      const parsed = parseDollarsToCents(price);
+      if (!parsed.ok) return setError(parsed.error);
+      if (parsed.cents < 50) return setError('Enter a price of at least $0.50.');
+      cents = parsed.cents;
+    }
+    if (enabled && cents === null) return setError('Set a price before charging for the app.');
+    if (!trialValid) return setError('The free trial must be a whole number of days between 0 and 365.');
+    setError('');
+    mutation.mutate(
+      { enabled, price_cents: cents, cadence, trial_days: trial, expected_version: settings.version },
+      {
+        onSuccess: () => toast({ variant: 'success', title: enabled ? 'App access pricing saved' : 'App access settings saved' }),
+        onError: async (failure) => {
+          if (failure instanceof BillingApiError && failure.status === 409) {
+            await onReload?.();
+            toast({
+              variant: 'destructive',
+              title: 'App access settings reloaded',
+              description: 'Someone else changed them first. Review the latest values and try again.',
+            });
+            return;
+          }
+          setError(failure instanceof Error ? failure.message : 'Settings could not be saved.');
+        },
+      },
+    );
+  };
+  const cadenceLabel = cadence === '2_weeks' ? 'every 2 weeks' : 'a month';
+  return (
+    <SectionCard
+      title="AI features"
+      sub="Optionally charge patients a recurring fee for the app's premium AI features — the coach, photo and menu reads, and barcode lookup. Food logging, the shop and care-team chat always stay free."
+    >
+      <div className="space-y-4 p-5" data-testid="office-app-access-settings">
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            data-testid="checkbox-app-access-enabled"
+            checked={enabled}
+            disabled={!canWrite || demo}
+            onChange={(e) => { setEnabled(e.target.checked); setError(''); }}
+          />
+          <span>
+            <b className="block text-navy">Charge patients for AI features</b>
+            <span className="text-xs text-muted-foreground">
+              Off: every patient keeps the AI features. On: after the free window below, patients subscribe at your price to keep them.
+            </span>
+          </span>
+        </label>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="block text-xs">
+            <span className={PANEL_LABEL}>Price</span>
+            <MoneyInput
+              data-testid="input-app-access-price"
+              className="mt-1"
+              value={price}
+              disabled={!canWrite || demo}
+              aria-label="App access price"
+              onChange={(e) => { setPrice(e.target.value); setError(''); }}
+              onBlur={() => setPrice((current) => normalizeDollarsInput(current))}
+            />
+          </label>
+          <label className="block text-xs">
+            <span className={PANEL_LABEL}>Billed</span>
+            <select
+              data-testid="select-app-access-cadence"
+              className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+              value={cadence}
+              disabled={!canWrite || demo}
+              onChange={(e) => { setCadence(e.target.value as AppAccessCadence); setError(''); }}
+            >
+              {APP_ACCESS_CADENCES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <label className="block text-xs">
+            <span className={PANEL_LABEL}>Free trial (non-THINNR programs)</span>
+            <input
+              data-testid="input-app-access-trial-days"
+              type="number"
+              min="0"
+              max="365"
+              step="1"
+              className={`${INPUT_CLASS} mt-1 h-9 w-full`}
+              value={trialDays}
+              disabled={!canWrite || demo}
+              aria-label="Free trial length in days"
+              onChange={(e) => { setTrialDays(e.target.value); setError(''); }}
+            />
+            <span className="mt-1 block text-[11px] text-muted-foreground">days from account activation</span>
+          </label>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground" data-testid="text-app-access-summary">
+          Patients on the THINNR program keep the AI features free through protocol day 42 of their current round; patients on any other program get {trialValid ? trial : settings.trial_days} free day{(trialValid ? trial : settings.trial_days) === 1 ? '' : 's'}.
+          {enabled && price.trim() ? ` After that they pay ${price.trim().startsWith('$') ? price.trim() : `$${price.trim()}`} ${cadenceLabel} on your connected Stripe account; THINNR keeps ${settings.thinnr_share_percent}% of each charge.` : ' Right now nothing locks.'}
+        </p>
+        {error && <p className="text-xs font-semibold text-destructive" role="alert" data-testid="text-app-access-error">{error}</p>}
+        {canWrite ? (
+          <button
+            type="button"
+            className={`${BTN_PRIMARY} h-9 px-3.5`}
+            data-testid="button-save-app-access"
+            disabled={demo || mutation.isPending || !dirty}
+            onClick={save}
+          >
+            {mutation.isPending ? 'Saving…' : 'Save AI feature pricing'}
+          </button>
+        ) : (
+          <p className="text-xs text-muted-foreground">Only office owners and admins can change this setting.</p>
+        )}
+      </div>
+    </SectionCard>
   );
 }
 

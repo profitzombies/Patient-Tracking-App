@@ -31,6 +31,8 @@ export const ORDER_SHIPPED_TITLE = "Your order is on its way";
 export const ORDER_SHIPPED_BODY = "Open the app to track it.";
 export const PAYMENT_FAILED_TITLE = "A payment didn't go through";
 export const PAYMENT_FAILED_BODY = "Open the app to update your card so your next shipment isn't delayed.";
+/** App-access renewals: nothing ships, the premium features are what lapses. */
+export const PAYMENT_FAILED_BODY_APP_ACCESS = "Open the app to update your card and keep your premium features.";
 export const RENEWAL_UPCOMING_TITLE = "Your next shipment is coming up";
 export const RENEWAL_UPCOMING_BODY = "Open the app to review the date, the amount, or your card.";
 
@@ -71,7 +73,7 @@ export async function notifyOrderShipped(
 
 /** Once per failed invoice; the app opens the subscription with a retry-with-card path. */
 export async function notifySubscriptionPaymentFailed(
-  input: { subscription: BillingSubscriptionRow; productName: string; invoiceId: string; message: string },
+  input: { subscription: BillingSubscriptionRow; productName: string; invoiceId: string; message: string; appAccess?: boolean },
   store: NotificationStore = supabaseNotificationStore,
 ): Promise<boolean> {
   const { subscription, invoiceId } = input;
@@ -81,7 +83,7 @@ export async function notifySubscriptionPaymentFailed(
     kind: PAYMENT_FAILED_KIND,
     category: "account",
     title: PAYMENT_FAILED_TITLE,
-    body: PAYMENT_FAILED_BODY,
+    body: input.appAccess ? PAYMENT_FAILED_BODY_APP_ACCESS : PAYMENT_FAILED_BODY,
     data: {
       route: subscriptionRoute(subscription.id), kind: PAYMENT_FAILED_KIND,
       subscriptionId: subscription.id, patientId: subscription.patient_id, invoiceId,

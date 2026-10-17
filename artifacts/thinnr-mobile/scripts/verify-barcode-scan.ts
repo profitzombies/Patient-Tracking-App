@@ -54,6 +54,7 @@ import { AppModeProvider } from '../context/AppModeContext';
 import { PatientProvider, usePatient } from '../context/PatientContext';
 import BarcodeScanScreen from '../app/barcode-scan';
 import {
+  lookupBarcode,
   normalizeScannedBarcode,
   normalizeTypedBarcode,
 } from '../lib/barcode-food';
@@ -222,7 +223,14 @@ function scriptFound(code: string, food: Record<string, unknown>): void {
   }));
 }
 
-const scriptedFetch = (async (input: unknown) => {
+/** Request headers of every lookup, in order (the signed-in check reads them). */
+const lookupHeaders: Array<Record<string, string>> = [];
+const scriptedFetch = (async (input: unknown, init?: { headers?: unknown }) => {
+  lookupHeaders.push(
+    init && typeof init.headers === 'object' && init.headers !== null
+      ? ({ ...(init.headers as Record<string, string>) })
+      : {},
+  );
   const url = String(
     typeof input === 'object' && input !== null && 'url' in (input as object)
       ? (input as { url: unknown }).url
@@ -874,6 +882,34 @@ async function main() {
       () => present(tree, `barcode-item-${NUTELLA.code}`),
     );
     tree.unmount();
+  }
+
+  // ── Signed-in lookups carry the patient's bearer ─────────────────────────
+  // Every lookup above ran signed out (no account context): anonymous path,
+  // no Authorization header. A signed-in patient's lookup must authenticate
+  // so the server can apply the office's app-access rule; a missing token
+  // surfaces as signed-out instead of falling back to the open path.
+  {
+    assert(
+      'signed-out lookups send no Authorization header',
+      lookupHeaders.length > 0 && lookupHeaders.every(headers => !('Authorization' in headers)),
+    );
+    const before = lookupHeaders.length;
+    const outcome = await lookupBarcode(NUTELLA.code, { getAuthToken: async () => 'patient-jwt' });
+    assertEqual('signed-in lookup still resolves the product', outcome.result, 'found');
+    assertEqual(
+      'signed-in lookup carries the bearer token',
+      lookupHeaders[before]?.Authorization ?? '',
+      'Bearer patient-jwt',
+    );
+    let signedOutError = '';
+    try {
+      await lookupBarcode(NUTELLA.code, { getAuthToken: async () => null });
+    } catch (error) {
+      signedOutError = error instanceof Error ? error.message : String(error);
+    }
+    assert('a signed-in account without a token is told it is signed out', /signed out/i.test(signedOutError));
+    assertEqual('no anonymous lookup is attempted without the token', lookupHeaders.length, before + 1);
   }
 
   finish();

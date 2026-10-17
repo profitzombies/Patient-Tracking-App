@@ -29,6 +29,7 @@ import { useColors } from '@/hooks/useColors';
 import theme, { fonts } from '@/constants/colors';
 import { AppModal } from '@/components/ui/AppModal';
 import { DietRowLine } from '@/components/office/DietFacts';
+import { AppAccessChip } from '@/components/office/AppAccess';
 import {
   ErrorBox,
   FieldLabel,
@@ -391,6 +392,9 @@ export function LiveRosterSection({ state, search, onNotice }: LiveRosterSection
               ) : null}
               {patient.invitation?.state === 'verified' && !patient.closure ? (
                 <DietRowLine patientId={patient.id} facts={patient.diet} stage={patient.program?.stage} week={patient.program?.week} />
+              ) : null}
+              {patient.invitation?.state === 'verified' && !patient.closure ? (
+                <AppAccessChip patientId={patient.id} access={patient.appAccess} />
               ) : null}
             </View>
             <InvitationChip patient={patient} />

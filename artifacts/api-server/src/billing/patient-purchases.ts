@@ -1,3 +1,4 @@
+import { isAppAccessSubscription } from "./app-access/catalog";
 import { listCards } from "./cards";
 import { list, orderDto, paidStatuses, subscriptionDto } from "./patient-dtos";
 import { shipmentsForOrders } from "./shipments";
@@ -29,8 +30,9 @@ export async function activeSubscriptionPatientIds(providerId: string): Promise<
     return runWithBillingIdentity(await getBillingModeStatus(), () => activeSubscriptionPatientIds(providerId));
   }
   const rows = await selectMany("billing_subscriptions",
-    `provider_id=eq.${enc(providerId)}&status=in.(${[...ACTIVE_STATUSES].join(",")})&select=patient_id,status`);
-  return new Set(rows.map((row) => row.patient_id).filter((id): id is string => typeof id === "string" && id.length > 0));
+    `provider_id=eq.${enc(providerId)}&status=in.(${[...ACTIVE_STATUSES].join(",")})&select=patient_id,status,kind,product_id`);
+  // App-access subscriptions are a separate roster signal (see app-access/roster.ts).
+  return new Set(rows.filter((row) => !isAppAccessSubscription(row)).map((row) => row.patient_id).filter((id): id is string => typeof id === "string" && id.length > 0));
 }
 
 /** Lifetime spend at one office for one roster row (cents; paid is gross, net = paid - refunded). */

@@ -1,3 +1,4 @@
+import { isAppAccessSubscription } from "./app-access/catalog";
 import type { EmailTemplateId, EmailVariables } from "@workspace/email-templates";
 import { BRANDED_EMAIL_FROM_NAME, brandedFromAddress, EmailNotConfiguredError, sendTemplatedEmail } from "../email/transport";
 import { logger } from "../lib/logger";
@@ -77,8 +78,10 @@ export async function sendReceipt(input: {
     shipping: money(order.shipping_charge_cents),
     tax: money(order.tax_cents),
     total: money(order.total_cents),
-    shipTo: shipTo || "No shipping address on file",
-    renewalNote: subscription ? `This order renews every ${subscription.cadence_weeks ?? 4} weeks.` : "",
+    shipTo: isAppAccessSubscription(subscription) ? "Nothing to ship — app access" : shipTo || "No shipping address on file",
+    renewalNote: isAppAccessSubscription(subscription)
+      ? `Your app access renews ${subscription?.cadence_weeks === 2 ? "every 2 weeks" : "monthly"}.`
+      : subscription ? `This order renews every ${subscription.cadence_weeks ?? 4} weeks.` : "",
     cancelLink: cancel,
     contactEmail: office.email ?? "",
   });

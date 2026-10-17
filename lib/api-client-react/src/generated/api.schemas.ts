@@ -4444,6 +4444,10 @@ export interface RosterDietFacts {
   fitWindowDays: number;
 }
 
+/**
+ * One-word explanation of today's access: inside the THINNR protocol window, inside the office's trial, office does not charge, paid, cancelling at period end, Stripe retrying a failed renewal, a subscription that lapsed, a trial that ran out, or locked.
+ */
+export type RosterAppAccessState = typeof RosterAppAccessState[keyof typeof RosterAppAccessState];
 export interface OfficeRosterPatient {
   id: string;
   name: string;
@@ -4474,6 +4478,8 @@ export interface OfficeRosterPatient {
   spend?: null | PatientSpend;
   /** Diet facts for the row (active diet, pending safety block, severe allergy, "% fits diet"). null when the diet facts could not be read or the chart is sealed (unknown family, never "no diet"). */
   diet?: null | RosterDietFacts;
+  /** The patient's access to the app's premium AI features under the office's app-access rule (free window, subscribed, lapsed, trial ended …). null when the billing side could not be read or the chart is sealed — unknown, never "locked". */
+  appAccess?: null | RosterAppAccess;
 }
 
 export type FollowUpUpdateInputStatus = typeof FollowUpUpdateInputStatus[keyof typeof FollowUpUpdateInputStatus];
@@ -5178,6 +5184,8 @@ export type OfficePatientRecordPatient = {
   program: PatientProgram;
   /** Roster diet facts for this patient (same shape as the roster row); null when the diet family could not be read or the chart is sealed — unknown, never "no diet". */
   diet?: null | RosterDietFacts;
+  /** App-access state for this patient (same shape as the roster row); null when unknown or the chart is sealed. */
+  appAccess?: null | RosterAppAccess;
   closure: OfficePatientRecordPatientClosure;
 };
 
@@ -7434,3 +7442,39 @@ export type ListBloodworkCorrectionsParams = {
 office?: OfficeIdParameter;
 };
 
+
+export const RosterAppAccessState = {
+  free_protocol: 'free_protocol',
+  free_trial: 'free_trial',
+  not_charged: 'not_charged',
+  subscribed: 'subscribed',
+  canceling: 'canceling',
+  past_due: 'past_due',
+  lapsed: 'lapsed',
+  trial_ended: 'trial_ended',
+  locked: 'locked',
+} as const;
+
+export const RosterAppAccessSubscriptionState = {
+  none: 'none',
+  active: 'active',
+  past_due: 'past_due',
+  canceled: 'canceled',
+} as const;
+
+export type RosterAppAccessSubscriptionState = typeof RosterAppAccessSubscriptionState[keyof typeof RosterAppAccessSubscriptionState];
+
+export interface RosterAppAccess {
+  /** One-word explanation of today's access: inside the THINNR protocol window, inside the office's trial, office does not charge, paid, cancelling at period end, Stripe retrying a failed renewal, a subscription that lapsed, a trial that ran out, or locked. */
+  state: RosterAppAccessState;
+  /** Whether the premium AI features work for the patient today. */
+  available: boolean;
+  /**
+     * Last free local day of the protocol or trial window; null when none applies.
+     * @nullable
+     */
+  freeUntil: string | null;
+  subscriptionState: RosterAppAccessSubscriptionState;
+  /** @nullable */
+  currentPeriodEnd: string | null;
+}

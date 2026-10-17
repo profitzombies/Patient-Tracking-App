@@ -57,6 +57,7 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
+import { usePatientAccount } from '@/context/PatientAccountContext';
 import { formatQty } from '@/data/diary-entries';
 import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
 import {
@@ -207,6 +208,11 @@ export default function BarcodeScanScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const patient = usePatient();
+  const patientAccount = usePatientAccount();
+  // Signed-in accounts authenticate the lookup so the server applies the
+  // office's app-access rule; the captured getter keeps a lookup bound to
+  // the account that started it.
+  const getAccessToken = patientAccount.getAccessToken;
   const { mode, hydrated: modeHydrated } = useAppMode();
   const pathname = usePathname();
   const params = useLocalSearchParams<{ date?: string; meal?: string }>();
@@ -285,7 +291,10 @@ export default function BarcodeScanScreen() {
       setInputError(null);
       setPhase({ kind: 'looking', code });
       try {
-        const outcome = await lookupBarcode(code, { signal: controller.signal });
+        const outcome = await lookupBarcode(code, {
+          signal: controller.signal,
+          ...(getAccessToken ? { getAuthToken: getAccessToken } : {}),
+        });
         if (controller.signal.aborted) return;
         if (outcome.result === 'found') {
           // Dedupe on the CANONICAL code the server answered with — a UPC
@@ -314,7 +323,7 @@ export default function BarcodeScanScreen() {
         setPhase({ kind: 'error', message, code });
       }
     },
-    [showNotice],
+    [showNotice, getAccessToken],
   );
 
   const handleBarcodeScanned = ({ data, type }: { data: string; type: string }) => {

@@ -207,6 +207,21 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
+const LOOKUP_SIGNED_OUT_MESSAGE = 'You’re signed out. Sign in again to look up barcodes.';
+
+export interface BarcodeLookupOptions {
+  signal?: AbortSignal;
+  /**
+   * Supplies the signed-in patient's bearer token. When set, the lookup
+   * authenticates as the patient so the server applies the office's
+   * app-access rule (a locked patient gets the 402 upgrade answer, never a
+   * silent free lookup). A missing or failed token surfaces the signed-out
+   * error instead of falling back to the anonymous path. Unauthenticated
+   * (signed-out / staff) callers never set this and keep the open lookup.
+   */
+  getAuthToken?: () => Promise<string | null>;
+}
+
 /**
  * Looks one canonical barcode up through the API server. Resolves with an
  * explicit found / not_found outcome; throws BarcodeLookupError with a
@@ -215,16 +230,29 @@ function isAbortError(error: unknown): boolean {
  */
 export async function lookupBarcode(
   code: string,
-  options: { signal?: AbortSignal } = {},
+  options: BarcodeLookupOptions = {},
 ): Promise<BarcodeLookupOutcome> {
   const doFetch =
     Platform.OS === 'web'
       ? globalThis.fetch.bind(globalThis)
       : (expoFetch as unknown as typeof globalThis.fetch);
 
+  const headers: Record<string, string> = {};
+  if (options.getAuthToken) {
+    let token: string | null;
+    try {
+      token = await options.getAuthToken();
+    } catch {
+      token = null;
+    }
+    if (!token) throw new BarcodeLookupError(LOOKUP_SIGNED_OUT_MESSAGE);
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   let response: Response;
   try {
     response = await doFetch(`${apiBase()}/barcode/${encodeURIComponent(code)}`, {
+      headers,
       signal: options.signal,
     });
   } catch (error) {

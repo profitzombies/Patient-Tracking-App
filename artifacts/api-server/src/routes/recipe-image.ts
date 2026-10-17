@@ -29,6 +29,7 @@ import { bearerToken, resolvePatientIdentity } from "../lib/patient-auth";
 import { withModelUsageSurface } from "@workspace/integrations-openai-ai-server/usage";
 import { modelFor } from "../ai/models";
 import { attributeModelUsage } from "../ai-usage/context";
+import { requireAppAccess } from "../billing/app-access/gate";
 
 const router: IRouter = Router();
 
@@ -52,6 +53,10 @@ router.post("/coach/recipe-image", async (req, res) => {
   // slot is reserved in the shared usage store, so the cap holds across
   // every server copy.
   const subject = await imageSubject(req);
+  // Office app-access rule for real accounts: a locked patient gets the
+  // 402 upgrade payload before any image budget is reserved. Demo and
+  // unresolved sessions carry no patient id and stay open as before.
+  if (subject.patientId && !(await requireAppAccess(req, res, subject.patientId))) return;
   attributeModelUsage({ surface: "coach.recipe_image", patientId: subject.patientId ?? null, providerId: subject.officeId ?? null });
   const slot = await acquireImageSlot(subject, req.log);
   if (!slot.ok) {

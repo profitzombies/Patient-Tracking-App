@@ -19,6 +19,8 @@ import type {
   ConnectedAccount,
   HqActivityRow,
   HqTodayOverview,
+  OfficeAppAccessSettings,
+  OfficeAppAccessSettingsInput,
   OfficeBillingStatus,
   OfficeDashboard,
   OfficePayoutsResponse,
@@ -113,6 +115,9 @@ export const officeBilling = {
   prices: (scope: BillingScope) => request<OfficePricesResponse>('GET', `${OFFICE}/prices`, scope),
   updatePrice: (productId: string, body: { sell_price_cents: number | null; subscription_enabled: boolean }, scope: BillingScope) =>
     request<{ product: OfficePrice }>('PUT', `${OFFICE}/prices/${enc(productId)}`, scope, body),
+  appAccess: (scope: BillingScope) => request<OfficeAppAccessSettings>('GET', `${OFFICE}/app-access`, scope),
+  updateAppAccess: (body: OfficeAppAccessSettingsInput, scope: BillingScope) =>
+    request<OfficeAppAccessSettings>('PUT', `${OFFICE}/app-access`, scope, body),
   links: (scope: BillingScope) => request<{ items: PaymentLink[] }>('GET', `${OFFICE}/links`, scope),
   createLink: (body: PaymentLinkInput, scope: BillingScope) => request<{ link: PaymentLink }>('POST', `${OFFICE}/links`, scope, body),
   updateLink: (linkId: string, body: PaymentLinkUpdate, scope: BillingScope) =>

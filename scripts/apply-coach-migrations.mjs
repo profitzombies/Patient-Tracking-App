@@ -94,6 +94,10 @@ const migrationNames = [
   // account RPCs carry it, and the owner's first sign-in kept on the access
   // subscription so the included period can anchor to the agreement.
   "20261212000000_reseller_agreement_date.sql",
+  // App access: offices may charge patients for the app's premium AI
+  // features — product kind, office settings, the per-identity Stripe price
+  // mirror, the subscription kind and the 'not_required' fulfillment status.
+  "20261210000000_app_access_subscriptions.sql",
 ];
 
 // Also used to verify manually applied launch DDL before recording receipts.
@@ -425,6 +429,36 @@ await query(`
          select 1 from information_schema.columns
           where table_schema = 'public' and table_name = 'billing_office_access_subscriptions' and column_name = 'owner_first_sign_in_at'
        )
+       -- App access: the product kind + the seeded (inactive) product, the
+       -- office settings columns, the identity-scoped price mirror with its
+       -- guard, the subscription kind, and both order triggers skipping
+       -- 'not_required' orders.
+       or not exists (
+         select 1 from public.billing_products where kind = 'app_access' and slug = 'app-access' and active = false
+       )
+       or not exists (
+         select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'billing_office_settings' and column_name = 'app_access_trial_days'
+       )
+       or to_regclass('public.billing_app_access_prices') is null
+       or not exists (
+         select 1 from pg_trigger
+          where tgrelid = 'public.billing_app_access_prices'::regclass and tgname = 'billing_identity_guard'
+       )
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.billing_subscriptions'::regclass
+            and conname = 'billing_subscriptions_kind_check'
+            and pg_get_constraintdef(oid) like '%app_access%'
+       )
+       or not exists (
+         select 1 from pg_constraint
+          where conrelid = 'public.billing_orders'::regclass
+            and conname = 'billing_orders_fulfillment_status_check'
+            and pg_get_constraintdef(oid) like '%not_required%'
+       )
+       or position('not_required' in pg_get_functiondef('public.billing_order_create_shipment()'::regprocedure)) = 0
+       or position('not_required' in pg_get_functiondef('public.billing_order_queue_warehouse()'::regprocedure)) = 0
        then raise exception 'Coach migration postconditions are not satisfied'; end if;
     end $proof$;
   notify pgrst, 'reload schema';

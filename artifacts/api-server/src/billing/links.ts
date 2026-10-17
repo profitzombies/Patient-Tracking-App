@@ -148,6 +148,14 @@ async function patientPayer(
   return winner;
 }
 
+/** The payer row for one of the office's patients (created on first use); 404 when the patient is not theirs. */
+export async function resolvePatientPayer(providerId: string, patientId: string): Promise<BillingPayerRow> {
+  const person = await patient(providerId, patientId);
+  if (!person) throw new BillingLinkError("Patient not found.", 404);
+  return patientPayer(providerId, person.id, {
+    name: patientName(person), email: person.email?.toLowerCase() ?? null, phone: person.phone ?? null,
+  });
+}
 export async function resolvePayer(
   providerId: string, link: BillingPaymentLinkRow,
   input?: { name: string; email: string; phone: string },

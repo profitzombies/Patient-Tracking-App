@@ -30,6 +30,7 @@ import customerEmails from "./billing-customer-emails";
 import office from "./billing-office";
 import officeOrders from "./billing-office-orders";
 import publicBilling from "./billing-public";
+import publicAppAccess from "./billing-public-app-access";
 import { runWithBillingIdentity } from "../billing/stripe-environment";
 
 type Access = "public" | "office-read" | "office-write" | "owner-restart" | "hq-read" | "hq-provider-write" | "hq-settings-write";
@@ -45,10 +46,14 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/public/links/:token/orders": "public",
   "GET /billing/public/orders/:id/status": "public",
   "GET /billing/public/subscriptions/:cancel_token": "public",
+  "GET /billing/public/app-access/:token": "public",
+  "POST /billing/public/app-access/:token/checkout": "public",
+  "GET /billing/public/app-access/:token/orders/:orderId": "public",
   "POST /billing/public/subscriptions/:cancel_token/cancel": "public",
   "GET /billing/oauth/callback": "public",
   "GET /billing/office/status": "office-read",
   "GET /billing/office/settings": "office-read",
+  "GET /billing/office/app-access": "office-read",
   "GET /billing/office/prices": "office-read",
   "GET /billing/office/links": "office-read",
   "GET /billing/office/patients/search": "office-read",
@@ -86,6 +91,7 @@ const ROUTES: Record<string, Access> = {
   "POST /billing/office/connect/restart": "owner-restart",
   "PUT /billing/office/prices/:product_id": "office-write",
   "PUT /billing/office/settings": "office-write",
+  "PUT /billing/office/app-access": "office-write",
   "POST /billing/office/links": "office-write",
   "PATCH /billing/office/links/:id": "office-write",
   "DELETE /billing/office/links/:id": "office-write",
@@ -293,7 +299,7 @@ function bodyFor(route: string): unknown {
 
 function concretePath(pattern: string, access: Access): string {
   let path = pattern.replace(/:cancel_token|:token/g, "test-token").replace(/:provider_id/g, OFFICE_A)
-    .replace(/:product_id|:order_id|:patientId|:imageId|:email_id|:payer_id|:contact_id|:id/g, ROW_ID);
+    .replace(/:product_id|:order_id|:orderId|:patientId|:imageId|:email_id|:payer_id|:contact_id|:id/g, ROW_ID);
   if (pattern === "GET /billing/office/emails") path += `?order_id=${ROW_ID}`;
   if ((access === "office-read" || access === "office-write" || access==="owner-restart") && !path.includes("?")) path += `?office=${OFFICE_A}`;
   if (pattern.endsWith("/change-quote")) path += `${path.includes("?") ? "&" : "?"}product_id=${ROW_ID}`;
@@ -313,7 +319,7 @@ async function request(route: string, access: Access, identity: Identity): Promi
 }
 
 function inventory(): string[] {
-  const routers = [hq, hqOrders, office, officeOrders, publicBilling, customerEmails] as Array<{ stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> }>;
+  const routers = [hq, hqOrders, office, officeOrders, publicBilling, publicAppAccess, customerEmails] as Array<{ stack: Array<{ route?: { path: string; methods: Record<string, boolean> } }> }>;
   return routers.flatMap((router) => router.stack.flatMap((layer) => {
     if (!layer.route) return [];
     return Object.keys(layer.route.methods).filter((method) => layer.route!.methods[method]).map((method) => `${method.toUpperCase()} ${layer.route!.path}`);
@@ -356,7 +362,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use((_req, _res, next) => runWithBillingIdentity({ mode: "test", platformAccountId: "acct_synthetic" }, next));
-  app.use(hq, hqOrders, office, officeOrders, publicBilling, customerEmails);
+  app.use(hq, hqOrders, office, officeOrders, publicBilling, publicAppAccess, customerEmails);
   server = app.listen(0);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

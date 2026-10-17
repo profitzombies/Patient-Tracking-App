@@ -22,6 +22,10 @@ import type {
 } from "../billing/types";
 import { supabaseAdmin } from "../lib/supabase-admin";
 import { list, orderDto, patientContext, subscriptionDto } from "./patient-billing";
+import { isAppAccessSubscription } from "../billing/app-access/catalog";
+
+/** App access ships nothing and has one fixed plan: only the card and cancel actions apply. */
+const SHIPMENT_ACTIONS = new Set(["move-next", "skip-next", "pause", "resume", "address", "plan"]);
 
 /**
  * In-app shop for a signed-in patient: storefront, cart quote + checkout,
@@ -348,6 +352,9 @@ function action(name: string, run: Action): void {
       if (!ctx) return;
       const row = await ownedSubscription(ctx, String(req.params.id));
       if (!row) { res.status(404).json({ error: "Subscription not found." }); return; }
+      if (SHIPMENT_ACTIONS.has(name) && isAppAccessSubscription(row)) {
+        res.status(409).json({ error: "App access has nothing to ship and one plan; you can update the card or cancel." }); return;
+      }
       const updated = await run(ctx, row, req.body);
       // Address changes report whether the current shipment followed to the
       // warehouse or is already being packed (change applies to future boxes).

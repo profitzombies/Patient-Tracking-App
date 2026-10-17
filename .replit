@@ -84,6 +84,18 @@ args = "reseller-agreement-api"
 task = "workflow.run"
 args = "reseller-agreement-web"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-access-api"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-access-web"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-access-mobile"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3362,6 +3374,39 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:reseller-agreement && pnpm --filter @workspace/thinnr-operations run test:office-access && pnpm --filter @workspace/thinnr-operations run test:office-kind && pnpm --filter @workspace/thinnr-operations run test:office-access-setup && pnpm --filter @workspace/thinnr-operations run test:practice-launch && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-access-api"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/api-server exec vitest run --maxWorkers=1 src/billing/app-access src/routes/app-access-gate.test.ts src/routes/app-access-checkout.test.ts src/routes/billing-office-app-access.test.ts src/routes/billing-permissions.test.ts src/routes/patient-shop.test.ts src/routes/billing-office.test.ts src/routes/office-roster.test.ts src/routes/patient-billing.test.ts src/billing/fees.test.ts && pnpm --filter @workspace/api-server run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-access-web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-operations run test:billing-office && pnpm --filter @workspace/thinnr-operations run test:billing-public && pnpm --filter @workspace/thinnr-operations run test:roster-filters && pnpm --filter @workspace/thinnr-operations run test:roster-activity && pnpm --filter @workspace/thinnr-operations run test:patient-purchases && pnpm --filter @workspace/thinnr-operations run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-access-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-status && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:roster-diet && pnpm --filter @workspace/thinnr-mobile run typecheck"
 
 [workflows.workflow.metadata]
 isValidation = true

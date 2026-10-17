@@ -1,6 +1,6 @@
 /**
  * Public payment pages (no session): /pay/:token, /pay/:token/done,
- * /pay/cancel/:cancelToken. Mounted with `nest` at /pay ahead of the persona
+ * /pay/cancel/:cancelToken, /pay/cart/:token, /pay/app-access/:token. Mounted with `nest` at /pay ahead of the persona
  * router, like /email and /security/report. Filled in by the payments build.
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -20,6 +20,7 @@ import type {
   ShippingAddress,
 } from '@/lib/billing-types';
 import CartPayPage from './CartPayPage';
+import AppAccessPayArea from './AppAccessPayPage';
 
 const STATES = [
   'AL',
@@ -880,6 +881,7 @@ export default function PublicPayArea() {
   return (
     <Switch>
       <Route path="/cart/:token" component={CartPayPage} />
+      <Route path="/app-access/:token/*?" component={AppAccessPayArea} />
       <Route path="/cancel/:cancelToken" component={CancelPage} />
       <Route path="/:token/done" component={DonePage} />
       <Route path="/:token" component={CheckoutPage} />

@@ -22,6 +22,8 @@ import type {
 } from "./types";
 import { onStripeEvent, type StripeEventContext } from "./webhooks";
 import { notifySubscriptionPaymentFailed } from "./patient-notices";
+import { isAppAccessSubscription } from "./app-access/catalog";
+import { APP_ACCESS_THINNR_SHARE_PERCENT, appAccessThinnrShare } from "./fees";
 
 export class BillingSubscriptionError extends Error {
   constructor(message: string, readonly status = 400, readonly field?: string) { super(message); }
@@ -189,6 +191,7 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(subscription.product_id)}`);
   if (!product) return null;
   const id = crypto.randomUUID();
+  if (isAppAccessSubscription(subscription)) return appAccessRenewalOrder(id, subscription, product, invoice);
   // In-app plans ship N units per box; legacy link subscriptions are 1.
   const quantity = subscription.quantity ?? 1;
   const subtotal = subscription.unit_price_cents * quantity;
@@ -229,6 +232,36 @@ async function renewalOrder(invoice: any, ctx: StripeEventContext): Promise<stri
   });
   return id;
 }
+/**
+ * An app-access renewal: nothing ships, no floor, THINNR's flat share of the
+ * charge snapshotted on the order; 'not_required' keeps the order out of the
+ * shipment and warehouse triggers.
+ */
+async function appAccessRenewalOrder(id: string, subscription: BillingSubscriptionRow, product: { id: string; name: string }, invoice: any): Promise<string | null> {
+  const subtotal = subscription.unit_price_cents;
+  const share = appAccessThinnrShare(subtotal);
+  const created = await insertIgnore("billing_orders", {
+    id, order_number: orderNumber(), provider_id: subscription.provider_id, payer_id: subscription.payer_id,
+    patient_id: subscription.patient_id, link_id: null, kind: "subscription_renewal", subscription_id: subscription.id,
+    status: "pending", currency: "usd", subtotal_cents: subtotal, shipping_charge_cents: 0,
+    tax_cents: Math.max(0, Number(invoice.total ?? 0) - subtotal), total_cents: Number(invoice.total ?? subtotal),
+    application_fee_cents: share, application_fee_collected_cents: null,
+    stripe_fee_cents: null, office_net_cents: null, hard_cost_cents: 0, shipping_cost_cents: 0,
+    hq_profit_cents: hqProfit(share, 0, 0), thinnr_share_percent: APP_ACCESS_THINNR_SHARE_PERCENT,
+    shipping_address: {}, stripe_invoice_id: invoice.id,
+    stripe_payment_intent_id: paymentIntent(invoice)?.id ?? null, livemode: subscription.livemode,
+    fulfillment_status: "not_required", metadata: { app_access: { cadence_weeks: subscription.cadence_weeks ?? null } },
+  }, "billing_orders_stripe_invoice_unique");
+  if (!created) {
+    return (await selectOne("billing_orders", `stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`))?.id ?? null;
+  }
+  await insert("billing_order_items", {
+    order_id: id, product_id: product.id, product_name_snapshot: product.name, quantity: 1,
+    unit_price_cents: subscription.unit_price_cents, floor_price_cents_snapshot: 0,
+    thinnr_share_cents: share, hard_cost_cents_snapshot: 0,
+  });
+  return id;
+}
 async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<void> {
   const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   const subscription = stripeSubscriptionId
@@ -241,10 +274,12 @@ async function prepareRenewal(invoice: any, ctx: StripeEventContext): Promise<vo
     : subscription.application_fee_cents;
   const acct = ctx.account ?? (await accountFor(subscription.provider_id)).stripe_account_id;
   const stripe = await getStripe();
+  // App access ships nothing: the flat share stands, no shipping re-quote.
+  if (isAppAccessSubscription(subscription)) applicationFee = appAccessThinnrShare(subscription.unit_price_cents);
   try {
     // Re-quote the shipment for today's address and method; the recurring
     // shipping price is only the base, the invoice bills the fresh quote.
-    const requote = await quoteRenewalShipping(subscription, pending);
+    const requote = isAppAccessSubscription(subscription) ? null : await quoteRenewalShipping(subscription, pending);
     if (requote) {
       const billed = invoiceShippingLineAmount(invoice, [subscription.stripe_price_id, subscription.pending_stripe_price_id])
         ?? (pending ? subscription.pending_shipping_charge_cents ?? subscription.shipping_charge_cents : subscription.shipping_charge_cents);
@@ -316,7 +351,9 @@ export async function markSubscriptionInvoicePaid(invoice: any, ctx: StripeEvent
   if (invoice.billing_reason !== "subscription_create") return;
   if (order.subscription_id) {
     const started = await selectOne("billing_subscriptions", `id=eq.${encodeURIComponent(order.subscription_id)}`);
-    if (started) await notifySubscriptionStarted(started);
+    // The "subscription started" email describes a shipment; app access has
+    // none (its receipt already says what renews and when).
+    if (started && !isAppAccessSubscription(started)) await notifySubscriptionStarted(started);
   }
   const paid = await selectOne("billing_orders", `id=eq.${encodeURIComponent(order.id)}`);
   const collected = paid?.application_fee_collected_cents ?? paid?.application_fee_cents ?? 0;
@@ -373,7 +410,7 @@ export async function markSubscriptionInvoiceFailed(invoice: any, ctx: StripeEve
   if (!updated) return;
   if (updated.patient_id) {
     const product = await selectOne("billing_products", `id=eq.${encodeURIComponent(updated.product_id)}`);
-    await notifySubscriptionPaymentFailed({ subscription: updated, productName: product?.name ?? "Subscription", invoiceId: invoice.id, message: message ?? "The renewal payment did not go through." });
+    await notifySubscriptionPaymentFailed({ subscription: updated, productName: product?.name ?? "Subscription", invoiceId: invoice.id, message: message ?? "The renewal payment did not go through.", appAccess: isAppAccessSubscription(updated) });
   }
   if (!invoice.hosted_invoice_url) return;
   const claimed = await update("billing_subscriptions",
@@ -407,7 +444,7 @@ async function syncSubscription(value: any, ctx: StripeEventContext): Promise<vo
     ? `&updated_at=eq.${encodeURIComponent(ctx.expectedSubscriptionUpdatedAt)}` : "";
   await update("billing_subscriptions", `id=eq.${encodeURIComponent(row.id)}${reconcileCas}`, {
     status: mappedStatus(value.status), current_period_end: periodEnd(value),
-    next_shipment_at: nextShipmentAt(value, row),
+    next_shipment_at: isAppAccessSubscription(row) ? null : nextShipmentAt(value, row),
     cancel_at_period_end: Boolean(value.cancel_at_period_end),
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : value.status === "canceled" ? nowIso() : null,
     paused_at: value.pause_collection ? row.paused_at ?? nowIso() : null,
@@ -552,7 +589,8 @@ export async function cancelSubscription(id: string, input: { at_period_end: boo
     canceled_at: value.canceled_at ? new Date(value.canceled_at * 1000).toISOString() : null,
   });
   if (!updated) throw new BillingSubscriptionError("Subscription could not be updated.", 502);
-  await notifySubscriptionEvent(updated, { kind: "cancelled" });
+  // App-access cancellation emails are a later scope (the in-app list shows the end date).
+  if (!isAppAccessSubscription(updated)) await notifySubscriptionEvent(updated, { kind: "cancelled" });
   return updated;
 }
 export async function retrySubscriptionPayment(id: string): Promise<BillingSubscriptionRow> {

@@ -20,6 +20,8 @@
  * database knows it is not there").
  */
 import { Router, type IRouter } from "express";
+import { requireAppAccess } from "../billing/app-access/gate";
+import { bearerToken, resolvePatient } from "../lib/patient-auth";
 import { createLimiter, envLimit } from "../coach/limits";
 import { normalizeBarcode, normalizeOffProduct, nutritionSnapshotFromOffProduct } from "../barcode/normalize";
 import type { FoodNutritionSnapshot } from "@workspace/api-zod";
@@ -124,6 +126,28 @@ router.get("/barcode/:code", async (req, res) => {
   if (!slot.ok) {
     res.status(slot.status).json({ error: slot.message });
     return;
+  }
+  // A signed-in patient is subject to the office's app-access rule (402
+  // upgrade payload); the patient app always sends its bearer for a signed-in
+  // account (lib/barcode-food.ts), and the companion patient-app gate task
+  // closes the client side. Anonymous and staff lookups are a deliberately
+  // separate, open path (no patient to bill); a session that cannot be
+  // resolved is answered like any other sign-in problem.
+  if (bearerToken(req) !== null) {
+    let auth: Awaited<ReturnType<typeof resolvePatient>>;
+    try {
+      auth = await resolvePatient(req, { consent: "skip" });
+    } catch (error) {
+      req.log?.error({ err: error }, "barcode lookup patient resolution failed");
+      res.status(502).json({ error: LOOKUP_FAILED_MESSAGE });
+      return;
+    }
+    if (auth.ok) {
+      if (!(await requireAppAccess(req, res, auth.patientId))) return;
+    } else if (auth.status !== 403 || auth.code !== undefined) {
+      res.status(auth.status).json({ error: auth.error, ...auth.details });
+      return;
+    }
   }
 
   try {

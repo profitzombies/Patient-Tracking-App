@@ -6686,6 +6686,31 @@ components:
             Diet facts for the row (active diet, pending safety block, severe
             allergy, "% fits diet"). null when the diet facts could not be
             read or the chart is sealed (unknown family, never "no diet").
+        appAccess:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/RosterAppAccess"
+          description: >-
+            The patient's access to the app's premium AI features under the
+            office's app-access rule (free window, subscribed, lapsed, trial
+            ended …). null when the billing side could not be read or the
+            chart is sealed — unknown, never "locked".
+    RosterAppAccess:
+      type: object
+      required: [state, available, freeUntil, subscriptionState, currentPeriodEnd]
+      properties:
+        state:
+          type: string
+          enum: [free_protocol, free_trial, not_charged, subscribed, canceling, past_due, lapsed, trial_ended, locked]
+          description: >-
+            One-word explanation of today's access: inside the THINNR protocol
+            window, inside the office's trial, office does not charge, paid,
+            cancelling at period end, Stripe retrying a failed renewal, a
+            subscription that lapsed, a trial that ran out, or locked.
+        available: { type: boolean, description: Whether the premium AI features work for the patient today. }
+        freeUntil: { type: ["string", "null"], format: date, description: Last free local day of the protocol or trial window; null when none applies. }
+        subscriptionState: { type: string, enum: [none, active, past_due, canceled] }
+        currentPeriodEnd: { type: ["string", "null"], format: date-time }
     RosterDietFacts:
       type: object
       required: [diet, pendingBlock, severeAllergy, fitsDietPct, fitsDietSample, fitWindowDays]
@@ -7333,6 +7358,11 @@ components:
               oneOf:
                 - type: "null"
                 - $ref: "#/components/schemas/RosterDietFacts"
+            appAccess:
+              description: App-access state for this patient (same shape as the roster row); null when unknown or the chart is sealed.
+              oneOf:
+                - type: "null"
+                - $ref: "#/components/schemas/RosterAppAccess"
             closure:
               oneOf:
                 - type: "null"

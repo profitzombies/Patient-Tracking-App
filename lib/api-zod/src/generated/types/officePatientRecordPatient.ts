@@ -8,6 +8,7 @@
 import type { OfficePatientRecordPatientClosure } from './officePatientRecordPatientClosure';
 import type { OfficePatientRecordPatientIdentity } from './officePatientRecordPatientIdentity';
 import type { PatientProgram } from './patientProgram';
+import type { RosterAppAccess } from './rosterAppAccess';
 import type { RosterDietFacts } from './rosterDietFacts';
 
 export type OfficePatientRecordPatient = {
@@ -17,5 +18,7 @@ export type OfficePatientRecordPatient = {
   program: PatientProgram;
   /** Roster diet facts for this patient (same shape as the roster row); null when the diet family could not be read or the chart is sealed — unknown, never "no diet". */
   diet?: null | RosterDietFacts;
+  /** App-access state for this patient (same shape as the roster row); null when unknown or the chart is sealed. */
+  appAccess?: null | RosterAppAccess;
   closure: OfficePatientRecordPatientClosure;
 };

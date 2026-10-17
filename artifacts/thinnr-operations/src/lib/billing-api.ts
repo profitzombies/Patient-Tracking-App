@@ -36,6 +36,11 @@ import type {
   OfficePricesResponse,
   OfficeRefundRow,
   OfficeShippingSettings,
+  OfficeAppAccessSettings,
+  OfficeAppAccessSettingsInput,
+  PublicAppAccessPreview,
+  PublicAppAccessCheckout,
+  PublicAppAccessOrderStatus,
   OfficeAccessSnapshot,
   OfficeAccessSetupIntent,
   OfficeAccessSlot,
@@ -178,6 +183,13 @@ export const officeBilling = {
     officeRequest<OfficeShippingSettings>(`${OFFICE}/settings${qs({}, office)}`, MESSAGES),
   updateSettings: (body: { pick_pack_pass_through: boolean | null; expected_version: number }, office?: string | null) =>
     officeRequest<OfficeShippingSettings>(`${OFFICE}/settings${qs({}, office)}`, MESSAGES, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  appAccess: (office?: string | null) =>
+    officeRequest<OfficeAppAccessSettings>(`${OFFICE}/app-access${qs({}, office)}`, MESSAGES),
+  updateAppAccess: (body: OfficeAppAccessSettingsInput, office?: string | null) =>
+    officeRequest<OfficeAppAccessSettings>(`${OFFICE}/app-access${qs({}, office)}`, MESSAGES, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
@@ -467,6 +479,13 @@ export const publicBilling = {
       method: 'POST',
       body: '{}',
     }),
+  appAccessPreview: (token: string) => publicRequest<PublicAppAccessPreview>(`${PUBLIC}/app-access/${encodeURIComponent(token)}`),
+  appAccessCheckout: (token: string, billingScope?: string) =>
+    publicRequest<PublicAppAccessCheckout>(`${PUBLIC}/app-access/${encodeURIComponent(token)}/checkout`, {
+      method: 'POST', headers: { 'X-Billing-Scope': billingScope ?? '' }, body: '{}',
+    }),
+  appAccessOrderStatus: (token: string, orderId: string) =>
+    publicRequest<PublicAppAccessOrderStatus>(`${PUBLIC}/app-access/${encodeURIComponent(token)}/orders/${encodeURIComponent(orderId)}`),
   cartPeek: (token: string) => publicRequest<PublicCartPeek>(`${PUBLIC}/carts/${encodeURIComponent(token)}`),
   cartPhone: (token: string, phone: string) =>
     publicRequest<{ request_id: string; devCode?: string }>(`${PUBLIC}/carts/${encodeURIComponent(token)}/phone`, {

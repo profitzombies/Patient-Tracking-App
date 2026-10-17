@@ -8,7 +8,7 @@ import { __setSession } from './a11y-stubs/session';
 import { __setScope } from './a11y-stubs/provider-scope';
 import { __setSession as __setSupabaseSession } from './invite-stubs/supabase';
 import { DateRangeProvider } from '../src/contexts/date-range';
-import OfficePaymentsArea, { PickPackSettingsCard } from '../src/pages/office/payments/OfficePaymentsArea';
+import OfficePaymentsArea, { AppAccessSettingsCard, PickPackSettingsCard } from '../src/pages/office/payments/OfficePaymentsArea';
 import { DEMO_FULFILLMENT } from '../src/pages/office/payments/demo-data';
 import { RefundDialog } from '../src/components/billing/RefundDialog';
 import { OFFICE_NAV_ITEMS, OFFICE_PAYMENTS_SECTIONS, isOfficeMenuPathActive } from '../src/components/layout/nav-config';
@@ -175,6 +175,66 @@ console.log('office billing: gates and setup');
   const noOauth = await render('/get-paid');
   check('OAuth choice is replaced by a configuration note', !one(noOauth.root, 'button-oauth-start') && Boolean(one(noOauth.root, 'oauth-unavailable')));
   noOauth.renderer.unmount();
+}
+
+console.log('\noffice billing: charge patients for AI features (app access)');
+{
+  reset();
+  const appAccess = { enabled: false, price_cents: null, cadence: 'monthly' as const, trial_days: 7, version: 3, updated_at: null, thinnr_share_percent: 30 };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  let reloaded = 0;
+  let owner!: ReactTestRenderer;
+  await act(async () => {
+    owner = create(
+      <QueryClientProvider client={client}>
+        <AppAccessSettingsCard settings={appAccess} canWrite onReload={async () => { reloaded += 1; }} />
+      </QueryClientProvider>,
+    );
+  });
+  const summary = () => text(one(owner.root, 'text-app-access-summary'));
+  check('off by default: unchecked, 7-day trial explained, save disabled, nothing locks',
+    one(owner.root, 'checkbox-app-access-enabled').props.checked === false && summary().includes('7 free days') && summary().includes('nothing locks')
+    && one(owner.root, 'button-save-app-access').props.disabled === true, summary());
+  await act(async () => one(owner.root, 'checkbox-app-access-enabled').props.onChange({ target: { checked: true } }));
+  await act(async () => one(owner.root, 'button-save-app-access').props.onClick());
+  await settle();
+  check('turning it on without a price is refused locally', text(one(owner.root, 'text-app-access-error')).includes('Set a price') && requests.length === 0);
+  await act(async () => one(owner.root, 'input-app-access-price').props.onChange({ target: { value: '0.25' } }));
+  await act(async () => one(owner.root, 'button-save-app-access').props.onClick());
+  await settle();
+  check('prices under 50¢ are refused locally', text(one(owner.root, 'text-app-access-error')).includes('at least $0.50') && requests.length === 0);
+  await act(async () => one(owner.root, 'input-app-access-price').props.onChange({ target: { value: '6.99' } }));
+  await act(async () => one(owner.root, 'select-app-access-cadence').props.onChange({ target: { value: '2_weeks' } }));
+  await act(async () => one(owner.root, 'input-app-access-trial-days').props.onChange({ target: { value: '400' } }));
+  await act(async () => one(owner.root, 'button-save-app-access').props.onClick());
+  await settle();
+  check('trial days outside 0–365 are refused locally', text(one(owner.root, 'text-app-access-error')).includes('between 0 and 365') && requests.length === 0);
+  await act(async () => one(owner.root, 'input-app-access-trial-days').props.onChange({ target: { value: '14' } }));
+  check('summary previews price, cadence, trial and THINNR share', summary().includes('$6.99 every 2 weeks') && summary().includes('14 free days') && summary().includes('30%'), summary());
+  responses = [json(200, { ...appAccess, enabled: true, price_cents: 699, cadence: '2_weeks', trial_days: 14, version: 4 })];
+  await act(async () => one(owner.root, 'button-save-app-access').props.onClick());
+  await settle();
+  const put = requests.find((request) => request.url === '/api/billing/office/app-access' && request.method === 'PUT');
+  check('save PUTs the exact versioned settings', JSON.stringify(put?.body) === JSON.stringify({ enabled: true, price_cents: 699, cadence: '2_weeks', trial_days: 14, expected_version: 3 }), JSON.stringify(put));
+  responses = [json(409, { error: 'settings_conflict' })];
+  await act(async () => one(owner.root, 'checkbox-app-access-enabled').props.onChange({ target: { checked: false } }));
+  await act(async () => one(owner.root, 'button-save-app-access').props.onClick());
+  await settle();
+  check('409 reloads the settings before asking the owner to retry', reloaded === 1, String(reloaded));
+  await act(async () => owner.unmount());
+
+  let staff!: ReactTestRenderer;
+  await act(async () => {
+    staff = create(
+      <QueryClientProvider client={client}>
+        <AppAccessSettingsCard settings={{ ...appAccess, enabled: true, price_cents: 10000 }} canWrite={false} />
+      </QueryClientProvider>,
+    );
+  });
+  check('staff sees the settings read-only', one(staff.root, 'checkbox-app-access-enabled').props.disabled === true
+    && one(staff.root, 'input-app-access-price').props.disabled === true && one(staff.root, 'select-app-access-cadence').props.disabled === true
+    && all(staff.root, 'button-save-app-access').length === 0 && text(staff.root).includes('$100.00 a month'));
+  await act(async () => staff.unmount());
 }
 
 console.log('\noffice billing: pick-and-pack setting');

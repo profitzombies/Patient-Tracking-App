@@ -23,6 +23,7 @@ import {
   decodedPhotoBytes,
 } from "../lib/photo-guards";
 import { gatePhotoAnalysis } from "../lib/patient-auth";
+import { requireAppAccess } from "../billing/app-access/gate";
 import { attributeModelUsage } from "../ai-usage/context";
 
 const router: IRouter = Router();
@@ -49,6 +50,8 @@ router.post("/coach/menu-scan", express.json({ limit: PHOTO_BODY_LIMIT }), async
     res.status(gate.status).json(gate.body);
     return;
   }
+  // Office app-access rule for real accounts (402 upgrade payload, never retried).
+  if (gate.patientId !== null && !(await requireAppAccess(req, res, gate.patientId))) return;
 
   // Limit before any model work: every scan is a paid vision call with a
   // photo attached. The slot is reserved in the shared usage store, so the

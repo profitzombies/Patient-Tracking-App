@@ -22,6 +22,7 @@ import { PhotoLightbox, LightboxPhoto } from '@/components/ui/PhotoLightbox';
 import { Image } from 'expo-image';
 import { CoachReviewPanel } from '@/components/office/CoachReviewPanel';
 import { DietFactsCard } from '@/components/office/DietFacts';
+import { AppAccessCard } from '@/components/office/AppAccess';
 import { Button } from '@/components/payments/primitives';
 
 export default function LivePatientDetailScreen() {
@@ -352,6 +353,14 @@ function LivePatientData({
             />
           </View>
         )}
+
+        {/* Premium AI features (app access) — shared entitlement rule, read-only */}
+        {!data.patient.closure && data.patient.appAccess ? (
+          <View style={styles.section}>
+            <SectionHeader label="App access" />
+            <AppAccessCard patientId={identity.id} access={data.patient.appAccess} />
+          </View>
+        ) : null}
 
         {/* Engagement Signals */}
         {engagement && (

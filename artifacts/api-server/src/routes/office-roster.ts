@@ -43,6 +43,7 @@ import { activityFromSummaryRow, computePatientActivity } from "../lib/patient-a
 import { ADHERENCE_WINDOW_DAYS, listDoseLogs, listMedications, loadOfficeMedicationState, medicationAdherenceDto } from "../medications/store";
 import { shiftDateKey } from "../medications/schedule";
 import { activeSubscriptionPatientIds, officePatientSpend, ZERO_SPEND } from "../billing/patient-purchases";
+import { officeAppAccessStates } from "../billing/app-access/service";
 import { outreachRosterDto, type OutreachStateRpcRow } from "../notifications/timeline";
 import { BODY_AREAS, MEASUREMENT_COLUMNS } from "../lib/body-measurements";
 import { evaluateAttention } from "../lib/attention";
@@ -562,7 +563,15 @@ router.get("/office/roster", async (req, res) => {
         followUpByPatient.set(id, [...prior, item]);
       }
     }
-    const patients = (Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : []).map((row) => {
+    const rosterRows = Array.isArray(rows.json) ? (rows.json as PatientRosterRow[]) : [];
+    // App-access state (free window / subscribed / lapsed …) from the shared
+    // entitlement rule; null on every row when the billing side could not be
+    // read — unknown, never "locked".
+    const appAccessStates = await officeAppAccessStates(scope.providerId, rosterRows, now).catch((error: unknown) => {
+      req.log?.warn({ err: error }, "roster app access states unavailable");
+      return null;
+    });
+    const patients = rosterRows.map((row) => {
       const base = patientDto(row, asOf);
       const live = base.closure === null;
       const pending = purgeAfterByPatient.get(String(row.id));
@@ -594,6 +603,7 @@ router.get("/office/roster", async (req, res) => {
         // Diet facts: a listed row, NO_DIET_FACTS for an unlisted live
         // patient, null when the family could not be read (or the chart is sealed).
         diet: dietFacts && live ? dietFacts.get(String(row.id)) ?? NO_DIET_FACTS : null,
+        appAccess: appAccessStates && live ? appAccessStates.get(String(row.id)) ?? null : null,
       };
     });
     // Purged accounts are tombstones only: listed separately, never counted
@@ -761,13 +771,20 @@ router.get("/office/patients/:id", async (req, res) => {
     }
     const patientTz = typeof patient.timezone === "string" ? patient.timezone : null;
     const patientToday = dayKeyInTimeZone(patientTz);
-    const [medications, doseLogs, dietFacts] = await Promise.all([
+    const [medications, doseLogs, dietFacts, appAccess] = await Promise.all([
       listMedications(patientId),
       listDoseLogs(patientId, shiftDateKey(patientToday, -(ADHERENCE_WINDOW_DAYS + 1))),
       // Roster diet facts for this one patient; null = unknown (RPC failed), never "no diet".
       patient.closed_at
         ? Promise.resolve(null)
         : loadOfficeDietFacts(scope.providerId, new Date()).then((facts) => facts.get(patientId) ?? NO_DIET_FACTS).catch(() => null),
+      // App-access state from the shared entitlement rule; null = unknown.
+      patient.closed_at
+        ? Promise.resolve(null)
+        : officeAppAccessStates(scope.providerId, [patient], new Date()).then((states) => states.get(patientId) ?? null).catch((error: unknown) => {
+            req.log?.warn({ err: error }, "patient app access state unavailable");
+            return null;
+          }),
     ]);
 
     const entryList = (entries.json as PatientRosterRow[]).map((row) => ({
@@ -902,6 +919,7 @@ router.get("/office/patients/:id", async (req, res) => {
         deletion: recordDeletionDto(patient, (pendingDeletion.json as OperationalRow[])[0]),
         groupIds: (groupMemberships.json as OperationalRow[]).map((row) => String(row.group_id)),
         diet: dietFacts,
+        appAccess,
       },
       providerNotes,
       staffWeights: staffWeightList,

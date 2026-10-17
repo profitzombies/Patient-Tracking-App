@@ -72,6 +72,10 @@ export function useOfficePrices(userId: string) {
   return scoped(userId, ['prices'], (scope) => officeBilling.prices(scope));
 }
 
+export function useOfficeAppAccessSettings(userId: string) {
+  return scoped(userId, ['app-access'], (scope) => officeBilling.appAccess(scope));
+}
+
 export function useOfficeLinks(userId: string) {
   return scoped(userId, ['links'], (scope) => officeBilling.links(scope));
 }

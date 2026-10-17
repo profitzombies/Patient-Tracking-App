@@ -61,6 +61,7 @@ import {
   OfficeRosterError,
   type OfficeDiaryEntry,
   type OfficePatientDetail,
+  type RosterAppAccess,
 } from "@/lib/office-roster";
 import { useStartOfficeConversation } from "@workspace/api-client-react";
 import {
@@ -96,6 +97,23 @@ function ProductImage({ src, alt }: { src: string; alt: string }) {
   return failed ? <PackageOpen size={18} className="text-muted-foreground" aria-label={`${alt} image unavailable`} /> : (
     <img src={src} alt={alt} className="h-full w-full object-cover" onError={() => setFailed(true)} />
   );
+}
+
+/** One sentence for the patient's premium-AI access state (shared server rule). */
+function describeAppAccess(access: RosterAppAccess): string {
+  const until = access.freeUntil ? formatDate(access.freeUntil, true) : null;
+  const periodEnd = access.currentPeriodEnd ? formatDate(access.currentPeriodEnd, true) : null;
+  switch (access.state) {
+    case 'free_protocol': return until ? `Free during the THINNR protocol (through ${until})` : 'Free during the THINNR protocol';
+    case 'free_trial': return until ? `Free trial (through ${until})` : 'Free trial';
+    case 'not_charged': return 'Included — this office does not charge for the app';
+    case 'subscribed': return periodEnd ? `Subscribed (renews ${periodEnd})` : 'Subscribed';
+    case 'canceling': return periodEnd ? `Cancelled — access ends ${periodEnd}` : 'Cancelled at the end of the paid period';
+    case 'past_due': return 'Renewal payment failed — Stripe is retrying; access continues through the paid period';
+    case 'lapsed': return 'App subscription lapsed — premium AI features are locked';
+    case 'trial_ended': return until ? `Free trial ended ${until} — premium AI features are locked` : 'Free trial ended — premium AI features are locked';
+    case 'locked': return 'Premium AI features are locked until the patient subscribes';
+  }
 }
 
 const formatDate = (date: string, includeYear = false, includeTime = false) => {
@@ -542,6 +560,7 @@ function LivePatientDetail({ id, office, isHq }: { id: string; office: string | 
               <p className="mt-2 text-sm text-muted-foreground">Patient record <span className="font-mono">#{identity.id}</span> · {record.office.officeName}</p>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><Mail size={13} className="text-primary" />{identity.email ?? 'No email on file'}</span><span className="flex items-center gap-1.5"><Phone size={13} className="text-primary" />{identity.phoneDisplay ?? identity.phone ?? 'No phone on file'}</span></div>
               <div className="mt-3"><PatientGroupsControl api={groupsApi} patientId={identity.id} patientName={identity.name} groupIds={record.patient.groupIds ?? []} readOnly={isHq || Boolean(closure)} /></div>
+              {!closure && record.patient.appAccess && <p className="mt-3 text-xs text-muted-foreground" data-testid="text-app-access-state"><span className="font-semibold text-navy">App access:</span> {describeAppAccess(record.patient.appAccess)}</p>}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

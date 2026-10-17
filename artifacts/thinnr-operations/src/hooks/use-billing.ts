@@ -22,6 +22,7 @@ import type {
   FulfillmentUpdate,
   HqCatalogResponse,
   OfficeAccessPlan,
+  OfficeAppAccessSettingsInput,
   OfficePrice,
   PaidThroughSource,
   ProductStatus,
@@ -122,6 +123,26 @@ export function useUpdateOfficeShippingSettings() {
       officeBilling.updateSettings(input, office),
     onSuccess: (settings) => {
       client.setQueryData([...base, 'settings'], settings);
+    },
+  });
+}
+
+export function useOfficeAppAccessSettings() {
+  const { liveEnabled, office, base } = useOfficeBillingScope();
+  return useQuery({
+    queryKey: [...base, 'app-access'],
+    queryFn: () => officeBilling.appAccess(office),
+    enabled: liveEnabled,
+  });
+}
+
+export function useUpdateOfficeAppAccessSettings() {
+  const { office, base } = useOfficeBillingScope();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: OfficeAppAccessSettingsInput) => officeBilling.updateAppAccess(input, office),
+    onSuccess: (settings) => {
+      client.setQueryData([...base, 'app-access'], settings);
     },
   });
 }

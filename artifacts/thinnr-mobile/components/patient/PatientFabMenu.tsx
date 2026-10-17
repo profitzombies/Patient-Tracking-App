@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FabMenu, type FabMenuSection } from '@/components/ui/FabMenu';
 import { useMealPhotoFlow } from '@/components/patient/MealPhotoButton';
 import { patientFabBottom } from '@/constants/layout';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useCareTeamCanCompose, useCareTeamUnreadCount } from '@/context/CareTeamUnreadContext';
 import { useCartCount } from '@/context/CartContext';
@@ -35,6 +36,10 @@ import { useCartCount } from '@/context/CartContext';
 export function PatientFabMenu() {
   const insets = useSafeAreaInsets();
   const mealPhoto = useMealPhotoFlow();
+  // Office app-access lock: the barcode lookup is premium, so the row opens
+  // the upgrade sheet instead of the scanner (the meal-photo row gates
+  // inside its own flow). Every other row stays untouched.
+  const { locked: premiumLocked, openUpgradeSheet } = useAppAccess();
   const { account } = usePatientAccount();
   const careTeamUnreadCount = useCareTeamUnreadCount();
   // A thread the office is not reading invites no new message; the history
@@ -94,7 +99,9 @@ export function PatientFabMenu() {
           key: 'barcode',
           label: 'Scan a barcode',
           icon: { family: 'mci', name: 'barcode-scan' },
-          action: { kind: 'push', href: '/barcode-scan' },
+          action: premiumLocked
+            ? { kind: 'run', run: openUpgradeSheet }
+            : { kind: 'push', href: '/barcode-scan' },
         },
         {
           key: 'meal-photo',

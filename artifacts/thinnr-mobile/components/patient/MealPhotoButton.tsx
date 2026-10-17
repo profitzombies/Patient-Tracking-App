@@ -57,6 +57,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { AppModal } from '@/components/ui/AppModal';
 import { useColors } from '@/hooks/useColors';
 import { useCoachChat } from '@/context/CoachChatContext';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { MEAL_LABELS, type MealSlot } from '@/data/patient-data';
 import { createFoodCameraRequest } from '@/lib/food-camera';
 import { preparePhotoForUpload, type PreparedPhoto } from '@/lib/photo-prep';
@@ -92,7 +93,11 @@ export function useMealPhotoFlow({ mealSlot }: MealPhotoFlowOptions = {}): MealP
   const colors = useColors();
   const router = useRouter();
   const pathname = usePathname();
-  const { sendPhoto, isStreaming, startNewConversation } = useCoachChat();
+  const { sendPhoto, isStreaming, startNewConversation, coachPaused } = useCoachChat();
+  // A meal photo is a premium coach read: while the office's app-access
+  // lock is on, every entry point opens the upgrade sheet instead of the
+  // camera. The HQ pause keeps precedence (the coach's own notice).
+  const { locked: premiumLocked, openUpgradeSheet } = useAppAccess();
 
   // The capture flow's modal state: the fallback sheet (library pick
   // failed → try again) and the use-photo/retake preview. `photo` set
@@ -174,6 +179,10 @@ export function useMealPhotoFlow({ mealSlot }: MealPhotoFlowOptions = {}): MealP
   const start = () => {
     if (busy) return;
     Haptics.selectionAsync();
+    if (premiumLocked && !coachPaused) {
+      openUpgradeSheet();
+      return;
+    }
     // The in-app camera on device; the web preview has no live capture, so
     // it goes straight to the picker — same fallback the menu scan uses.
     if (Platform.OS === 'web') void choosePhoto();

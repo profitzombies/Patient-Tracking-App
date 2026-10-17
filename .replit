@@ -96,6 +96,14 @@ args = "app-access-web"
 task = "workflow.run"
 args = "app-access-mobile"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-access-lock-mobile"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "app-access-lock-dependents"
+
 [[workflows.workflow]]
 name = "Validation suites"
 mode = "sequential"
@@ -3407,6 +3415,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:payments-status && pnpm --filter @workspace/thinnr-mobile run test:patient-subscriptions && pnpm --filter @workspace/thinnr-mobile run test:patient-orders && pnpm --filter @workspace/thinnr-mobile run test:roster-diet && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-access-lock-mobile"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:app-access-lock && pnpm --filter @workspace/thinnr-mobile run test:coach-upgrade-gate && pnpm --filter @workspace/thinnr-mobile run typecheck"
+
+[workflows.workflow.metadata]
+isValidation = true
+
+[[workflows.workflow]]
+name = "app-access-lock-dependents"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd /home/runner/workspace && pnpm --filter @workspace/thinnr-mobile run test:patient-fab && pnpm --filter @workspace/thinnr-mobile run test:coach-stop && pnpm --filter @workspace/thinnr-mobile run test:barcode-scan && pnpm --filter @workspace/thinnr-mobile run test:meal-photo && pnpm --filter @workspace/thinnr-mobile run test:label-scan && pnpm --filter @workspace/thinnr-mobile run test:patient-billing && pnpm --filter @workspace/thinnr-mobile run test:chat-account"
 
 [workflows.workflow.metadata]
 isValidation = true

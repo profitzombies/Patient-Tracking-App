@@ -1,0 +1,19 @@
+{
+  // tsx config for scripts/verify-coach-upgrade-gate.ts ONLY (not part of typecheck).
+  //
+  // Same Node mapping as the coach-stop suite: the real CoachChatContext +
+  // lib/coach-api.ts run under Node with the two native-only imports
+  // remapped. The suite supplies its own app-access seam value, so no
+  // further stubs are needed for the lock.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./*"],
+      "react-native": ["./scripts/coach-stop-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/coach-stop-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"]
+    }
+  }
+}

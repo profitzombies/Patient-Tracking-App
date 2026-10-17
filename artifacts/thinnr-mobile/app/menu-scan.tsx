@@ -17,7 +17,7 @@
  * announced errors (same alert-role + live-region + iOS-announce trio as the
  * onboarding ErrorBox), and a mid-scan cancel simply returns to the preview.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -37,6 +37,7 @@ import { Redirect, router, usePathname } from 'expo-router';
 import { LedgerCard, SectionHeader } from '@/components/ui/LedgerPrimitives';
 import { APPROVED_FOODS_HREF } from '@/constants/links';
 import { useAppMode } from '@/context/AppModeContext';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { useColors } from '@/hooks/useColors';
 import { MenuScanError, scanMenuPhoto, type MenuScanResult } from '@/lib/coach-api';
@@ -68,6 +69,25 @@ export default function MenuScanScreen() {
   const [pickError, setPickError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Office app-access lock: a menu read is a premium feature, so while
+  // locked the pick actions open the upgrade sheet instead of the camera,
+  // and a 402 on a scan that still reached the server reports the lock
+  // (terminal — the kept photo waits, no retry is offered).
+  const appAccess = useAppAccess();
+  const appAccessRef = useRef(appAccess);
+  appAccessRef.current = appAccess;
+  const upgradeSheetShownRef = useRef(false);
+  useEffect(() => {
+    if (!appAccess.locked) {
+      upgradeSheetShownRef.current = false;
+      return;
+    }
+    if (upgradeSheetShownRef.current) return;
+    upgradeSheetShownRef.current = true;
+    appAccess.openUpgradeSheet();
+    // The seam's callback is stable; only the lock flips this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appAccess.locked]);
 
   // Abandon any in-flight scan when the screen unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -117,6 +137,10 @@ export default function MenuScanScreen() {
   const takePhoto = async () => {
     Haptics.selectionAsync();
     setPickError(null);
+    if (appAccess.locked) {
+      appAccess.openUpgradeSheet();
+      return;
+    }
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       setPickError('Camera permission was declined. You can still choose a photo from your library.');
@@ -134,6 +158,10 @@ export default function MenuScanScreen() {
   const choosePhoto = async () => {
     Haptics.selectionAsync();
     setPickError(null);
+    if (appAccess.locked) {
+      appAccess.openUpgradeSheet();
+      return;
+    }
     if (Platform.OS !== 'web') {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
@@ -154,7 +182,14 @@ export default function MenuScanScreen() {
     }
   };
 
-  const startScan = useCallback(async (photo: PreparedPhoto) => {
+  // Plain function on purpose: it sits below the persona early-returns, so
+  // a hook here would change the hook count between the pre-hydration
+  // render and the first real one.
+  const startScan = async (photo: PreparedPhoto) => {
+    if (appAccessRef.current.locked) {
+      appAccessRef.current.openUpgradeSheet();
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -175,13 +210,18 @@ export default function MenuScanScreen() {
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error instanceof Error && error.name === 'AbortError') return;
+      if (error instanceof MenuScanError && error.upgradeRequired) {
+        appAccessRef.current.reportUpgradeRequired(error.entitlement);
+        setPhase({ kind: 'preview', photo });
+        return;
+      }
       const message =
         error instanceof MenuScanError
           ? error.message
           : 'The menu scan is unavailable right now. Please try again.';
       setPhase({ kind: 'error', photo, message });
     }
-  }, []);
+  };
 
   const cancelScan = (photo: PreparedPhoto) => {
     Haptics.selectionAsync();

@@ -14,6 +14,8 @@
     "test:approved-foods": "tsx scripts/verify-approved-foods.ts",
     "test:usda-essentials": "tsx scripts/verify-usda-essentials.ts",
     "test:barcode-scan": "tsx --tsconfig tsconfig.barcode-scan.json scripts/verify-barcode-scan.ts",
+    "test:app-access-lock": "tsx --tsconfig tsconfig.app-access-lock.json scripts/verify-app-access-lock.ts",
+    "test:coach-upgrade-gate": "tsx --tsconfig tsconfig.coach-upgrade-gate.json scripts/verify-coach-upgrade-gate.ts",
     "test:claim-flow": "tsx --tsconfig tsconfig.claim-flow.json scripts/verify-claim-flow.ts",
     "test:restaurant-guide": "node scripts/check-restaurant-guide-verbatim.mjs",
     "test:chat-account": "tsx --tsconfig tsconfig.chat-account.json scripts/verify-chat-account.ts",

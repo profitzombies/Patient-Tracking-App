@@ -57,6 +57,7 @@ import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollV
 import { Divider, LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
 import { usePatient } from '@/context/PatientContext';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { formatQty } from '@/data/diary-entries';
 import { MEAL_LABELS, MEAL_SLOTS, type MealSlot } from '@/data/patient-data';
@@ -227,6 +228,25 @@ export default function BarcodeScanScreen() {
 
   const [phase, setPhase] = useState<Phase>({ kind: 'scan' });
   const [items, setItems] = useState<SessionItem[]>([]);
+  // Office app-access lock: the barcode lookup is a premium feature. While
+  // locked the viewfinder stays dark and every lookup (scan or typed code)
+  // opens the upgrade sheet; a 402 on a lookup that still reached the
+  // server reports the lock instead of an error box (terminal, no retry).
+  const appAccess = useAppAccess();
+  const appAccessRef = useRef(appAccess);
+  appAccessRef.current = appAccess;
+  const upgradeSheetShownRef = useRef(false);
+  useEffect(() => {
+    if (!appAccess.locked) {
+      upgradeSheetShownRef.current = false;
+      return;
+    }
+    if (upgradeSheetShownRef.current) return;
+    upgradeSheetShownRef.current = true;
+    appAccess.openUpgradeSheet();
+    // The seam's callback is stable; only the lock flips this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appAccess.locked]);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
@@ -285,6 +305,10 @@ export default function BarcodeScanScreen() {
 
   const startLookup = useCallback(
     async (code: string) => {
+      if (appAccessRef.current.locked) {
+        appAccessRef.current.openUpgradeSheet();
+        return;
+      }
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -318,6 +342,11 @@ export default function BarcodeScanScreen() {
       } catch (error) {
         if (controller.signal.aborted) return;
         if (error instanceof Error && error.name === 'AbortError') return;
+        if (error instanceof BarcodeLookupError && error.upgradeRequired) {
+          appAccessRef.current.reportUpgradeRequired(error.entitlement);
+          setPhase({ kind: 'scan' });
+          return;
+        }
         const message =
           error instanceof BarcodeLookupError ? error.message : LOOKUP_FALLBACK_ERROR;
         setPhase({ kind: 'error', message, code });
@@ -465,7 +494,7 @@ export default function BarcodeScanScreen() {
     return <Redirect href={mode === 'staff' ? '/' : '/persona'} />;
   }
 
-  const cameraLive = Platform.OS !== 'web' && permission?.granted === true;
+  const cameraLive = Platform.OS !== 'web' && permission?.granted === true && !appAccess.locked;
   const cameraDenied =
     Platform.OS !== 'web' && permission != null && !permission.granted && !permission.canAskAgain;
   const listLocked = saving || phase.kind === 'logged';
@@ -548,8 +577,37 @@ export default function BarcodeScanScreen() {
           </View>
         )}
 
+        {/* ── Premium lock: the lookup is part of the app subscription ── */}
+        {appAccess.locked && (
+          <LedgerCard style={styles.sectionCard} testID="barcode-locked">
+            <View style={styles.deniedRow}>
+              <Feather name="lock" size={14} color={colors.cobalt} />
+              <Text style={[styles.deniedText, { color: colors.bodyText }]}>
+                Barcode lookup is part of the app subscription your office offers. Your free
+                period has ended — subscribe to scan again, or add this food by hand from the
+                Diary.
+              </Text>
+            </View>
+            <Pressable
+              testID="barcode-locked-upgrade"
+              accessibilityRole="button"
+              accessibilityLabel="See upgrade options"
+              onPress={appAccess.openUpgradeSheet}
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.lockedBtn,
+                { backgroundColor: pressed ? colors.cobaltLight : colors.cobalt, borderRadius: colors.radiusSm },
+              ]}
+            >
+              <Text style={[styles.lockedBtnText, { color: colors.primaryForeground }]}>
+                See upgrade options
+              </Text>
+            </Pressable>
+          </LedgerCard>
+        )}
+
         {/* ── Permission denied for good (native): typing still works ── */}
-        {cameraDenied && (
+        {cameraDenied && !appAccess.locked && (
           <LedgerCard style={styles.sectionCard} testID="barcode-camera-denied">
             <View style={styles.deniedRow}>
               <Feather name="camera-off" size={14} color={colors.subtleText} />
@@ -941,6 +999,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontFamily: 'Inter_400Regular',
+  },
+  lockedBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  lockedBtnText: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_600SemiBold',
   },
   statusRow: {
     flexDirection: 'row',

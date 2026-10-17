@@ -40,6 +40,7 @@ import React, {
 } from 'react';
 import { AppState } from 'react-native';
 import { usePatient } from '@/context/PatientContext';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { coachDietContextFor, type CoachDietContext } from '@/lib/diet-state';
 import { COACH_TITLE_MAX_CHARS, DEFAULT_COACH_TITLE, cleanCoachTitle, localCoachTitleFromMessage } from '@/lib/coach-title';
 import {
@@ -793,6 +794,14 @@ export function CoachChatProvider({
   const [coachPaused, setCoachPaused] = useState<{ message: string } | null>(null);
   const coachPausedRef = useRef<{ message: string } | null>(null);
   coachPausedRef.current = coachPaused;
+  // Office app-access entitlement (premium features locked once a
+  // chargeable free window ends). Read through the shared seam: the lock
+  // opens the upgrade sheet instead of a turn, and a 402 answer on a send
+  // reports back so stale local state can never let a locked turn through.
+  // The pause stays first — a paused coach is paused for everyone.
+  const appAccess = useAppAccess();
+  const appAccessRef = useRef(appAccess);
+  appAccessRef.current = appAccess;
   // Photo-turn narration for the waiting bubble (see the interface note).
   // Plain state, not part of the reveal bookkeeping: stages only ever
   // relabel the wait, so losing one is cosmetic by design.
@@ -2219,6 +2228,11 @@ export function CoachChatProvider({
             if (details?.coachPaused) {
               setCoachPaused({ message });
               setMessages(current => current.filter(m => m.id !== assistantId));
+            } else if (details?.upgradeRequired) {
+              // Same shape as a pause: terminal, not a fault. The upgrade
+              // sheet is the reply; the waiting bubble is withdrawn.
+              appAccessRef.current.reportUpgradeRequired(details.entitlement ?? null);
+              setMessages(current => current.filter(m => m.id !== assistantId));
             } else {
               setMessages(current =>
                 current.map(m =>
@@ -2419,6 +2433,11 @@ export function CoachChatProvider({
       // Care team has the coach paused: the composer is closed on screen;
       // a stray submit (keyboard "send") must not open a turn either.
       if (coachPausedRef.current) return;
+      // Premium features locked: the sheet answers instead of a turn.
+      if (appAccessRef.current.locked) {
+        appAccessRef.current.openUpgradeSheet();
+        return;
+      }
       if (selectedConversationRef.current?.archivedAt) return;
       // New Chat remains local until this substantive send succeeds.
       // This lock is deliberately acquired before the create await: two rapid
@@ -2618,6 +2637,10 @@ export function CoachChatProvider({
       if (!photo.uri || inFlightRef.current) return;
       if (accountRef.current.resolving) return;
       if (coachPausedRef.current) return;
+      if (appAccessRef.current.locked) {
+        appAccessRef.current.openUpgradeSheet();
+        return;
+      }
       if (selectedConversationRef.current?.archivedAt) return;
       // See send(): this closes the new-conversation double-tap race before
       // awaiting the idempotent server create.

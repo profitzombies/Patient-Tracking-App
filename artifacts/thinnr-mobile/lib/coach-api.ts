@@ -35,6 +35,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import type { MealSlot } from '@/data/patient-data';
 import { parseLabelDraft, type LabelDraft } from '@/lib/label-food';
 import { configuredApiOrigin } from '@/lib/api-origin';
+import { readUpgradeRequired, type AppAccessEntitlement } from '@/lib/app-access';
 
 export interface CoachRequestMessage {
   role: 'user' | 'assistant' | 'staff';
@@ -117,10 +118,17 @@ export type CoachStage = 'received' | 'reading_meal' | 'reading_menu' | 'reading
  * Extra machine-readable context on a pre-stream failure. `coachPaused`
  * means the care team switched the coach off for every patient (an HQ
  * policy, not a fault) — the screen shows the paused state and closes the
- * composer instead of offering a retry.
+ * composer instead of offering a retry. `upgradeRequired` means the
+ * office's app-access rule locked this account's premium features (free
+ * window over, no subscription): equally terminal — the app locks and
+ * opens the upgrade sheet instead of a retry bubble. The server checks the
+ * pause BEFORE the entitlement, so a reply never carries both.
  */
 export interface CoachErrorDetails {
   coachPaused?: boolean;
+  upgradeRequired?: boolean;
+  /** The entitlement attached to an upgrade-required reply (null when it did not parse). */
+  entitlement?: AppAccessEntitlement | null;
 }
 
 /** Server-declared coach availability for the signed-in patient. */
@@ -369,6 +377,13 @@ export async function streamCoachChat(
         if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
         if (body.retryable === false) retryable = false;
         if (body.coachPaused === true) details.coachPaused = true;
+        const upgrade = readUpgradeRequired(body);
+        if (upgrade) {
+          // Terminal by definition — a retry cannot buy access.
+          retryable = false;
+          details.upgradeRequired = true;
+          details.entitlement = upgrade.entitlement;
+        }
       } catch {
         // keep the generic message
       }
@@ -505,11 +520,25 @@ export interface MenuScanResult {
   avoid: MenuScanAvoidItem[];
 }
 
+/**
+ * Extra context on a scan failure: `upgradeRequired` marks the terminal
+ * 402 the app-access gate answers while the account's premium features
+ * are locked — the screen opens the upgrade sheet instead of a retry.
+ */
+export interface ScanErrorDetails {
+  upgradeRequired?: boolean;
+  entitlement?: AppAccessEntitlement | null;
+}
+
 /** Menu scan failure whose message is safe to show the patient. */
 export class MenuScanError extends Error {
-  constructor(message: string) {
+  readonly upgradeRequired: boolean;
+  readonly entitlement: AppAccessEntitlement | null;
+  constructor(message: string, details: ScanErrorDetails = {}) {
     super(message);
     this.name = 'MenuScanError';
+    this.upgradeRequired = details.upgradeRequired === true;
+    this.entitlement = details.entitlement ?? null;
   }
 }
 
@@ -602,13 +631,16 @@ export async function scanMenuPhoto(
     // The API answers failures with { error: <user-facing message> }; the
     // proxy can also answer 413 with a non-JSON body for oversized uploads.
     let message = response.status === 413 ? 'That photo is too large to upload. Please try a different one.' : SCAN_FALLBACK_ERROR;
+    let details: ScanErrorDetails = {};
     try {
       const body = (await response.json()) as { error?: unknown };
       if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+      const upgrade = readUpgradeRequired(body);
+      if (upgrade) details = { upgradeRequired: true, entitlement: upgrade.entitlement };
     } catch {
       // keep the status-derived message
     }
-    throw new MenuScanError(message);
+    throw new MenuScanError(message, details);
   }
 
   let json: unknown;
@@ -659,9 +691,13 @@ export interface LabelScanResult {
 
 /** Label scan failure whose message is safe to show the patient. */
 export class LabelScanError extends Error {
-  constructor(message: string) {
+  readonly upgradeRequired: boolean;
+  readonly entitlement: AppAccessEntitlement | null;
+  constructor(message: string, details: ScanErrorDetails = {}) {
     super(message);
     this.name = 'LabelScanError';
+    this.upgradeRequired = details.upgradeRequired === true;
+    this.entitlement = details.entitlement ?? null;
   }
 }
 
@@ -712,13 +748,16 @@ export async function scanLabelPhoto(
       response.status === 413
         ? 'That photo is too large to upload. Please try a different one.'
         : LABEL_SCAN_FALLBACK_ERROR;
+    let details: ScanErrorDetails = {};
     try {
       const body = (await response.json()) as { error?: unknown };
       if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+      const upgrade = readUpgradeRequired(body);
+      if (upgrade) details = { upgradeRequired: true, entitlement: upgrade.entitlement };
     } catch {
       // keep the status-derived message
     }
-    throw new LabelScanError(message);
+    throw new LabelScanError(message, details);
   }
 
   let json: unknown;

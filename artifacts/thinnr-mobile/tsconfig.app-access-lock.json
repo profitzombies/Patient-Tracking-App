@@ -1,0 +1,37 @@
+{
+  // tsx config for scripts/verify-app-access-lock.ts ONLY (not part of typecheck).
+  //
+  // The suite renders the REAL AppAccessProvider + UpgradeSheet, the real
+  // patient tab bar, the real meal-photo flow hook, and the real barcode /
+  // menu-scan screens under Node with react-test-renderer, against a
+  // scripted transport. Native-only bare specifiers are remapped to the
+  // existing Node stubs; the coach context is a suite-local stub so the HQ
+  // pause can be scripted (precedence over the lock), and the image picker
+  // is a counter so "never reaches the camera" is provable.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/context/CoachChatContext": ["./scripts/app-access-lock-stubs/coach-chat-context.ts"],
+      "@/lib/photo-prep": ["./scripts/patient-fab-stubs/photo-prep.ts"],
+      "@/*": ["./*"],
+      "react-native": ["./scripts/meal-photo-stubs/react-native.ts"],
+      "expo/fetch": ["./scripts/meal-photo-stubs/expo-fetch.ts"],
+      "@react-native-async-storage/async-storage": ["./scripts/meal-photo-stubs/async-storage.ts"],
+      "expo-haptics": ["./scripts/meal-photo-stubs/expo-haptics.ts"],
+      "expo-camera": ["./scripts/meal-photo-stubs/expo-camera.ts"],
+      "expo-router": ["./scripts/barcode-scan-stubs/expo-router.ts"],
+      "expo-web-browser": ["./scripts/patient-billing-stubs/expo-web-browser.ts"],
+      "expo-symbols": ["./scripts/patient-fab-stubs/expo-symbols.ts"],
+      "expo-image": ["./scripts/patient-fab-stubs/expo-image.ts"],
+      "expo-image-picker": ["./scripts/app-access-lock-stubs/expo-image-picker.ts"],
+      "@expo/vector-icons": ["./scripts/patient-fab-stubs/expo-vector-icons.ts"],
+      "react-native-safe-area-context": [
+        "./scripts/onboarding-gate-stubs/react-native-safe-area-context.ts"
+      ],
+      "react-native-keyboard-controller": [
+        "./scripts/onboarding-gate-stubs/react-native-keyboard-controller.ts"
+      ]
+    }
+  }
+}

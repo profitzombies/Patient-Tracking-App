@@ -62,6 +62,8 @@ import "@/components/coach/ProductSuggestionCard";
 import "@/components/coach/RecipeSuggestionCard";
 import "@/components/coach/FoodDraftCard";
 import { MealPhotoButton } from "@/components/patient/MealPhotoButton";
+import { FreeWindowEndingNotice, PremiumLockedNotice } from "@/components/patient/PremiumAccessNotices";
+import { useAppAccess } from "@/context/AppAccessContext";
 import { AppModal } from "@/components/ui/AppModal";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -172,7 +174,12 @@ export default function CoachChatScreen() {
   // A cached transcript remains readable during refresh, but never represents
   // a different selected thread. The provider enforces the same write barrier.
   const transcriptUnknown = hasConversationLoaded === false || isConversationLoading;
-  const composerBlocked = transcriptUnknown || !!coachPaused || !!selectedConversation?.archivedAt || !!accessDeniedError;
+  // Office app-access lock (free window over, no subscription). The HQ pause
+  // keeps precedence: a paused coach shows its own notice and never the
+  // upgrade prompt.
+  const appAccess = useAppAccess();
+  const premiumLocked = !coachPaused && appAccess.locked;
+  const composerBlocked = transcriptUnknown || !!coachPaused || premiumLocked || !!selectedConversation?.archivedAt || !!accessDeniedError;
   const [draft, setDraft] = useState("");
   const [photoOptionsOpen, setPhotoOptionsOpen] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -340,6 +347,22 @@ export default function CoachChatScreen() {
       AccessibilityInfo.announceForAccessibility(coachPaused.message);
     }
   }, [coachPaused]);
+
+  // Arriving on the chat while locked (history "new chat", a deep link, a
+  // lapse found on foreground) opens the upgrade sheet once; the locked
+  // notice below keeps the button for later.
+  const upgradeSheetShownRef = useRef(false);
+  useEffect(() => {
+    if (!premiumLocked) {
+      upgradeSheetShownRef.current = false;
+      return;
+    }
+    if (upgradeSheetShownRef.current) return;
+    upgradeSheetShownRef.current = true;
+    appAccess.openUpgradeSheet();
+    // The seam's callback is stable; only the lock flips this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [premiumLocked]);
 
   const submitDraft = () => {
     const text = draft.trim();
@@ -889,7 +912,11 @@ export default function CoachChatScreen() {
                 </Text>
               </View>
             </View>
-          ) : null}
+          ) : premiumLocked ? (
+            <PremiumLockedNotice />
+          ) : (
+            <FreeWindowEndingNotice />
+          )}
           {photoError && !coachPaused ? (
             <View
               testID="coach-photo-error"
@@ -975,14 +1002,19 @@ export default function CoachChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Send a photo"
               accessibilityState={{
-                disabled: isStreaming || preparing || composerBlocked,
+                disabled: isStreaming || preparing || (composerBlocked && !premiumLocked),
                 expanded: photoOptionsOpen,
               }}
-              disabled={isStreaming || preparing || composerBlocked}
-              aria-disabled={isStreaming || preparing || composerBlocked}
+              disabled={isStreaming || preparing || (composerBlocked && !premiumLocked)}
+              aria-disabled={isStreaming || preparing || (composerBlocked && !premiumLocked)}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPhotoError(null);
+                // Locked: the photo read is premium — the sheet answers.
+                if (premiumLocked) {
+                  appAccess.openUpgradeSheet();
+                  return;
+                }
                 setPhotoOptionsOpen((open) => !open);
               }}
               style={({ pressed }) => [
@@ -1022,7 +1054,9 @@ export default function CoachChatScreen() {
                   ? "Restore this conversation to continue"
                   : coachPaused
                     ? "Coach paused by your care team"
-                    : transcriptUnknown
+                    : premiumLocked
+                      ? "Subscribe to message your coach"
+                      : transcriptUnknown
                       ? isConversationLoading ? "Loading conversation…" : "Retry to load this conversation"
                       : "Message your coach"
               }

@@ -34,6 +34,7 @@ import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { LedgerCard } from '@/components/ui/LedgerPrimitives';
 import { useAppMode } from '@/context/AppModeContext';
+import { useAppAccess } from '@/context/AppAccessContext';
 import { usePatientAccount } from '@/context/PatientAccountContext';
 import { usePatient } from '@/context/PatientContext';
 import { LabelScanError, scanLabelPhoto } from '@/lib/coach-api';
@@ -90,6 +91,10 @@ export default function CreateFoodScreen() {
   const [saving, setSaving] = useState(false);
 
   const [scan, setScan] = useState<ScanPhase>({ kind: 'idle' });
+  // Office app-access lock: the label read is a premium feature. Locked,
+  // the photo actions open the upgrade sheet; typing the values by hand
+  // keeps working exactly as before.
+  const appAccess = useAppAccess();
   const [pickError, setPickError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -228,6 +233,10 @@ export default function CreateFoodScreen() {
   const takePhoto = async () => {
     Haptics.selectionAsync();
     setPickError(null);
+    if (appAccess.locked) {
+      appAccess.openUpgradeSheet();
+      return;
+    }
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       setPickError('Camera permission was declined. You can still choose a photo from your library.');
@@ -245,6 +254,10 @@ export default function CreateFoodScreen() {
   const choosePhoto = async () => {
     Haptics.selectionAsync();
     setPickError(null);
+    if (appAccess.locked) {
+      appAccess.openUpgradeSheet();
+      return;
+    }
     if (Platform.OS !== 'web') {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
@@ -266,6 +279,10 @@ export default function CreateFoodScreen() {
   };
 
   const startScan = async (photo: PreparedPhoto) => {
+    if (appAccess.locked) {
+      appAccess.openUpgradeSheet();
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -291,6 +308,12 @@ export default function CreateFoodScreen() {
     } catch (err) {
       if (controller.signal.aborted) return;
       if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof LabelScanError && err.upgradeRequired) {
+        // Terminal: the lock, not a fault. The photo waits in preview.
+        appAccess.reportUpgradeRequired(err.entitlement);
+        setScan({ kind: 'preview', photo });
+        return;
+      }
       const message =
         err instanceof LabelScanError
           ? err.message

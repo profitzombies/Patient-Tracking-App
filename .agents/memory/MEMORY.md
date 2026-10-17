@@ -172,3 +172,5 @@
 - [Office kind (reseller vs software-only)](office-kind.md) — unknown = reseller, clients never hide on null; kind rides existing sign-in reads; HQ still reads files; reset-trial stands in for the sign-in clock in live proofs.
 - [Supabase security audit](supabase-security-audit.md) — mgmt-API /postgrest leaks jwt_secret (jq allowlist!); 156 no-policy tables, inert patient UPDATE policy and admin-only signup are by design; baseline 2026-10-16.
 - [Reseller agreement anchoring](reseller-agreement-anchoring.md) — date on the office, period on the subscription row; re-anchor only on change; one coverage-end boundary; UTC days.
+- [Patient app-access lock (mobile)](app-access-lock-mobile.md) — server owns the entitlement, never lock on silence; gate entry points only, one sheet, 402 terminal → report+re-read; pause beats lock; hooks below persona early-returns trip suites.
+- [git stash no-op pop trap](git-stash-noop-pop.md) — after the completion commit the tree is clean, so stash+pop applies the repo's stale old stash (mass UU conflicts); reset --hard HEAD recovers.

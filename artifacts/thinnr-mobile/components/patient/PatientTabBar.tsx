@@ -34,6 +34,8 @@ import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { usePathname, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
+import { useAppAccess } from '@/context/AppAccessContext';
+import { useCoachChat } from '@/context/CoachChatContext';
 import {
   PATIENT_BAR_HEIGHT,
   PATIENT_BAR_SIDE,
@@ -89,9 +91,19 @@ export function PatientTabBar() {
   const router = useRouter();
   const pathname = usePathname();
   const isIOS = Platform.OS === 'ios';
+  // Office app-access lock: the Coach seat is the launcher for a premium
+  // feature, so while locked it opens the upgrade sheet instead of the
+  // chat. The HQ pause keeps precedence — a paused coach still opens its
+  // own notice on the chat screen, never the upgrade prompt.
+  const { locked: premiumLocked, openUpgradeSheet } = useAppAccess();
+  const { coachPaused } = useCoachChat();
 
   const press = (item: BarItem) => {
     Haptics.selectionAsync();
+    if (item.key === 'coach' && premiumLocked && !coachPaused) {
+      openUpgradeSheet();
+      return;
+    }
     if (item.kind === 'push') {
       router.push(item.href);
       return;

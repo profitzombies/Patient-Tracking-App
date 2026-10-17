@@ -41,6 +41,7 @@ import { CoachChatProvider } from '@/context/CoachChatContext';
 import { CareTeamChatProvider } from '@/context/CareTeamChatContext';
 import { OnboardingProvider } from '@/context/OnboardingContext';
 import { PatientAccountProvider } from '@/context/PatientAccountProvider';
+import { AppAccessProvider } from '@/context/AppAccessProvider';
 import { PatientProvider } from '@/context/PatientContext';
 import { CartProvider } from '@/context/CartContext';
 import { FoodLoggingProvider } from '@/context/FoodLoggingContext';
@@ -726,6 +727,7 @@ export default function RootLayout() {
                 <AppModeProvider>
                   <OfficeRestrictionProvider>
                     <PatientAccountProvider>
+                     <AppAccessProvider>
                       <PatientProvider>
                        <CartProvider>
                         <BloodworkDraftLifecycle />
@@ -758,6 +760,7 @@ export default function RootLayout() {
                         </FoodLoggingProvider>
                        </CartProvider>
                       </PatientProvider>
+                     </AppAccessProvider>
                     </PatientAccountProvider>
                   </OfficeRestrictionProvider>
                 </AppModeProvider>

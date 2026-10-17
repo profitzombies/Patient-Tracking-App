@@ -20,7 +20,8 @@ import { Platform } from 'react-native';
 import { fetch as expoFetch } from 'expo/fetch';
 import type { FoodItem } from '@/data/patient-data';
 import { parseNutritionSnapshot, type FoodNutritionSnapshot } from '@/data/food-nutrition';
-import { apiBase } from '@/lib/coach-api';
+import { apiBase, type ScanErrorDetails } from '@/lib/coach-api';
+import { readUpgradeRequired, type AppAccessEntitlement } from '@/lib/app-access';
 import { toTitleCase } from '@/lib/title-case';
 
 // The label flow's entry builder is food-generic (quantity × per-serving
@@ -53,9 +54,14 @@ export type BarcodeLookupOutcome =
 
 /** Lookup failure whose message is safe to show the patient. */
 export class BarcodeLookupError extends Error {
-  constructor(message: string) {
+  /** The app-access gate's terminal 402: premium features locked, no retry. */
+  readonly upgradeRequired: boolean;
+  readonly entitlement: AppAccessEntitlement | null;
+  constructor(message: string, details: ScanErrorDetails = {}) {
     super(message);
     this.name = 'BarcodeLookupError';
+    this.upgradeRequired = details.upgradeRequired === true;
+    this.entitlement = details.entitlement ?? null;
   }
 }
 
@@ -266,13 +272,16 @@ export async function lookupBarcode(
   if (!response.ok) {
     // The API answers failures with { error: <user-facing message> }.
     let message = LOOKUP_FALLBACK_ERROR;
+    let details: ScanErrorDetails = {};
     try {
       const body = (await response.json()) as { error?: unknown };
       if (typeof body.error === 'string' && body.error.trim()) message = body.error.trim();
+      const upgrade = readUpgradeRequired(body);
+      if (upgrade) details = { upgradeRequired: true, entitlement: upgrade.entitlement };
     } catch {
       // keep the fallback message
     }
-    throw new BarcodeLookupError(message);
+    throw new BarcodeLookupError(message, details);
   }
 
   let json: unknown;
